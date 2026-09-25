@@ -1,9 +1,10 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v11.3                                     ║
-    ║   + Кнопка стоп/старт вращения фигур (сама ось)          ║
+    ║   ОРБИТА ФИГУР v11.5                                     ║
+    ║   + Кнопка плавного возврата вращения к 0                ║
+    ║   + Увеличенное сердце в руке Гастера                    ║
     ║   + Разные формы, волна, взрыв, сохранение               ║
-    ║   + Поле для ID музыки, РУКА ГАСТЕРА, череп, молния      ║
+    ║   + Поле для ID музыки, череп, молния                    ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -193,7 +194,7 @@ local trailWidthIndex = 2
 
 -- ==================== СОСТОЯНИЕ ====================
 local enabled = true
-local spinPaused = false
+local spinResetting = false
 local updateConn = nil
 local startTime = tick()
 local activeLightCount = 0
@@ -532,7 +533,8 @@ local function create3DHand(size, color, name, withHeart, heartColor)
 
     if withHeart then
         local hc = heartColor or Color3.fromRGB(255, 40, 95)
-        local heartSize = s * 0.42
+        -- ★ Увеличенное сердце
+        local heartSize = s * 0.70
         local hModel = select(1, createPixelHeart(heartSize, hc, "Heart"))
         hModel.Parent = model
         hModel:PivotTo(palmCF * CFrame.new(0, 0, s * 0.02))
@@ -832,13 +834,20 @@ local function startUpdateLoop()
             currentSpeed[ri] = currentSpeed[ri] + (getTargetSpeed() * ring.speedMult * ring.direction - currentSpeed[ri]) * lerpFactor
             currentSpin[ri] = currentSpin[ri] + (getTargetSpin() * ring.speedMult * ring.direction - currentSpin[ri]) * lerpFactor
 
-            -- ★ Движение по кругу и покачивание — всегда
+            -- Движение по кругу и покачивание — всегда
             currentOrbitAngle[ri] = currentOrbitAngle[ri] + currentSpeed[ri] * dt
             currentBobPhase[ri] = currentBobPhase[ri] + 2 * (globalMult * ring.speedMult) * dt
 
-            -- ★ Вращение самой фигуры — только если не на паузе
-            if not spinPaused then
+            -- ★ Вращение фигур: либо крутим, либо плавно возвращаем к 0
+            if not spinResetting then
                 currentSpinAngle[ri] = currentSpinAngle[ri] + currentSpin[ri] * dt
+            else
+                local returnSpeed = 3.0
+                local backLerp = math.clamp(dt * returnSpeed, 0, 1)
+                currentSpinAngle[ri] = currentSpinAngle[ri] + (0 - currentSpinAngle[ri]) * backLerp
+                if math.abs(currentSpinAngle[ri]) < 0.01 then
+                    currentSpinAngle[ri] = 0
+                end
             end
         end
 
@@ -984,7 +993,7 @@ local function collectSaveData()
         lightEnabled = SETTINGS.LightEnabled, trailEnabled = SETTINGS.TrailEnabled,
         pulseEnabled = SETTINGS.PulseEnabled, showNames = SETTINGS.ShowBlockNames,
         waveEnabled = SETTINGS.WaveEnabled, explosionEnabled = SETTINGS.ExplosionEnabled,
-        spinPaused = spinPaused,
+        spinResetting = spinResetting,
         musicEnabled = musicEnabled, musicId = savedMusicId,
     }
 end
@@ -1015,7 +1024,7 @@ local function loadSettings()
     if data.heightIndex then heightIndex = data.heightIndex end
     if data.shapeIndex then shapeIndex = data.shapeIndex end
     if data.formModeIndex then formModeIndex = data.formModeIndex end
-    if data.spinPaused ~= nil then spinPaused = data.spinPaused end
+    if data.spinResetting ~= nil then spinResetting = data.spinResetting end
 
     if data.ringShapes then
         for ri = 1, 5 do if data.ringShapes[ri] then rings[ri].shapeIndex = data.ringShapes[ri] end end
@@ -1089,7 +1098,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v11.3"
+title.Text = "ОРБИТА v11.5"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
@@ -1134,8 +1143,7 @@ local waveBtn       = makeButton("🌊 Волна: ВЫКЛ", 696, 30, Color3.fr
 local explosionBtn  = makeButton("💥 Взрыв: ВЫКЛ", 729, 30, Color3.fromRGB(70, 40, 30), Color3.fromRGB(255, 180, 120))
 local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 762, 30, Color3.fromRGB(35, 35, 50))
 local lightBtn      = makeButton("💡 Свет: ВКЛ", 795, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
--- ★ КНОПКА ВРАЩЕНИЯ
-local spinBtn       = makeButton("🔄 Вращение: ВКЛ", 828, 30, Color3.fromRGB(40, 50, 70), Color3.fromRGB(160, 200, 255))
+local spinBtn       = makeButton("↩️ Вращение в 0", 828, 30, Color3.fromRGB(50, 40, 60), Color3.fromRGB(200, 180, 255))
 
 local musicSection = Instance.new("TextLabel")
 musicSection.Size = UDim2.new(1, -20, 0, 20)
@@ -1376,17 +1384,17 @@ lightBtn.Activated:Connect(function()
     rebuildAllRings()
 end)
 
--- ★ ВРАЩЕНИЕ ФИГУР
+-- ★ ВОЗВРАТ ВРАЩЕНИЯ К 0
 spinBtn.Activated:Connect(function()
-    spinPaused = not spinPaused
-    if spinPaused then
-        spinBtn.Text = "⏹️ Вращение: ВЫКЛ"
+    spinResetting = not spinResetting
+    if spinResetting then
+        spinBtn.Text = "↩️ Вращение: ВОЗВРАТ"
         spinBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
         spinBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
     else
-        spinBtn.Text = "🔄 Вращение: ВКЛ"
-        spinBtn.BackgroundColor3 = Color3.fromRGB(40, 50, 70)
-        spinBtn.TextColor3 = Color3.fromRGB(160, 200, 255)
+        spinBtn.Text = "↩️ Вращение в 0"
+        spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
+        spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
     end
 end)
 
@@ -1462,14 +1470,14 @@ loadBtn.Activated:Connect(function()
         musicBtn.Text = "🎵 Музыка: " .. (musicEnabled and "ВКЛ" or "ВЫКЛ")
         if savedMusicId ~= "" then musicInput.Text = savedMusicId end
 
-        if spinPaused then
-            spinBtn.Text = "⏹️ Вращение: ВЫКЛ"
+        if spinResetting then
+            spinBtn.Text = "↩️ Вращение: ВОЗВРАТ"
             spinBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
             spinBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
         else
-            spinBtn.Text = "🔄 Вращение: ВКЛ"
-            spinBtn.BackgroundColor3 = Color3.fromRGB(40, 50, 70)
-            spinBtn.TextColor3 = Color3.fromRGB(160, 200, 255)
+            spinBtn.Text = "↩️ Вращение в 0"
+            spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
+            spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
         end
 
         for ri = 2, 5 do refreshRingButton(ri) end
@@ -1493,7 +1501,7 @@ resetBtn.Activated:Connect(function()
     shapeSizeIndex, colorIndex, shapeIndex = 3, 1, 1
     trailLengthIndex, trailWidthIndex = 2, 2
     directionIndex, speedModeIndex, heightIndex, formModeIndex = 1, 1, 3, 1
-    spinPaused = false
+    spinResetting = false
 
     rings[1].shapeIndex = 1; rings[2].shapeIndex = 2; rings[3].shapeIndex = 3
     rings[4].shapeIndex = 4; rings[5].shapeIndex = 5
@@ -1516,9 +1524,9 @@ resetBtn.Activated:Connect(function()
     explosionBtn.Text = "💥 Взрыв: ВЫКЛ"; explosionBtn.TextColor3 = Color3.fromRGB(255, 180, 120)
     pulseBtn.Text = "💓 Пульсация: ВЫКЛ"; pulseBtn.TextColor3 = Color3.fromRGB(230, 230, 255)
     lightBtn.Text = "💡 Свет: ВКЛ"; lightBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
-    spinBtn.Text = "🔄 Вращение: ВКЛ"
-    spinBtn.BackgroundColor3 = Color3.fromRGB(40, 50, 70)
-    spinBtn.TextColor3 = Color3.fromRGB(160, 200, 255)
+    spinBtn.Text = "↩️ Вращение в 0"
+    spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
+    spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
     allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
     allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
     allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
