@@ -1,6 +1,7 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v11.1                                     ║
+    ║   ОРБИТА ФИГУР v11.2                                     ║
+    ║   + Кнопка стоп/старт вращения                           ║
     ║   + Разные формы на каждое кольцо                        ║
     ║   + Волна (фигуры подпрыгивают по кругу)                 ║
     ║   + Взрыв (периодический разлёт колец)                   ║
@@ -197,6 +198,7 @@ local trailWidthIndex = 2
 
 -- ==================== СОСТОЯНИЕ ====================
 local enabled = true
+local rotationPaused = false
 local updateConn = nil
 local startTime = tick()
 local activeLightCount = 0
@@ -252,8 +254,6 @@ local function makeRod(parent, a, b, thickness, depth, color)
     return part
 end
 
--- Кольцо (аннулус) из коротких сегментов-блоков, лежит в локальной XY плоскости cf,
--- толщина сегмента (по радиусу) = thickness, глубина (высота вдоль Z) = depth
 local function addRingBand(model, bodies, cf, radius, thickness, depth, segments, color, noRecolor)
     for i = 1, segments do
         local a0 = (i - 1) / segments * math.pi * 2
@@ -267,7 +267,6 @@ local function addRingBand(model, bodies, cf, radius, thickness, depth, segments
     end
 end
 
--- Коготь: сужающиеся сегменты + острый кончик, растёт вдоль локального Y от baseCF
 local function createClaw(model, bodies, baseCF, length, width, color)
     local segLen1 = length * 0.45
     local segLen2 = length * 0.35
@@ -341,7 +340,6 @@ local function create3DSkull(size, color, name)
     ellipsoid(Vector3.new(0.85 * s, 0.70 * s, 0.75 * s), CFrame.new(0, -0.16 * s, -0.08 * s), bone)
     ellipsoid(Vector3.new(0.90 * s, 0.16 * s, 0.30 * s), CFrame.new(0, 0.16 * s, -0.36 * s), bone)
 
-    -- Глазницы: мягкое углубление вместо чёрных дыр (не перекрашивается радугой)
     for _, side in ipairs({ -1, 1 }) do
         ellipsoid(Vector3.new(0.34 * s, 0.30 * s, 0.20 * s), CFrame.new(side * 0.30 * s, 0.26 * s, -0.34 * s), socketShade, true)
     end
@@ -497,7 +495,6 @@ local function createPixelHeart(sizeStuds, color, name)
     return model, root, bodies
 end
 
--- Палитра цветов сердец (как на референсе: оранж/жёлт/пурпур/красн/зел/бирюза/синий)
 local HEART_COLORS = {
     Color3.fromRGB(255, 140, 40),
     Color3.fromRGB(255, 230, 60),
@@ -508,16 +505,11 @@ local HEART_COLORS = {
     Color3.fromRGB(40, 80, 255),
 }
 
--- Рука Гастера: запястье с браслетами-кольцами, ладонь-кольцо с крестовиной,
--- и когтистые пальцы. withHeart=true -> внутрь отверстия ставится сердце,
--- которое НЕ красится радугой/цветом (не входит в bodies). heartColor задаёт
--- его цвет (для разных сердец на разных копиях фигуры).
 local function create3DHand(size, color, name, withHeart, heartColor)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
 
-    -- Предплечье
     local forearmLen = s * 1.1
     local forearmR = s * 0.42
     local forearm = Instance.new("Part")
@@ -530,18 +522,15 @@ local function create3DHand(size, color, name, withHeart, heartColor)
     forearm.Parent = model
     table.insert(bodies, forearm)
 
-    -- Браслеты-кольца, обвивающие предплечье (крест-накрест, как на референсе)
     local bandCF1 = CFrame.new(0, -s * 1.68, 0) * CFrame.Angles(math.rad(90), 0, 0)
     local bandCF2 = CFrame.new(0, -s * 1.12, 0) * CFrame.Angles(math.rad(90), math.rad(22), 0)
     addRingBand(model, bodies, bandCF1, forearmR * 1.35, s * 0.15, s * 0.20, 14, color)
     addRingBand(model, bodies, bandCF2, forearmR * 1.35, s * 0.15, s * 0.20, 14, color)
 
-    -- Ладонь: плоское кольцо (аннулус) с отверстием посередине
     local palmR = s * 0.85
     local palmCF = CFrame.new(0, -s * 0.15, 0)
     addRingBand(model, bodies, palmCF, palmR, s * 0.55, s * 0.35, 18, color)
 
-    -- Крестовина внутри отверстия
     local crossT, crossD = s * 0.10, s * 0.18
     table.insert(bodies, newPart(model, "PalmX1", Vector3.new(s * 0.55, crossT, crossD), palmCF, color))
     table.insert(bodies, newPart(model, "PalmX2", Vector3.new(crossT, s * 0.55, crossD), palmCF, color))
@@ -554,7 +543,6 @@ local function create3DHand(size, color, name, withHeart, heartColor)
         hModel:PivotTo(palmCF * CFrame.new(0, 0, s * 0.02))
     end
 
-    -- Когти: 4 сверху веером + большой палец сбоку
     local fingerBaseY = s * 0.45
     local fingerAngles = { -30, -12, 8, 26 }
     for _, ang in ipairs(fingerAngles) do
@@ -848,9 +836,13 @@ local function startUpdateLoop()
             currentHeight[ri] = currentHeight[ri] + (getTargetHeight(ri) - currentHeight[ri]) * lerpFactor
             currentSpeed[ri] = currentSpeed[ri] + (getTargetSpeed() * ring.speedMult * ring.direction - currentSpeed[ri]) * lerpFactor
             currentSpin[ri] = currentSpin[ri] + (getTargetSpin() * ring.speedMult * ring.direction - currentSpin[ri]) * lerpFactor
-            currentOrbitAngle[ri] = currentOrbitAngle[ri] + currentSpeed[ri] * dt
-            currentSpinAngle[ri] = currentSpinAngle[ri] + currentSpin[ri] * dt
-            currentBobPhase[ri] = currentBobPhase[ri] + 2 * (globalMult * ring.speedMult) * dt
+
+            -- ★ ПАУЗА: углы не обновляются, если кручение остановлено
+            if not rotationPaused then
+                currentOrbitAngle[ri] = currentOrbitAngle[ri] + currentSpeed[ri] * dt
+                currentSpinAngle[ri] = currentSpinAngle[ri] + currentSpin[ri] * dt
+                currentBobPhase[ri] = currentBobPhase[ri] + 2 * (globalMult * ring.speedMult) * dt
+            end
         end
 
         local explosionMul = 1.0
@@ -874,8 +866,10 @@ local function startUpdateLoop()
                 local angle = math.rad(orbitAngle + data.angleOffset)
 
                 local yBob
-                if SETTINGS.WaveEnabled then
+                if SETTINGS.WaveEnabled and not rotationPaused then
                     yBob = math.sin(t * SETTINGS.WaveSpeed - (angle + orbitAngle * 0.002) * SETTINGS.WaveLength) * SETTINGS.WaveAmplitude
+                elseif SETTINGS.WaveEnabled and rotationPaused then
+                    yBob = math.sin(-(angle + orbitAngle * 0.002) * SETTINGS.WaveLength) * SETTINGS.WaveAmplitude
                 else
                     yBob = math.sin(bobPhase + i + ri * 0.5) * SETTINGS.BobAmplitude
                 end
@@ -995,6 +989,7 @@ local function collectSaveData()
         lightEnabled = SETTINGS.LightEnabled, trailEnabled = SETTINGS.TrailEnabled,
         pulseEnabled = SETTINGS.PulseEnabled, showNames = SETTINGS.ShowBlockNames,
         waveEnabled = SETTINGS.WaveEnabled, explosionEnabled = SETTINGS.ExplosionEnabled,
+        rotationPaused = rotationPaused,
         musicEnabled = musicEnabled, musicId = savedMusicId,
     }
 end
@@ -1025,6 +1020,7 @@ local function loadSettings()
     if data.heightIndex then heightIndex = data.heightIndex end
     if data.shapeIndex then shapeIndex = data.shapeIndex end
     if data.formModeIndex then formModeIndex = data.formModeIndex end
+    if data.rotationPaused ~= nil then rotationPaused = data.rotationPaused end
 
     if data.ringShapes then
         for ri = 1, 5 do if data.ringShapes[ri] then rings[ri].shapeIndex = data.ringShapes[ri] end end
@@ -1084,7 +1080,7 @@ panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 panel.BackgroundTransparency = 0.1
 panel.BorderSizePixel = 0
 panel.Visible = false
-panel.CanvasSize = UDim2.new(0, 0, 0, 1150)
+panel.CanvasSize = UDim2.new(0, 0, 0, 1180)
 panel.ScrollBarThickness = 3
 panel.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 255)
 panel.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -1098,7 +1094,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v11.1"
+title.Text = "ОРБИТА v11.2"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
@@ -1143,11 +1139,13 @@ local waveBtn       = makeButton("🌊 Волна: ВЫКЛ", 696, 30, Color3.fr
 local explosionBtn  = makeButton("💥 Взрыв: ВЫКЛ", 729, 30, Color3.fromRGB(70, 40, 30), Color3.fromRGB(255, 180, 120))
 local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 762, 30, Color3.fromRGB(35, 35, 50))
 local lightBtn      = makeButton("💡 Свет: ВКЛ", 795, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
+-- ★ НОВАЯ КНОПКА ПАУЗЫ
+local pauseBtn      = makeButton("⏸️ Кручение: ВКЛ", 828, 30, Color3.fromRGB(40, 50, 70), Color3.fromRGB(160, 200, 255))
 
--- ★ БЛОК МУЗЫКИ С ПОЛЕМ ДЛЯ ID И ИНСТРУКЦИЕЙ
+-- Блок музыки
 local musicSection = Instance.new("TextLabel")
 musicSection.Size = UDim2.new(1, -20, 0, 20)
-musicSection.Position = UDim2.new(0, 10, 0, 828)
+musicSection.Position = UDim2.new(0, 10, 0, 862)
 musicSection.BackgroundTransparency = 1
 musicSection.Text = "🎵 МУЗЫКА (вставь ID трека ниже)"
 musicSection.TextColor3 = Color3.fromRGB(220, 180, 255)
@@ -1158,7 +1156,7 @@ musicSection.Parent = panel
 
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
-musicInput.Position = UDim2.new(0, 10, 0, 850)
+musicInput.Position = UDim2.new(0, 10, 0, 884)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -1176,7 +1174,7 @@ inputStroke.Thickness = 1
 
 local musicHint = Instance.new("TextLabel")
 musicHint.Size = UDim2.new(1, -20, 0, 44)
-musicHint.Position = UDim2.new(0, 10, 0, 886)
+musicHint.Position = UDim2.new(0, 10, 0, 920)
 musicHint.BackgroundTransparency = 1
 musicHint.Text = "Как узнать ID:\n1) Открой roblox.com/library → Audio\n2) Найди трек → скопируй цифры из ссылки\n3) Вставь сюда → нажми «Применить»"
 musicHint.TextColor3 = Color3.fromRGB(170, 170, 200)
@@ -1187,11 +1185,11 @@ musicHint.TextXAlignment = Enum.TextXAlignment.Left
 musicHint.TextYAlignment = Enum.TextYAlignment.Top
 musicHint.Parent = panel
 
-local applyIdBtn = makeButton("✅ Применить ID", 936, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
-local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 969, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
-local saveBtn       = makeButton("💾 Сохранить", 1002, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
-local loadBtn       = makeButton("📂 Загрузить", 1035, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
-local resetBtn      = makeButton("🔄 Сброс", 1068, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
+local applyIdBtn = makeButton("✅ Применить ID", 970, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
+local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1003, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
+local saveBtn       = makeButton("💾 Сохранить", 1036, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
+local loadBtn       = makeButton("📂 Загрузить", 1069, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
+local resetBtn      = makeButton("🔄 Сброс", 1102, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -1384,7 +1382,20 @@ lightBtn.Activated:Connect(function()
     rebuildAllRings()
 end)
 
--- ★ ПРИМЕНИТЬ ID ИЗ ПОЛЯ
+-- ★ ОБРАБОТЧИК ПАУЗЫ КРУЧЕНИЯ
+pauseBtn.Activated:Connect(function()
+    rotationPaused = not rotationPaused
+    if rotationPaused then
+        pauseBtn.Text = "▶️ Кручение: ВЫКЛ"
+        pauseBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
+        pauseBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
+    else
+        pauseBtn.Text = "⏸️ Кручение: ВКЛ"
+        pauseBtn.BackgroundColor3 = Color3.fromRGB(40, 50, 70)
+        pauseBtn.TextColor3 = Color3.fromRGB(160, 200, 255)
+    end
+end)
+
 applyIdBtn.Activated:Connect(function()
     local ok, err = setMusicId(musicInput.Text)
     if ok then
@@ -1398,7 +1409,6 @@ applyIdBtn.Activated:Connect(function()
     end
 end)
 
--- ★ ВКЛ/ВЫКЛ МУЗЫКУ
 musicBtn.Activated:Connect(function()
     if not musicSound or musicSound.SoundId == "" then
         musicBtn.Text = "❌ Вставь ID!"
@@ -1458,6 +1468,16 @@ loadBtn.Activated:Connect(function()
         musicBtn.Text = "🎵 Музыка: " .. (musicEnabled and "ВКЛ" or "ВЫКЛ")
         if savedMusicId ~= "" then musicInput.Text = savedMusicId end
 
+        if rotationPaused then
+            pauseBtn.Text = "▶️ Кручение: ВЫКЛ"
+            pauseBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
+            pauseBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
+        else
+            pauseBtn.Text = "⏸️ Кручение: ВКЛ"
+            pauseBtn.BackgroundColor3 = Color3.fromRGB(40, 50, 70)
+            pauseBtn.TextColor3 = Color3.fromRGB(160, 200, 255)
+        end
+
         for ri = 2, 5 do refreshRingButton(ri) end
         applyDirectionPreset()
         applySpeedModePreset()
@@ -1479,6 +1499,7 @@ resetBtn.Activated:Connect(function()
     shapeSizeIndex, colorIndex, shapeIndex = 3, 1, 1
     trailLengthIndex, trailWidthIndex = 2, 2
     directionIndex, speedModeIndex, heightIndex, formModeIndex = 1, 1, 3, 1
+    rotationPaused = false
 
     rings[1].shapeIndex = 1; rings[2].shapeIndex = 2; rings[3].shapeIndex = 3
     rings[4].shapeIndex = 4; rings[5].shapeIndex = 5
@@ -1501,6 +1522,9 @@ resetBtn.Activated:Connect(function()
     explosionBtn.Text = "💥 Взрыв: ВЫКЛ"; explosionBtn.TextColor3 = Color3.fromRGB(255, 180, 120)
     pulseBtn.Text = "💓 Пульсация: ВЫКЛ"; pulseBtn.TextColor3 = Color3.fromRGB(230, 230, 255)
     lightBtn.Text = "💡 Свет: ВКЛ"; lightBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
+    pauseBtn.Text = "⏸️ Кручение: ВКЛ"
+    pauseBtn.BackgroundColor3 = Color3.fromRGB(40, 50, 70)
+    pauseBtn.TextColor3 = Color3.fromRGB(160, 200, 255)
     allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
     allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
     allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
