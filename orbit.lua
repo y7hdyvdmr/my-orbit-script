@@ -1,10 +1,10 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v11.8                                     ║
-    ║   + Рука Гастера как в 3D-модели                         ║
+    ║   ОРБИТА ФИГУР v11.9                                     ║
+    ║   + Пальцы руки широко расставлены веером                ║
+    ║   + Рука как в 3D-модели                                 ║
     ║   + Сердце в руке: 0.80                                  ║
     ║   + Кнопка плавного возврата вращения к 0                ║
-    ║   + Все остальные фичи на месте                          ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -256,24 +256,18 @@ local function createPalmPlate(model, bodies, cf, size, color)
     local cornerR = size * 0.22
     local holeR = size * 0.26
     local depth = size * 0.22
-    local thickness = size * 0.18
-
-    -- Внешний периметр: скруглённый квадрат
-    -- Строим из N сегментов, каждый идёт от внешней точки к внутренней (круг)
     local segments = 44
+
     for i = 1, segments do
         local a0 = (i - 1) / segments * math.pi * 2
         local a1 = i / segments * math.pi * 2
         local mid = (a0 + a1) / 2
 
-        -- Точка на внешней границе (скруглённый квадрат)
         local cosA, sinA = math.cos(mid), math.sin(mid)
         local maxCoord = math.max(math.abs(cosA), math.abs(sinA))
         local outerR = (maxCoord > 0) and (half / maxCoord) or half
-        -- Зажимаем угол в квадрат со скруглением
         local cx = math.clamp(cosA * outerR, -(half - cornerR), half - cornerR)
         local cy = math.clamp(sinA * outerR, -(half - cornerR), half - cornerR)
-        -- Добавляем радиус в углах
         local dx, dy = cosA * outerR - cx, sinA * outerR - cy
         local dlen = math.sqrt(dx*dx + dy*dy)
         if dlen > 0.001 then
@@ -281,21 +275,17 @@ local function createPalmPlate(model, bodies, cf, size, color)
             cy = cy + dy / dlen * cornerR
         end
         local outerPt = Vector3.new(cx, cy, 0)
-
-        -- Точка на внутреннем круге (отверстие)
         local innerPt = Vector3.new(math.cos(mid) * holeR, math.sin(mid) * holeR, 0)
 
         local midPt = (outerPt + innerPt) * 0.5
         local segLen = (outerPt - innerPt).Magnitude
         local angle = math.atan2(outerPt.Y - innerPt.Y, outerPt.X - innerPt.X)
-        -- Толщина вдоль касательной
         local tangentLen = 2 * math.pi * (half * 0.7) / segments * 1.4
         local partCF = cf * CFrame.new(midPt.X, midPt.Y, 0) * CFrame.Angles(0, 0, angle)
         table.insert(bodies, newPart(model, "Palm",
             Vector3.new(segLen, tangentLen, depth), partCF, color))
     end
 
-    -- 4 шипа внутрь отверстия
     local spikeLen = holeR * 0.65
     local spikeW = holeR * 0.38
     for k = 0, 3 do
@@ -315,7 +305,7 @@ local function createPalmPlate(model, bodies, cf, size, color)
     end
 end
 
--- ★ ПАЛЕЦ-КЛИНОК с видимым сгибом
+-- ★ ПАЛЕЦ-КЛИНОК
 local function createFinger(model, bodies, baseCF, length, width, color)
     local seg1 = length * 0.34
     local seg2 = length * 0.36
@@ -326,18 +316,15 @@ local function createFinger(model, bodies, baseCF, length, width, color)
     local w3 = width * 0.42
     local w4 = width * 0.10
 
-    -- Сегмент 1: у основания
     table.insert(bodies, newPart(model, "F1",
         Vector3.new(w1, seg1, w1 * 0.55),
         baseCF * CFrame.new(0, seg1 / 2, 0), color))
 
-    -- Сегмент 2: с лёгким изгибом наружу
     local bendCF = baseCF * CFrame.new(0, seg1, 0) * CFrame.Angles(0, 0, math.rad(-6))
     table.insert(bodies, newPart(model, "F2",
         Vector3.new(w2, seg2, w2 * 0.55),
         bendCF * CFrame.new(0, seg2 / 2, 0), color))
 
-    -- Сегмент 3: клинок сужается к острию (2 части)
     local tipCF = bendCF * CFrame.new(0, seg2, 0)
     table.insert(bodies, newPart(model, "F3",
         Vector3.new(w3, seg3 * 0.5, w3 * 0.5),
@@ -569,17 +556,17 @@ local HEART_COLORS = {
     Color3.fromRGB(40, 80, 255),
 }
 
--- ★ РУКА ГАСТЕРА v11.8
+-- ★ РУКА ГАСТЕРА v11.9 — пальцы широко расставлены веером
 local function create3DHand(size, color, name, withHeart, heartColor)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
 
-    -- Ладонь: скруглённый квадрат с отверстием и шипами
+    -- Ладонь
     local palmCF = CFrame.new(0, -s * 0.10, 0)
     createPalmPlate(model, bodies, palmCF, s * 1.7, color)
 
-    -- Сердце в отверстии ладони (0.80)
+    -- Сердце в отверстии (0.80)
     if withHeart then
         local hc = heartColor or Color3.fromRGB(255, 40, 95)
         local heartSize = s * 0.80
@@ -588,7 +575,7 @@ local function create3DHand(size, color, name, withHeart, heartColor)
         hModel:PivotTo(palmCF * CFrame.new(0, 0, s * 0.02))
     end
 
-    -- Обмотки/бинты внизу ладони (крест-накрест)
+    -- Бинты
     local wrapY = -s * 0.95
     table.insert(bodies, newPart(model, "Wrap1",
         Vector3.new(s * 1.9, s * 0.22, s * 0.35),
@@ -597,24 +584,30 @@ local function create3DHand(size, color, name, withHeart, heartColor)
         Vector3.new(s * 1.9, s * 0.22, s * 0.35),
         palmCF * CFrame.new(0, wrapY, 0) * CFrame.Angles(0, 0, math.rad(-14)), color))
 
-    -- 4 пальца-клинка сверху: 2 средних длиннее, 2 крайних короче
-    local fingerBaseY = s * 0.72
+    -- ★★ 4 ПАЛЬЦА ШИРОКО РАССТАВЛЕНЫ ВЕЕРОМ ★★
+    -- Углы разлёта больше, разнос по X больше, чтобы между пальцами был зазор
+    local fingerBaseY = s * 0.68
     local fingers = {
-        { ang = -26, len = 1.65, w = 0.22 },
-        { ang =  -8, len = 2.10, w = 0.24 },
-        { ang =   8, len = 2.10, w = 0.24 },
-        { ang =  26, len = 1.65, w = 0.22 },
+        -- крайний левый — самый наклонённый наружу
+        { ang = -42, len = 1.55, w = 0.20, offsetX = -0.20 },
+        -- средний левый
+        { ang = -14, len = 2.05, w = 0.22, offsetX = -0.05 },
+        -- средний правый
+        { ang =  14, len = 2.05, w = 0.22, offsetX =  0.05 },
+        -- крайний правый
+        { ang =  42, len = 1.55, w = 0.20, offsetX =  0.20 },
     }
     for _, f in ipairs(fingers) do
         local a = math.rad(f.ang)
-        local baseCF = CFrame.new(math.sin(a) * s * 0.32, fingerBaseY, 0)
-            * CFrame.Angles(0, 0, -a * 0.9)
+        -- Базовая точка: разнос по X + сильный наклон наружу
+        local baseCF = CFrame.new(f.offsetX * s, fingerBaseY, 0)
+            * CFrame.Angles(0, 0, a)
         createFinger(model, bodies, baseCF, s * f.len, s * f.w, color)
     end
 
-    -- Большой палец — справа, под углом вверх
-    local thumbCF = CFrame.new(s * 0.78, -s * 0.10, 0) * CFrame.Angles(0, 0, math.rad(50))
-    createFinger(model, bodies, thumbCF, s * 1.25, s * 0.26, color)
+    -- Большой палец — сбоку справа, почти горизонтально
+    local thumbCF = CFrame.new(s * 0.85, -s * 0.05, 0) * CFrame.Angles(0, 0, math.rad(62))
+    createFinger(model, bodies, thumbCF, s * 1.20, s * 0.24, color)
 
     return model, root, bodies
 end
@@ -678,12 +671,12 @@ local SHAPE_PRESETS = {
     end },
     { name = "РУКА", create = function(s, n)
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, false)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.5 }
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.6 }
     end },
     { name = "РУКА-СЕРДЦЕ", create = function(s, n, idx)
         local hc = HEART_COLORS[((idx or 1) - 1) % #HEART_COLORS + 1]
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, true, hc)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.5 }
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.6 }
     end },
 }
 local shapeIndex = 1
@@ -1161,7 +1154,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v11.8"
+title.Text = "ОРБИТА v11.9"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
