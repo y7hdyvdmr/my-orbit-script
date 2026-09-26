@@ -1,6 +1,7 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v12.6                                     ║
+    ║   ОРБИТА ФИГУР v12.7                                     ║
+    ║   + Убран наклон (tilt) у фигур                          ║
     ║   + Кнопка «Кручение»: вкл/выкл вращение вокруг оси      ║
     ║   + Большой палец торчит НАРУЖУ                          ║
     ║   + Сердце в руке: 0.65                                  ║
@@ -82,7 +83,7 @@ local DEFAULT_SETTINGS = {
 }
 local SETTINGS = table.clone(DEFAULT_SETTINGS)
 
--- ★ НОВОЕ: состояние кручения вокруг оси
+-- ★ Состояние кручения вокруг оси
 local spinAxisEnabled = true
 
 -- ==================== ПРЕСЕТЫ ====================
@@ -924,8 +925,10 @@ local function startUpdateLoop()
                     height + yBob,
                     math.sin(angle) * radius
                 )
+
+                -- ★★★ УБРАН НАКЛОН (tilt) — теперь чистое вращение вокруг X ★★★
                 local targetCF = CFrame.new(root.Position + offset)
-                    * CFrame.Angles(math.rad(spinAngle), math.rad(spinAngle) * 0.7, 0)
+                    * CFrame.Angles(math.rad(spinAngle), 0, 0)
 
                 if data.isModel and data.model then
                     data.model:PivotTo(targetCF)
@@ -1141,7 +1144,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v12.6"
+title.Text = "ОРБИТА v12.7"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
@@ -1188,7 +1191,7 @@ local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 762, 30, C
 local lightBtn      = makeButton("💡 Свет: ВКЛ", 795, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
 local spinBtn       = makeButton("↩️ Вращение в 0", 828, 30, Color3.fromRGB(50, 40, 60), Color3.fromRGB(200, 180, 255))
 
--- ★ НОВАЯ КНОПКА: Кручение вокруг своей оси
+-- ★ Кнопка кручения вокруг оси
 local spinAxisBtn   = makeButton("🔄 Кручение оси: ВКЛ", 861, 30, Color3.fromRGB(35, 55, 55), Color3.fromRGB(140, 255, 220))
 
 local musicSection = Instance.new("TextLabel")
@@ -1443,7 +1446,6 @@ spinBtn.Activated:Connect(function()
     end
 end)
 
--- ★ НОВЫЙ ОБРАБОТЧИК: Кручение вокруг оси
 spinAxisBtn.Activated:Connect(function()
     spinAxisEnabled = not spinAxisEnabled
     if spinAxisEnabled then
