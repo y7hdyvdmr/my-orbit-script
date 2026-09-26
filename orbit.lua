@@ -1,8 +1,9 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v12.7                                     ║
-    ║   + Убран наклон (tilt) у фигур                          ║
-    ║   + Кнопка «Кручение»: вкл/выкл вращение вокруг оси      ║
+    ║   ОРБИТА ФИГУР v13.0                                     ║
+    ║   + Все кнопки кручения работают ВСЕГДА                  ║
+    ║   + «Вращение в 0» не блокирует «Кручение» и «Ось»       ║
+    ║   + Кнопка выбора оси: ВЕРХ/ВНИЗ или ВЛЕВО/ВПРАВО        ║
     ║   + Большой палец торчит НАРУЖУ                          ║
     ║   + Сердце в руке: 0.65                                  ║
     ╚══════════════════════════════════════════════════════════╝
@@ -83,8 +84,8 @@ local DEFAULT_SETTINGS = {
 }
 local SETTINGS = table.clone(DEFAULT_SETTINGS)
 
--- ★ Состояние кручения вокруг оси
 local spinAxisEnabled = true
+local spinAxisDir = "X"     -- "X" = верх/вниз, "Y" = влево/вправо
 
 -- ==================== ПРЕСЕТЫ ====================
 local SPREAD_PRESETS = {
@@ -880,7 +881,6 @@ local function startUpdateLoop()
             currentOrbitAngle[ri] = currentOrbitAngle[ri] + currentSpeed[ri] * dt
             currentBobPhase[ri] = currentBobPhase[ri] + 2 * (globalMult * ring.speedMult) * dt
 
-            -- ★ Логика кручения вокруг своей оси
             if spinResetting then
                 local returnSpeed = 3.0
                 local backLerp = math.clamp(dt * returnSpeed, 0, 1)
@@ -926,9 +926,14 @@ local function startUpdateLoop()
                     math.sin(angle) * radius
                 )
 
-                -- ★★★ УБРАН НАКЛОН (tilt) — теперь чистое вращение вокруг X ★★★
-                local targetCF = CFrame.new(root.Position + offset)
-                    * CFrame.Angles(math.rad(spinAngle), 0, 0)
+                local targetCF
+                if spinAxisDir == "X" then
+                    targetCF = CFrame.new(root.Position + offset)
+                        * CFrame.Angles(math.rad(spinAngle), math.rad(spinAngle) * 0.7, 0)
+                else
+                    targetCF = CFrame.new(root.Position + offset)
+                        * CFrame.Angles(0, math.rad(spinAngle), 0)
+                end
 
                 if data.isModel and data.model then
                     data.model:PivotTo(targetCF)
@@ -1039,6 +1044,7 @@ local function collectSaveData()
         waveEnabled = SETTINGS.WaveEnabled, explosionEnabled = SETTINGS.ExplosionEnabled,
         spinResetting = spinResetting,
         spinAxisEnabled = spinAxisEnabled,
+        spinAxisDir = spinAxisDir,
         musicEnabled = musicEnabled, musicId = savedMusicId,
     }
 end
@@ -1071,6 +1077,7 @@ local function loadSettings()
     if data.formModeIndex then formModeIndex = data.formModeIndex end
     if data.spinResetting ~= nil then spinResetting = data.spinResetting end
     if data.spinAxisEnabled ~= nil then spinAxisEnabled = data.spinAxisEnabled end
+    if data.spinAxisDir ~= nil then spinAxisDir = data.spinAxisDir end
 
     if data.ringShapes then
         for ri = 1, 5 do if data.ringShapes[ri] then rings[ri].shapeIndex = data.ringShapes[ri] end end
@@ -1130,7 +1137,7 @@ panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 panel.BackgroundTransparency = 0.1
 panel.BorderSizePixel = 0
 panel.Visible = false
-panel.CanvasSize = UDim2.new(0, 0, 0, 1213)
+panel.CanvasSize = UDim2.new(0, 0, 0, 1250)
 panel.ScrollBarThickness = 3
 panel.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 255)
 panel.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -1144,7 +1151,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v12.7"
+title.Text = "ОРБИТА v13.0"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
@@ -1191,12 +1198,12 @@ local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 762, 30, C
 local lightBtn      = makeButton("💡 Свет: ВКЛ", 795, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
 local spinBtn       = makeButton("↩️ Вращение в 0", 828, 30, Color3.fromRGB(50, 40, 60), Color3.fromRGB(200, 180, 255))
 
--- ★ Кнопка кручения вокруг оси
 local spinAxisBtn   = makeButton("🔄 Кручение оси: ВКЛ", 861, 30, Color3.fromRGB(35, 55, 55), Color3.fromRGB(140, 255, 220))
+local spinDirBtn    = makeButton("↕️ Ось: ВЕРХ/ВНИЗ", 894, 30, Color3.fromRGB(45, 55, 75), Color3.fromRGB(180, 220, 255))
 
 local musicSection = Instance.new("TextLabel")
 musicSection.Size = UDim2.new(1, -20, 0, 20)
-musicSection.Position = UDim2.new(0, 10, 0, 895)
+musicSection.Position = UDim2.new(0, 10, 0, 928)
 musicSection.BackgroundTransparency = 1
 musicSection.Text = "🎵 МУЗЫКА (вставь ID трека ниже)"
 musicSection.TextColor3 = Color3.fromRGB(220, 180, 255)
@@ -1207,7 +1214,7 @@ musicSection.Parent = panel
 
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
-musicInput.Position = UDim2.new(0, 10, 0, 917)
+musicInput.Position = UDim2.new(0, 10, 0, 950)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -1225,7 +1232,7 @@ inputStroke.Thickness = 1
 
 local musicHint = Instance.new("TextLabel")
 musicHint.Size = UDim2.new(1, -20, 0, 44)
-musicHint.Position = UDim2.new(0, 10, 0, 953)
+musicHint.Position = UDim2.new(0, 10, 0, 986)
 musicHint.BackgroundTransparency = 1
 musicHint.Text = "Как узнать ID:\n1) Открой roblox.com/library → Audio\n2) Найди трек → скопируй цифры из ссылки\n3) Вставь сюда → нажми «Применить»"
 musicHint.TextColor3 = Color3.fromRGB(170, 170, 200)
@@ -1236,11 +1243,11 @@ musicHint.TextXAlignment = Enum.TextXAlignment.Left
 musicHint.TextYAlignment = Enum.TextYAlignment.Top
 musicHint.Parent = panel
 
-local applyIdBtn = makeButton("✅ Применить ID", 1003, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
-local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1036, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
-local saveBtn       = makeButton("💾 Сохранить", 1069, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
-local loadBtn       = makeButton("📂 Загрузить", 1102, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
-local resetBtn      = makeButton("🔄 Сброс", 1135, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
+local applyIdBtn = makeButton("✅ Применить ID", 1036, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
+local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1069, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
+local saveBtn       = makeButton("💾 Сохранить", 1102, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
+local loadBtn       = makeButton("📂 Загрузить", 1135, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
+local resetBtn      = makeButton("🔄 Сброс", 1168, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -1433,6 +1440,7 @@ lightBtn.Activated:Connect(function()
     rebuildAllRings()
 end)
 
+-- ★ Кнопка «Вращение в 0» — просто вкл/выкл паузы
 spinBtn.Activated:Connect(function()
     spinResetting = not spinResetting
     if spinResetting then
@@ -1446,6 +1454,7 @@ spinBtn.Activated:Connect(function()
     end
 end)
 
+-- ★ Кнопка «Кручение оси» — работает ВСЕГДА
 spinAxisBtn.Activated:Connect(function()
     spinAxisEnabled = not spinAxisEnabled
     if spinAxisEnabled then
@@ -1456,6 +1465,21 @@ spinAxisBtn.Activated:Connect(function()
         spinAxisBtn.Text = "🔄 Кручение оси: ВЫКЛ"
         spinAxisBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 35)
         spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
+    end
+end)
+
+-- ★ Кнопка «Ось» — работает ВСЕГДА
+spinDirBtn.Activated:Connect(function()
+    if spinAxisDir == "X" then
+        spinAxisDir = "Y"
+        spinDirBtn.Text = "↔️ Ось: ВЛЕВО/ВПРАВО"
+        spinDirBtn.BackgroundColor3 = Color3.fromRGB(75, 55, 45)
+        spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
+    else
+        spinAxisDir = "X"
+        spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
+        spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+        spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
     end
 end)
 
@@ -1551,6 +1575,16 @@ loadBtn.Activated:Connect(function()
             spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
         end
 
+        if spinAxisDir == "X" then
+            spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
+            spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+            spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
+        else
+            spinDirBtn.Text = "↔️ Ось: ВЛЕВО/ВПРАВО"
+            spinDirBtn.BackgroundColor3 = Color3.fromRGB(75, 55, 45)
+            spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
+        end
+
         for ri = 2, 5 do refreshRingButton(ri) end
         applyDirectionPreset()
         applySpeedModePreset()
@@ -1574,6 +1608,7 @@ resetBtn.Activated:Connect(function()
     directionIndex, speedModeIndex, heightIndex, formModeIndex = 1, 1, 3, 1
     spinResetting = false
     spinAxisEnabled = true
+    spinAxisDir = "X"
 
     rings[1].shapeIndex = 1; rings[2].shapeIndex = 2; rings[3].shapeIndex = 3
     rings[4].shapeIndex = 4; rings[5].shapeIndex = 5
@@ -1602,6 +1637,9 @@ resetBtn.Activated:Connect(function()
     spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
     spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
     spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
+    spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
+    spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+    spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
     allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
     allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
     allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
