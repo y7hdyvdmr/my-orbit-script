@@ -587,13 +587,13 @@ local function create3DHand(size, color, name, withHeart, heartColor)
         Vector3.new(s * 1.9, s * 0.22, s * 0.35),
         palmCF * CFrame.new(0, wrapY, 0) * CFrame.Angles(0, 0, math.rad(-14)), color))
 
-    -- ★★ 4 КОГТЯ ПОЧТИ ПАРАЛЛЕЛЬНО, РАВНОМЕРНО ПО ШИРИНЕ — КАК НА ФОТО ★★
+    -- ★★ 4 КОГТЯ ПОЧТИ СТРОГО ВЕРТИКАЛЬНО, КРУПНЕЕ — КАК НА ФОТО ★★
     local fingerBaseY = s * 0.66
     local fingers = {
-        { ang = -11, len = 1.55, w = 0.17, offsetX = -0.48 }, -- крайний левый, чуть короче
-        { ang =  -3, len = 2.15, w = 0.19, offsetX = -0.17 }, -- средний левый, длиннее
-        { ang =   4, len = 2.10, w = 0.19, offsetX =  0.12 }, -- средний правый, длиннее
-        { ang =  10, len = 1.75, w = 0.18, offsetX =  0.40 }, -- крайний правый, чуть короче
+        { ang = -4, len = 1.85, w = 0.21, offsetX = -0.48 }, -- крайний левый, чуть короче
+        { ang = -1, len = 2.55, w = 0.23, offsetX = -0.17 }, -- средний левый, длиннее
+        { ang =  1, len = 2.50, w = 0.23, offsetX =  0.12 }, -- средний правый, длиннее
+        { ang =  4, len = 2.05, w = 0.22, offsetX =  0.40 }, -- крайний правый, чуть короче
     }
     for _, f in ipairs(fingers) do
         local a = math.rad(f.ang)
@@ -604,7 +604,7 @@ local function create3DHand(size, color, name, withHeart, heartColor)
 
     -- Боковой коготь (справа, ниже, наклонён вниз-вправо — как на фото)
     local thumbCF = CFrame.new(s * 0.92, -s * 0.20, 0) * CFrame.Angles(0, 0, math.rad(55))
-    createFinger(model, bodies, thumbCF, s * 1.25, s * 0.20, color)
+    createFinger(model, bodies, thumbCF, s * 1.45, s * 0.24, color)
 
     return model, root, bodies
 end
