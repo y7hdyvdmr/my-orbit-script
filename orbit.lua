@@ -1,8 +1,8 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v13.0                                     ║
-    ║   + Все кнопки кручения работают ВСЕГДА                  ║
-    ║   + «Вращение в 0» не блокирует «Кручение» и «Ось»       ║
+    ║   ОРБИТА ФИГУР v13.1                                     ║
+    ║   + Кнопка «🌀 Скорость кручения» (0.5x – 10x)           ║
+    ║   + Все кнопки работают всегда                           ║
     ║   + Кнопка выбора оси: ВЕРХ/ВНИЗ или ВЛЕВО/ВПРАВО        ║
     ║   + Большой палец торчит НАРУЖУ                          ║
     ║   + Сердце в руке: 0.65                                  ║
@@ -57,6 +57,7 @@ local DEFAULT_SETTINGS = {
     OrbitSpeed = 60,
     SpinSpeed = 120,
     SpeedMultiplier = 1.0,
+    SpinSpeedMultiplier = 1.0,   -- ★ НОВОЕ: множитель скорости кручения
     BobAmplitude = 0.8,
     Material = Enum.Material.Neon,
     Transparency = 0.1,
@@ -86,6 +87,17 @@ local SETTINGS = table.clone(DEFAULT_SETTINGS)
 
 local spinAxisEnabled = true
 local spinAxisDir = "X"     -- "X" = верх/вниз, "Y" = влево/вправо
+
+-- ★ Пресеты скорости кручения
+local SPIN_SPEED_PRESETS = {
+    { name = "0.5x", value = 0.5 },
+    { name = "1x",   value = 1.0 },
+    { name = "2x",   value = 2.0 },
+    { name = "3x",   value = 3.0 },
+    { name = "5x",   value = 5.0 },
+    { name = "10x",  value = 10.0 },
+}
+local spinSpeedIndex = 2
 
 -- ==================== ПРЕСЕТЫ ====================
 local SPREAD_PRESETS = {
@@ -679,7 +691,8 @@ local function getTargetHeight(ri)
     return ORBIT_PRESETS[orbitIndex].height + rings[ri].heightOffset * SPREAD_PRESETS[spreadIndex].mult + getHeightOffset()
 end
 local function getTargetSpeed() return SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier end
-local function getTargetSpin() return SETTINGS.SpinSpeed * SETTINGS.SpeedMultiplier end
+-- ★ Учитываем множитель кручения
+local function getTargetSpin() return SETTINGS.SpinSpeed * SETTINGS.SpeedMultiplier * SETTINGS.SpinSpeedMultiplier end
 
 local function countActiveLights()
     local count = 0
@@ -1045,6 +1058,7 @@ local function collectSaveData()
         spinResetting = spinResetting,
         spinAxisEnabled = spinAxisEnabled,
         spinAxisDir = spinAxisDir,
+        spinSpeedIndex = spinSpeedIndex,             -- ★ сохраняем
         musicEnabled = musicEnabled, musicId = savedMusicId,
     }
 end
@@ -1078,6 +1092,11 @@ local function loadSettings()
     if data.spinResetting ~= nil then spinResetting = data.spinResetting end
     if data.spinAxisEnabled ~= nil then spinAxisEnabled = data.spinAxisEnabled end
     if data.spinAxisDir ~= nil then spinAxisDir = data.spinAxisDir end
+    -- ★ восстанавливаем множитель кручения
+    if data.spinSpeedIndex then
+        spinSpeedIndex = data.spinSpeedIndex
+        SETTINGS.SpinSpeedMultiplier = SPIN_SPEED_PRESETS[spinSpeedIndex].value
+    end
 
     if data.ringShapes then
         for ri = 1, 5 do if data.ringShapes[ri] then rings[ri].shapeIndex = data.ringShapes[ri] end end
@@ -1137,7 +1156,7 @@ panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 panel.BackgroundTransparency = 0.1
 panel.BorderSizePixel = 0
 panel.Visible = false
-panel.CanvasSize = UDim2.new(0, 0, 0, 1250)
+panel.CanvasSize = UDim2.new(0, 0, 0, 1285)
 panel.ScrollBarThickness = 3
 panel.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 255)
 panel.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -1151,7 +1170,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v13.0"
+title.Text = "ОРБИТА v13.1"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
@@ -1197,13 +1216,15 @@ local explosionBtn  = makeButton("💥 Взрыв: ВЫКЛ", 729, 30, Color3.fr
 local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 762, 30, Color3.fromRGB(35, 35, 50))
 local lightBtn      = makeButton("💡 Свет: ВКЛ", 795, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
 local spinBtn       = makeButton("↩️ Вращение в 0", 828, 30, Color3.fromRGB(50, 40, 60), Color3.fromRGB(200, 180, 255))
-
 local spinAxisBtn   = makeButton("🔄 Кручение оси: ВКЛ", 861, 30, Color3.fromRGB(35, 55, 55), Color3.fromRGB(140, 255, 220))
 local spinDirBtn    = makeButton("↕️ Ось: ВЕРХ/ВНИЗ", 894, 30, Color3.fromRGB(45, 55, 75), Color3.fromRGB(180, 220, 255))
 
+-- ★ НОВАЯ КНОПКА: скорость кручения
+local spinSpeedBtn  = makeButton("🌀 Скорость кручения: 1x", 927, 30, Color3.fromRGB(55, 35, 75), Color3.fromRGB(220, 180, 255))
+
 local musicSection = Instance.new("TextLabel")
 musicSection.Size = UDim2.new(1, -20, 0, 20)
-musicSection.Position = UDim2.new(0, 10, 0, 928)
+musicSection.Position = UDim2.new(0, 10, 0, 963)
 musicSection.BackgroundTransparency = 1
 musicSection.Text = "🎵 МУЗЫКА (вставь ID трека ниже)"
 musicSection.TextColor3 = Color3.fromRGB(220, 180, 255)
@@ -1214,7 +1235,7 @@ musicSection.Parent = panel
 
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
-musicInput.Position = UDim2.new(0, 10, 0, 950)
+musicInput.Position = UDim2.new(0, 10, 0, 985)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -1232,7 +1253,7 @@ inputStroke.Thickness = 1
 
 local musicHint = Instance.new("TextLabel")
 musicHint.Size = UDim2.new(1, -20, 0, 44)
-musicHint.Position = UDim2.new(0, 10, 0, 986)
+musicHint.Position = UDim2.new(0, 10, 0, 1021)
 musicHint.BackgroundTransparency = 1
 musicHint.Text = "Как узнать ID:\n1) Открой roblox.com/library → Audio\n2) Найди трек → скопируй цифры из ссылки\n3) Вставь сюда → нажми «Применить»"
 musicHint.TextColor3 = Color3.fromRGB(170, 170, 200)
@@ -1243,11 +1264,11 @@ musicHint.TextXAlignment = Enum.TextXAlignment.Left
 musicHint.TextYAlignment = Enum.TextYAlignment.Top
 musicHint.Parent = panel
 
-local applyIdBtn = makeButton("✅ Применить ID", 1036, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
-local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1069, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
-local saveBtn       = makeButton("💾 Сохранить", 1102, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
-local loadBtn       = makeButton("📂 Загрузить", 1135, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
-local resetBtn      = makeButton("🔄 Сброс", 1168, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
+local applyIdBtn = makeButton("✅ Применить ID", 1071, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
+local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1104, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
+local saveBtn       = makeButton("💾 Сохранить", 1137, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
+local loadBtn       = makeButton("📂 Загрузить", 1170, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
+local resetBtn      = makeButton("🔄 Сброс", 1203, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -1275,6 +1296,23 @@ local function refreshRingButton(ri)
         btn.Text = "➕ Кольцо " .. ri
         btn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
         btn.TextColor3 = Color3.fromRGB(160, 255, 160)
+    end
+end
+
+-- ★ Обновление кнопки скорости кручения
+local function refreshSpinSpeedBtn()
+    local p = SPIN_SPEED_PRESETS[spinSpeedIndex]
+    spinSpeedBtn.Text = "🌀 Скорость кручения: " .. p.name
+    -- Цвет по скорости
+    if p.value <= 1.0 then
+        spinSpeedBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 75)
+        spinSpeedBtn.TextColor3 = Color3.fromRGB(180, 200, 255)
+    elseif p.value <= 3.0 then
+        spinSpeedBtn.BackgroundColor3 = Color3.fromRGB(55, 45, 85)
+        spinSpeedBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+    else
+        spinSpeedBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 90)
+        spinSpeedBtn.TextColor3 = Color3.fromRGB(255, 160, 255)
     end
 end
 
@@ -1440,7 +1478,6 @@ lightBtn.Activated:Connect(function()
     rebuildAllRings()
 end)
 
--- ★ Кнопка «Вращение в 0» — просто вкл/выкл паузы
 spinBtn.Activated:Connect(function()
     spinResetting = not spinResetting
     if spinResetting then
@@ -1454,7 +1491,6 @@ spinBtn.Activated:Connect(function()
     end
 end)
 
--- ★ Кнопка «Кручение оси» — работает ВСЕГДА
 spinAxisBtn.Activated:Connect(function()
     spinAxisEnabled = not spinAxisEnabled
     if spinAxisEnabled then
@@ -1468,7 +1504,6 @@ spinAxisBtn.Activated:Connect(function()
     end
 end)
 
--- ★ Кнопка «Ось» — работает ВСЕГДА
 spinDirBtn.Activated:Connect(function()
     if spinAxisDir == "X" then
         spinAxisDir = "Y"
@@ -1481,6 +1516,14 @@ spinDirBtn.Activated:Connect(function()
         spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
         spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
     end
+end)
+
+-- ★ ОБРАБОТЧИК: скорость кручения
+spinSpeedBtn.Activated:Connect(function()
+    spinSpeedIndex = spinSpeedIndex + 1
+    if spinSpeedIndex > #SPIN_SPEED_PRESETS then spinSpeedIndex = 1 end
+    SETTINGS.SpinSpeedMultiplier = SPIN_SPEED_PRESETS[spinSpeedIndex].value
+    refreshSpinSpeedBtn()
 end)
 
 applyIdBtn.Activated:Connect(function()
@@ -1585,6 +1628,8 @@ loadBtn.Activated:Connect(function()
             spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
         end
 
+        refreshSpinSpeedBtn()    -- ★ обновить кнопку скорости кручения
+
         for ri = 2, 5 do refreshRingButton(ri) end
         applyDirectionPreset()
         applySpeedModePreset()
@@ -1609,6 +1654,8 @@ resetBtn.Activated:Connect(function()
     spinResetting = false
     spinAxisEnabled = true
     spinAxisDir = "X"
+    spinSpeedIndex = 2                         -- ★ сброс скорости кручения
+    SETTINGS.SpinSpeedMultiplier = 1.0
 
     rings[1].shapeIndex = 1; rings[2].shapeIndex = 2; rings[3].shapeIndex = 3
     rings[4].shapeIndex = 4; rings[5].shapeIndex = 5
@@ -1640,6 +1687,7 @@ resetBtn.Activated:Connect(function()
     spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
     spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
     spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
+    refreshSpinSpeedBtn()
     allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
     allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
     allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
@@ -1678,6 +1726,7 @@ createMusicSound()
 applyShapes()
 setupRespawnHook()
 setEnabled(true)
+refreshSpinSpeedBtn()
 
 return {
     Stop = function() setEnabled(false) end,
