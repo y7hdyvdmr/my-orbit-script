@@ -1,8 +1,9 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v12.1                                     ║
-    ║   + Пальцы прямые, толще, большой палец выразительнее    ║
-    ║   + Сердце в руке: 0.70                                  ║
+    ║   ОРБИТА ФИГУР v12.3                                     ║
+    ║   + Пальцы прямые, толще, шире расставлены               ║
+    ║   + Ладонь увеличена (s*2.0) под новые пальцы            ║
+    ║   + Сердце в руке: 0.65                                  ║
     ║   + Кнопка плавного возврата вращения к 0                ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
@@ -310,12 +311,11 @@ local function createFinger(model, bodies, baseCF, length, width, color)
     local seg2 = length * 0.38
     local seg3 = length * 0.32
 
-    local w1 = width          -- у основания
-    local w2 = width * 0.75   -- чуть уже
-    local w3 = width * 0.35   -- начало острия
-    local w4 = width * 0.05   -- почти в точку
+    local w1 = width
+    local w2 = width * 0.75
+    local w3 = width * 0.35
+    local w4 = width * 0.05
 
-    -- Все сегменты строго друг над другом, никаких поворотов
     table.insert(bodies, newPart(model, "F1",
         Vector3.new(w1, seg1, w1 * 0.5),
         baseCF * CFrame.new(0, seg1 / 2, 0), color))
@@ -554,50 +554,50 @@ local HEART_COLORS = {
     Color3.fromRGB(40, 80, 255),
 }
 
--- ★ РУКА ГАСТЕРА v12.1 — пальцы толще, большой палец выразительнее
+-- ★ РУКА ГАСТЕРА v12.3 — ладонь шире, пальцы ещё дальше и толще, сердце 0.65
 local function create3DHand(size, color, name, withHeart, heartColor)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
 
-    -- Ладонь
+    -- Ладонь (увеличена до s*2.0 чтобы вместить широкие пальцы)
     local palmCF = CFrame.new(0, -s * 0.10, 0)
-    createPalmPlate(model, bodies, palmCF, s * 1.7, color)
+    createPalmPlate(model, bodies, palmCF, s * 2.0, color)
 
-    -- Сердце в отверстии (0.70)
+    -- Сердце в отверстии (0.65)
     if withHeart then
         local hc = heartColor or Color3.fromRGB(255, 40, 95)
-        local heartSize = s * 0.70
+        local heartSize = s * 0.65
         local hModel = select(1, createPixelHeart(heartSize, hc, "Heart"))
         hModel.Parent = model
         hModel:PivotTo(palmCF * CFrame.new(0, 0, s * 0.02))
     end
 
-    -- Бинты
-    local wrapY = -s * 0.95
+    -- Бинты (пропорционально новой ладони)
+    local wrapY = -s * 1.10
     table.insert(bodies, newPart(model, "Wrap1",
-        Vector3.new(s * 1.9, s * 0.22, s * 0.35),
+        Vector3.new(s * 2.2, s * 0.24, s * 0.38),
         palmCF * CFrame.new(0, wrapY, 0) * CFrame.Angles(0, 0, math.rad(14)), color))
     table.insert(bodies, newPart(model, "Wrap2",
-        Vector3.new(s * 1.9, s * 0.22, s * 0.35),
+        Vector3.new(s * 2.2, s * 0.24, s * 0.38),
         palmCF * CFrame.new(0, wrapY, 0) * CFrame.Angles(0, 0, math.rad(-14)), color))
 
-    -- ★ 4 ПАЛЬЦА СТРОГО ВЕРТИКАЛЬНО, СТАЛИ ТОЛЩЕ ★
-    local fingerBaseY = s * 0.66
+    -- ★ 4 ПАЛЬЦА — ДАЛЬШЕ ДРУГ ОТ ДРУГА, ТОЛЩЕ ★
+    local fingerBaseY = s * 0.80
     local fingers = {
-        { len = 2.05, w = 0.30, offsetX = -0.44 }, -- крайний левый
-        { len = 2.60, w = 0.34, offsetX = -0.15 }, -- средний левый
-        { len = 2.60, w = 0.34, offsetX =  0.15 }, -- средний правый
-        { len = 2.05, w = 0.30, offsetX =  0.44 }, -- крайний правый
+        { len = 2.20, w = 0.36, offsetX = -0.66 }, -- крайний левый
+        { len = 2.75, w = 0.42, offsetX = -0.22 }, -- средний левый
+        { len = 2.75, w = 0.42, offsetX =  0.22 }, -- средний правый
+        { len = 2.20, w = 0.36, offsetX =  0.66 }, -- крайний правый
     }
     for _, f in ipairs(fingers) do
         local baseCF = CFrame.new(f.offsetX * s, fingerBaseY, 0)
         createFinger(model, bodies, baseCF, s * f.len, s * f.w, color)
     end
 
-    -- ★ БОЛЬШОЙ ПАЛЕЦ (сбоку справа) — толще и заметнее ★
-    local thumbCF = CFrame.new(s * 0.95, -s * 0.15, 0) * CFrame.Angles(0, 0, math.rad(52))
-    createFinger(model, bodies, thumbCF, s * 1.55, s * 0.34, color)
+    -- ★ БОЛЬШОЙ ПАЛЕЦ (сбоку справа) — толще, длиннее, дальше вбок ★
+    local thumbCF = CFrame.new(s * 1.15, -s * 0.05, 0) * CFrame.Angles(0, 0, math.rad(52))
+    createFinger(model, bodies, thumbCF, s * 1.75, s * 0.46, color)
 
     return model, root, bodies
 end
@@ -661,12 +661,12 @@ local SHAPE_PRESETS = {
     end },
     { name = "РУКА", create = function(s, n)
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, false)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.6 }
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.0 }
     end },
     { name = "РУКА-СЕРДЦЕ", create = function(s, n, idx)
         local hc = HEART_COLORS[((idx or 1) - 1) % #HEART_COLORS + 1]
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, true, hc)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.6 }
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.0 }
     end },
 }
 local shapeIndex = 1
@@ -1144,7 +1144,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v12.1"
+title.Text = "ОРБИТА v12.3"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
