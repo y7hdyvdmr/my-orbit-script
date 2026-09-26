@@ -1,9 +1,9 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v11.6                                     ║
-    ║   + Новая рука Гастера (длинные клинки-пальцы)           ║
+    ║   ОРБИТА ФИГУР v11.7                                     ║
+    ║   + Рука Гастера как на картинке                         ║
+    ║   + Сердце в руке: размер 0.80                           ║
     ║   + Кнопка плавного возврата вращения к 0                ║
-    ║   + Увеличенное сердце в руке                            ║
     ║   + Разные формы, волна, взрыв, сохранение               ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
@@ -263,21 +263,71 @@ local function addRingBand(model, bodies, cf, radius, thickness, depth, segments
     end
 end
 
--- ★ НОВЫЙ КОГОТЬ: короткое основание + длинный тонкий клинок
-local function createClaw(model, bodies, baseCF, length, widthBase, widthTip, color)
-    -- 2 сегмента: короткое толстое основание + очень длинный тонкий клинок
-    local baseLen = length * 0.22
-    local bladeLen = length * 0.78
+-- ★ КЛИНОК-ПАЛЕЦ: основание + широкое лезвие + остриё
+local function createClaw(model, bodies, baseCF, length, width, color)
+    local seg1Len = length * 0.28
+    local seg2Len = length * 0.37
+    local seg3Len = length * 0.35
 
-    table.insert(bodies, newPart(model, "FBase", Vector3.new(widthBase, baseLen, widthBase),
-        baseCF * CFrame.new(0, baseLen / 2, 0), color))
+    local wBase = width * 0.70
+    local wMid  = width
+    local wTip1 = width * 0.55
+    local wTip2 = width * 0.12
 
-    -- клинок сужается к кончику — делаем его через WedgePart-конус из 2 частей
-    local midLen = bladeLen * 0.5
-    table.insert(bodies, newPart(model, "FMid", Vector3.new(widthBase * 0.6, midLen, widthBase * 0.6),
-        baseCF * CFrame.new(0, baseLen + midLen / 2, 0), color))
-    table.insert(bodies, newPart(model, "FTip", Vector3.new(widthTip, midLen, widthTip),
-        baseCF * CFrame.new(0, baseLen + midLen + midLen / 2, 0), color))
+    table.insert(bodies, newPart(model, "FBase",
+        Vector3.new(wBase, seg1Len, width * 0.45),
+        baseCF * CFrame.new(0, seg1Len / 2, 0), color))
+
+    table.insert(bodies, newPart(model, "FMid",
+        Vector3.new(wMid, seg2Len, width * 0.45),
+        baseCF * CFrame.new(0, seg1Len + seg2Len / 2, 0), color))
+
+    local tipHalf = seg3Len * 0.5
+    table.insert(bodies, newPart(model, "FTip1",
+        Vector3.new(wTip1, tipHalf, width * 0.40),
+        baseCF * CFrame.new(0, seg1Len + seg2Len + tipHalf / 2, 0), color))
+    table.insert(bodies, newPart(model, "FTip2",
+        Vector3.new(wTip2, tipHalf, width * 0.30),
+        baseCF * CFrame.new(0, seg1Len + seg2Len + tipHalf + tipHalf / 2, 0), color))
+end
+
+-- ★ ЛАДОНЬ: пластина с отверстием и 4 шипами внутрь
+local function createPalmPlate(model, bodies, cf, outerSize, color)
+    local outerR = outerSize * 0.5
+    local holeR  = outerR * 0.42
+    local ringThickness = outerR - holeR
+    local depth = outerSize * 0.22
+    local segments = 12
+
+    for i = 1, segments do
+        local a0 = (i - 1) / segments * math.pi * 2
+        local a1 = i / segments * math.pi * 2
+        local mid = (a0 + a1) / 2
+        local midR = (holeR + outerR) / 2
+        local segLen = 2 * midR * math.sin((a1 - a0) / 2) * 1.15
+        local segCF = cf * CFrame.new(math.cos(mid) * midR, math.sin(mid) * midR, 0)
+            * CFrame.Angles(0, 0, mid + math.pi / 2)
+        table.insert(bodies, newPart(model, "Palm",
+            Vector3.new(ringThickness, segLen, depth), segCF, color))
+    end
+
+    -- 4 шипа внутрь отверстия
+    local spikeLen = holeR * 0.55
+    local spikeW   = holeR * 0.32
+    for k = 0, 3 do
+        local ang = math.rad(k * 90 + 45)
+        local spike = Instance.new("WedgePart")
+        spike.Name = "Spike"
+        spike.Size = Vector3.new(spikeW, spikeLen, depth * 0.7)
+        spike.CFrame = cf
+            * CFrame.new(math.cos(ang) * (holeR - spikeLen * 0.35), math.sin(ang) * (holeR - spikeLen * 0.35), 0)
+            * CFrame.Angles(0, 0, ang - math.pi / 2)
+        spike.Anchored = true; spike.CanCollide = false; spike.CastShadow = false
+        spike.Material = Enum.Material.Neon
+        spike.Color = color
+        spike.Parent = model
+        table.insert(bodies, spike)
+    end
 end
 
 -- ==================== ФИГУРЫ ====================
@@ -502,61 +552,52 @@ local HEART_COLORS = {
     Color3.fromRGB(40, 80, 255),
 }
 
--- ★ НОВАЯ РУКА ГАСТЕРА
+-- ★ РУКА ГАСТЕРА v11.7 — как на картинке
 local function create3DHand(size, color, name, withHeart, heartColor)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
 
-    local forearmLen = s * 1.1
-    local forearmR = s * 0.42
-    local forearm = Instance.new("Part")
-    forearm.Name = "Forearm"; forearm.Shape = Enum.PartType.Cylinder
-    forearm.Size = Vector3.new(forearmLen, forearmR * 2, forearmR * 2)
-    forearm.CFrame = CFrame.new(0, -s * 1.35, 0) * CFrame.Angles(0, 0, math.rad(90))
-    forearm.Anchored = true; forearm.CanCollide = false; forearm.CastShadow = false
-    forearm.Material = Enum.Material.Neon
-    forearm.Color = color
-    forearm.Parent = model
-    table.insert(bodies, forearm)
-
-    local bandCF1 = CFrame.new(0, -s * 1.68, 0) * CFrame.Angles(math.rad(90), 0, 0)
-    local bandCF2 = CFrame.new(0, -s * 1.12, 0) * CFrame.Angles(math.rad(90), math.rad(22), 0)
-    addRingBand(model, bodies, bandCF1, forearmR * 1.35, s * 0.15, s * 0.20, 14, color)
-    addRingBand(model, bodies, bandCF2, forearmR * 1.35, s * 0.15, s * 0.20, 14, color)
-
-    -- Ладонь чуть шире и площе (квадратнее), как на картинке
-    local palmR = s * 0.95
+    -- Ладонь-пластина с отверстием и шипами
     local palmCF = CFrame.new(0, -s * 0.10, 0)
-    addRingBand(model, bodies, palmCF, palmR, s * 0.60, s * 0.35, 18, color)
+    createPalmPlate(model, bodies, palmCF, s * 1.6, color)
 
-    local crossT, crossD = s * 0.10, s * 0.18
-    table.insert(bodies, newPart(model, "PalmX1", Vector3.new(s * 0.55, crossT, crossD), palmCF, color))
-    table.insert(bodies, newPart(model, "PalmX2", Vector3.new(crossT, s * 0.55, crossD), palmCF, color))
-
+    -- Сердце в отверстии ладони (размер 0.80)
     if withHeart then
         local hc = heartColor or Color3.fromRGB(255, 40, 95)
-        local heartSize = s * 0.70
+        local heartSize = s * 0.80
         local hModel = select(1, createPixelHeart(heartSize, hc, "Heart"))
         hModel.Parent = model
         hModel:PivotTo(palmCF * CFrame.new(0, 0, s * 0.02))
     end
 
-    -- 4 длинных прямых пальца-клинка, торчащих почти вертикально веером
-    local fingerBaseY = s * 0.50
-    local fingerAngles = { -22, -8, 6, 20 }
-    for idx, ang in ipairs(fingerAngles) do
-        local a = math.rad(ang)
-        -- средний палец (idx 2,3) чуть длиннее, крайние — короче, как на референсе
-        local lenMult = (idx == 2 or idx == 3) and 1.9 or 1.55
-        local baseCF = CFrame.new(math.sin(a) * palmR * 0.55, fingerBaseY, 0)
-            * CFrame.Angles(0, 0, -a * 0.4)
-        createClaw(model, bodies, baseCF, s * lenMult, s * 0.16, s * 0.02, color)
+    -- Обмотки/бинты внизу ладони (крест-накрест)
+    local wrapY = -s * 0.95
+    table.insert(bodies, newPart(model, "Wrap1",
+        Vector3.new(s * 1.9, s * 0.20, s * 0.30),
+        palmCF * CFrame.new(0, wrapY, 0) * CFrame.Angles(0, 0, math.rad(14)), color))
+    table.insert(bodies, newPart(model, "Wrap2",
+        Vector3.new(s * 1.9, s * 0.20, s * 0.30),
+        palmCF * CFrame.new(0, wrapY, 0) * CFrame.Angles(0, 0, math.rad(-14)), color))
+
+    -- 4 пальца-клинка сверху (2 средних длиннее)
+    local fingerBaseY = s * 0.70
+    local fingers = {
+        { ang = -30, len = 1.55, w = 0.22 },
+        { ang =  -9, len = 2.00, w = 0.24 },
+        { ang =   9, len = 2.00, w = 0.24 },
+        { ang =  30, len = 1.55, w = 0.22 },
+    }
+    for _, f in ipairs(fingers) do
+        local a = math.rad(f.ang)
+        local baseCF = CFrame.new(math.sin(a) * s * 0.30, fingerBaseY, 0)
+            * CFrame.Angles(0, 0, -a * 0.8)
+        createClaw(model, bodies, baseCF, s * f.len, s * f.w, color)
     end
 
-    -- Большой палец — отдельно сбоку, короче и толще, под углом
-    local thumbCF = CFrame.new(-palmR * 1.0, -s * 0.35, 0) * CFrame.Angles(0, 0, math.rad(115))
-    createClaw(model, bodies, thumbCF, s * 1.1, s * 0.20, s * 0.03, color)
+    -- Большой палец — справа, под углом
+    local thumbCF = CFrame.new(s * 0.75, -s * 0.15, 0) * CFrame.Angles(0, 0, math.rad(55))
+    createClaw(model, bodies, thumbCF, s * 1.15, s * 0.24, color)
 
     return model, root, bodies
 end
@@ -620,12 +661,12 @@ local SHAPE_PRESETS = {
     end },
     { name = "РУКА", create = function(s, n)
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, false)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.4 }
     end },
     { name = "РУКА-СЕРДЦЕ", create = function(s, n, idx)
         local hc = HEART_COLORS[((idx or 1) - 1) % #HEART_COLORS + 1]
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, true, hc)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.4 }
     end },
 }
 local shapeIndex = 1
@@ -1103,7 +1144,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v11.6"
+title.Text = "ОРБИТА v11.7"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
