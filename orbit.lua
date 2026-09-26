@@ -1,11 +1,9 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v12.5                                     ║
-    ║   + Пальцы шире расставлены                              ║
+    ║   ОРБИТА ФИГУР v12.6                                     ║
+    ║   + Кнопка «Кручение»: вкл/выкл вращение вокруг оси      ║
     ║   + Большой палец торчит НАРУЖУ                          ║
-    ║   + Ладонь увеличена (s*2.2)                             ║
     ║   + Сердце в руке: 0.65                                  ║
-    ║   + Кнопка плавного возврата вращения к 0                ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -83,6 +81,9 @@ local DEFAULT_SETTINGS = {
     ExplosionPower = 0.7,
 }
 local SETTINGS = table.clone(DEFAULT_SETTINGS)
+
+-- ★ НОВОЕ: состояние кручения вокруг оси
+local spinAxisEnabled = true
 
 -- ==================== ПРЕСЕТЫ ====================
 local SPREAD_PRESETS = {
@@ -251,7 +252,6 @@ local function makeRod(parent, a, b, thickness, depth, color)
     return part
 end
 
--- ★ ЛАДОНЬ: скруглённый квадрат с отверстием и 4 шипами внутрь
 local function createPalmPlate(model, bodies, cf, size, color)
     local half = size * 0.5
     local cornerR = size * 0.22
@@ -306,7 +306,6 @@ local function createPalmPlate(model, bodies, cf, size, color)
     end
 end
 
--- ★ ПАЛЕЦ: прямой, без наклона, без изгиба
 local function createFinger(model, bodies, baseCF, length, width, color)
     local seg1 = length * 0.30
     local seg2 = length * 0.38
@@ -555,7 +554,6 @@ local HEART_COLORS = {
     Color3.fromRGB(40, 80, 255),
 }
 
--- ★ РУКА ГАСТЕРА v12.5 — большой палец торчит НАРУЖУ
 local function create3DHand(size, color, name, withHeart, heartColor)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -592,7 +590,6 @@ local function create3DHand(size, color, name, withHeart, heartColor)
         createFinger(model, bodies, baseCF, s * f.len, s * f.w, color)
     end
 
-    -- ★ БОЛЬШОЙ ПАЛЕЦ — ТОРЧИТ НАРУЖУ ВПРАВО ★
     local thumbCF = CFrame.new(s * 1.15, -s * 0.10, 0) * CFrame.Angles(0, 0, math.rad(-42))
     createFinger(model, bodies, thumbCF, s * 1.70, s * 0.46, color)
 
@@ -882,15 +879,16 @@ local function startUpdateLoop()
             currentOrbitAngle[ri] = currentOrbitAngle[ri] + currentSpeed[ri] * dt
             currentBobPhase[ri] = currentBobPhase[ri] + 2 * (globalMult * ring.speedMult) * dt
 
-            if not spinResetting then
-                currentSpinAngle[ri] = currentSpinAngle[ri] + currentSpin[ri] * dt
-            else
+            -- ★ Логика кручения вокруг своей оси
+            if spinResetting then
                 local returnSpeed = 3.0
                 local backLerp = math.clamp(dt * returnSpeed, 0, 1)
                 currentSpinAngle[ri] = currentSpinAngle[ri] + (0 - currentSpinAngle[ri]) * backLerp
                 if math.abs(currentSpinAngle[ri]) < 0.01 then
                     currentSpinAngle[ri] = 0
                 end
+            elseif spinAxisEnabled then
+                currentSpinAngle[ri] = currentSpinAngle[ri] + currentSpin[ri] * dt
             end
         end
 
@@ -1037,6 +1035,7 @@ local function collectSaveData()
         pulseEnabled = SETTINGS.PulseEnabled, showNames = SETTINGS.ShowBlockNames,
         waveEnabled = SETTINGS.WaveEnabled, explosionEnabled = SETTINGS.ExplosionEnabled,
         spinResetting = spinResetting,
+        spinAxisEnabled = spinAxisEnabled,
         musicEnabled = musicEnabled, musicId = savedMusicId,
     }
 end
@@ -1068,6 +1067,7 @@ local function loadSettings()
     if data.shapeIndex then shapeIndex = data.shapeIndex end
     if data.formModeIndex then formModeIndex = data.formModeIndex end
     if data.spinResetting ~= nil then spinResetting = data.spinResetting end
+    if data.spinAxisEnabled ~= nil then spinAxisEnabled = data.spinAxisEnabled end
 
     if data.ringShapes then
         for ri = 1, 5 do if data.ringShapes[ri] then rings[ri].shapeIndex = data.ringShapes[ri] end end
@@ -1127,7 +1127,7 @@ panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 panel.BackgroundTransparency = 0.1
 panel.BorderSizePixel = 0
 panel.Visible = false
-panel.CanvasSize = UDim2.new(0, 0, 0, 1180)
+panel.CanvasSize = UDim2.new(0, 0, 0, 1213)
 panel.ScrollBarThickness = 3
 panel.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 255)
 panel.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -1141,7 +1141,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v12.5"
+title.Text = "ОРБИТА v12.6"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
@@ -1188,9 +1188,12 @@ local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 762, 30, C
 local lightBtn      = makeButton("💡 Свет: ВКЛ", 795, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
 local spinBtn       = makeButton("↩️ Вращение в 0", 828, 30, Color3.fromRGB(50, 40, 60), Color3.fromRGB(200, 180, 255))
 
+-- ★ НОВАЯ КНОПКА: Кручение вокруг своей оси
+local spinAxisBtn   = makeButton("🔄 Кручение оси: ВКЛ", 861, 30, Color3.fromRGB(35, 55, 55), Color3.fromRGB(140, 255, 220))
+
 local musicSection = Instance.new("TextLabel")
 musicSection.Size = UDim2.new(1, -20, 0, 20)
-musicSection.Position = UDim2.new(0, 10, 0, 862)
+musicSection.Position = UDim2.new(0, 10, 0, 895)
 musicSection.BackgroundTransparency = 1
 musicSection.Text = "🎵 МУЗЫКА (вставь ID трека ниже)"
 musicSection.TextColor3 = Color3.fromRGB(220, 180, 255)
@@ -1201,7 +1204,7 @@ musicSection.Parent = panel
 
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
-musicInput.Position = UDim2.new(0, 10, 0, 884)
+musicInput.Position = UDim2.new(0, 10, 0, 917)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -1219,7 +1222,7 @@ inputStroke.Thickness = 1
 
 local musicHint = Instance.new("TextLabel")
 musicHint.Size = UDim2.new(1, -20, 0, 44)
-musicHint.Position = UDim2.new(0, 10, 0, 920)
+musicHint.Position = UDim2.new(0, 10, 0, 953)
 musicHint.BackgroundTransparency = 1
 musicHint.Text = "Как узнать ID:\n1) Открой roblox.com/library → Audio\n2) Найди трек → скопируй цифры из ссылки\n3) Вставь сюда → нажми «Применить»"
 musicHint.TextColor3 = Color3.fromRGB(170, 170, 200)
@@ -1230,11 +1233,11 @@ musicHint.TextXAlignment = Enum.TextXAlignment.Left
 musicHint.TextYAlignment = Enum.TextYAlignment.Top
 musicHint.Parent = panel
 
-local applyIdBtn = makeButton("✅ Применить ID", 970, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
-local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1003, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
-local saveBtn       = makeButton("💾 Сохранить", 1036, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
-local loadBtn       = makeButton("📂 Загрузить", 1069, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
-local resetBtn      = makeButton("🔄 Сброс", 1102, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
+local applyIdBtn = makeButton("✅ Применить ID", 1003, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
+local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1036, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
+local saveBtn       = makeButton("💾 Сохранить", 1069, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
+local loadBtn       = makeButton("📂 Загрузить", 1102, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
+local resetBtn      = makeButton("🔄 Сброс", 1135, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -1440,6 +1443,20 @@ spinBtn.Activated:Connect(function()
     end
 end)
 
+-- ★ НОВЫЙ ОБРАБОТЧИК: Кручение вокруг оси
+spinAxisBtn.Activated:Connect(function()
+    spinAxisEnabled = not spinAxisEnabled
+    if spinAxisEnabled then
+        spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
+        spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
+        spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
+    else
+        spinAxisBtn.Text = "🔄 Кручение оси: ВЫКЛ"
+        spinAxisBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 35)
+        spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
+    end
+end)
+
 applyIdBtn.Activated:Connect(function()
     local ok, err = setMusicId(musicInput.Text)
     if ok then
@@ -1522,6 +1539,16 @@ loadBtn.Activated:Connect(function()
             spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
         end
 
+        if spinAxisEnabled then
+            spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
+            spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
+            spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
+        else
+            spinAxisBtn.Text = "🔄 Кручение оси: ВЫКЛ"
+            spinAxisBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 35)
+            spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
+        end
+
         for ri = 2, 5 do refreshRingButton(ri) end
         applyDirectionPreset()
         applySpeedModePreset()
@@ -1544,6 +1571,7 @@ resetBtn.Activated:Connect(function()
     trailLengthIndex, trailWidthIndex = 2, 2
     directionIndex, speedModeIndex, heightIndex, formModeIndex = 1, 1, 3, 1
     spinResetting = false
+    spinAxisEnabled = true
 
     rings[1].shapeIndex = 1; rings[2].shapeIndex = 2; rings[3].shapeIndex = 3
     rings[4].shapeIndex = 4; rings[5].shapeIndex = 5
@@ -1569,6 +1597,9 @@ resetBtn.Activated:Connect(function()
     spinBtn.Text = "↩️ Вращение в 0"
     spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
     spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+    spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
+    spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
+    spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
     allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
     allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
     allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
