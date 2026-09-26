@@ -1,10 +1,10 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v11.5                                     ║
+    ║   ОРБИТА ФИГУР v11.6                                     ║
+    ║   + Новая рука Гастера (длинные клинки-пальцы)           ║
     ║   + Кнопка плавного возврата вращения к 0                ║
-    ║   + Увеличенное сердце в руке Гастера                    ║
+    ║   + Увеличенное сердце в руке                            ║
     ║   + Разные формы, волна, взрыв, сохранение               ║
-    ║   + Поле для ID музыки, череп, молния                    ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -263,20 +263,21 @@ local function addRingBand(model, bodies, cf, radius, thickness, depth, segments
     end
 end
 
-local function createClaw(model, bodies, baseCF, length, width, color)
-    local segLen1 = length * 0.45
-    local segLen2 = length * 0.35
-    local tipLen = length * 0.20
-    local w1 = width
-    local w2 = width * 0.62
-    local w3 = width * 0.28
+-- ★ НОВЫЙ КОГОТЬ: короткое основание + длинный тонкий клинок
+local function createClaw(model, bodies, baseCF, length, widthBase, widthTip, color)
+    -- 2 сегмента: короткое толстое основание + очень длинный тонкий клинок
+    local baseLen = length * 0.22
+    local bladeLen = length * 0.78
 
-    table.insert(bodies, newPart(model, "F1", Vector3.new(w1, segLen1, w1),
-        baseCF * CFrame.new(0, segLen1 / 2, 0), color))
-    table.insert(bodies, newPart(model, "F2", Vector3.new(w2, segLen2, w2),
-        baseCF * CFrame.new(0, segLen1 + segLen2 / 2, 0), color))
-    table.insert(bodies, newPart(model, "F3", Vector3.new(w3, tipLen, w3),
-        baseCF * CFrame.new(0, segLen1 + segLen2 + tipLen / 2, 0), color))
+    table.insert(bodies, newPart(model, "FBase", Vector3.new(widthBase, baseLen, widthBase),
+        baseCF * CFrame.new(0, baseLen / 2, 0), color))
+
+    -- клинок сужается к кончику — делаем его через WedgePart-конус из 2 частей
+    local midLen = bladeLen * 0.5
+    table.insert(bodies, newPart(model, "FMid", Vector3.new(widthBase * 0.6, midLen, widthBase * 0.6),
+        baseCF * CFrame.new(0, baseLen + midLen / 2, 0), color))
+    table.insert(bodies, newPart(model, "FTip", Vector3.new(widthTip, midLen, widthTip),
+        baseCF * CFrame.new(0, baseLen + midLen + midLen / 2, 0), color))
 end
 
 -- ==================== ФИГУРЫ ====================
@@ -501,6 +502,7 @@ local HEART_COLORS = {
     Color3.fromRGB(40, 80, 255),
 }
 
+-- ★ НОВАЯ РУКА ГАСТЕРА
 local function create3DHand(size, color, name, withHeart, heartColor)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -523,9 +525,10 @@ local function create3DHand(size, color, name, withHeart, heartColor)
     addRingBand(model, bodies, bandCF1, forearmR * 1.35, s * 0.15, s * 0.20, 14, color)
     addRingBand(model, bodies, bandCF2, forearmR * 1.35, s * 0.15, s * 0.20, 14, color)
 
-    local palmR = s * 0.85
-    local palmCF = CFrame.new(0, -s * 0.15, 0)
-    addRingBand(model, bodies, palmCF, palmR, s * 0.55, s * 0.35, 18, color)
+    -- Ладонь чуть шире и площе (квадратнее), как на картинке
+    local palmR = s * 0.95
+    local palmCF = CFrame.new(0, -s * 0.10, 0)
+    addRingBand(model, bodies, palmCF, palmR, s * 0.60, s * 0.35, 18, color)
 
     local crossT, crossD = s * 0.10, s * 0.18
     table.insert(bodies, newPart(model, "PalmX1", Vector3.new(s * 0.55, crossT, crossD), palmCF, color))
@@ -533,23 +536,27 @@ local function create3DHand(size, color, name, withHeart, heartColor)
 
     if withHeart then
         local hc = heartColor or Color3.fromRGB(255, 40, 95)
-        -- ★ Увеличенное сердце
         local heartSize = s * 0.70
         local hModel = select(1, createPixelHeart(heartSize, hc, "Heart"))
         hModel.Parent = model
         hModel:PivotTo(palmCF * CFrame.new(0, 0, s * 0.02))
     end
 
-    local fingerBaseY = s * 0.45
-    local fingerAngles = { -30, -12, 8, 26 }
-    for _, ang in ipairs(fingerAngles) do
+    -- 4 длинных прямых пальца-клинка, торчащих почти вертикально веером
+    local fingerBaseY = s * 0.50
+    local fingerAngles = { -22, -8, 6, 20 }
+    for idx, ang in ipairs(fingerAngles) do
         local a = math.rad(ang)
-        local baseCF = CFrame.new(math.sin(a) * palmR * 0.7, fingerBaseY, 0)
-            * CFrame.Angles(0, 0, -a * 0.6)
-        createClaw(model, bodies, baseCF, s * 1.05, s * 0.22, color)
+        -- средний палец (idx 2,3) чуть длиннее, крайние — короче, как на референсе
+        local lenMult = (idx == 2 or idx == 3) and 1.9 or 1.55
+        local baseCF = CFrame.new(math.sin(a) * palmR * 0.55, fingerBaseY, 0)
+            * CFrame.Angles(0, 0, -a * 0.4)
+        createClaw(model, bodies, baseCF, s * lenMult, s * 0.16, s * 0.02, color)
     end
-    local thumbCF = CFrame.new(-palmR * 0.95, -s * 0.05, 0) * CFrame.Angles(0, 0, math.rad(95))
-    createClaw(model, bodies, thumbCF, s * 0.75, s * 0.20, color)
+
+    -- Большой палец — отдельно сбоку, короче и толще, под углом
+    local thumbCF = CFrame.new(-palmR * 1.0, -s * 0.35, 0) * CFrame.Angles(0, 0, math.rad(115))
+    createClaw(model, bodies, thumbCF, s * 1.1, s * 0.20, s * 0.03, color)
 
     return model, root, bodies
 end
@@ -834,11 +841,9 @@ local function startUpdateLoop()
             currentSpeed[ri] = currentSpeed[ri] + (getTargetSpeed() * ring.speedMult * ring.direction - currentSpeed[ri]) * lerpFactor
             currentSpin[ri] = currentSpin[ri] + (getTargetSpin() * ring.speedMult * ring.direction - currentSpin[ri]) * lerpFactor
 
-            -- Движение по кругу и покачивание — всегда
             currentOrbitAngle[ri] = currentOrbitAngle[ri] + currentSpeed[ri] * dt
             currentBobPhase[ri] = currentBobPhase[ri] + 2 * (globalMult * ring.speedMult) * dt
 
-            -- ★ Вращение фигур: либо крутим, либо плавно возвращаем к 0
             if not spinResetting then
                 currentSpinAngle[ri] = currentSpinAngle[ri] + currentSpin[ri] * dt
             else
@@ -1098,7 +1103,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v11.5"
+title.Text = "ОРБИТА v11.6"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
@@ -1384,7 +1389,6 @@ lightBtn.Activated:Connect(function()
     rebuildAllRings()
 end)
 
--- ★ ВОЗВРАТ ВРАЩЕНИЯ К 0
 spinBtn.Activated:Connect(function()
     spinResetting = not spinResetting
     if spinResetting then
