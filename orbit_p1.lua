@@ -62,6 +62,8 @@ ORBIT.DEFAULT_SETTINGS = {
     HeartScale = 0.65, OrbitPattern = "Круг",
     AuraEnabled = false, AuraType = "Кольцо", AuraSize = 3.5, AuraThickness = 0.15,
     AuraColor = Color3.fromRGB(150, 100, 255),
+    AuraRing = true, AuraParticles = false, AuraShapes = false,
+    AuraSpeedMult = 1.0, AuraDirection = 1,
     AutoShapeSwap = false, AutoShapeSwapInterval = 15,
     GradientEnabled = false, GradientSpeed = 0.5, GlowEnabled = true, GlowIntensity = 2,
 }
@@ -116,6 +118,14 @@ P.TRAIL_LEN = { {name="Короткий",value=0.25},{name="Средний",valu
 P.trailLengthIndex = 2
 P.TRAIL_WID = { {name="Тонкий",value=0.3},{name="Средний",value=0.8},{name="Толстый",value=1.5},{name="Широкий",value=2.5},{name="Огромный",value=4.0} }
 P.trailWidthIndex = 2
+P.AURA_SPEED = { {name="0.25x",value=0.25},{name="0.5x",value=0.5},{name="1x",value=1.0},{name="2x",value=2.0},{name="3x",value=3.0},{name="5x",value=5.0} }
+P.auraSpeedIndex = 3
+P.AURA_DIR = { {name="→ Право",value=1},{name="← Лево",value=-1} }
+P.auraDirIndex = 1
+P.AURA_SIZE = { {name="XS",value=2.0},{name="S",value=3.0},{name="M",value=3.5},{name="L",value=5.0},{name="XL",value=7.0},{name="XXL",value=10.0} }
+P.auraSizeIndex = 3
+P.AURA_THICK = { {name="Тонкая",value=0.08},{name="Обычная",value=0.15},{name="Толстая",value=0.3},{name="Очень толстая",value=0.5} }
+P.auraThickIndex = 2
 P.HEART_STEPS = { 0.1625, 0.325, 0.455, 0.65, 0.975, 1.3, 1.625, 1.95 }
 P.heartScaleIndex = 4
 ORBIT.P = P
