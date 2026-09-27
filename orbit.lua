@@ -1,15 +1,16 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v14.0 (Delta Edition - ULTIMATE)          ║
-    ║   + 20+ фигур (включая новые: МЕЧ, ЩИТ, КОРОНА, ГЛАЗ...) ║
-    ║   + 7 орбитальных узоров (спираль, волна, восьмёрка...)  ║
+    ║   ОРБИТА ФИГУР v14.1 (Delta Edition - MESH SUPPORT)      ║
+    ║   + 27 фигур с поддержкой своих мешей                    ║
+    ║   + MESH_CONFIG: впиши ID и получи свою 3D-модель        ║
+    ║   + 7 орбитальных узоров                                 ║
     ║   + Аура вокруг игрока                                   ║
     ║   + Система уведомлений                                  ║
     ║   + Статистика FPS / фигур / времени                     ║
     ║   + Автосмена фигур                                      ║
     ║   + Градиент-цвета                                       ║
     ║   + Секции в UI                                          ║
-    ║   + Автосохранение                                       ║
+    ║   + Сохранение в файл + автосохранение каждые 30 сек     ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -17,17 +18,47 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local SoundService = game:GetService("SoundService")
-local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 
 -- ==================== МЕШИ ====================
+-- Чтобы заменить фигуру на 3D-модель:
+-- 1. Открой Roblox Studio → Avatar → Mesh Importer
+-- 2. Импортируй свой .fbx/.obj файл
+-- 3. Скопируй полученный AssetId (число)
+-- 4. Вставь его сюда: "rbxassetid://ВАШ_ID"
+--
+-- Пока MESH_CONFIG пустой — используется процедурная заглушка.
 local MESH_CONFIG = {
-    HandMeshId          = "",
-    HandTextureId        = "",
-    BlasterMeshId        = "",
-    BlasterTextureId      = "",
+    ["БЛОК"]            = { MeshId = "", TextureId = "" },
+    ["ШАР"]             = { MeshId = "", TextureId = "" },
+    ["ЦИЛИНДР"]         = { MeshId = "", TextureId = "" },
+    ["КЛИН"]            = { MeshId = "", TextureId = "" },
+    ["ГОЛОВА"]          = { MeshId = "", TextureId = "" },
+    ["СЕРДЦЕ"]          = { MeshId = "", TextureId = "" },
+    ["ЗВЕЗДА"]          = { MeshId = "", TextureId = "" },
+    ["ТРЕУГОЛЬНИК"]     = { MeshId = "", TextureId = "" },
+    ["РОМБ"]            = { MeshId = "", TextureId = "" },
+    ["КРЕСТ"]           = { MeshId = "", TextureId = "" },
+    ["ЧЕРЕП"]           = { MeshId = "", TextureId = "" },
+    ["МОЛНИЯ"]          = { MeshId = "", TextureId = "" },
+    ["РУКА"]            = { MeshId = "", TextureId = "" },
+    ["РУКА-СЕРДЦЕ"]     = { MeshId = "", TextureId = "" },
+    ["ГАСТЕР БЛАСТЕР"]  = { MeshId = "", TextureId = "" },
+    ["МЕЧ"]             = { MeshId = "", TextureId = "" },
+    ["ЩИТ"]             = { MeshId = "", TextureId = "" },
+    ["КОРОНА"]          = { MeshId = "", TextureId = "" },
+    ["КОСТЬ"]           = { MeshId = "", TextureId = "" },
+    ["КРИСТАЛЛ"]        = { MeshId = "", TextureId = "" },
+    ["ПИРАМИДА"]        = { MeshId = "", TextureId = "" },
+    ["ИНЬ-ЯН"]          = { MeshId = "", TextureId = "" },
+    ["ГЛАЗ"]            = { MeshId = "", TextureId = "" },
+    ["РУНА"]            = { MeshId = "", TextureId = "" },
+    ["СПИРАЛЬ"]         = { MeshId = "", TextureId = "" },
+    ["КРЫЛЬЯ"]          = { MeshId = "", TextureId = "" },
+    ["ЩУПАЛЬЦЕ"]        = { MeshId = "", TextureId = "" },
 }
 
 -- ==================== МУЗЫКА ====================
@@ -62,7 +93,7 @@ local function setMusicId(idText)
     return true
 end
 
--- ==================== СИСТЕМА УВЕДОМЛЕНИЙ ====================
+-- ==================== УВЕДОМЛЕНИЯ ====================
 local NOTIF_QUEUE = {}
 
 local function notify(text, color, duration)
@@ -106,11 +137,10 @@ local DEFAULT_SETTINGS = {
     ExplosionSpeed = 0.4,
     ExplosionPower = 0.7,
     HeartScale = 0.65,
-    -- НОВЫЕ:
-    OrbitPattern = "Круг",       -- Круг / Спираль / Волна / Восьмёрка / Зигзаг / Лиссажу / Хаос
+    OrbitPattern = "Круг",
     OrbitPatternParam = 1.0,
     AuraEnabled = false,
-    AuraType = "Кольцо",          -- Кольцо / Частицы / Оба
+    AuraType = "Кольцо",
     AuraSize = 3.5,
     AuraThickness = 0.15,
     AuraColor = Color3.fromRGB(150, 100, 255),
@@ -726,6 +756,7 @@ local function create3DHand(size, color, name, withHeart, heartColor)
     return model, root, bodies
 end
 
+-- ★ Функция создания меша
 local function createMeshShape(meshId, textureId, size, name, color)
     local model, root = newModelShell(name)
     local mp = Instance.new("MeshPart")
@@ -744,29 +775,22 @@ local function createMeshShape(meshId, textureId, size, name, color)
 end
 
 -- ==================== НОВЫЕ ФИГУРЫ ====================
-
--- ★ МЕЧ (Sword)
 local function createSword(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    -- Лезвие
     table.insert(bodies, newPart(model, "Blade",
         Vector3.new(s * 0.18, s * 3.5, s * 0.10),
         CFrame.new(0, s * 0.9, 0), color))
-    -- Остриё (пирамидка сверху)
     local tip = newPart(model, "Tip", Vector3.new(s * 0.18, s * 0.4, s * 0.10),
         CFrame.new(0, s * 2.85, 0), color)
     table.insert(bodies, tip)
-    -- Гарда (крестовина)
     table.insert(bodies, newPart(model, "Guard",
         Vector3.new(s * 1.4, s * 0.15, s * 0.20),
         CFrame.new(0, -s * 0.85, 0), color))
-    -- Рукоять
     table.insert(bodies, newPart(model, "Handle",
         Vector3.new(s * 0.20, s * 0.9, s * 0.20),
         CFrame.new(0, -s * 1.35, 0), color))
-    -- Навершие (шарик)
     local pommel = newPart(model, "Pommel", Vector3.new(s * 0.30, s * 0.30, s * 0.30),
         CFrame.new(0, -s * 1.90, 0), color)
     local m = Instance.new("SpecialMesh")
@@ -776,26 +800,22 @@ local function createSword(size, color, name)
     return model, root, bodies
 end
 
--- ★ ЩИТ (Shield)
 local function createShield(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    -- Основа щита (ромб)
     local shield = newPart(model, "Base", Vector3.new(s * 1.6, s * 2.0, s * 0.18),
         CFrame.new(0, 0, 0), color)
     local m = Instance.new("SpecialMesh")
     m.MeshType = Enum.MeshType.Wedge
     m.Parent = shield
     table.insert(bodies, shield)
-    -- Крест по центру
     table.insert(bodies, newPart(model, "CrossV",
         Vector3.new(s * 0.15, s * 1.5, s * 0.22),
         CFrame.new(0, 0, -s * 0.06), color))
     table.insert(bodies, newPart(model, "CrossH",
         Vector3.new(s * 1.2, s * 0.15, s * 0.22),
         CFrame.new(0, s * 0.20, -s * 0.06), color))
-    -- Умбо (центр)
     local umbo = newPart(model, "Umbo", Vector3.new(s * 0.4, s * 0.4, s * 0.25),
         CFrame.new(0, 0, -s * 0.12), color)
     local m2 = Instance.new("SpecialMesh")
@@ -805,19 +825,16 @@ local function createShield(size, color, name)
     return model, root, bodies
 end
 
--- ★ КОРОНА (Crown)
 local function createCrown(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    -- Обод
     local ring = newPart(model, "Ring", Vector3.new(s * 2.0, s * 0.4, s * 2.0),
         CFrame.new(0, 0, 0), color)
     local m = Instance.new("SpecialMesh")
     m.MeshType = Enum.MeshType.Cylinder
     m.Parent = ring
     table.insert(bodies, ring)
-    -- Зубцы (7 штук)
     local spikes = 7
     for i = 1, spikes do
         local angle = (i - 1) / spikes * math.pi * 2
@@ -829,7 +846,6 @@ local function createCrown(size, color, name)
         sm.MeshType = Enum.MeshType.Pyramid
         sm.Parent = spike
         table.insert(bodies, spike)
-        -- Шарик на конце
         local ball = newPart(model, "Ball", Vector3.new(s * 0.20, s * 0.20, s * 0.20),
             CFrame.new(x, s * 0.9, z), color)
         local bm = Instance.new("SpecialMesh")
@@ -840,16 +856,13 @@ local function createCrown(size, color, name)
     return model, root, bodies
 end
 
--- ★ КОСТЬ (Bone)
 local function createBone(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    -- Стержень кости
     table.insert(bodies, newPart(model, "Shaft",
         Vector3.new(s * 0.3, s * 1.8, s * 0.3),
         CFrame.new(0, 0, 0), color))
-    -- Верхние шишки
     for _, side in ipairs({-1, 1}) do
         local top = newPart(model, "Top", Vector3.new(s * 0.5, s * 0.4, s * 0.5),
             CFrame.new(side * s * 0.25, s * 1.0, 0), color)
@@ -867,19 +880,16 @@ local function createBone(size, color, name)
     return model, root, bodies
 end
 
--- ★ КРИСТАЛЛ (Crystal)
 local function createCrystal(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    -- Основной кристалл
     local main = newPart(model, "Main", Vector3.new(s * 0.6, s * 2.0, s * 0.6),
         CFrame.new(0, 0, 0), color)
     local m = Instance.new("SpecialMesh")
     m.MeshType = Enum.MeshType.Pyramid
     m.Parent = main
     table.insert(bodies, main)
-    -- Побочные кристаллы
     for i = 1, 4 do
         local angle = (i - 1) / 4 * math.pi * 2
         local x = math.cos(angle) * s * 0.4
@@ -894,7 +904,6 @@ local function createCrystal(size, color, name)
     return model, root, bodies
 end
 
--- ★ ПИРАМИДА
 local function createPyramid(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -908,33 +917,28 @@ local function createPyramid(size, color, name)
     return model, root, bodies
 end
 
--- ★ ИНЬ-ЯН
 local function createYinYang(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    -- Основа
     local base = newPart(model, "Base", Vector3.new(s * 1.8, s * 0.3, s * 1.8),
         CFrame.new(0, 0, 0), color)
     local m = Instance.new("SpecialMesh")
     m.MeshType = Enum.MeshType.Cylinder
     m.Parent = base
     table.insert(bodies, base)
-    -- Большая точка (светлая)
     local white = newPart(model, "White", Vector3.new(s * 0.5, s * 0.4, s * 0.5),
         CFrame.new(0, s * 0.2, s * 0.5), color)
     local wm = Instance.new("SpecialMesh")
     wm.MeshType = Enum.MeshType.Sphere
     wm.Parent = white
     table.insert(bodies, white)
-    -- Большая точка (тёмная)
     local black = newPart(model, "Black", Vector3.new(s * 0.5, s * 0.4, s * 0.5),
         CFrame.new(0, s * 0.2, -s * 0.5), color)
     local bm = Instance.new("SpecialMesh")
     bm.MeshType = Enum.MeshType.Sphere
     bm.Parent = black
     table.insert(bodies, black)
-    -- Маленькие точки
     local wsmall = newPart(model, "WS", Vector3.new(s * 0.2, s * 0.3, s * 0.2),
         CFrame.new(0, s * 0.3, -s * 0.5), color)
     local wsm = Instance.new("SpecialMesh")
@@ -950,26 +954,22 @@ local function createYinYang(size, color, name)
     return model, root, bodies
 end
 
--- ★ ГЛАЗ (Eye of Sauron style)
 local function createEye(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    -- Веко-обод
     local ring = newPart(model, "Ring", Vector3.new(s * 1.6, s * 0.4, s * 1.6),
         CFrame.new(0, 0, 0), color)
     local rm = Instance.new("SpecialMesh")
     rm.MeshType = Enum.MeshType.Cylinder
     rm.Parent = ring
     table.insert(bodies, ring)
-    -- Яблоко
     local apple = newPart(model, "Apple", Vector3.new(s * 1.2, s * 0.9, s * 1.2),
         CFrame.new(0, 0, 0), color)
     local am = Instance.new("SpecialMesh")
     am.MeshType = Enum.MeshType.Sphere
     am.Parent = apple
     table.insert(bodies, apple)
-    -- Зрачок
     local pupil = newPart(model, "Pupil", Vector3.new(s * 0.4, s * 0.4, s * 0.4),
         CFrame.new(0, 0, 0), color)
     pupil:SetAttribute("NoRecolor", true)
@@ -981,26 +981,22 @@ local function createEye(size, color, name)
     return model, root, bodies
 end
 
--- ★ РУНА (Magic circle)
 local function createRune(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    -- Внешнее кольцо
     local outer = newPart(model, "Outer", Vector3.new(s * 2.0, s * 0.15, s * 2.0),
         CFrame.new(0, 0, 0), color)
     local om = Instance.new("SpecialMesh")
     om.MeshType = Enum.MeshType.Cylinder
     om.Parent = outer
     table.insert(bodies, outer)
-    -- Внутреннее кольцо
     local inner = newPart(model, "Inner", Vector3.new(s * 1.2, s * 0.2, s * 1.2),
         CFrame.new(0, 0, 0), color)
     local im = Instance.new("SpecialMesh")
     im.MeshType = Enum.MeshType.Cylinder
     im.Parent = inner
     table.insert(bodies, inner)
-    -- Лучи (6 штук)
     for i = 1, 6 do
         local angle = (i - 1) / 6 * math.pi * 2
         local x = math.cos(angle) * s * 0.8
@@ -1012,7 +1008,6 @@ local function createRune(size, color, name)
     return model, root, bodies
 end
 
--- ★ СПИРАЛЬ
 local function createSpiral(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -1031,13 +1026,11 @@ local function createSpiral(size, color, name)
     return model, root, bodies
 end
 
--- ★ КРЫЛЬЯ
 local function createWings(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
     for _, side in ipairs({-1, 1}) do
-        -- 3 пера
         for i = 1, 3 do
             local len = s * (1.6 - (i-1) * 0.3)
             local feather = newPart(model, "Feather", Vector3.new(s * 0.15, s * 0.15, len),
@@ -1045,7 +1038,6 @@ local function createWings(size, color, name)
                 * CFrame.Angles(0, math.rad(side * 20), 0), color)
             table.insert(bodies, feather)
         end
-        -- Основание
         local base = newPart(model, "Base", Vector3.new(s * 0.4, s * 0.5, s * 0.3),
             CFrame.new(side * s * 0.2, 0, 0), color)
         table.insert(bodies, base)
@@ -1053,7 +1045,6 @@ local function createWings(size, color, name)
     return model, root, bodies
 end
 
--- ★ ЩУПАЛЬЦЕ
 local function createTentacle(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -1075,7 +1066,6 @@ local function createTentacle(size, color, name)
     return model, root, bodies
 end
 
--- ★ ГАСТЕР БЛАСТЕР (заглушка)
 local function create3DBlasterPlaceholder(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -1194,148 +1184,195 @@ local function create3DBlasterPlaceholder(size, color, name)
     return model, root, bodies
 end
 
+-- ==================== ХЕЛПЕР ДЛЯ МЕША ====================
+local function tryMesh(shapeName, fallbackFn, size, name, color)
+    local cfg = MESH_CONFIG[shapeName]
+    if cfg and cfg.MeshId ~= "" then
+        local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId or "", size, name, color)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
+    end
+    return fallbackFn()
+end
+
 -- ==================== СПИСОК ФИГУР ====================
 local SHAPE_PRESETS = {
-    -- 1-4: базовые
     { name = "БЛОК", create = function(size, name)
-        local p = Instance.new("Part")
-        p.Name = name; p.Shape = Enum.PartType.Block
-        p.Size = Vector3.new(size, size, size)
-        return { part = p }
+        return tryMesh("БЛОК", function()
+            local p = Instance.new("Part")
+            p.Name = name; p.Shape = Enum.PartType.Block
+            p.Size = Vector3.new(size, size, size)
+            return { part = p }
+        end, size, name, Color3.fromRGB(255, 255, 255))
     end },
     { name = "ШАР", create = function(size, name)
-        local p = Instance.new("Part")
-        p.Name = name; p.Shape = Enum.PartType.Ball
-        p.Size = Vector3.new(size, size, size)
-        return { part = p }
+        return tryMesh("ШАР", function()
+            local p = Instance.new("Part")
+            p.Name = name; p.Shape = Enum.PartType.Ball
+            p.Size = Vector3.new(size, size, size)
+            return { part = p }
+        end, size, name, Color3.fromRGB(255, 255, 255))
     end },
     { name = "ЦИЛИНДР", create = function(size, name)
-        local p = Instance.new("Part")
-        p.Name = name; p.Shape = Enum.PartType.Cylinder
-        p.Size = Vector3.new(size, size, size)
-        return { part = p }
+        return tryMesh("ЦИЛИНДР", function()
+            local p = Instance.new("Part")
+            p.Name = name; p.Shape = Enum.PartType.Cylinder
+            p.Size = Vector3.new(size, size, size)
+            return { part = p }
+        end, size, name, Color3.fromRGB(255, 255, 255))
     end },
     { name = "КЛИН", create = function(size, name)
-        local p = Instance.new("WedgePart")
-        p.Name = name; p.Size = Vector3.new(size, size, size)
-        return { part = p }
+        return tryMesh("КЛИН", function()
+            local p = Instance.new("WedgePart")
+            p.Name = name; p.Size = Vector3.new(size, size, size)
+            return { part = p }
+        end, size, name, Color3.fromRGB(255, 255, 255))
     end },
-    -- 5-6
     { name = "ГОЛОВА", create = function(size, name)
-        local m, r, b = createHead(size, Color3.fromRGB(255, 220, 60), name)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size }
+        return tryMesh("ГОЛОВА", function()
+            local m, r, b = createHead(size, Color3.fromRGB(255, 220, 60), name)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size }
+        end, size, name, Color3.fromRGB(255, 220, 60))
     end },
     { name = "СЕРДЦЕ", create = function(size, name)
-        local hs = size * 1.8
-        local m, r, b = createPixelHeart(hs, Color3.fromRGB(255, 60, 120), name)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = hs }
+        return tryMesh("СЕРДЦЕ", function()
+            local hs = size * 1.8
+            local m, r, b = createPixelHeart(hs, Color3.fromRGB(255, 60, 120), name)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = hs }
+        end, size, name, Color3.fromRGB(255, 60, 120))
     end },
-    -- 7-12
     { name = "ЗВЕЗДА", create = function(s, n)
-        local m, r, b = create3DStar(s, Color3.fromRGB(255, 200, 40), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s }
+        return tryMesh("ЗВЕЗДА", function()
+            local m, r, b = create3DStar(s, Color3.fromRGB(255, 200, 40), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s }
+        end, s, n, Color3.fromRGB(255, 200, 40))
     end },
     { name = "ТРЕУГОЛЬНИК", create = function(s, n)
-        local m, r, b = create3DTriangle(s, Color3.fromRGB(0, 255, 120), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
+        return tryMesh("ТРЕУГОЛЬНИК", function()
+            local m, r, b = create3DTriangle(s, Color3.fromRGB(0, 255, 120), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
+        end, s, n, Color3.fromRGB(0, 255, 120))
     end },
     { name = "РОМБ", create = function(s, n)
-        local m, r, b = create3DDiamond(s, Color3.fromRGB(0, 200, 255), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
+        return tryMesh("РОМБ", function()
+            local m, r, b = create3DDiamond(s, Color3.fromRGB(0, 200, 255), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
+        end, s, n, Color3.fromRGB(0, 200, 255))
     end },
     { name = "КРЕСТ", create = function(s, n)
-        local m, r, b = create3DCross(s, Color3.fromRGB(230, 220, 200), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+        return tryMesh("КРЕСТ", function()
+            local m, r, b = create3DCross(s, Color3.fromRGB(230, 220, 200), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+        end, s, n, Color3.fromRGB(230, 220, 200))
     end },
     { name = "ЧЕРЕП", create = function(s, n)
-        local m, r, b = create3DSkull(s, Color3.fromRGB(235, 230, 215), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.4 }
+        return tryMesh("ЧЕРЕП", function()
+            local m, r, b = create3DSkull(s, Color3.fromRGB(235, 230, 215), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.4 }
+        end, s, n, Color3.fromRGB(235, 230, 215))
     end },
     { name = "МОЛНИЯ", create = function(s, n)
-        local m, r, b = create3DLightning(s, Color3.fromRGB(255, 230, 60), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
+        return tryMesh("МОЛНИЯ", function()
+            local m, r, b = create3DLightning(s, Color3.fromRGB(255, 230, 60), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
+        end, s, n, Color3.fromRGB(255, 230, 60))
     end },
-    -- 13-14: рука
     { name = "РУКА", create = function(s, n)
-        if MESH_CONFIG.HandMeshId ~= "" then
-            local m, r, b = createMeshShape(MESH_CONFIG.HandMeshId, MESH_CONFIG.HandTextureId, s, n, Color3.fromRGB(235, 230, 215))
+        return tryMesh("РУКА", function()
+            local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, false)
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
-        end
-        local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, false)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
+        end, s, n, Color3.fromRGB(235, 230, 215))
     end },
     { name = "РУКА-СЕРДЦЕ", create = function(s, n, idx)
         local hc = HEART_COLORS[((idx or 1) - 1) % #HEART_COLORS + 1]
-        if MESH_CONFIG.HandMeshId ~= "" then
-            local m, r, b = createMeshShape(MESH_CONFIG.HandMeshId, MESH_CONFIG.HandTextureId, s, n, Color3.fromRGB(235, 230, 215))
+        local cfg = MESH_CONFIG["РУКА-СЕРДЦЕ"]
+        if cfg and cfg.MeshId ~= "" then
+            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId or "", s, n, Color3.fromRGB(235, 230, 215))
             local heartSize = s * 1.8 * SETTINGS.HeartScale
             local hModel = select(1, createPixelHeart(heartSize, hc, "Heart"))
             hModel.Parent = m
             hModel:PivotTo(CFrame.new(0, 0, s * 0.3))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, true, hc)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
     end },
-    -- 15: бластер
     { name = "ГАСТЕР БЛАСТЕР", create = function(s, n)
-        if MESH_CONFIG.BlasterMeshId ~= "" then
-            local m, r, b = createMeshShape(MESH_CONFIG.BlasterMeshId, MESH_CONFIG.BlasterTextureId, s, n, Color3.fromRGB(240, 240, 245))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.0 }
-        end
-        local m, r, b = create3DBlasterPlaceholder(s, Color3.fromRGB(240, 240, 245), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.6 }
+        return tryMesh("ГАСТЕР БЛАСТЕР", function()
+            local m, r, b = create3DBlasterPlaceholder(s, Color3.fromRGB(240, 240, 245), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.6 }
+        end, s, n, Color3.fromRGB(240, 240, 245))
     end },
-    -- 16-20: НОВЫЕ
     { name = "МЕЧ", create = function(s, n)
-        local m, r, b = createSword(s, Color3.fromRGB(220, 230, 245), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.0 }
+        return tryMesh("МЕЧ", function()
+            local m, r, b = createSword(s, Color3.fromRGB(220, 230, 245), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.0 }
+        end, s, n, Color3.fromRGB(220, 230, 245))
     end },
     { name = "ЩИТ", create = function(s, n)
-        local m, r, b = createShield(s, Color3.fromRGB(200, 220, 240), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
+        return tryMesh("ЩИТ", function()
+            local m, r, b = createShield(s, Color3.fromRGB(200, 220, 240), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
+        end, s, n, Color3.fromRGB(200, 220, 240))
     end },
     { name = "КОРОНА", create = function(s, n)
-        local m, r, b = createCrown(s, Color3.fromRGB(255, 215, 0), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
+        return tryMesh("КОРОНА", function()
+            local m, r, b = createCrown(s, Color3.fromRGB(255, 215, 0), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
+        end, s, n, Color3.fromRGB(255, 215, 0))
     end },
     { name = "КОСТЬ", create = function(s, n)
-        local m, r, b = createBone(s, Color3.fromRGB(245, 240, 220), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+        return tryMesh("КОСТЬ", function()
+            local m, r, b = createBone(s, Color3.fromRGB(245, 240, 220), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+        end, s, n, Color3.fromRGB(245, 240, 220))
     end },
     { name = "КРИСТАЛЛ", create = function(s, n)
-        local m, r, b = createCrystal(s, Color3.fromRGB(150, 230, 255), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+        return tryMesh("КРИСТАЛЛ", function()
+            local m, r, b = createCrystal(s, Color3.fromRGB(150, 230, 255), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+        end, s, n, Color3.fromRGB(150, 230, 255))
     end },
-    -- 21-25: ещё больше
     { name = "ПИРАМИДА", create = function(s, n)
-        local m, r, b = createPyramid(s, Color3.fromRGB(255, 200, 100), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
+        return tryMesh("ПИРАМИДА", function()
+            local m, r, b = createPyramid(s, Color3.fromRGB(255, 200, 100), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
+        end, s, n, Color3.fromRGB(255, 200, 100))
     end },
     { name = "ИНЬ-ЯН", create = function(s, n)
-        local m, r, b = createYinYang(s, Color3.fromRGB(220, 220, 240), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+        return tryMesh("ИНЬ-ЯН", function()
+            local m, r, b = createYinYang(s, Color3.fromRGB(220, 220, 240), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+        end, s, n, Color3.fromRGB(220, 220, 240))
     end },
     { name = "ГЛАЗ", create = function(s, n)
-        local m, r, b = createEye(s, Color3.fromRGB(255, 200, 200), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
+        return tryMesh("ГЛАЗ", function()
+            local m, r, b = createEye(s, Color3.fromRGB(255, 200, 200), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
+        end, s, n, Color3.fromRGB(255, 200, 200))
     end },
     { name = "РУНА", create = function(s, n)
-        local m, r, b = createRune(s, Color3.fromRGB(180, 150, 255), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+        return tryMesh("РУНА", function()
+            local m, r, b = createRune(s, Color3.fromRGB(180, 150, 255), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+        end, s, n, Color3.fromRGB(180, 150, 255))
     end },
     { name = "СПИРАЛЬ", create = function(s, n)
-        local m, r, b = createSpiral(s, Color3.fromRGB(120, 200, 255), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+        return tryMesh("СПИРАЛЬ", function()
+            local m, r, b = createSpiral(s, Color3.fromRGB(120, 200, 255), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+        end, s, n, Color3.fromRGB(120, 200, 255))
     end },
-    -- 26-27: крылья и щупальце
     { name = "КРЫЛЬЯ", create = function(s, n)
-        local m, r, b = createWings(s, Color3.fromRGB(240, 240, 255), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
+        return tryMesh("КРЫЛЬЯ", function()
+            local m, r, b = createWings(s, Color3.fromRGB(240, 240, 255), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
+        end, s, n, Color3.fromRGB(240, 240, 255))
     end },
     { name = "ЩУПАЛЬЦЕ", create = function(s, n)
-        local m, r, b = createTentacle(s, Color3.fromRGB(150, 80, 180), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+        return tryMesh("ЩУПАЛЬЦЕ", function()
+            local m, r, b = createTentacle(s, Color3.fromRGB(150, 80, 180), n)
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+        end, s, n, Color3.fromRGB(150, 80, 180))
     end },
 }
 local shapeIndex = 1
@@ -1407,7 +1444,6 @@ end
 local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
     local pattern = SETTINGS.OrbitPattern
     local t = baseAngle
-    local param = SETTINGS.OrbitPatternParam
 
     if pattern == "Круг" then
         return math.cos(t) * baseRadius, baseHeight, math.sin(t) * baseRadius
@@ -1658,7 +1694,6 @@ local function startUpdateLoop()
         local lerpFactor = math.clamp(dt * SETTINGS.LerpSpeed, 0, 1)
         local baseSize = getCurrentShapeSize()
 
-        -- FPS счётчик
         statsData.fpsFrames = statsData.fpsFrames + 1
         if t - statsData.fpsLastCheck >= 1 then
             statsData.lastFPS = math.floor(statsData.fpsFrames / (t - statsData.fpsLastCheck))
@@ -1667,10 +1702,8 @@ local function startUpdateLoop()
         end
         statsData.sessionTime = t
 
-        -- Аура
         updateAura()
 
-        -- Автосмена фигур
         if SETTINGS.AutoShapeSwap and (tick() - lastAutoSwap) > SETTINGS.AutoShapeSwapInterval then
             lastAutoSwap = tick()
             currentAutoShapeIndex = currentAutoShapeIndex + 1
@@ -1729,7 +1762,6 @@ local function startUpdateLoop()
                     yBob = math.sin(bobPhase + i + ri * 0.5) * SETTINGS.BobAmplitude
                 end
 
-                -- Орбитальный узор
                 local px, py, pz = applyOrbitPattern(ri, angle, radius, height + yBob)
                 local offset = Vector3.new(px, py, pz)
 
@@ -1843,7 +1875,7 @@ local function setupRespawnHook()
     end)
 end
 
--- ==================== СОХРАНЕНИЕ / ЗАГРУЗКА ====================
+-- ==================== СОХРАНЕНИЕ В ФАЙЛ ====================
 local SAVE_FILE = "OrbitFX_v14_save.json"
 
 local function collectSaveData()
@@ -1999,13 +2031,12 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "✨ ОРБИТА v14.0 ULTIMATE"
+title.Text = "✨ ОРБИТА v14.1 (Delta MESH)"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
-title.TextSize = 13
+title.TextSize = 12
 title.Parent = panel
 
--- Функция для создания секции (заголовок)
 local function makeSection(text, y, color)
     local s = Instance.new("TextLabel")
     s.Size = UDim2.new(1, -20, 0, 20)
@@ -2038,7 +2069,6 @@ local function makeButton(text, y, h, bgColor, textColor)
     return b
 end
 
--- СЕКЦИЯ: Основное
 makeSection("⚡ ОСНОВНОЕ", 36, Color3.fromRGB(60, 60, 100))
 local toggleBtn     = makeButton("🟢 ВКЛЮЧЕНО", 60, 30, Color3.fromRGB(40, 40, 55), Color3.fromRGB(0, 255, 120))
 local allRingsBtn   = makeButton("⭕ Все кольца: ВКЛ", 93, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
@@ -2047,7 +2077,6 @@ local ring3Btn      = makeButton("➕ Кольцо 3", 159, 30, Color3.fromRGB(4
 local ring4Btn      = makeButton("➕ Кольцо 4", 192, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
 local ring5Btn      = makeButton("➕ Кольцо 5", 225, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
 
--- СЕКЦИЯ: Форма
 makeSection("🔷 ФОРМА И ФИГУРЫ", 262, Color3.fromRGB(60, 80, 100))
 local shapeBtn      = makeButton("🔷 Форма: " .. SHAPE_PRESETS[shapeIndex].name, 286, 30)
 local shapeModeBtn  = makeButton("🎭 Формы: " .. FORM_MODES[formModeIndex].name, 319, 30, Color3.fromRGB(50, 40, 65), Color3.fromRGB(220, 200, 255))
@@ -2055,7 +2084,6 @@ local shapeSizeBtn  = makeButton("🔍 Фигура: " .. SHAPE_SIZE_PRESETS[sha
 local heartSizeBtn  = makeButton("💗 Сердце: 100%", 385, 30, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200))
 local autoSwapBtn   = makeButton("🎭 Автосмена: ВЫКЛ", 418, 30, Color3.fromRGB(50, 50, 70), Color3.fromRGB(200, 200, 255))
 
--- СЕКЦИЯ: Орбита
 makeSection("🛰️ ОРБИТА И ДВИЖЕНИЕ", 455, Color3.fromRGB(60, 100, 80))
 local orbitBtn      = makeButton("📏 Орбита: " .. ORBIT_PRESETS[orbitIndex].name, 479, 30)
 local spreadBtn     = makeButton("📐 Разлёт: " .. SPREAD_PRESETS[spreadIndex].name, 512, 30, Color3.fromRGB(55, 30, 55), Color3.fromRGB(255, 180, 255))
@@ -2065,14 +2093,12 @@ local speedModeBtn  = makeButton("⚙️ Скорость: " .. SPEED_MODE_PRESE
 local directionBtn  = makeButton("🔃 Направление: " .. DIRECTION_PRESETS[directionIndex].name, 644, 30, Color3.fromRGB(45, 35, 60), Color3.fromRGB(200, 180, 255))
 local orbitPatternBtn = makeButton("🌀 Узор: " .. ORBIT_PATTERNS[orbitPatternIndex].name, 677, 30, Color3.fromRGB(60, 40, 90), Color3.fromRGB(220, 180, 255))
 
--- СЕКЦИЯ: Кручение
 makeSection("🔄 КРУЧЕНИЕ", 714, Color3.fromRGB(100, 60, 80))
 local spinBtn       = makeButton("↩️ Вращение в 0", 738, 30, Color3.fromRGB(50, 40, 60), Color3.fromRGB(200, 180, 255))
 local spinAxisBtn   = makeButton("🔄 Кручение оси: ВКЛ", 771, 30, Color3.fromRGB(35, 55, 55), Color3.fromRGB(140, 255, 220))
 local spinDirBtn    = makeButton("↕️ Ось: ВЕРХ/ВНИЗ", 804, 30, Color3.fromRGB(45, 55, 75), Color3.fromRGB(180, 220, 255))
 local spinSpeedBtn  = makeButton("🌀 Скорость кручения: 1x", 837, 30, Color3.fromRGB(55, 35, 75), Color3.fromRGB(220, 180, 255))
 
--- СЕКЦИЯ: Эффекты
 makeSection("✨ ЭФФЕКТЫ", 874, Color3.fromRGB(100, 80, 60))
 local trailBtn      = makeButton("🌠 Трейлы: ВЫКЛ", 898, 30, Color3.fromRGB(35, 35, 50))
 local trailLenBtn   = makeButton("📏 Трейл: " .. TRAIL_LENGTH_PRESETS[trailLengthIndex].name, 931, 30, Color3.fromRGB(35, 45, 60), Color3.fromRGB(180, 220, 255))
@@ -2082,18 +2108,15 @@ local explosionBtn  = makeButton("💥 Взрыв: ВЫКЛ", 1030, 30, Color3.f
 local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 1063, 30, Color3.fromRGB(35, 35, 50))
 local gradientBtn   = makeButton("🌈 Градиент: ВЫКЛ", 1096, 30, Color3.fromRGB(55, 35, 75), Color3.fromRGB(255, 180, 255))
 
--- СЕКЦИЯ: Аура
 makeSection("🌀 АУРА", 1133, Color3.fromRGB(80, 60, 120))
 local auraBtn       = makeButton("🌀 Аура: ВЫКЛ", 1157, 30, Color3.fromRGB(50, 40, 70), Color3.fromRGB(200, 180, 255))
 local auraTypeBtn   = makeButton("🔮 Тип: " .. AURA_TYPES[auraTypeIndex].name, 1190, 30, Color3.fromRGB(50, 40, 70), Color3.fromRGB(200, 180, 255))
 
--- СЕКЦИЯ: Цвет и свет
 makeSection("🎨 ЦВЕТ И СВЕТ", 1227, Color3.fromRGB(100, 100, 50))
 local colorBtn      = makeButton("🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name, 1251, 30)
 local lightBtn      = makeButton("💡 Свет: ВКЛ", 1284, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
 local nameBtn       = makeButton("🏷️ Имена: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ"), 1317, 30)
 
--- СЕКЦИЯ: Статистика
 makeSection("📊 СТАТИСТИКА", 1354, Color3.fromRGB(60, 60, 90))
 local statsLabel = Instance.new("TextLabel")
 statsLabel.Size = UDim2.new(1, -20, 0, 50)
@@ -2109,7 +2132,6 @@ statsLabel.Text = "FPS: -- | Фигур: 0 | Время: 0 сек"
 statsLabel.Parent = panel
 Instance.new("UICorner", statsLabel).CornerRadius = UDim.new(0, 6)
 
--- СЕКЦИЯ: Музыка
 makeSection("🎵 МУЗЫКА", 1438, Color3.fromRGB(80, 60, 100))
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
@@ -2132,8 +2154,7 @@ inputStroke.Thickness = 1
 local applyIdBtn = makeButton("✅ Применить ID", 1500, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
 local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1533, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
 
--- СЕКЦИЯ: Система
-makeSection("💾 СИСТЕМА", 1570, Color3.fromRGB(60, 60, 80))
+makeSection("💾 СИСТЕМА (файл)", 1570, Color3.fromRGB(60, 60, 80))
 local saveBtn       = makeButton("💾 Сохранить", 1594, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
 local loadBtn       = makeButton("📂 Загрузить", 1627, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
 local resetBtn      = makeButton("🔄 Сброс", 1660, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
@@ -2183,14 +2204,7 @@ local function refreshSpinSpeedBtn()
 end
 
 local HEART_SCALE_STEPS = {
-    0.1625,   -- 25%
-    0.325,    -- 50%
-    0.455,    -- 70%
-    0.65,     -- 100%
-    0.975,    -- 150%
-    1.3,      -- 200%
-    1.625,    -- 250%
-    1.95,     -- 300%
+    0.1625, 0.325, 0.455, 0.65, 0.975, 1.3, 1.625, 1.95,
 }
 local heartScaleIndex = 4
 
@@ -2212,7 +2226,6 @@ local function refreshHeartSizeBtn()
     end
 end
 
--- Обработчики
 mainBtn.Activated:Connect(function() panel.Visible = not panel.Visible end)
 closeBtn.Activated:Connect(function() panel.Visible = false end)
 
@@ -2292,7 +2305,7 @@ autoSwapBtn.Activated:Connect(function()
         autoSwapBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 80)
         autoSwapBtn.TextColor3 = Color3.fromRGB(255, 200, 255)
         lastAutoSwap = tick()
-        notify("🎭 Автосмена: ВКЛ (каждые " .. SETTINGS.AutoShapeSwapInterval .. " сек)", Color3.fromRGB(220, 180, 255))
+        notify("🎭 Автосмена: ВКЛ", Color3.fromRGB(220, 180, 255))
     else
         autoSwapBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
         autoSwapBtn.TextColor3 = Color3.fromRGB(200, 200, 255)
@@ -2731,7 +2744,6 @@ task.spawn(function()
                     end
                 end
                 lbl:Destroy()
-                -- Пересобрать позиции
                 for i, l in ipairs(activeNotifs) do
                     l.Position = UDim2.new(0, 0, 0, (i-1) * 38)
                 end
@@ -2751,7 +2763,6 @@ task.spawn(function()
                 "📊 FPS: %d | 🔷 Фигур: %d\n⏱️ Время: %d:%02d | 🌀 Узор: %s",
                 statsData.lastFPS, statsData.totalShapes, minutes, seconds, SETTINGS.OrbitPattern
             )
-            -- Цвет по FPS
             local c = Color3.fromRGB(180, 220, 180)
             if statsData.lastFPS >= 50 then c = Color3.fromRGB(160, 255, 180)
             elseif statsData.lastFPS >= 30 then c = Color3.fromRGB(255, 220, 140)
@@ -2789,7 +2800,7 @@ setEnabled(true)
 refreshSpinSpeedBtn()
 refreshHeartSizeBtn()
 
-notify("✨ ОРБИТА v14.0 ULTIMATE загружена!", Color3.fromRGB(200, 200, 255), 3)
+notify("✨ ОРБИТА v14.1 (Delta MESH) загружена!", Color3.fromRGB(200, 200, 255), 3)
 
 return {
     Stop = function() setEnabled(false) end,
@@ -2802,4 +2813,5 @@ return {
     HeightPresets = HEIGHT_PRESETS,
     ShapePresets = SHAPE_PRESETS,
     Stats = statsData,
+    MeshConfig = MESH_CONFIG,
 }
