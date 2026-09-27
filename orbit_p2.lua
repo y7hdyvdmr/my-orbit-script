@@ -1,17 +1,13 @@
 --[[ ОРБИТА v15.3 — ЧАСТЬ 2/4: ФИГУРЫ (24 шт.) ]]
 
-local ORBIT = getgenv().ORBIT
-if not ORBIT then
-    warn("[Orbit P2] Часть 1 не загружена!")
-    return
-end
+local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
+if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
 
 local newPart       = ORBIT.newPart
 local newModelShell = ORBIT.newModelShell
 local makeRod       = ORBIT.makeRod
 local SETTINGS      = ORBIT.SETTINGS
 
--- ==================== БАЗОВЫЕ ФИГУРЫ ====================
 local function create3DStar(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local R, r = size*0.85, size*0.85*0.382
@@ -575,7 +571,6 @@ local function create3DBlasterPlaceholder(size, color, name)
     return model, root, bodies
 end
 
--- ==================== СПИСОК ФИГУР (24 шт.) ====================
 ORBIT.SHAPE_PRESETS = {
     { name = "БЛОК", create = function(size, name)
         local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Block; p.Size = Vector3.new(size,size,size)
@@ -601,6 +596,9 @@ ORBIT.SHAPE_PRESETS = {
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s } end },
     { name = "ТРЕУГОЛЬНИК", create = function(s, n)
         local m, r, b = create3DTriangle(s, Color3.fromRGB(0,255,120), n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.5 } end },
+    { name = "РОМБ", create = function(s, n)
+        local m, r, b = create3DDiamond(s, Color3.fromRGB(0,200,255), n)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.5 } end },
     { name = "КРЕСТ", create = function(s, n)
         local m, r, b = create3DCross(s, Color3.fromRGB(230,220,200), n)
@@ -648,13 +646,7 @@ ORBIT.SHAPE_PRESETS = {
     { name = "ЩУПАЛЬЦЕ", create = function(s, n)
         local m, r, b = createTentacle(s, Color3.fromRGB(150,80,180), n)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.0 } end },
-    { name = "РОМБ", create = function(s, n)
-        local m, r, b = create3DDiamond(s, Color3.fromRGB(0,200,255), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.5 } end },
 }
-
--- Обновляем ссылку на таблицу пресетов у колец
-ORBIT.SHAPE_PRESETS_READY = true
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
 if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (24 шт.)", Color3.fromRGB(180,255,180), 3) end
