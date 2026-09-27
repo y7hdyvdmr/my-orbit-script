@@ -17,7 +17,6 @@ local statsData = ORBIT.statsData
 local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
 if not SHAPE_PRESETS then warn("[Orbit P3] Часть 2 не загружена — фигур нет"); return end
 
--- ==================== АУРА ====================
 local function getAuraColor(i, total)
     local p = P.COLORS[P.auraColorIndex]
     if p.rainbow then
@@ -36,10 +35,9 @@ function ORBIT.setupAura()
     ORBIT.auraFolder.Name = "OrbitAura_" .. tostring(math.random(1, 999999))
     ORBIT.auraFolder.Parent = Workspace
 
-    local t = SETTINGS.AuraType
-    local needRing = (t == "Кольцо" or t == "Оба" or t == "Всё")
-    local needParticles = (t == "Частицы" or t == "Оба" or t == "Всё")
-    local needShapes = (t == "Фигуры" or t == "Всё")
+    local needRing = SETTINGS.AuraRing
+    local needParticles = SETTINGS.AuraParticles
+    local needShapes = SETTINGS.AuraShapes
 
     if needRing then
         local ring = Instance.new("Part")
@@ -114,8 +112,7 @@ local function updateAura(dt)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    local t = SETTINGS.AuraType
-    local needShapes = (t == "Фигуры" or t == "Всё")
+    local needShapes = SETTINGS.AuraShapes
     local baseCol = getAuraColor(1, 1)
 
     for _, part in ipairs(ORBIT.auraParts) do
@@ -133,7 +130,7 @@ local function updateAura(dt)
     end
 
     if needShapes and #ORBIT.auraBlocks > 0 then
-        local auraSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7
+        local auraSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7 * SETTINGS.AuraSpeedMult * SETTINGS.AuraDirection
         ORBIT.auraAngle = ORBIT.auraAngle + auraSpeed * dt
         local radius = SETTINGS.AuraSize
         local height = 0.5
@@ -153,7 +150,6 @@ local function updateAura(dt)
     end
 end
 
--- ==================== КОЛЬЦА НА ДРУГИХ ИГРОКАХ ====================
 function ORBIT.buildTargetRings(player)
     if ORBIT.targetRings[player] then
         pcall(function() ORBIT.targetRings[player].folder:Destroy() end)
@@ -257,7 +253,6 @@ function ORBIT.rebuildAllTargetRings()
     for _, p in ipairs(t) do ORBIT.removeTargetRings(p); ORBIT.buildTargetRings(p) end
 end
 
--- ==================== УЗОРЫ ====================
 local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
     local pattern = SETTINGS.OrbitPattern
     local t = baseAngle
@@ -284,7 +279,6 @@ local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
     return math.cos(t)*baseRadius, baseHeight, math.sin(t)*baseRadius
 end
 
--- ==================== ДОП. УТИЛИТЫ ====================
 function ORBIT.countActiveLights()
     local count = 0
     for _, ring in pairs(rings) do
@@ -458,7 +452,6 @@ function ORBIT.rebuildAllRings()
     ORBIT.applyNameVisibility()
 end
 
--- ==================== ОСНОВНОЙ ЦИКЛ ====================
 function ORBIT.startUpdateLoop()
     if ORBIT.updateConn then return end
     ORBIT.startTime = tick()
@@ -619,7 +612,6 @@ function ORBIT.setupRespawnHook()
     end)
 end
 
--- ==================== СОХРАНЕНИЕ ====================
 local SAVED_DATA = nil
 
 local function enc(v)
@@ -654,6 +646,10 @@ local function collectSaveData()
         pulseEnabled=SETTINGS.PulseEnabled, showNames=SETTINGS.ShowBlockNames,
         waveEnabled=SETTINGS.WaveEnabled, explosionEnabled=SETTINGS.ExplosionEnabled,
         auraEnabled=SETTINGS.AuraEnabled, auraSize=SETTINGS.AuraSize,
+        auraRing=SETTINGS.AuraRing, auraParticles=SETTINGS.AuraParticles, auraShapes=SETTINGS.AuraShapes,
+        auraSpeedMult=SETTINGS.AuraSpeedMult, auraDirection=SETTINGS.AuraDirection,
+        auraSpeedIndex=P.auraSpeedIndex, auraDirIndex=P.auraDirIndex,
+        auraSizeIndex=P.auraSizeIndex, auraThickIndex=P.auraThickIndex,
         autoShapeSwap=SETTINGS.AutoShapeSwap, autoShapeSwapInterval=SETTINGS.AutoShapeSwapInterval,
         gradientEnabled=SETTINGS.GradientEnabled,
         spinResetting=ORBIT.spinResetting, spinAxisEnabled=ORBIT.spinAxisEnabled, spinAxisDir=ORBIT.spinAxisDir,
@@ -694,7 +690,7 @@ function ORBIT.loadSettings()
     if d.shapeIndex then ORBIT.shapeIndex = d.shapeIndex end
     if d.formModeIndex then P.formModeIndex = d.formModeIndex end
     if d.orbitPatternIndex then P.orbitPatternIndex = d.orbitPatternIndex; SETTINGS.OrbitPattern = P.ORBIT_PATTERNS[P.orbitPatternIndex].name end
-    if d.auraTypeIndex then P.auraTypeIndex = d.auraTypeIndex; SETTINGS.AuraType = P.AURA_TYPES[P.auraTypeIndex].name end
+    if d.auraTypeIndex then P.auraTypeIndex = d.auraTypeIndex end
     if d.auraColorIndex then P.auraColorIndex = d.auraColorIndex end
     if d.auraShapeIndex then ORBIT.auraShapeIndex = d.auraShapeIndex end
     if d.spinResetting ~= nil then ORBIT.spinResetting = d.spinResetting end
@@ -704,6 +700,15 @@ function ORBIT.loadSettings()
     if d.heartScale then SETTINGS.HeartScale = d.heartScale end
     if d.auraEnabled ~= nil then SETTINGS.AuraEnabled = d.auraEnabled end
     if d.auraSize then SETTINGS.AuraSize = d.auraSize end
+    if d.auraRing ~= nil then SETTINGS.AuraRing = d.auraRing end
+    if d.auraParticles ~= nil then SETTINGS.AuraParticles = d.auraParticles end
+    if d.auraShapes ~= nil then SETTINGS.AuraShapes = d.auraShapes end
+    if d.auraSpeedMult then SETTINGS.AuraSpeedMult = d.auraSpeedMult end
+    if d.auraDirection then SETTINGS.AuraDirection = d.auraDirection end
+    if d.auraSpeedIndex then P.auraSpeedIndex = d.auraSpeedIndex; SETTINGS.AuraSpeedMult = P.AURA_SPEED[P.auraSpeedIndex].value end
+    if d.auraDirIndex then P.auraDirIndex = d.auraDirIndex; SETTINGS.AuraDirection = P.AURA_DIR[P.auraDirIndex].value end
+    if d.auraSizeIndex then P.auraSizeIndex = d.auraSizeIndex; SETTINGS.AuraSize = P.AURA_SIZE[P.auraSizeIndex].value end
+    if d.auraThickIndex then P.auraThickIndex = d.auraThickIndex; SETTINGS.AuraThickness = P.AURA_THICK[P.auraThickIndex].value end
     if d.autoShapeSwap ~= nil then SETTINGS.AutoShapeSwap = d.autoShapeSwap end
     if d.autoShapeSwapInterval then SETTINGS.AutoShapeSwapInterval = d.autoShapeSwapInterval end
     if d.gradientEnabled ~= nil then SETTINGS.GradientEnabled = d.gradientEnabled end
@@ -742,4 +747,4 @@ end
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
 if ORBIT.notify then ORBIT.notify("✅ Часть 3: логика загружена", Color3.fromRGB(180,255,180), 3) end
 
-return true
+return true ф
