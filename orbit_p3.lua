@@ -1,6 +1,6 @@
 --[[ ОРБИТА v15.3 — ЧАСТЬ 3/4: ЛОГИКА (аура, кольца, цикл) ]]
 
-local ORBIT = getgenv().ORBIT
+local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
 
 local Players      = ORBIT.Players
@@ -731,7 +731,6 @@ function ORBIT.loadSettings()
     return true
 end
 
--- ==================== СТАРТ ЛОГИКИ (вызывается частью 4) ====================
 function ORBIT.startLogic()
     ORBIT.createMusicSound()
     ORBIT.applyShapes()
