@@ -1,30 +1,54 @@
 --[[
-    ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v14.2 (Delta Edition - MESH + SMOOTH)     ║
-    ║   + 27 фигур с улучшенными деталями                      ║
-    ║   + MESH_CONFIG для своих 3D-моделей                     ║
-    ║   + 7 орбитальных узоров                                 ║
-    ║   + Аура вокруг игрока                                   ║
-    ║   + Система уведомлений                                  ║
-    ║   + Статистика FPS / фигур / времени                     ║
-    ║   + Автосмена фигур                                      ║
-    ║   + Градиент-цвета                                       ║
-    ║   + Секции в UI                                          ║
-    ║   + Сохранение в файл + автосохранение каждые 30 сек     ║
-    ╚══════════════════════════════════════════════════════════╝
---]]
+    ОРБИТА ФИГУР v14.0 ULTIMATE — DELTA EDITION
+    Оптимизировано под мобильный эксплойт Delta.
+    Запуск: loadstring(...)() или просто вставить в Delta и Execute.
+    Выгрузка: getgenv().OrbitFX_Unload()
+]]
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
-local SoundService = game:GetService("SoundService")
-local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
+-- ==================== DELTA / EXECUTOR АДАПТАЦИЯ ====================
+local getgenv_fn = rawget(_G, "getgenv") or function() return _G end
+local GENV = getgenv_fn()
 
-local LocalPlayer = Players.LocalPlayer
+-- Автоочистка предыдущего запуска
+if GENV.OrbitFX_Unload then
+    pcall(GENV.OrbitFX_Unload)
+end
+
+-- Безопасный родитель для UI: gethui() -> CoreGui -> PlayerGui
+local function getSafeParent()
+    if rawget(GENV, "gethui") then
+        local ok, hui = pcall(GENV.gethui)
+        if ok and hui then return hui end
+    end
+    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
+    if ok and cg then return cg end
+    return game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- Защита GUI (если поддерживается исполнителем)
+local function protectGui(gui)
+    if syn and syn.protect_gui then
+        pcall(syn.protect_gui, gui)
+    elseif rawget(GENV, "protect_gui") then
+        pcall(GENV.protect_gui, gui)
+    end
+end
+
+-- ==================== СЕРВИСЫ ====================
+local Players       = game:GetService("Players")
+local RunService    = game:GetService("RunService")
+local Workspace     = game:GetService("Workspace")
+local SoundService  = game:GetService("SoundService")
+local TweenService  = game:GetService("TweenService")
+
+local LocalPlayer   = Players.LocalPlayer
+local PlayerGui     = LocalPlayer:WaitForChild("PlayerGui")
 
 -- ==================== МЕШИ ====================
--- Впиши сюда rbxassetid://ЧИСЛО из публичного ассета. Пока пусто — процедурная фигура.
+-- Чтобы заменить фигуру на 3D-модель:
+-- 1. Загрузи .fbx/.obj на Roblox через Studio/Mesh Importer
+-- 2. Скопируй AssetId
+-- 3. Вставь "rbxassetid://ВАШ_ID" сюда
 local MESH_CONFIG = {
     ["БЛОК"]            = { MeshId = "", TextureId = "" },
     ["ШАР"]             = { MeshId = "", TextureId = "" },
@@ -62,9 +86,9 @@ local savedMusicId = ""
 local musicVolume = 0.5
 
 local function createMusicSound()
-    if musicSound then return end
+    if musicSound and musicSound.Parent then return end
     musicSound = Instance.new("Sound")
-    musicSound.Name = "OrbitMusic"
+    musicSound.Name = "OrbitMusic_" .. tostring(math.random(1, 999999))
     musicSound.Volume = musicVolume
     musicSound.Looped = true
     musicSound.Parent = SoundService
@@ -89,6 +113,7 @@ end
 
 -- ==================== УВЕДОМЛЕНИЯ ====================
 local NOTIF_QUEUE = {}
+
 local function notify(text, color, duration)
     table.insert(NOTIF_QUEUE, {
         text = text,
@@ -148,31 +173,27 @@ local SETTINGS = table.clone(DEFAULT_SETTINGS)
 
 -- ==================== ПРЕСЕТЫ ====================
 local SPIN_SPEED_PRESETS = {
-    { name = "0.5x", value = 0.5 }, { name = "1x", value = 1.0 },
-    { name = "2x", value = 2.0 }, { name = "3x", value = 3.0 },
-    { name = "5x", value = 5.0 }, { name = "10x", value = 10.0 },
+    { name = "0.5x", value = 0.5 }, { name = "1x", value = 1.0 }, { name = "2x", value = 2.0 },
+    { name = "3x", value = 3.0 }, { name = "5x", value = 5.0 }, { name = "10x", value = 10.0 },
 }
 local spinSpeedIndex = 2
 
 local SPREAD_PRESETS = {
-    { name = "1x  плотно", mult = 1.0 }, { name = "1.5x", mult = 1.5 },
-    { name = "2x  средне", mult = 2.0 }, { name = "3x  широко", mult = 3.0 },
-    { name = "5x  максимально", mult = 5.0 },
+    { name = "1x плотно", mult = 1.0 }, { name = "1.5x", mult = 1.5 }, { name = "2x средне", mult = 2.0 },
+    { name = "3x широко", mult = 3.0 }, { name = "5x максимально", mult = 5.0 },
 }
 local spreadIndex = 2
 
 local HEIGHT_PRESETS = {
-    { name = "Очень низко", offset = -12 }, { name = "Низко", offset = -6 },
-    { name = "Средне", offset = 0 }, { name = "Высоко", offset = 8 },
-    { name = "Очень высоко", offset = 18 }, { name = "Небо", offset = 35 },
+    { name = "Очень низко", offset = -12 }, { name = "Низко", offset = -6 }, { name = "Средне", offset = 0 },
+    { name = "Высоко", offset = 8 }, { name = "Очень высоко", offset = 18 }, { name = "Небо", offset = 35 },
     { name = "Космос", offset = 60 },
 }
 local heightIndex = 3
 
 local SPEED_PRESETS = {
-    { name = "0.5x", value = 0.5 }, { name = "1x", value = 1.0 },
-    { name = "1.5x", value = 1.5 }, { name = "2x", value = 2.0 },
-    { name = "3x", value = 3.0 }, { name = "5x", value = 5.0 },
+    { name = "0.5x", value = 0.5 }, { name = "1x", value = 1.0 }, { name = "1.5x", value = 1.5 },
+    { name = "2x", value = 2.0 }, { name = "3x", value = 3.0 }, { name = "5x", value = 5.0 },
     { name = "10x", value = 10.0 },
 }
 local speedIndex = 2
@@ -202,15 +223,14 @@ local ORBIT_PRESETS = {
 local orbitIndex = 2
 
 local SHAPE_SIZE_PRESETS = {
-    { name = "XS", factor = 0.5 }, { name = "S", factor = 0.75 },
-    { name = "M", factor = 1.0 }, { name = "L", factor = 1.5 },
-    { name = "XL", factor = 2.2 }, { name = "XXL", factor = 3.0 },
+    { name = "XS", factor = 0.5 }, { name = "S", factor = 0.75 }, { name = "M", factor = 1.0 },
+    { name = "L", factor = 1.5 }, { name = "XL", factor = 2.2 }, { name = "XXL", factor = 3.0 },
 }
 local shapeSizeIndex = 3
 
 local ORBIT_PATTERNS = {
-    { name = "Круг" }, { name = "Спираль" }, { name = "Волна" },
-    { name = "Восьмёрка" }, { name = "Зигзаг" }, { name = "Лиссажу" }, { name = "Хаос" },
+    { name = "Круг" }, { name = "Спираль" }, { name = "Волна" }, { name = "Восьмёрка" },
+    { name = "Зигзаг" }, { name = "Лиссажу" }, { name = "Хаос" },
 }
 local orbitPatternIndex = 1
 
@@ -288,29 +308,36 @@ local currentRadius, currentHeight, currentSpeed, currentSpin = {}, {}, {}, {}
 local currentOrbitAngle, currentSpinAngle, currentBobPhase = {}, {}, {}
 local lastAutoSwap = tick()
 local currentAutoShapeIndex = 1
-local statsData = { totalShapes = 0, sessionTime = 0, lastFPS = 60, fpsFrames = 0, fpsLastCheck = tick() }
+local statsData = {
+    totalShapes = 0, sessionTime = 0, lastFPS = 60,
+    fpsFrames = 0, fpsLastCheck = tick(),
+}
 local auraFolder = nil
 local auraParts = {}
 
 local RING_STEP = 5
 local rings = {
-    [1] = { enabled = true, shapeIndex = 1, folder = nil, blocks = {}, radiusOffset = 0, heightOffset = 0, direction = 1, speedMult = 1.0, angleShift = 0, colorShift = 0 },
+    [1] = { enabled = true,  shapeIndex = 1, folder = nil, blocks = {}, radiusOffset = 0, heightOffset = 0,   direction = 1,  speedMult = 1.0, angleShift = 0,   colorShift = 0   },
     [2] = { enabled = false, shapeIndex = 2, folder = nil, blocks = {}, radiusOffset = 1, heightOffset = -0.5, direction = -1, speedMult = 1.3, angleShift = 22.5, colorShift = 0.2 },
-    [3] = { enabled = false, shapeIndex = 3, folder = nil, blocks = {}, radiusOffset = 2, heightOffset = 0.5, direction = 1, speedMult = 0.7, angleShift = 45, colorShift = 0.4 },
-    [4] = { enabled = false, shapeIndex = 4, folder = nil, blocks = {}, radiusOffset = 3, heightOffset = -1, direction = -1, speedMult = 1.6, angleShift = 67.5, colorShift = 0.6 },
-    [5] = { enabled = false, shapeIndex = 5, folder = nil, blocks = {}, radiusOffset = 4, heightOffset = 1, direction = 1, speedMult = 0.5, angleShift = 90, colorShift = 0.8 },
+    [3] = { enabled = false, shapeIndex = 3, folder = nil, blocks = {}, radiusOffset = 2, heightOffset = 0.5,  direction = 1,  speedMult = 0.7, angleShift = 45,  colorShift = 0.4 },
+    [4] = { enabled = false, shapeIndex = 4, folder = nil, blocks = {}, radiusOffset = 3, heightOffset = -1,   direction = -1, speedMult = 1.6, angleShift = 67.5, colorShift = 0.6 },
+    [5] = { enabled = false, shapeIndex = 5, folder = nil, blocks = {}, radiusOffset = 4, heightOffset = 1,    direction = 1,  speedMult = 0.5, angleShift = 90,  colorShift = 0.8 },
 }
+
 for ri in pairs(rings) do
-    currentRadius[ri] = 8; currentHeight[ri] = 3
-    currentSpeed[ri] = 60; currentSpin[ri] = 120
-    currentOrbitAngle[ri] = 0; currentSpinAngle[ri] = 0; currentBobPhase[ri] = 0
+    currentRadius[ri], currentHeight[ri], currentSpeed[ri], currentSpin[ri] = 8, 3, 60, 120
+    currentOrbitAngle[ri], currentSpinAngle[ri], currentBobPhase[ri] = 0, 0, 0
 end
 
 -- ==================== ХЕЛПЕРЫ ====================
 local function newPart(parent, name, size, cf, color, noRecolor)
     local p = Instance.new("Part")
-    p.Name = name; p.Size = size; p.CFrame = cf
-    p.Anchored = true; p.CanCollide = false; p.CastShadow = false
+    p.Name = name
+    p.Size = size
+    p.CFrame = cf
+    p.Anchored = true
+    p.CanCollide = false
+    p.CastShadow = false
     p.Material = Enum.Material.Neon
     p.Color = color or Color3.fromRGB(255, 255, 255)
     if noRecolor then p:SetAttribute("NoRecolor", true) end
@@ -322,20 +349,29 @@ local function newModelShell(name)
     local model = Instance.new("Model")
     model.Name = name
     local root = Instance.new("Part")
-    root.Name = "Root"; root.Size = Vector3.new(0.1, 0.1, 0.1)
-    root.Transparency = 1; root.Anchored = true; root.CanCollide = false
-    root.CastShadow = false; root.Parent = model
+    root.Name = "Root"
+    root.Size = Vector3.new(0.1, 0.1, 0.1)
+    root.Transparency = 1
+    root.Anchored = true
+    root.CanCollide = false
+    root.CastShadow = false
+    root.Parent = model
     model.PrimaryPart = root
     return model, root
 end
 
 local function makeRod(parent, a, b, thickness, depth, color)
-    local mid = (a + b) * 0.5; local diff = b - a
+    local mid = (a + b) * 0.5
+    local diff = b - a
     local part = Instance.new("Part")
-    part.Name = "Rod"; part.Size = Vector3.new(depth, thickness, diff.Magnitude)
+    part.Name = "Rod"
+    part.Size = Vector3.new(depth, thickness, diff.Magnitude)
     part.CFrame = CFrame.lookAt(mid, mid + diff.Unit)
-    part.Anchored = true; part.CanCollide = false; part.CastShadow = false
-    part.Material = Enum.Material.Neon; part.Color = color
+    part.Anchored = true
+    part.CanCollide = false
+    part.CastShadow = false
+    part.Material = Enum.Material.Neon
+    part.Color = color
     part.Parent = parent
     return part
 end
@@ -374,19 +410,19 @@ local function createPalmPlate(model, bodies, cf, size, color)
     local spikeW = holeR * 0.38
     for k = 0, 3 do
         local ang = math.rad(k * 90 + 45)
-        local spikeCF = cf * CFrame.new(math.cos(ang) * (holeR - spikeLen * 0.3), math.sin(ang) * (holeR - spikeLen * 0.3), 0) * CFrame.Angles(0, 0, ang - math.pi / 2)
+        local spikeCF = cf
+            * CFrame.new(math.cos(ang) * (holeR - spikeLen * 0.3), math.sin(ang) * (holeR - spikeLen * 0.3), 0)
+            * CFrame.Angles(0, 0, ang - math.pi / 2)
         local w = Instance.new("WedgePart")
-        w.Name = "Spike"; w.Size = Vector3.new(spikeW, spikeLen, depth * 0.75)
-        w.CFrame = spikeCF; w.Anchored = true; w.CanCollide = false; w.CastShadow = false
+        w.Name = "Spike"; w.Size = Vector3.new(spikeW, spikeLen, depth * 0.75); w.CFrame = spikeCF
+        w.Anchored = true; w.CanCollide = false; w.CastShadow = false
         w.Material = Enum.Material.Neon; w.Color = color; w.Parent = model
         table.insert(bodies, w)
     end
 end
 
 local function createFinger(model, bodies, baseCF, length, width, color)
-    local seg1 = length * 0.30
-    local seg2 = length * 0.38
-    local seg3 = length * 0.32
+    local seg1, seg2, seg3 = length * 0.30, length * 0.38, length * 0.32
     local w1, w2, w3, w4 = width, width * 0.75, width * 0.35, width * 0.05
     table.insert(bodies, newPart(model, "F1", Vector3.new(w1, seg1, w1 * 0.5), baseCF * CFrame.new(0, seg1 / 2, 0), color))
     table.insert(bodies, newPart(model, "F2", Vector3.new(w2, seg2, w2 * 0.5), baseCF * CFrame.new(0, seg1 + seg2 / 2, 0), color))
@@ -406,9 +442,7 @@ local function create3DStar(size, color, name)
         local radius = (k % 2 == 0) and R or r
         table.insert(verts, Vector3.new(math.cos(angle) * radius, math.sin(angle) * radius, 0))
     end
-    for k = 1, 10 do
-        table.insert(bodies, makeRod(model, verts[k], verts[(k % 10) + 1], t, d, color))
-    end
+    for k = 1, 10 do table.insert(bodies, makeRod(model, verts[k], verts[(k % 10) + 1], t, d, color)) end
     table.insert(bodies, newPart(model, "C", Vector3.new(size * 0.15, size * 0.15, d * 0.6), CFrame.new(), color))
     return model, root, bodies
 end
@@ -444,16 +478,17 @@ local function create3DSkull(size, color, name)
     ellipsoid(Vector3.new(1.15*s, 1.10*s, 1.10*s), CFrame.new(0, 0.30*s, 0.08*s), bone)
     ellipsoid(Vector3.new(0.85*s, 0.70*s, 0.75*s), CFrame.new(0, -0.16*s, -0.08*s), bone)
     ellipsoid(Vector3.new(0.90*s, 0.16*s, 0.30*s), CFrame.new(0, 0.16*s, -0.36*s), bone)
-    for _, side in ipairs({ -1, 1 }) do
+    for _, side in ipairs({-1, 1}) do
         ellipsoid(Vector3.new(0.34*s, 0.30*s, 0.20*s), CFrame.new(side*0.30*s, 0.26*s, -0.34*s), socketShade, true)
     end
-    for _, side in ipairs({ -1, 1 }) do
+    for _, side in ipairs({-1, 1}) do
         ellipsoid(Vector3.new(0.30*s, 0.26*s, 0.30*s), CFrame.new(side*0.43*s, -0.02*s, -0.18*s), bone)
         ellipsoid(Vector3.new(0.42*s, 0.40*s, 0.14*s), CFrame.new(side*0.25*s, 0.03*s, -0.41*s), bone)
         ellipsoid(Vector3.new(0.32*s, 0.30*s, 0.14*s), CFrame.new(side*0.25*s, 0.03*s, -0.44*s), dark, true)
         block(Vector3.new(0.09*s, 0.62*s, 0.30*s), CFrame.new(side*0.42*s, -0.35*s, 0.02*s), bone)
     end
-    local nose = newPart(model, "N", Vector3.new(0.20*s, 0.26*s, 0.14*s), CFrame.new(0, -0.22*s, -0.42*s) * CFrame.Angles(math.rad(180), 0, 0), dark, true)
+    local nose = newPart(model, "N", Vector3.new(0.20*s, 0.26*s, 0.14*s),
+        CFrame.new(0, -0.22*s, -0.42*s) * CFrame.Angles(math.rad(180), 0, 0), dark, true)
     local nm = Instance.new("SpecialMesh"); nm.MeshType = Enum.MeshType.Pyramid; nm.Parent = nose
     table.insert(bodies, nose)
     ellipsoid(Vector3.new(0.80*s, 0.46*s, 0.62*s), CFrame.new(0, -0.62*s, -0.10*s), bone)
@@ -484,8 +519,8 @@ local function addTriangle(parent, a, b, c, thickness, color, bodies)
         w.Material = Enum.Material.SmoothPlastic; w.Color = color; w.Parent = parent
         table.insert(bodies, w)
     end
-    wedge(math.abs(ab:Dot(back)), CFrame.fromMatrix((a+b)/2, right, up, back))
-    wedge(math.abs(ac:Dot(back)), CFrame.fromMatrix((a+c)/2, -right, up, -back))
+    wedge(math.abs(ab:Dot(back)), CFrame.fromMatrix((a + b) / 2, right, up, back))
+    wedge(math.abs(ac:Dot(back)), CFrame.fromMatrix((a + c) / 2, -right, up, -back))
 end
 
 local function create3DLightning(size, color, name)
@@ -507,10 +542,14 @@ local function createHead(size, color, name)
     local bodies = {}
     local head = newPart(model, "H", Vector3.new(size, size, size), CFrame.new(), color)
     head.Material = Enum.Material.SmoothPlastic
-    local mesh = Instance.new("SpecialMesh"); mesh.MeshType = Enum.MeshType.Head
-    mesh.Scale = Vector3.new(size, size, size); mesh.Parent = head
-    local face = Instance.new("Decal"); face.Face = Enum.NormalId.Front
-    face.Texture = "rbxasset://textures/face.png"; face.Parent = head
+    local mesh = Instance.new("SpecialMesh")
+    mesh.MeshType = Enum.MeshType.Head
+    mesh.Scale = Vector3.new(size, size, size)
+    mesh.Parent = head
+    local face = Instance.new("Decal")
+    face.Face = Enum.NormalId.Front
+    face.Texture = "rbxasset://textures/face.png"
+    face.Parent = head
     table.insert(bodies, head)
     return model, root, bodies
 end
@@ -518,7 +557,8 @@ end
 local function create3DTriangle(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
-    local R = size * 0.75; local t, d = size * 0.13, size * 0.28
+    local R = size * 0.75
+    local t, d = size * 0.13, size * 0.28
     local v1 = Vector3.new(0, R, 0)
     local v2 = Vector3.new(math.cos(math.rad(210)) * R, math.sin(math.rad(210)) * R, 0)
     local v3 = Vector3.new(math.cos(math.rad(330)) * R, math.sin(math.rad(330)) * R, 0)
@@ -531,9 +571,10 @@ end
 local function create3DDiamond(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
-    local R = size * 0.75; local t, d = size * 0.13, size * 0.28
-    local vT = Vector3.new(0, R, 0); local vR = Vector3.new(R * 0.75, 0, 0)
-    local vB = Vector3.new(0, -R, 0); local vL = Vector3.new(-R * 0.75, 0, 0)
+    local R = size * 0.75
+    local t, d = size * 0.13, size * 0.28
+    local vT, vR = Vector3.new(0, R, 0), Vector3.new(R * 0.75, 0, 0)
+    local vB, vL = Vector3.new(0, -R, 0), Vector3.new(-R * 0.75, 0, 0)
     table.insert(bodies, makeRod(model, vT, vR, t, d, color))
     table.insert(bodies, makeRod(model, vR, vB, t, d, color))
     table.insert(bodies, makeRod(model, vB, vL, t, d, color))
@@ -543,7 +584,7 @@ end
 
 local HEART_PATTERN = { "11011", "11111", "11111", "01110", "00100" }
 local function createPixelHeart(sizeStuds, color, name)
-    local rows = #HEART_PATTERN; local cols = #HEART_PATTERN[1]
+    local rows, cols = #HEART_PATTERN, #HEART_PATTERN[1]
     local pixel = sizeStuds / cols
     local model, root = newModelShell(name)
     local bodies = {}
@@ -569,8 +610,7 @@ end
 local HEART_COLORS = {
     Color3.fromRGB(255, 140, 40), Color3.fromRGB(255, 230, 60),
     Color3.fromRGB(255, 0, 200), Color3.fromRGB(220, 20, 60),
-    Color3.fromRGB(0, 255, 120), Color3.fromRGB(0, 220, 220),
-    Color3.fromRGB(40, 80, 255),
+    Color3.fromRGB(0, 255, 120), Color3.fromRGB(0, 220, 220), Color3.fromRGB(40, 80, 255),
 }
 
 local function create3DHand(size, color, name, withHeart, heartColor)
@@ -587,19 +627,21 @@ local function create3DHand(size, color, name, withHeart, heartColor)
         hModel:PivotTo(palmCF * CFrame.new(0, 0, s * 0.02))
     end
     local wrapY = -s * 1.20
-    table.insert(bodies, newPart(model, "Wrap1", Vector3.new(s*2.4, s*0.26, s*0.40), palmCF * CFrame.new(0, wrapY, 0) * CFrame.Angles(0, 0, math.rad(14)), color))
-    table.insert(bodies, newPart(model, "Wrap2", Vector3.new(s*2.4, s*0.26, s*0.40), palmCF * CFrame.new(0, wrapY, 0) * CFrame.Angles(0, 0, math.rad(-14)), color))
+    table.insert(bodies, newPart(model, "Wrap1", Vector3.new(s*2.4, s*0.26, s*0.40),
+        palmCF * CFrame.new(0, wrapY, 0) * CFrame.Angles(0, 0, math.rad(14)), color))
+    table.insert(bodies, newPart(model, "Wrap2", Vector3.new(s*2.4, s*0.26, s*0.40),
+        palmCF * CFrame.new(0, wrapY, 0) * CFrame.Angles(0, 0, math.rad(-14)), color))
     local fingerBaseY = s * 0.88
     local fingers = {
-        { len = 2.20, w = 0.36, offsetX = -0.78 }, { len = 2.75, w = 0.42, offsetX = -0.26 },
-        { len = 2.75, w = 0.42, offsetX =  0.26 }, { len = 2.20, w = 0.36, offsetX =  0.78 },
+        { len = 2.20, w = 0.36, offsetX = -0.78 },
+        { len = 2.75, w = 0.42, offsetX = -0.26 },
+        { len = 2.75, w = 0.42, offsetX =  0.26 },
+        { len = 2.20, w = 0.36, offsetX =  0.78 },
     }
     for _, f in ipairs(fingers) do
-        local baseCF = CFrame.new(f.offsetX * s, fingerBaseY, 0)
-        createFinger(model, bodies, baseCF, s * f.len, s * f.w, color)
+        createFinger(model, bodies, CFrame.new(f.offsetX * s, fingerBaseY, 0), s * f.len, s * f.w, color)
     end
-    local thumbCF = CFrame.new(s * 1.15, -s * 0.10, 0) * CFrame.Angles(0, 0, math.rad(-42))
-    createFinger(model, bodies, thumbCF, s * 1.70, s * 0.46, color)
+    createFinger(model, bodies, CFrame.new(s * 1.15, -s * 0.10, 0) * CFrame.Angles(0, 0, math.rad(-42)), s * 1.70, s * 0.46, color)
     return model, root, bodies
 end
 
@@ -607,13 +649,12 @@ local function createMeshShape(meshId, textureId, size, name, color)
     local model, root = newModelShell(name)
     local mp = Instance.new("MeshPart")
     mp.Name = "Mesh"; mp.MeshId = meshId
-    if textureId and textureId ~= "" then mp.TextureID = textureId end
+    if textureId ~= "" then mp.TextureID = textureId end
     mp.Anchored = true; mp.CanCollide = false; mp.CastShadow = false
     mp.Material = Enum.Material.Neon
     mp.Color = color or Color3.fromRGB(235, 230, 215)
     mp.Size = Vector3.new(size * 3, size * 3, size * 3)
-    mp.CFrame = CFrame.new()
-    mp.Parent = model
+    mp.CFrame = CFrame.new(); mp.Parent = model
     return model, root, { mp }
 end
 
@@ -621,7 +662,7 @@ local function isValidMesh(meshId)
     return type(meshId) == "string" and meshId:match("^rbxassetid://%d+$") ~= nil
 end
 
--- ==================== УЛУЧШЕННЫЕ ФИГУРЫ ====================
+-- ==================== НОВЫЕ ФИГУРЫ ====================
 local function createSword(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -630,11 +671,10 @@ local function createSword(size, color, name)
     local function metalPart(nm, sz, cf, col, noRecolor)
         local p = newPart(model, nm, sz, cf, col, noRecolor)
         p.Material = Enum.Material.Metal
-        table.insert(bodies, p)
-        return p
+        table.insert(bodies, p); return p
     end
     metalPart("Blade", Vector3.new(s*0.16, s*2.9, s*0.09), CFrame.new(0, s*0.75, 0), color)
-    metalPart("Fuller", Vector3.new(s*0.04, s*2.55, s*0.02), CFrame.new(0, s*0.75, s*0.045), Color3.fromRGB(150,160,175), true)
+    metalPart("Fuller", Vector3.new(s*0.04, s*2.55, s*0.02), CFrame.new(0, s*0.75, s*0.045), Color3.fromRGB(150, 160, 175), true)
     local tip = Instance.new("WedgePart")
     tip.Name = "Tip"; tip.Size = Vector3.new(s*0.16, s*0.55, s*0.09)
     tip.CFrame = CFrame.new(0, s*2.475, 0) * CFrame.Angles(0, 0, math.rad(180))
@@ -650,7 +690,8 @@ local function createSword(size, color, name)
     grip.Material = Enum.Material.Fabric
     table.insert(bodies, grip)
     for i = 1, 4 do
-        local wrap = newPart(model, "Wrap", Vector3.new(s*0.20, s*0.03, s*0.20), CFrame.new(0, -s*(0.85 + i*0.16), 0), Color3.fromRGB(60,40,25), true)
+        local wrap = newPart(model, "Wrap", Vector3.new(s*0.20, s*0.03, s*0.20),
+            CFrame.new(0, -s*(0.85 + i*0.16), 0), Color3.fromRGB(60, 40, 25), true)
         wrap.Material = Enum.Material.Fabric
         table.insert(bodies, wrap)
     end
@@ -663,24 +704,20 @@ local function createShield(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local rows = 22
-    local H = s * 2.2
-    local maxW = s * 1.5
-    local depth = s * 0.16
-    local roundFrac = 0.24
+    local rows, H, maxW, depth, roundFrac = 22, s*2.2, s*1.5, s*0.16, 0.24
     for r = 1, rows do
         local t = (r - 0.5) / rows
         local y = H * 0.5 - t * H
         local width
         if t < roundFrac then
             local k = 1 - (t / roundFrac)
-            width = maxW * math.sqrt(math.max(0, 1 - k*k))
+            width = maxW * math.sqrt(math.max(0, 1 - k * k))
         else
             local k = (t - roundFrac) / (1 - roundFrac)
             width = maxW * (1 - k)
         end
         if width > s * 0.03 then
-            local p = newPart(model, "Row", Vector3.new(width, (H/rows)*1.08, depth), CFrame.new(0, y, 0), color)
+            local p = newPart(model, "Row", Vector3.new(width, (H / rows) * 1.08, depth), CFrame.new(0, y, 0), color)
             p.Material = Enum.Material.Metal
             table.insert(bodies, p)
         end
@@ -690,10 +727,6 @@ local function createShield(size, color, name)
     crossV.Material = Enum.Material.Metal; table.insert(bodies, crossV)
     local crossH = newPart(model, "CrossH", Vector3.new(maxW*0.6, s*0.14, depth*1.7), CFrame.new(0, s*0.35, -depth*0.45), goldAccent, true)
     crossH.Material = Enum.Material.Metal; table.insert(bodies, crossH)
-    local rim = newPart(model, "Rim", Vector3.new(s*0.08, H*0.98, depth*1.4), CFrame.new(-maxW*0.5, 0, -depth*0.3), goldAccent, true)
-    rim.Material = Enum.Material.Metal; table.insert(bodies, rim)
-    local rim2 = newPart(model, "Rim2", Vector3.new(s*0.08, H*0.98, depth*1.4), CFrame.new(maxW*0.5, 0, -depth*0.3), goldAccent, true)
-    rim2.Material = Enum.Material.Metal; table.insert(bodies, rim2)
     local boss = newPart(model, "Boss", Vector3.new(s*0.36, s*0.36, s*0.28), CFrame.new(0, s*0.35, -depth*0.55), goldAccent, true)
     boss.Material = Enum.Material.Metal
     local bm = Instance.new("SpecialMesh"); bm.MeshType = Enum.MeshType.Sphere; bm.Parent = boss
@@ -705,31 +738,35 @@ local function createCrown(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
+    local bandH, bandR = s*0.30, s*0.95
     local function metalMesh(nm, sz, cf, col, meshType, noRecolor)
         local p = newPart(model, nm, sz, cf, col, noRecolor)
         p.Material = Enum.Material.Metal
-        local mesh = Instance.new("SpecialMesh"); mesh.MeshType = meshType; mesh.Parent = p
+        local mesh = Instance.new("SpecialMesh")
+        mesh.MeshType = meshType; mesh.Parent = p
         table.insert(bodies, p); return p
     end
-    metalMesh("Band", Vector3.new(s*0.55, s*1.9, s*1.9), CFrame.Angles(0, 0, math.rad(90)), color, Enum.MeshType.Cylinder)
-    metalMesh("Rim", Vector3.new(s*0.16, s*2.05, s*2.05), CFrame.new(0, -s*0.32, 0) * CFrame.Angles(0, 0, math.rad(90)), color, Enum.MeshType.Cylinder)
+    metalMesh("Band", Vector3.new(bandH, bandR*2, bandR*2), CFrame.Angles(0, 0, math.rad(90)), color, Enum.MeshType.Cylinder)
+    metalMesh("Rim", Vector3.new(bandH*0.4, bandR*2 + s*0.12, bandR*2 + s*0.12),
+        CFrame.new(0, -bandH*0.55, 0) * CFrame.Angles(0, 0, math.rad(90)), color, Enum.MeshType.Cylinder)
     local points = 6
+    local bandTop = bandH * 0.5
     for i = 1, points do
         local angle = (i - 1) / points * math.pi * 2
-        local x = math.cos(angle) * s * 0.9
-        local z = math.sin(angle) * s * 0.9
+        local x, z = math.cos(angle) * bandR * 0.82, math.sin(angle) * bandR * 0.82
         local main = (i % 2 == 1)
-        local h = main and s * 0.95 or s * 0.55
-        local w = main and s * 0.32 or s * 0.22
-        metalMesh("Spike", Vector3.new(w, h, w), CFrame.new(x, h*0.5 - s*0.1, z), color, Enum.MeshType.Pyramid)
+        local h, w = main and s*1.5 or s*0.85, main and s*0.34 or s*0.22
+        metalMesh("Spike", Vector3.new(w, h, w), CFrame.new(x, bandTop + h*0.5, z), color, Enum.MeshType.Pyramid)
         if main then
-            local gem = newPart(model, "Gem", Vector3.new(s*0.16, s*0.22, s*0.16), CFrame.new(x, h - s*0.02, z), Color3.fromRGB(200,30,70), true)
+            local gem = newPart(model, "Gem", Vector3.new(s*0.16, s*0.22, s*0.16),
+                CFrame.new(x, bandTop + h*0.85, z), Color3.fromRGB(200, 30, 70), true)
             gem.Material = Enum.Material.Glass
             local gm = Instance.new("SpecialMesh"); gm.MeshType = Enum.MeshType.Pyramid; gm.Parent = gem
             table.insert(bodies, gem)
         end
     end
-    local mainGem = newPart(model, "MainGem", Vector3.new(s*0.26, s*0.26, s*0.16), CFrame.new(0, 0, s*0.95), Color3.fromRGB(200,30,70), true)
+    local mainGem = newPart(model, "MainGem", Vector3.new(s*0.26, s*0.26, s*0.16),
+        CFrame.new(0, 0, bandR), Color3.fromRGB(200, 30, 70), true)
     mainGem.Material = Enum.Material.Glass
     local mgm = Instance.new("SpecialMesh"); mgm.MeshType = Enum.MeshType.Sphere; mgm.Parent = mainGem
     table.insert(bodies, mainGem)
@@ -756,26 +793,26 @@ local function createCrystal(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local function shard(nm, sz, cf, col, transp, noRecolor)
-        local p = newPart(model, nm, sz, cf, col, noRecolor)
-        p.Material = Enum.Material.Glass
-        p.Transparency = transp or 0.15
-        local m = Instance.new("SpecialMesh"); m.MeshType = Enum.MeshType.Pyramid; m.Parent = p
-        table.insert(bodies, p); return p
+    local function gem(nm, cx, cy, cz, w, hTop, hBot, col, transp, cf)
+        cf = cf or CFrame.new()
+        local top = newPart(model, nm .. "Top", Vector3.new(w, hTop, w), cf * CFrame.new(cx, cy + hTop * 0.5, cz), col)
+        top.Material = Enum.Material.Glass; top.Transparency = transp
+        local tm = Instance.new("SpecialMesh"); tm.MeshType = Enum.MeshType.Pyramid; tm.Parent = top
+        table.insert(bodies, top)
+        local bot = newPart(model, nm .. "Bot", Vector3.new(w, hBot, w),
+            cf * CFrame.new(cx, cy - hBot * 0.5, cz) * CFrame.Angles(math.rad(180), 0, 0), col)
+        bot.Material = Enum.Material.Glass; bot.Transparency = transp
+        local bm = Instance.new("SpecialMesh"); bm.MeshType = Enum.MeshType.Pyramid; bm.Parent = bot
+        table.insert(bodies, bot)
     end
-    shard("Main", Vector3.new(s*0.55, s*2.1, s*0.55), CFrame.new(0, s*0.15, 0), color, 0.1)
-    local baseCap = newPart(model, "Base", Vector3.new(s*0.7, s*0.3, s*0.7), CFrame.new(0, -s*0.75, 0), color)
-    baseCap.Material = Enum.Material.Glass; baseCap.Transparency = 0.3
-    table.insert(bodies, baseCap)
-    local satellites = 5
-    for i = 1, satellites do
-        local angle = (i - 1) / satellites * math.pi * 2 + 0.3
-        local dist = s * 0.45
-        local x = math.cos(angle) * dist
-        local z = math.sin(angle) * dist
-        local h = s * (0.6 + (i % 3) * 0.25)
-        local tilt = math.rad(18 + (i % 2) * 10)
-        shard("Shard", Vector3.new(s*0.22, h, s*0.22), CFrame.new(x, h*0.5 - s*0.55, z) * CFrame.Angles(tilt*math.cos(angle), 0, tilt*math.sin(angle)), color, 0.15)
+    gem("Main", 0, 0, 0, s*0.9, s*1.5, s*0.9, color, 0.05)
+    for i = 1, 5 do
+        local angle = (i - 1) / 5 * math.pi * 2 + 0.4
+        local dist = s * 0.68
+        local x, z = math.cos(angle) * dist, math.sin(angle) * dist
+        local w = s * (0.34 + (i % 3) * 0.08)
+        local tilt = CFrame.Angles(math.rad(20) * math.cos(angle), 0, math.rad(20) * math.sin(angle))
+        gem("Sat" .. i, x, -s*0.55, z, w, w*1.6, w*0.9, color, 0.08, tilt)
     end
     return model, root, bodies
 end
@@ -784,9 +821,7 @@ local function createPyramid(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local tiers = 5
-    local totalH = s * 1.8
-    local baseW = s * 1.7
+    local tiers, totalH, baseW = 5, s*1.8, s*1.7
     local tierH = totalH / tiers
     for i = 1, tiers do
         local t = (i - 1) / tiers
@@ -797,7 +832,8 @@ local function createPyramid(size, color, name)
         table.insert(bodies, block)
     end
     local capH = tierH * 0.9
-    local cap = newPart(model, "Capstone", Vector3.new(s*0.22, capH, s*0.22), CFrame.new(0, totalH*0.5 + capH*0.5, 0), Color3.fromRGB(255,220,120), true)
+    local cap = newPart(model, "Capstone", Vector3.new(s*0.22, capH, s*0.22),
+        CFrame.new(0, totalH*0.5 + capH*0.5, 0), Color3.fromRGB(255, 220, 120), true)
     cap.Material = Enum.Material.Metal
     local cm = Instance.new("SpecialMesh"); cm.MeshType = Enum.MeshType.Pyramid; cm.Parent = cap
     table.insert(bodies, cap)
@@ -815,14 +851,14 @@ local function createYinYang(size, color, name)
     local rows = 34
     local pixel = (R * 2) / rows
     local function classify(x, y)
-        local dist = math.sqrt(x * x + y * y)
+        local dist = math.sqrt(x*x + y*y)
         if dist > R then return nil end
         local halfR = R * 0.5
         if y >= 0 then
-            local dUp = math.sqrt(x * x + (y - halfR) * (y - halfR))
+            local dUp = math.sqrt(x*x + (y - halfR)^2)
             if dUp <= halfR then return "black" else return "white" end
         else
-            local dDown = math.sqrt(x * x + (y + halfR) * (y + halfR))
+            local dDown = math.sqrt(x*x + (y + halfR)^2)
             if dDown <= halfR then return "white" else return "black" end
         end
     end
@@ -857,24 +893,28 @@ local function createEye(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local sclera = newPart(model, "Sclera", Vector3.new(s*1.5, s*1.0, s*0.7), CFrame.new(0, 0, 0), Color3.fromRGB(250,248,245), true)
+    local sclera = newPart(model, "Sclera", Vector3.new(s*1.5, s*1.0, s*0.7), CFrame.new(0, 0, 0), Color3.fromRGB(250, 248, 245), true)
     sclera.Material = Enum.Material.SmoothPlastic
     local scMesh = Instance.new("SpecialMesh"); scMesh.MeshType = Enum.MeshType.Sphere; scMesh.Parent = sclera
     table.insert(bodies, sclera)
-    local iris = newPart(model, "Iris", Vector3.new(s*0.62, s*0.62, s*0.18), CFrame.new(0, 0, s*0.32) * CFrame.Angles(math.rad(90), 0, 0), color)
+    local iris = newPart(model, "Iris", Vector3.new(s*0.62, s*0.62, s*0.18),
+        CFrame.new(0, 0, s*0.32) * CFrame.Angles(math.rad(90), 0, 0), color)
     iris.Material = Enum.Material.SmoothPlastic
     local irMesh = Instance.new("SpecialMesh"); irMesh.MeshType = Enum.MeshType.Cylinder; irMesh.Parent = iris
     table.insert(bodies, iris)
-    local pupil = newPart(model, "Pupil", Vector3.new(s*0.28, s*0.28, s*0.11), CFrame.new(0, 0, s*0.40) * CFrame.Angles(math.rad(90), 0, 0), Color3.fromRGB(10,10,12), true)
+    local pupil = newPart(model, "Pupil", Vector3.new(s*0.28, s*0.28, s*0.11),
+        CFrame.new(0, 0, s*0.40) * CFrame.Angles(math.rad(90), 0, 0), Color3.fromRGB(10, 10, 12), true)
     pupil.Material = Enum.Material.SmoothPlastic
     local puMesh = Instance.new("SpecialMesh"); puMesh.MeshType = Enum.MeshType.Cylinder; puMesh.Parent = pupil
     table.insert(bodies, pupil)
-    local glint = newPart(model, "Glint", Vector3.new(s*0.10, s*0.10, s*0.06), CFrame.new(s*0.14, s*0.14, s*0.46), Color3.fromRGB(255,255,255), true)
+    local glint = newPart(model, "Glint", Vector3.new(s*0.10, s*0.10, s*0.06),
+        CFrame.new(s*0.14, s*0.14, s*0.46), Color3.fromRGB(255, 255, 255), true)
     glint.Material = Enum.Material.Neon
     local glMesh = Instance.new("SpecialMesh"); glMesh.MeshType = Enum.MeshType.Sphere; glMesh.Parent = glint
     table.insert(bodies, glint)
     for _, sign in ipairs({1, -1}) do
-        local lid = newPart(model, "Lid", Vector3.new(s*1.65, s*0.18, s*0.55), CFrame.new(0, sign*s*0.5, s*0.05), Color3.fromRGB(225,205,185), true)
+        local lid = newPart(model, "Lid", Vector3.new(s*1.65, s*0.18, s*0.55),
+            CFrame.new(0, sign*s*0.5, s*0.05), Color3.fromRGB(225, 205, 185), true)
         lid.Material = Enum.Material.SmoothPlastic
         table.insert(bodies, lid)
     end
@@ -885,16 +925,14 @@ local function createRune(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local plate = newPart(model, "Plate", Vector3.new(s*0.5, s*1.9, s*1.9), CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(70,68,66), true)
+    local plate = newPart(model, "Plate", Vector3.new(s*0.5, s*1.9, s*1.9),
+        CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(70, 68, 66), true)
     plate.Material = Enum.Material.Slate
     local pm = Instance.new("SpecialMesh"); pm.MeshType = Enum.MeshType.Cylinder; pm.Parent = plate
     table.insert(bodies, plate)
-    local t, d = s * 0.09, s * 0.16
-    local top = Vector3.new(0, s*0.78, s*0.1)
-    local mid = Vector3.new(0, -s*0.1, s*0.1)
-    local bottom = Vector3.new(0, -s*0.78, s*0.1)
-    local armL = Vector3.new(-s*0.55, s*0.42, s*0.1)
-    local armR = Vector3.new(s*0.55, s*0.42, s*0.1)
+    local t, d = s*0.09, s*0.16
+    local top, mid, bottom = Vector3.new(0, s*0.78, s*0.1), Vector3.new(0, -s*0.1, s*0.1), Vector3.new(0, -s*0.78, s*0.1)
+    local armL, armR = Vector3.new(-s*0.55, s*0.42, s*0.1), Vector3.new(s*0.55, s*0.42, s*0.1)
     for _, seg in ipairs({ { mid, bottom }, { mid, top }, { mid, armL }, { mid, armR } }) do
         table.insert(bodies, makeRod(model, seg[1], seg[2], t, d, color))
     end
@@ -905,18 +943,12 @@ local function createSpiral(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local turns = 3
-    local segments = 48
-    local radius = s * 0.55
-    local height = s * 2.0
-    local thickness = s * 0.10
+    local turns, segments = 3, 48
+    local radius, height, thickness = s*0.55, s*2.0, s*0.10
     local function point(i)
         local t = i / segments
         local angle = t * math.pi * 2 * turns
-        local x = math.cos(angle) * radius
-        local z = math.sin(angle) * radius
-        local y = -height * 0.5 + t * height
-        return Vector3.new(x, y, z)
+        return Vector3.new(math.cos(angle)*radius, -height*0.5 + t*height, math.sin(angle)*radius)
     end
     local prev = point(0)
     for i = 1, segments do
@@ -949,7 +981,7 @@ local function createWings(size, color, name)
             local t = seg / boneSegments
             local arcAngle = t * math.rad(75)
             local bx = side * (s*0.15 + math.sin(arcAngle) * s*1.5)
-            local by = math.cos(arcAngle) * s * 0.4 + t * s * 0.3
+            local by = math.cos(arcAngle) * s*0.4 + t*s*0.3
             local pos = Vector3.new(bx, by, 0)
             local rod = makeRod(model, prevPos, pos, s*0.16, s*0.12, color)
             rod.Material = Enum.Material.SmoothPlastic
@@ -961,18 +993,16 @@ local function createWings(size, color, name)
             local t = (i - 1) / (primaryCount - 1)
             local arcAngle = t * math.rad(75)
             local bx = side * (s*0.15 + math.sin(arcAngle) * s*1.5)
-            local by = math.cos(arcAngle) * s * 0.4 + t * s * 0.3
-            local len = s * (2.0 - t * 1.2)
-            local w = s * (0.30 - t * 0.13)
-            feather(bx, by, side, len, w, 22 + t * 48, t * 22)
+            local by = math.cos(arcAngle) * s*0.4 + t*s*0.3
+            feather(bx, by, side, s*(2.0 - t*1.2), s*(0.30 - t*0.13), 22 + t*48, t*22)
         end
         local covertCount = 6
         for i = 1, covertCount do
             local t = (i - 1) / (covertCount - 1)
             local arcAngle = 0.15 + t * math.rad(45)
             local bx = side * (s*0.15 + math.sin(arcAngle) * s*0.9)
-            local by = (math.cos(arcAngle) * s * 0.25 + t * s * 0.15) * 0.4 + s * 0.15
-            feather(bx, by, side, s * 0.75, s * 0.22, 10 + t * 20, t * 10)
+            local by = (math.cos(arcAngle) * s*0.25 + t*s*0.15) * 0.4 + s*0.15
+            feather(bx, by, side, s*0.75, s*0.22, 10 + t*20, t*10)
         end
     end
     return model, root, bodies
@@ -1000,7 +1030,8 @@ local function createTentacle(size, color, name)
         local sm = Instance.new("SpecialMesh"); sm.MeshType = Enum.MeshType.Sphere; sm.Parent = seg
         table.insert(bodies, seg)
         if i % 2 == 0 and t < 0.85 then
-            local sucker = newPart(model, "Sucker", Vector3.new(thickness*0.55, thickness*0.55, thickness*0.2), CFrame.new(pos) * CFrame.new(0, 0, thickness*0.4), Color3.fromRGB(255,200,210), true)
+            local sucker = newPart(model, "Sucker", Vector3.new(thickness*0.55, thickness*0.55, thickness*0.2),
+                CFrame.new(pos) * CFrame.new(0, 0, thickness*0.4), Color3.fromRGB(255, 200, 210), true)
             sucker.Material = Enum.Material.SmoothPlastic
             local suM = Instance.new("SpecialMesh"); suM.MeshType = Enum.MeshType.Cylinder; suM.Parent = sucker
             table.insert(bodies, sucker)
@@ -1038,8 +1069,7 @@ local function create3DBlasterPlaceholder(size, color, name)
         w.Anchored = true; w.CanCollide = false; w.CastShadow = false
         w.Material = Enum.Material.SmoothPlastic; w.Color = col
         if noRecolor then w:SetAttribute("NoRecolor", true) end
-        w.Parent = model; table.insert(bodies, w)
-        return w
+        w.Parent = model; table.insert(bodies, w); return w
     end
     local function tooth(cf, w, h, col)
         local p = newPart(model, "Tooth", Vector3.new(w, h, w), cf, col, true)
@@ -1051,18 +1081,18 @@ local function create3DBlasterPlaceholder(size, color, name)
         if SETTINGS.LightEnabled and activeLightCount < SETTINGS.LightLimit then
             local light = Instance.new("PointLight")
             light.Range = range * s; light.Brightness = bright; light.Color = col
-            light.Parent = part
-            activeLightCount = activeLightCount + 1
+            light.Parent = part; activeLightCount = activeLightCount + 1
         end
     end
     ellipsoid(Vector3.new(1.45*s, 1.00*s, 1.35*s), CFrame.new(0, 0.28*s, 1.00*s), bone)
     ellipsoid(Vector3.new(1.30*s, 0.88*s, 1.20*s), CFrame.new(0, 0.24*s, 0.15*s), bone)
     ellipsoid(Vector3.new(1.00*s, 0.68*s, 1.10*s), CFrame.new(0, 0.18*s, -0.75*s), bone)
     ellipsoid(Vector3.new(0.62*s, 0.46*s, 0.85*s), CFrame.new(0, 0.12*s, -1.55*s), bone)
-    for _, side in ipairs({ -1, 1 }) do
-        ellipsoid(Vector3.new(0.42*s, 0.16*s, 0.55*s), CFrame.new(side*0.40*s, 0.52*s, -0.35*s) * CFrame.Angles(math.rad(-8), 0, math.rad(side*6)), bone)
+    for _, side in ipairs({-1, 1}) do
+        ellipsoid(Vector3.new(0.42*s, 0.16*s, 0.55*s),
+            CFrame.new(side*0.40*s, 0.52*s, -0.35*s) * CFrame.Angles(math.rad(-8), 0, math.rad(side*6)), bone)
     end
-    for _, side in ipairs({ -1, 1 }) do
+    for _, side in ipairs({-1, 1}) do
         ellipsoid(Vector3.new(0.10*s, 0.10*s, 0.14*s), CFrame.new(side*0.18*s, 0.06*s, -1.92*s), dark, true)
     end
     ellipsoid(Vector3.new(1.10*s, 0.42*s, 1.35*s), CFrame.new(0, -0.40*s, 0.55*s), bone)
@@ -1071,31 +1101,34 @@ local function create3DBlasterPlaceholder(size, color, name)
     block(Vector3.new(0.68*s, 0.34*s, 1.55*s), CFrame.new(0, -0.05*s, -0.50*s), dark, true)
     local core = ellipsoid(Vector3.new(0.22*s, 0.22*s, 0.22*s), CFrame.new(0, -0.05*s, -0.85*s), bone)
     addLight(core, bone, 8, 4)
-    for _, side in ipairs({ -1, 1 }) do
+    for _, side in ipairs({-1, 1}) do
         tooth(CFrame.new(side*0.42*s, -0.02*s, -0.35*s) * CFrame.Angles(math.rad(180), 0, 0), 0.16*s, 0.30*s, toothColor)
         tooth(CFrame.new(side*0.38*s, -0.10*s, -0.30*s), 0.14*s, 0.24*s, toothColor)
     end
     for i = 1, 4 do
-        local z = -1.10*s + (i-1)*0.20*s
-        tooth(CFrame.new((i%2==0 and 0.24 or -0.24)*s, -0.06*s, z) * CFrame.Angles(math.rad(180), 0, 0), 0.12*s, 0.16*s, toothColor)
+        local z = -1.10*s + (i - 1) * 0.20*s
+        tooth(CFrame.new((i % 2 == 0 and 0.24 or -0.24)*s, -0.06*s, z) * CFrame.Angles(math.rad(180), 0, 0), 0.12*s, 0.16*s, toothColor)
     end
     for i = 1, 3 do
-        local z = -0.95*s + (i-1)*0.20*s
-        tooth(CFrame.new((i%2==0 and -0.20 or 0.20)*s, -0.12*s, z), 0.11*s, 0.14*s, toothColor)
+        local z = -0.95*s + (i - 1) * 0.20*s
+        tooth(CFrame.new((i % 2 == 0 and -0.20 or 0.20)*s, -0.12*s, z), 0.11*s, 0.14*s, toothColor)
     end
-    for _, side in ipairs({ -1, 1 }) do
+    for _, side in ipairs({-1, 1}) do
         ellipsoid(Vector3.new(0.38*s, 0.34*s, 0.30*s), CFrame.new(side*0.46*s, 0.32*s, -0.42*s), dark, true)
         local eye = ellipsoid(Vector3.new(0.15*s, 0.15*s, 0.10*s), CFrame.new(side*0.46*s, 0.32*s, -0.52*s), bone)
         addLight(eye, bone, 6, 3)
     end
     for i = 1, 3 do
-        local z = 1.35*s - (i-1)*0.35*s
-        local h = 0.70*s - (i-1)*0.16*s
-        wedge(Vector3.new(0.18*s, h, 0.30*s), CFrame.new(0, 0.55*s + h*0.35, z) * CFrame.Angles(math.rad(-18), math.rad(90), 0), bone)
+        local z = 1.35*s - (i - 1) * 0.35*s
+        local h = 0.70*s - (i - 1) * 0.16*s
+        wedge(Vector3.new(0.18*s, h, 0.30*s),
+            CFrame.new(0, 0.55*s + h*0.35, z) * CFrame.Angles(math.rad(-18), math.rad(90), 0), bone)
     end
-    for _, side in ipairs({ -1, 1 }) do
-        wedge(Vector3.new(0.12*s, 0.65*s, 0.55*s), CFrame.new(side*0.78*s, 0.42*s, 0.85*s) * CFrame.Angles(math.rad(-10), 0, math.rad(side*-55)), bone)
-        wedge(Vector3.new(0.10*s, 0.42*s, 0.38*s), CFrame.new(side*0.95*s, 0.62*s, 0.65*s) * CFrame.Angles(math.rad(-10), 0, math.rad(side*-75)), bone)
+    for _, side in ipairs({-1, 1}) do
+        wedge(Vector3.new(0.12*s, 0.65*s, 0.55*s),
+            CFrame.new(side*0.78*s, 0.42*s, 0.85*s) * CFrame.Angles(math.rad(-10), 0, math.rad(side * -55)), bone)
+        wedge(Vector3.new(0.10*s, 0.42*s, 0.38*s),
+            CFrame.new(side*0.95*s, 0.62*s, 0.65*s) * CFrame.Angles(math.rad(-10), 0, math.rad(side * -75)), bone)
     end
     return model, root, bodies
 end
@@ -1104,12 +1137,9 @@ end
 local SHAPE_PRESETS = {
     { name = "БЛОК", create = function(size, name)
         local cfg = MESH_CONFIG["БЛОК"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
-        end
-        local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Block
-        p.Size = Vector3.new(size, size, size); return { part = p }
+        if isValidMesh(cfg.MeshId) then return { model = select(1, createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))), part = select(2, createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))), isModel = true, visualSize = size * 3 } end
+        local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Block; p.Size = Vector3.new(size, size, size)
+        return { part = p }
     end },
     { name = "ШАР", create = function(size, name)
         local cfg = MESH_CONFIG["ШАР"]
@@ -1117,8 +1147,8 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
         end
-        local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Ball
-        p.Size = Vector3.new(size, size, size); return { part = p }
+        local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Ball; p.Size = Vector3.new(size, size, size)
+        return { part = p }
     end },
     { name = "ЦИЛИНДР", create = function(size, name)
         local cfg = MESH_CONFIG["ЦИЛИНДР"]
@@ -1126,8 +1156,8 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
         end
-        local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Cylinder
-        p.Size = Vector3.new(size, size, size); return { part = p }
+        local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Cylinder; p.Size = Vector3.new(size, size, size)
+        return { part = p }
     end },
     { name = "КЛИН", create = function(size, name)
         local cfg = MESH_CONFIG["КЛИН"]
@@ -1144,7 +1174,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,220,60))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
         end
-        local m, r, b = createHead(size, Color3.fromRGB(255,220,60), name)
+        local m, r, b = createHead(size, Color3.fromRGB(255, 220, 60), name)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size }
     end },
     { name = "СЕРДЦЕ", create = function(size, name)
@@ -1154,7 +1184,7 @@ local SHAPE_PRESETS = {
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
         end
         local hs = size * 1.8
-        local m, r, b = createPixelHeart(hs, Color3.fromRGB(255,60,120), name)
+        local m, r, b = createPixelHeart(hs, Color3.fromRGB(255, 60, 120), name)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = hs }
     end },
     { name = "ЗВЕЗДА", create = function(s, n)
@@ -1163,7 +1193,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,200,40))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = create3DStar(s, Color3.fromRGB(255,200,40), n)
+        local m, r, b = create3DStar(s, Color3.fromRGB(255, 200, 40), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s }
     end },
     { name = "ТРЕУГОЛЬНИК", create = function(s, n)
@@ -1172,7 +1202,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(0,255,120))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = create3DTriangle(s, Color3.fromRGB(0,255,120), n)
+        local m, r, b = create3DTriangle(s, Color3.fromRGB(0, 255, 120), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
     end },
     { name = "РОМБ", create = function(s, n)
@@ -1181,7 +1211,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(0,200,255))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = create3DDiamond(s, Color3.fromRGB(0,200,255), n)
+        local m, r, b = create3DDiamond(s, Color3.fromRGB(0, 200, 255), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
     end },
     { name = "КРЕСТ", create = function(s, n)
@@ -1190,7 +1220,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(230,220,200))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = create3DCross(s, Color3.fromRGB(230,220,200), n)
+        local m, r, b = create3DCross(s, Color3.fromRGB(230, 220, 200), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
     end },
     { name = "ЧЕРЕП", create = function(s, n)
@@ -1199,7 +1229,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(235,230,215))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = create3DSkull(s, Color3.fromRGB(235,230,215), n)
+        local m, r, b = create3DSkull(s, Color3.fromRGB(235, 230, 215), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.4 }
     end },
     { name = "МОЛНИЯ", create = function(s, n)
@@ -1208,7 +1238,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,230,60))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = create3DLightning(s, Color3.fromRGB(255,230,60), n)
+        local m, r, b = create3DLightning(s, Color3.fromRGB(255, 230, 60), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
     end },
     { name = "РУКА", create = function(s, n)
@@ -1217,7 +1247,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(235,230,215))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = create3DHand(s, Color3.fromRGB(235,230,215), n, false)
+        local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, false)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
     end },
     { name = "РУКА-СЕРДЦЕ", create = function(s, n, idx)
@@ -1231,7 +1261,7 @@ local SHAPE_PRESETS = {
             hModel:PivotTo(CFrame.new(0, 0, s * 0.3))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = create3DHand(s, Color3.fromRGB(235,230,215), n, true, hc)
+        local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, true, hc)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
     end },
     { name = "ГАСТЕР БЛАСТЕР", create = function(s, n)
@@ -1240,7 +1270,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(240,240,245))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = create3DBlasterPlaceholder(s, Color3.fromRGB(240,240,245), n)
+        local m, r, b = create3DBlasterPlaceholder(s, Color3.fromRGB(240, 240, 245), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.6 }
     end },
     { name = "МЕЧ", create = function(s, n)
@@ -1249,7 +1279,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(220,230,245))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createSword(s, Color3.fromRGB(220,230,245), n)
+        local m, r, b = createSword(s, Color3.fromRGB(220, 230, 245), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.0 }
     end },
     { name = "ЩИТ", create = function(s, n)
@@ -1258,7 +1288,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(200,220,240))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createShield(s, Color3.fromRGB(200,220,240), n)
+        local m, r, b = createShield(s, Color3.fromRGB(200, 220, 240), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
     end },
     { name = "КОРОНА", create = function(s, n)
@@ -1267,7 +1297,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,215,0))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createCrown(s, Color3.fromRGB(255,215,0), n)
+        local m, r, b = createCrown(s, Color3.fromRGB(255, 215, 0), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
     end },
     { name = "КОСТЬ", create = function(s, n)
@@ -1276,7 +1306,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(245,240,220))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createBone(s, Color3.fromRGB(245,240,220), n)
+        local m, r, b = createBone(s, Color3.fromRGB(245, 240, 220), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
     end },
     { name = "КРИСТАЛЛ", create = function(s, n)
@@ -1285,7 +1315,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(150,230,255))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createCrystal(s, Color3.fromRGB(150,230,255), n)
+        local m, r, b = createCrystal(s, Color3.fromRGB(150, 230, 255), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
     end },
     { name = "ПИРАМИДА", create = function(s, n)
@@ -1294,7 +1324,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,200,100))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createPyramid(s, Color3.fromRGB(255,200,100), n)
+        local m, r, b = createPyramid(s, Color3.fromRGB(255, 200, 100), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
     end },
     { name = "ИНЬ-ЯН", create = function(s, n)
@@ -1303,7 +1333,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(220,220,240))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createYinYang(s, Color3.fromRGB(220,220,240), n)
+        local m, r, b = createYinYang(s, Color3.fromRGB(220, 220, 240), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
     end },
     { name = "ГЛАЗ", create = function(s, n)
@@ -1312,7 +1342,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,200,200))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createEye(s, Color3.fromRGB(255,200,200), n)
+        local m, r, b = createEye(s, Color3.fromRGB(255, 200, 200), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
     end },
     { name = "РУНА", create = function(s, n)
@@ -1321,7 +1351,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(180,150,255))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createRune(s, Color3.fromRGB(180,150,255), n)
+        local m, r, b = createRune(s, Color3.fromRGB(180, 150, 255), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
     end },
     { name = "СПИРАЛЬ", create = function(s, n)
@@ -1330,7 +1360,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(120,200,255))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createSpiral(s, Color3.fromRGB(120,200,255), n)
+        local m, r, b = createSpiral(s, Color3.fromRGB(120, 200, 255), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
     end },
     { name = "КРЫЛЬЯ", create = function(s, n)
@@ -1339,7 +1369,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(240,240,255))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createWings(s, Color3.fromRGB(240,240,255), n)
+        local m, r, b = createWings(s, Color3.fromRGB(240, 240, 255), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
     end },
     { name = "ЩУПАЛЬЦЕ", create = function(s, n)
@@ -1348,7 +1378,7 @@ local SHAPE_PRESETS = {
             local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(150,80,180))
             return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
         end
-        local m, r, b = createTentacle(s, Color3.fromRGB(150,80,180), n)
+        local m, r, b = createTentacle(s, Color3.fromRGB(150, 80, 180), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
     end },
 }
@@ -1359,29 +1389,36 @@ local function setupAura()
     if auraFolder then auraFolder:Destroy(); auraFolder = nil end
     auraParts = {}
     if not SETTINGS.AuraEnabled then return end
-    auraFolder = Instance.new("Folder"); auraFolder.Name = "OrbitAura"; auraFolder.Parent = Workspace
+    auraFolder = Instance.new("Folder")
+    auraFolder.Name = "OrbitAura_" .. tostring(math.random(1, 999999))
+    auraFolder.Parent = Workspace
     if SETTINGS.AuraType == "Кольцо" or SETTINGS.AuraType == "Оба" then
         local ring = Instance.new("Part")
         ring.Name = "AuraRing"; ring.Shape = Enum.PartType.Cylinder
-        ring.Size = Vector3.new(SETTINGS.AuraThickness, SETTINGS.AuraSize * 2, SETTINGS.AuraSize * 2)
+        ring.Size = Vector3.new(SETTINGS.AuraThickness, SETTINGS.AuraSize*2, SETTINGS.AuraSize*2)
         ring.Anchored = true; ring.CanCollide = false; ring.CastShadow = false
         ring.Material = Enum.Material.Neon; ring.Color = SETTINGS.AuraColor; ring.Transparency = 0.3
-        ring.Parent = auraFolder; table.insert(auraParts, ring)
+        ring.Parent = auraFolder
+        table.insert(auraParts, ring)
     end
     if SETTINGS.AuraType == "Частицы" or SETTINGS.AuraType == "Оба" then
         local emitter = Instance.new("Part")
-        emitter.Name = "AuraEmitter"; emitter.Size = Vector3.new(0.1, 0.1, 0.1)
-        emitter.Transparency = 1; emitter.Anchored = true; emitter.CanCollide = false; emitter.CastShadow = false
+        emitter.Name = "AuraEmitter"; emitter.Size = Vector3.new(0.1, 0.1, 0.1); emitter.Transparency = 1
+        emitter.Anchored = true; emitter.CanCollide = false; emitter.CastShadow = false
         emitter.Parent = auraFolder
         local particle = Instance.new("ParticleEmitter")
         particle.Texture = "rbxasset://textures/particles/sparkles_main.dds"
         particle.Rate = 30; particle.Lifetime = NumberRange.new(0.8, 1.5)
-        particle.Speed = NumberRange.new(2, 4); particle.SpreadAngle = Vector2.new(180, 180)
-        particle.Size = NumberSequence.new(0.5); particle.Color = ColorSequence.new(SETTINGS.AuraColor)
+        particle.Speed = NumberRange.new(2, 4)
+        particle.SpreadAngle = Vector2.new(180, 180)
+        particle.Size = NumberSequence.new(0.5)
+        particle.Color = ColorSequence.new(SETTINGS.AuraColor)
         particle.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(1, 1),
         })
-        particle.Parent = emitter; table.insert(auraParts, emitter)
+        particle.Parent = emitter
+        table.insert(auraParts, emitter)
     end
 end
 
@@ -1407,8 +1444,8 @@ local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
     if pattern == "Круг" then
         return math.cos(t) * baseRadius, baseHeight, math.sin(t) * baseRadius
     elseif pattern == "Спираль" then
-        local sf = (math.sin(t * 0.3) + 1) * 0.5
-        local r = baseRadius * (0.4 + 0.6 * sf)
+        local spiralFactor = (math.sin(t * 0.3) + 1) * 0.5
+        local r = baseRadius * (0.4 + 0.6 * spiralFactor)
         local h = baseHeight + math.sin(t * 0.5) * 3
         return math.cos(t) * r, h, math.sin(t) * r
     elseif pattern == "Волна" then
@@ -1431,16 +1468,10 @@ local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
 end
 
 -- ==================== УТИЛИТЫ ====================
-local function getCurrentShapeSize()
-    return SETTINGS.BaseShapeSize * SHAPE_SIZE_PRESETS[shapeSizeIndex].factor
-end
-local function getTargetRadius(ri)
-    return ORBIT_PRESETS[orbitIndex].radius + rings[ri].radiusOffset * RING_STEP * SPREAD_PRESETS[spreadIndex].mult
-end
+local function getCurrentShapeSize() return SETTINGS.BaseShapeSize * SHAPE_SIZE_PRESETS[shapeSizeIndex].factor end
+local function getTargetRadius(ri) return ORBIT_PRESETS[orbitIndex].radius + rings[ri].radiusOffset * RING_STEP * SPREAD_PRESETS[spreadIndex].mult end
 local function getHeightOffset() return HEIGHT_PRESETS[heightIndex].offset end
-local function getTargetHeight(ri)
-    return ORBIT_PRESETS[orbitIndex].height + rings[ri].heightOffset * SPREAD_PRESETS[spreadIndex].mult + getHeightOffset()
-end
+local function getTargetHeight(ri) return ORBIT_PRESETS[orbitIndex].height + rings[ri].heightOffset * SPREAD_PRESETS[spreadIndex].mult + getHeightOffset() end
 local function getTargetSpeed() return SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier end
 local function getTargetSpin() return SETTINGS.SpinSpeed * SETTINGS.SpeedMultiplier * SETTINGS.SpinSpeedMultiplier end
 
@@ -1462,6 +1493,7 @@ local function applyTrailSettings(trail)
         NumberSequenceKeypoint.new(1, 0),
     })
 end
+
 local function refreshAllTrails()
     for _, ring in pairs(rings) do
         for _, data in ipairs(ring.blocks) do
@@ -1469,10 +1501,12 @@ local function refreshAllTrails()
         end
     end
 end
+
 local function applyDirectionPreset()
     local preset = DIRECTION_PRESETS[directionIndex]
     for ri = 1, 5 do rings[ri].direction = preset.dirs[ri] end
 end
+
 local function applySpeedModePreset()
     local preset = SPEED_MODE_PRESETS[speedModeIndex]
     for ri = 1, 5 do rings[ri].speedMult = preset.mults[ri] end
@@ -1482,9 +1516,7 @@ local function applyShapes()
     if formModeIndex == 1 then
         for ri = 1, 5 do rings[ri].shapeIndex = shapeIndex end
     else
-        for ri = 1, 5 do
-            rings[ri].shapeIndex = ((shapeIndex + ri - 2) % #SHAPE_PRESETS) + 1
-        end
+        for ri = 1, 5 do rings[ri].shapeIndex = ((shapeIndex + ri - 2) % #SHAPE_PRESETS) + 1 end
     end
 end
 
@@ -1494,7 +1526,7 @@ local function buildRing(ri)
     if ring.folder then ring.folder:Destroy(); ring.folder = nil end
     ring.blocks = {}
     local folder = Instance.new("Folder")
-    folder.Name = "OrbitRing_" .. ri
+    folder.Name = "OrbitRing_" .. ri .. "_" .. tostring(math.random(1, 999999))
     folder.Parent = Workspace
     ring.folder = folder
     local shape = SHAPE_PRESETS[ring.shapeIndex] or SHAPE_PRESETS[1]
@@ -1505,41 +1537,56 @@ local function buildRing(ri)
         local refPart = data.part
         local visualSize = data.visualSize or size
         if not data.isModel then
-            refPart.Material = SETTINGS.Material; refPart.CanCollide = false
-            refPart.Anchored = true; refPart.CastShadow = false
-            refPart.Transparency = SETTINGS.Transparency; refPart.Color = SETTINGS.FixedColor
+            refPart.Material = SETTINGS.Material
+            refPart.CanCollide = false
+            refPart.Anchored = true
+            refPart.CastShadow = false
+            refPart.Transparency = SETTINGS.Transparency
+            refPart.Color = SETTINGS.FixedColor
         end
         if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
         local light = nil
         if SETTINGS.LightEnabled and activeLightCount < SETTINGS.LightLimit then
             light = Instance.new("PointLight")
-            light.Name = blockName .. "_Light"; light.Color = SETTINGS.FixedColor
-            light.Range = SETTINGS.LightRange; light.Brightness = SETTINGS.GlowIntensity
-            light.Parent = refPart; activeLightCount = activeLightCount + 1
+            light.Name = blockName .. "_Light"
+            light.Color = SETTINGS.FixedColor
+            light.Range = SETTINGS.LightRange
+            light.Brightness = SETTINGS.GlowIntensity
+            light.Parent = refPart
+            activeLightCount = activeLightCount + 1
         end
         local trail = nil
         if SETTINGS.TrailEnabled then
             local span = visualSize * 0.35
             local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span, 0, 0); a0.Parent = refPart
             local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span, 0, 0); a1.Parent = refPart
-            trail = Instance.new("Trail"); trail.Attachment0 = a0; trail.Attachment1 = a1
+            trail = Instance.new("Trail")
+            trail.Attachment0 = a0; trail.Attachment1 = a1
             trail.Color = ColorSequence.new(SETTINGS.FixedColor)
             trail.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
+                NumberSequenceKeypoint.new(0, 0.2),
+                NumberSequenceKeypoint.new(1, 1),
             })
-            applyTrailSettings(trail); trail.Parent = refPart
+            applyTrailSettings(trail)
+            trail.Parent = refPart
         end
         local nameGui = Instance.new("BillboardGui")
         nameGui.Size = UDim2.new(0, 140, 0, 30)
         nameGui.StudsOffset = Vector3.new(0, visualSize * 0.9 + 1, 0)
-        nameGui.AlwaysOnTop = true; nameGui.LightInfluence = 0
-        nameGui.Adornee = refPart; nameGui.Enabled = SETTINGS.ShowBlockNames
+        nameGui.AlwaysOnTop = true
+        nameGui.LightInfluence = 0
+        nameGui.Adornee = refPart
+        nameGui.Enabled = SETTINGS.ShowBlockNames
         nameGui.Parent = refPart
         local nameLabel = Instance.new("TextLabel")
-        nameLabel.Size = UDim2.new(1, 0, 1, 0); nameLabel.BackgroundTransparency = 1
-        nameLabel.Text = blockName; nameLabel.TextScaled = true
-        nameLabel.TextColor3 = SETTINGS.NameColor; nameLabel.Font = Enum.Font.GothamBold
-        nameLabel.TextStrokeTransparency = 0.3; nameLabel.Parent = nameGui
+        nameLabel.Size = UDim2.new(1, 0, 1, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = blockName
+        nameLabel.TextScaled = true
+        nameLabel.TextColor3 = SETTINGS.NameColor
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextStrokeTransparency = 0.3
+        nameLabel.Parent = nameGui
         table.insert(ring.blocks, {
             part = refPart, model = data.model, isModel = data.isModel or false,
             bodyParts = data.bodyParts, light = light, trail = trail, lastTrailUpdate = 0,
@@ -1569,7 +1616,8 @@ end
 
 local function applyColor()
     local p = COLOR_PRESETS[colorIndex]
-    if p.rainbow then SETTINGS.Rainbow = true
+    if p.rainbow then
+        SETTINGS.Rainbow = true
     else
         SETTINGS.Rainbow = false
         SETTINGS.FixedColor = p.color
@@ -1599,7 +1647,8 @@ local function rebuildAllRings()
     for ri, ring in pairs(rings) do
         if ring.enabled then buildRing(ri) end
     end
-    applyColor(); applyNameVisibility()
+    applyColor()
+    applyNameVisibility()
 end
 
 -- ==================== ОБНОВЛЕНИЕ ====================
@@ -1612,25 +1661,32 @@ local function startUpdateLoop()
         if not character then return end
         local root = character:FindFirstChild("HumanoidRootPart")
         if not root then return end
+
         local t = tick() - startTime
         local globalMult = SETTINGS.SpeedMultiplier
         local lerpFactor = math.clamp(dt * SETTINGS.LerpSpeed, 0, 1)
         local baseSize = getCurrentShapeSize()
+
         statsData.fpsFrames = statsData.fpsFrames + 1
         if t - statsData.fpsLastCheck >= 1 then
             statsData.lastFPS = math.floor(statsData.fpsFrames / (t - statsData.fpsLastCheck))
-            statsData.fpsFrames = 0; statsData.fpsLastCheck = t
+            statsData.fpsFrames = 0
+            statsData.fpsLastCheck = t
         end
         statsData.sessionTime = t
+
         updateAura()
+
         if SETTINGS.AutoShapeSwap and (tick() - lastAutoSwap) > SETTINGS.AutoShapeSwapInterval then
             lastAutoSwap = tick()
             currentAutoShapeIndex = currentAutoShapeIndex + 1
             if currentAutoShapeIndex > #SHAPE_PRESETS then currentAutoShapeIndex = 1 end
             shapeIndex = currentAutoShapeIndex
-            applyShapes(); rebuildAllRings()
+            applyShapes()
+            rebuildAllRings()
             notify("🎭 Автосмена: " .. SHAPE_PRESETS[shapeIndex].name, Color3.fromRGB(220, 200, 255))
         end
+
         for ri, ring in pairs(rings) do
             currentRadius[ri] = currentRadius[ri] + (getTargetRadius(ri) - currentRadius[ri]) * lerpFactor
             currentHeight[ri] = currentHeight[ri] + (getTargetHeight(ri) - currentHeight[ri]) * lerpFactor
@@ -1639,19 +1695,22 @@ local function startUpdateLoop()
             currentOrbitAngle[ri] = currentOrbitAngle[ri] + currentSpeed[ri] * dt
             currentBobPhase[ri] = currentBobPhase[ri] + 2 * (globalMult * ring.speedMult) * dt
             if spinResetting then
-                local backLerp = math.clamp(dt * 3.0, 0, 1)
+                local returnSpeed = 3.0
+                local backLerp = math.clamp(dt * returnSpeed, 0, 1)
                 currentSpinAngle[ri] = currentSpinAngle[ri] + (0 - currentSpinAngle[ri]) * backLerp
                 if math.abs(currentSpinAngle[ri]) < 0.01 then currentSpinAngle[ri] = 0 end
             elseif spinAxisEnabled then
                 currentSpinAngle[ri] = currentSpinAngle[ri] + currentSpin[ri] * dt
             end
         end
+
         local explosionMul = 1.0
         if SETTINGS.ExplosionEnabled then
             local phase = (t * SETTINGS.ExplosionSpeed) % 1
             explosionMul = 1 + math.sin(phase * math.pi * 2) * SETTINGS.ExplosionPower
         end
         local now = tick()
+
         for ri, ring in pairs(rings) do
             if not ring.enabled then continue end
             local radius = currentRadius[ri] * explosionMul
@@ -1676,8 +1735,11 @@ local function startUpdateLoop()
                 else
                     targetCF = CFrame.new(root.Position + offset) * CFrame.Angles(0, math.rad(spinAngle), 0)
                 end
-                if data.isModel and data.model then data.model:PivotTo(targetCF)
-                else data.part.CFrame = targetCF end
+                if data.isModel and data.model then
+                    data.model:PivotTo(targetCF)
+                else
+                    data.part.CFrame = targetCF
+                end
                 local pulseScale = 1.0
                 if SETTINGS.PulseEnabled then
                     pulseScale = 1.0 + math.sin(t * SETTINGS.PulseSpeed + i + ri) * SETTINGS.PulseAmplitude
@@ -1686,7 +1748,8 @@ local function startUpdateLoop()
                     local target = SETTINGS.PulseEnabled and pulseScale or 1
                     local cur = data.model:GetAttribute("Scale") or 1
                     if math.abs(cur - target) > 0.005 then
-                        data.model:ScaleTo(target); data.model:SetAttribute("Scale", target)
+                        data.model:ScaleTo(target)
+                        data.model:SetAttribute("Scale", target)
                     end
                 elseif data.part then
                     local ps = baseSize * pulseScale
@@ -1699,12 +1762,12 @@ local function startUpdateLoop()
                     local c = Color3.fromHSV(hue, 0.9, 1)
                     applyColorToBlock(data, c)
                     if data.trail and (now - data.lastTrailUpdate) > 0.1 then
-                        data.trail.Color = ColorSequence.new(c); data.lastTrailUpdate = now
+                        data.trail.Color = ColorSequence.new(c)
+                        data.lastTrailUpdate = now
                     end
                 elseif SETTINGS.GradientEnabled then
                     local hue = (t * SETTINGS.GradientSpeed + i / SETTINGS.BlockCount) % 1
-                    local c = Color3.fromHSV(hue, 0.85, 1)
-                    applyColorToBlock(data, c)
+                    applyColorToBlock(data, Color3.fromHSV(hue, 0.85, 1))
                 end
             end
         end
@@ -1722,7 +1785,9 @@ local function setEnabled(state)
         for ri, ring in pairs(rings) do
             if ring.enabled then buildRing(ri) end
         end
-        applyColor(); applyNameVisibility(); startUpdateLoop()
+        applyColor()
+        applyNameVisibility()
+        startUpdateLoop()
         notify("🟢 Скрипт включён", Color3.fromRGB(100, 255, 150))
     else
         stopUpdateLoop()
@@ -1739,9 +1804,13 @@ local function setRingEnabled(ri, state)
     ring.enabled = state
     if not enabled then return end
     if state then
-        countActiveLights(); buildRing(ri); applyColor(); applyNameVisibility()
+        countActiveLights()
+        buildRing(ri)
+        applyColor()
+        applyNameVisibility()
     else
-        destroyRing(ri); countActiveLights()
+        destroyRing(ri)
+        countActiveLights()
     end
 end
 
@@ -1756,13 +1825,15 @@ local function setupRespawnHook()
             for ri, ring in pairs(rings) do
                 if ring.enabled then buildRing(ri) end
             end
-            applyColor(); applyNameVisibility(); setupAura()
+            applyColor()
+            applyNameVisibility()
+            setupAura()
         end
     end)
 end
 
--- ==================== СОХРАНЕНИЕ В ФАЙЛ (Delta) ====================
-local SAVE_FILE = "OrbitFX_v14_save.json"
+-- ==================== СОХРАНЕНИЕ В ПАМЯТИ ====================
+local SAVED_DATA = nil
 
 local function collectSaveData()
     local ringShapes, ringEnabled = {}, {}
@@ -1785,30 +1856,17 @@ local function collectSaveData()
         autoShapeSwap = SETTINGS.AutoShapeSwap,
         autoShapeSwapInterval = SETTINGS.AutoShapeSwapInterval,
         gradientEnabled = SETTINGS.GradientEnabled,
-        spinResetting = spinResetting,
-        spinAxisEnabled = spinAxisEnabled,
-        spinAxisDir = spinAxisDir,
-        spinSpeedIndex = spinSpeedIndex,
-        heartScale = SETTINGS.HeartScale,
-        musicEnabled = musicEnabled, musicId = savedMusicId,
-        musicVolume = musicVolume,
+        spinResetting = spinResetting, spinAxisEnabled = spinAxisEnabled, spinAxisDir = spinAxisDir,
+        spinSpeedIndex = spinSpeedIndex, heartScale = SETTINGS.HeartScale,
+        musicEnabled = musicEnabled, musicId = savedMusicId, musicVolume = musicVolume,
     }
 end
 
-local function saveSettings()
-    if not writefile then return false, "no writefile" end
-    local ok, json = pcall(function() return HttpService:JSONEncode(collectSaveData()) end)
-    if not ok then return false, "encode" end
-    local ok2 = pcall(function() writefile(SAVE_FILE, json) end)
-    return ok2
-end
+local function saveSettings() SAVED_DATA = collectSaveData(); return true end
 
 local function loadSettings()
-    if not isfile or not readfile then return false end
-    if not isfile(SAVE_FILE) then return false end
-    local ok, data = pcall(function() return HttpService:JSONDecode(readfile(SAVE_FILE)) end)
-    if not ok or type(data) ~= "table" then return false end
-
+    if not SAVED_DATA then return false end
+    local data = SAVED_DATA
     if data.spreadIndex then spreadIndex = data.spreadIndex end
     if data.speedIndex then speedIndex = data.speedIndex end
     if data.orbitIndex then orbitIndex = data.orbitIndex end
@@ -1855,24 +1913,27 @@ local function loadSettings()
     if data.waveEnabled ~= nil then SETTINGS.WaveEnabled = data.waveEnabled end
     if data.explosionEnabled ~= nil then SETTINGS.ExplosionEnabled = data.explosionEnabled end
     if data.musicEnabled ~= nil then musicEnabled = data.musicEnabled end
-    if data.musicId then savedMusicId = data.musicId; setMusicId(data.musicId) end
+    if data.musicId then
+        savedMusicId = data.musicId
+        setMusicId(data.musicId)
+    end
     return true
 end
 
--- Автосохранение
-task.spawn(function()
-    while task.wait(30) do
-        pcall(saveSettings)
-    end
-end)
-
 -- ==================== UI ====================
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "OrbitFX_UI"
+screenGui.Name = "_" .. tostring(math.random(100000, 999999))
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 1000
-screenGui.Parent = game.CoreGui
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Delta: сначала пробуем gethui/CoreGui, потом PlayerGui
+protectGui(screenGui)
+local okParent = pcall(function() screenGui.Parent = getSafeParent() end)
+if not okParent or not screenGui.Parent then
+    screenGui.Parent = PlayerGui
+end
 
 local mainBtn = Instance.new("TextButton")
 mainBtn.Size = UDim2.new(0, 56, 0, 56)
@@ -1911,7 +1972,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "✨ ОРБИТА v14.2 (Delta MESH)"
+title.Text = "✨ ОРБИТА v14.0 DELTA"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 12
@@ -1923,9 +1984,11 @@ local function makeSection(text, y, color)
     s.Position = UDim2.new(0, 10, 0, y)
     s.BackgroundTransparency = 0.6
     s.BackgroundColor3 = color or Color3.fromRGB(50, 50, 80)
-    s.BorderSizePixel = 0; s.Text = "▸ " .. text
+    s.BorderSizePixel = 0
+    s.Text = "▸ " .. text
     s.TextColor3 = Color3.fromRGB(220, 220, 255)
-    s.Font = Enum.Font.GothamBold; s.TextSize = 11
+    s.Font = Enum.Font.GothamBold
+    s.TextSize = 11
     s.TextXAlignment = Enum.TextXAlignment.Left
     s.Parent = panel
     Instance.new("UICorner", s).CornerRadius = UDim.new(0, 6)
@@ -1938,8 +2001,10 @@ local function makeButton(text, y, h, bgColor, textColor)
     b.Position = UDim2.new(0, 10, 0, y)
     b.BackgroundColor3 = bgColor or Color3.fromRGB(40, 40, 55)
     b.TextColor3 = textColor or Color3.fromRGB(230, 230, 255)
-    b.Font = Enum.Font.GothamBold; b.TextSize = 12
-    b.Text = text; b.AutoButtonColor = true
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.Text = text
+    b.AutoButtonColor = true
     b.Parent = panel
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
     return b
@@ -2000,7 +2065,8 @@ statsLabel.Position = UDim2.new(0, 10, 0, 1378)
 statsLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 statsLabel.BorderSizePixel = 0
 statsLabel.TextColor3 = Color3.fromRGB(180, 220, 180)
-statsLabel.Font = Enum.Font.Gotham; statsLabel.TextSize = 11
+statsLabel.Font = Enum.Font.Gotham
+statsLabel.TextSize = 11
 statsLabel.TextXAlignment = Enum.TextXAlignment.Left
 statsLabel.TextYAlignment = Enum.TextYAlignment.Top
 statsLabel.Text = "FPS: -- | Фигур: 0 | Время: 0 сек"
@@ -2014,21 +2080,24 @@ musicInput.Position = UDim2.new(0, 10, 0, 1462)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
-musicInput.Font = Enum.Font.GothamBold; musicInput.TextSize = 12
+musicInput.Font = Enum.Font.GothamBold
+musicInput.TextSize = 12
 musicInput.PlaceholderText = "Пример: 1839246711"
 musicInput.PlaceholderColor3 = Color3.fromRGB(140, 130, 170)
-musicInput.Text = ""; musicInput.ClearTextOnFocus = false
+musicInput.Text = ""
+musicInput.ClearTextOnFocus = false
 musicInput.Parent = panel
 Instance.new("UICorner", musicInput).CornerRadius = UDim.new(0, 8)
 local inputStroke = Instance.new("UIStroke", musicInput)
-inputStroke.Color = Color3.fromRGB(180, 140, 255); inputStroke.Thickness = 1
+inputStroke.Color = Color3.fromRGB(180, 140, 255)
+inputStroke.Thickness = 1
 
 local applyIdBtn = makeButton("✅ Применить ID", 1500, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
 local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1533, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
 
-makeSection("💾 СИСТЕМА (файл)", 1570, Color3.fromRGB(60, 60, 80))
-local saveBtn       = makeButton("💾 Сохранить", 1594, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
-local loadBtn       = makeButton("📂 Загрузить", 1627, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
+makeSection("💾 СИСТЕМА (в памяти)", 1570, Color3.fromRGB(60, 60, 80))
+local saveBtn       = makeButton("💾 Сохранить (в памяти)", 1594, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
+local loadBtn       = makeButton("📂 Загрузить (из памяти)", 1627, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
 local resetBtn      = makeButton("🔄 Сброс", 1660, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
 
 local closeBtn = Instance.new("TextButton")
@@ -2036,8 +2105,10 @@ closeBtn.Size = UDim2.new(0, 26, 0, 26)
 closeBtn.Position = UDim2.new(1, -34, 0, 6)
 closeBtn.BackgroundColor3 = Color3.fromRGB(60, 30, 30)
 closeBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
-closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 14
-closeBtn.Text = "✖"; closeBtn.AutoButtonColor = true
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 14
+closeBtn.Text = "✖"
+closeBtn.AutoButtonColor = true
 closeBtn.Parent = panel
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
 
@@ -2100,9 +2171,11 @@ closeBtn.Activated:Connect(function() panel.Visible = false end)
 toggleBtn.Activated:Connect(function()
     setEnabled(not enabled)
     if enabled then
-        toggleBtn.Text = "🟢 ВКЛЮЧЕНО"; toggleBtn.TextColor3 = Color3.fromRGB(0, 255, 120)
+        toggleBtn.Text = "🟢 ВКЛЮЧЕНО"
+        toggleBtn.TextColor3 = Color3.fromRGB(0, 255, 120)
     else
-        toggleBtn.Text = "🔴 ВЫКЛЮЧЕНО"; toggleBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
+        toggleBtn.Text = "🔴 ВЫКЛЮЧЕНО"
+        toggleBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
     end
 end)
 
@@ -2113,16 +2186,20 @@ allRingsBtn.Activated:Connect(function()
     for ri = 2, 5 do if rings[ri].enabled ~= newState then setRingEnabled(ri, newState) end end
     for ri = 2, 5 do refreshRingButton(ri) end
     if newState then
-        allRingsBtn.Text = "⭕ Все кольца: ВЫКЛ"; allRingsBtn.TextColor3 = Color3.fromRGB(255, 160, 160); allRingsBtn.BackgroundColor3 = Color3.fromRGB(55, 40, 40)
+        allRingsBtn.Text = "⭕ Все кольца: ВЫКЛ"
+        allRingsBtn.TextColor3 = Color3.fromRGB(255, 160, 160)
+        allRingsBtn.BackgroundColor3 = Color3.fromRGB(55, 40, 40)
     else
-        allRingsBtn.Text = "⭕ Все кольца: ВКЛ"; allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160); allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
+        allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
+        allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
+        allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
     end
 end)
 
 for ri, btn in pairs(ringButtons) do
     btn.Activated:Connect(function()
-        local ns = not rings[ri].enabled
-        setRingEnabled(ri, ns); refreshRingButton(ri)
+        setRingEnabled(ri, not rings[ri].enabled)
+        refreshRingButton(ri)
     end)
 end
 
@@ -2130,7 +2207,8 @@ shapeBtn.Activated:Connect(function()
     shapeIndex = shapeIndex + 1
     if shapeIndex > #SHAPE_PRESETS then shapeIndex = 1 end
     shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[shapeIndex].name
-    applyShapes(); rebuildAllRings()
+    applyShapes()
+    rebuildAllRings()
     notify("🔷 " .. SHAPE_PRESETS[shapeIndex].name, Color3.fromRGB(180, 220, 255))
 end)
 
@@ -2138,7 +2216,8 @@ shapeModeBtn.Activated:Connect(function()
     formModeIndex = formModeIndex + 1
     if formModeIndex > #FORM_MODES then formModeIndex = 1 end
     shapeModeBtn.Text = "🎭 Формы: " .. FORM_MODES[formModeIndex].name
-    applyShapes(); rebuildAllRings()
+    applyShapes()
+    rebuildAllRings()
 end)
 
 shapeSizeBtn.Activated:Connect(function()
@@ -2152,7 +2231,8 @@ heartSizeBtn.Activated:Connect(function()
     heartScaleIndex = heartScaleIndex + 1
     if heartScaleIndex > #HEART_SCALE_STEPS then heartScaleIndex = 1 end
     SETTINGS.HeartScale = HEART_SCALE_STEPS[heartScaleIndex]
-    refreshHeartSizeBtn(); rebuildAllRings()
+    refreshHeartSizeBtn()
+    rebuildAllRings()
     notify("💗 Сердце: " .. math.floor(SETTINGS.HeartScale / 0.65 * 100) .. "%", Color3.fromRGB(255, 180, 220))
 end)
 
@@ -2160,11 +2240,13 @@ autoSwapBtn.Activated:Connect(function()
     SETTINGS.AutoShapeSwap = not SETTINGS.AutoShapeSwap
     autoSwapBtn.Text = "🎭 Автосмена: " .. (SETTINGS.AutoShapeSwap and "ВКЛ" or "ВЫКЛ")
     if SETTINGS.AutoShapeSwap then
-        autoSwapBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 80); autoSwapBtn.TextColor3 = Color3.fromRGB(255, 200, 255)
+        autoSwapBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 80)
+        autoSwapBtn.TextColor3 = Color3.fromRGB(255, 200, 255)
         lastAutoSwap = tick()
         notify("🎭 Автосмена: ВКЛ", Color3.fromRGB(220, 180, 255))
     else
-        autoSwapBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70); autoSwapBtn.TextColor3 = Color3.fromRGB(200, 200, 255)
+        autoSwapBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+        autoSwapBtn.TextColor3 = Color3.fromRGB(200, 200, 255)
     end
 end)
 
@@ -2218,28 +2300,40 @@ end)
 spinBtn.Activated:Connect(function()
     spinResetting = not spinResetting
     if spinResetting then
-        spinBtn.Text = "↩️ Вращение: ВОЗВРАТ"; spinBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40); spinBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
+        spinBtn.Text = "↩️ Вращение: ВОЗВРАТ"
+        spinBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
+        spinBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
     else
-        spinBtn.Text = "↩️ Вращение в 0"; spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60); spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+        spinBtn.Text = "↩️ Вращение в 0"
+        spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
+        spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
     end
 end)
 
 spinAxisBtn.Activated:Connect(function()
     spinAxisEnabled = not spinAxisEnabled
     if spinAxisEnabled then
-        spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"; spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55); spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
+        spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
+        spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
+        spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
     else
-        spinAxisBtn.Text = "🔄 Кручение оси: ВЫКЛ"; spinAxisBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 35); spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
+        spinAxisBtn.Text = "🔄 Кручение оси: ВЫКЛ"
+        spinAxisBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 35)
+        spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
     end
 end)
 
 spinDirBtn.Activated:Connect(function()
     if spinAxisDir == "X" then
         spinAxisDir = "Y"
-        spinDirBtn.Text = "↔️ Ось: ВЛЕВО/ВПРАВО"; spinDirBtn.BackgroundColor3 = Color3.fromRGB(75, 55, 45); spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
+        spinDirBtn.Text = "↔️ Ось: ВЛЕВО/ВПРАВО"
+        spinDirBtn.BackgroundColor3 = Color3.fromRGB(75, 55, 45)
+        spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
     else
         spinAxisDir = "X"
-        spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"; spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75); spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
+        spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
+        spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+        spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
     end
 end)
 
@@ -2295,7 +2389,8 @@ gradientBtn.Activated:Connect(function()
     SETTINGS.GradientEnabled = not SETTINGS.GradientEnabled
     gradientBtn.Text = "🌈 Градиент: " .. (SETTINGS.GradientEnabled and "ВКЛ" or "ВЫКЛ")
     if SETTINGS.GradientEnabled then
-        gradientBtn.BackgroundColor3 = Color3.fromRGB(70, 40, 90); gradientBtn.TextColor3 = Color3.fromRGB(255, 180, 255)
+        gradientBtn.BackgroundColor3 = Color3.fromRGB(70, 40, 90)
+        gradientBtn.TextColor3 = Color3.fromRGB(255, 180, 255)
         SETTINGS.Rainbow = false
     end
     rebuildAllRings()
@@ -2305,10 +2400,12 @@ auraBtn.Activated:Connect(function()
     SETTINGS.AuraEnabled = not SETTINGS.AuraEnabled
     auraBtn.Text = "🌀 Аура: " .. (SETTINGS.AuraEnabled and "ВКЛ" or "ВЫКЛ")
     if SETTINGS.AuraEnabled then
-        auraBtn.BackgroundColor3 = Color3.fromRGB(70, 50, 100); auraBtn.TextColor3 = Color3.fromRGB(220, 200, 255)
+        auraBtn.BackgroundColor3 = Color3.fromRGB(70, 50, 100)
+        auraBtn.TextColor3 = Color3.fromRGB(220, 200, 255)
         setupAura()
     else
-        auraBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 70); auraBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+        auraBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 70)
+        auraBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
         if auraFolder then auraFolder:Destroy(); auraFolder = nil end
     end
 end)
@@ -2345,39 +2442,46 @@ applyIdBtn.Activated:Connect(function()
     local ok, err = setMusicId(musicInput.Text)
     if ok then
         applyIdBtn.Text = "✅ Применено!"
-        task.wait(1.2); applyIdBtn.Text = "✅ Применить ID"
+        task.wait(1.2)
+        applyIdBtn.Text = "✅ Применить ID"
         notify("🎵 ID применён", Color3.fromRGB(180, 255, 180))
     else
         applyIdBtn.Text = "❌ " .. (err or "Ошибка")
-        task.wait(1.5); applyIdBtn.Text = "✅ Применить ID"
+        task.wait(1.5)
+        applyIdBtn.Text = "✅ Применить ID"
     end
 end)
 
 musicBtn.Activated:Connect(function()
     if not musicSound or musicSound.SoundId == "" then
         musicBtn.Text = "❌ Вставь ID!"
-        task.wait(1.2); musicBtn.Text = "🎵 Музыка: ВЫКЛ"; return
+        task.wait(1.2)
+        musicBtn.Text = "🎵 Музыка: ВЫКЛ"
+        return
     end
     musicEnabled = not musicEnabled
     if musicEnabled then
         musicSound:Play()
-        musicBtn.Text = "🎵 Музыка: ВКЛ"; musicBtn.BackgroundColor3 = Color3.fromRGB(70, 45, 90)
+        musicBtn.Text = "🎵 Музыка: ВКЛ"
+        musicBtn.BackgroundColor3 = Color3.fromRGB(70, 45, 90)
     else
         musicSound:Stop()
-        musicBtn.Text = "🎵 Музыка: ВЫКЛ"; musicBtn.BackgroundColor3 = Color3.fromRGB(50, 35, 60)
+        musicBtn.Text = "🎵 Музыка: ВЫКЛ"
+        musicBtn.BackgroundColor3 = Color3.fromRGB(50, 35, 60)
     end
 end)
 
 saveBtn.Activated:Connect(function()
     if musicInput.Text ~= "" then setMusicId(musicInput.Text) end
-    local ok = saveSettings()
-    if ok then
+    if saveSettings() then
         saveBtn.Text = "✅ Сохранено!"
-        task.wait(1.5); saveBtn.Text = "💾 Сохранить"
+        task.wait(1.5)
+        saveBtn.Text = "💾 Сохранить (в памяти)"
         notify("💾 Настройки сохранены", Color3.fromRGB(160, 255, 180))
     else
-        saveBtn.Text = "❌ Ошибка сохранения"
-        task.wait(1.5); saveBtn.Text = "💾 Сохранить"
+        saveBtn.Text = "❌ Ошибка"
+        task.wait(1.5)
+        saveBtn.Text = "💾 Сохранить (в памяти)"
     end
 end)
 
@@ -2409,31 +2513,21 @@ loadBtn.Activated:Connect(function()
         autoSwapBtn.Text = "🎭 Автосмена: " .. (SETTINGS.AutoShapeSwap and "ВКЛ" or "ВЫКЛ")
         musicBtn.Text = "🎵 Музыка: " .. (musicEnabled and "ВКЛ" or "ВЫКЛ")
         if savedMusicId ~= "" then musicInput.Text = savedMusicId end
-        if spinResetting then
-            spinBtn.Text = "↩️ Вращение: ВОЗВРАТ"; spinBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40); spinBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
-        else
-            spinBtn.Text = "↩️ Вращение в 0"; spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60); spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
-        end
-        if spinAxisEnabled then
-            spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"; spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55); spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
-        else
-            spinAxisBtn.Text = "🔄 Кручение оси: ВЫКЛ"; spinAxisBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 35); spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
-        end
-        if spinAxisDir == "X" then
-            spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"; spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75); spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
-        else
-            spinDirBtn.Text = "↔️ Ось: ВЛЕВО/ВПРАВО"; spinDirBtn.BackgroundColor3 = Color3.fromRGB(75, 55, 45); spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
-        end
-        refreshSpinSpeedBtn(); refreshHeartSizeBtn()
+        refreshSpinSpeedBtn()
+        refreshHeartSizeBtn()
         for ri = 2, 5 do refreshRingButton(ri) end
-        applyDirectionPreset(); applySpeedModePreset()
-        rebuildAllRings(); setupAura()
+        applyDirectionPreset()
+        applySpeedModePreset()
+        rebuildAllRings()
+        setupAura()
         loadBtn.Text = "✅ Загружено!"
-        task.wait(1.5); loadBtn.Text = "📂 Загрузить"
+        task.wait(1.5)
+        loadBtn.Text = "📂 Загрузить (из памяти)"
         notify("📂 Настройки загружены", Color3.fromRGB(180, 220, 255))
     else
         loadBtn.Text = "❌ Нет сохранения"
-        task.wait(1.5); loadBtn.Text = "📂 Загрузить"
+        task.wait(1.5)
+        loadBtn.Text = "📂 Загрузить (из памяти)"
     end
 end)
 
@@ -2444,9 +2538,13 @@ resetBtn.Activated:Connect(function()
     trailLengthIndex, trailWidthIndex = 2, 2
     directionIndex, speedModeIndex, heightIndex, formModeIndex = 1, 1, 3, 1
     orbitPatternIndex, auraTypeIndex = 1, 1
-    spinResetting = false; spinAxisEnabled = true; spinAxisDir = "X"
-    spinSpeedIndex = 2; SETTINGS.SpinSpeedMultiplier = 1.0
-    heartScaleIndex = 4; SETTINGS.HeartScale = HEART_SCALE_STEPS[4]
+    spinResetting = false
+    spinAxisEnabled = true
+    spinAxisDir = "X"
+    spinSpeedIndex = 2
+    SETTINGS.SpinSpeedMultiplier = 1.0
+    heartScaleIndex = 4
+    SETTINGS.HeartScale = HEART_SCALE_STEPS[4]
     rings[1].shapeIndex = 1; rings[2].shapeIndex = 2; rings[3].shapeIndex = 3
     rings[4].shapeIndex = 4; rings[5].shapeIndex = 5
     heightBtn.Text = "⬆️ Высота: " .. HEIGHT_PRESETS[heightIndex].name
@@ -2472,17 +2570,29 @@ resetBtn.Activated:Connect(function()
     auraBtn.Text = "🌀 Аура: ВЫКЛ"
     auraTypeBtn.Text = "🔮 Тип: " .. AURA_TYPES[auraTypeIndex].name
     autoSwapBtn.Text = "🎭 Автосмена: ВЫКЛ"
-    spinBtn.Text = "↩️ Вращение в 0"; spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60); spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
-    spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"; spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55); spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
-    spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"; spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75); spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
-    refreshSpinSpeedBtn(); refreshHeartSizeBtn()
-    allRingsBtn.Text = "⭕ Все кольца: ВКЛ"; allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160); allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
+    spinBtn.Text = "↩️ Вращение в 0"
+    spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
+    spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+    spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
+    spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
+    spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
+    spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
+    spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+    spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
+    refreshSpinSpeedBtn()
+    refreshHeartSizeBtn()
+    allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
+    allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
+    allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
     for ri = 2, 5 do
         if rings[ri].enabled then
-            rings[ri].enabled = false; refreshRingButton(ri)
+            rings[ri].enabled = false
+            refreshRingButton(ri)
         end
     end
-    applyDirectionPreset(); applySpeedModePreset(); rebuildAllRings()
+    applyDirectionPreset()
+    applySpeedModePreset()
+    rebuildAllRings()
     if auraFolder then auraFolder:Destroy(); auraFolder = nil end
     notify("🔄 Сброс выполнен", Color3.fromRGB(255, 180, 180))
 end)
@@ -2496,7 +2606,7 @@ notifContainer.Parent = screenGui
 
 task.spawn(function()
     local activeNotifs = {}
-    while true do
+    while screenGui and screenGui.Parent do
         if #NOTIF_QUEUE > 0 then
             local n = table.remove(NOTIF_QUEUE, 1)
             local lbl = Instance.new("TextLabel")
@@ -2506,7 +2616,8 @@ task.spawn(function()
             lbl.BackgroundTransparency = 0.15
             lbl.BorderSizePixel = 0
             lbl.TextColor3 = n.color
-            lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 12
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextSize = 12
             lbl.Text = " " .. n.text
             lbl.TextXAlignment = Enum.TextXAlignment.Left
             lbl.Parent = notifContainer
@@ -2516,8 +2627,11 @@ task.spawn(function()
             table.insert(activeNotifs, lbl)
             task.spawn(function()
                 task.wait(n.duration)
-                local tw = TweenService:Create(lbl, TweenInfo.new(0.5), { BackgroundTransparency = 1, TextTransparency = 1 })
-                tw:Play(); task.wait(0.5)
+                local tween = TweenService:Create(lbl, TweenInfo.new(0.5), {
+                    BackgroundTransparency = 1, TextTransparency = 1,
+                })
+                tween:Play()
+                task.wait(0.5)
                 for i, l in ipairs(activeNotifs) do
                     if l == lbl then table.remove(activeNotifs, i); break end
                 end
@@ -2553,20 +2667,31 @@ end)
 -- ==================== ПЕРЕТАСКИВАНИЕ ====================
 local dragging, dragStart, startPos = false, nil, nil
 mainBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch
-        or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true; dragStart = input.Position; startPos = mainBtn.Position
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainBtn.Position
     end
 end)
 mainBtn.InputChanged:Connect(function(input)
     if not dragging then return end
-    if input.UserInputType == Enum.UserInputType.Touch
-        or input.UserInputType == Enum.UserInputType.MouseMovement then
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
         local d = input.Position - dragStart
         mainBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
     end
 end)
 mainBtn.InputEnded:Connect(function() dragging = false end)
+
+-- ==================== ВЫГРУЗКА ДЛЯ DELTA ====================
+GENV.OrbitFX_Unload = function()
+    pcall(function() setEnabled(false) end)
+    pcall(function() stopUpdateLoop() end)
+    for ri in pairs(rings) do pcall(destroyRing, ri) end
+    if auraFolder then pcall(function() auraFolder:Destroy() end); auraFolder = nil end
+    if musicSound then pcall(function() musicSound:Destroy() end); musicSound = nil end
+    if screenGui then pcall(function() screenGui:Destroy() end) end
+    GENV.OrbitFX_Unload = nil
+end
 
 -- ==================== СТАРТ ====================
 createMusicSound()
@@ -2576,11 +2701,13 @@ setEnabled(true)
 refreshSpinSpeedBtn()
 refreshHeartSizeBtn()
 
-notify("✨ ОРБИТА v14.2 (Delta MESH) загружена!", Color3.fromRGB(200, 200, 255), 3)
+notify("✨ ОРБИТА v14.0 DELTA загружена!", Color3.fromRGB(200, 200, 255), 3)
+notify("💡 Выгрузка: getgenv().OrbitFX_Unload()", Color3.fromRGB(180, 220, 255), 4)
 
 return {
     Stop = function() setEnabled(false) end,
     Start = function() setEnabled(true) end,
+    Unload = GENV.OrbitFX_Unload,
     Rings = rings,
     Settings = SETTINGS,
     Save = saveSettings,
