@@ -1,11 +1,10 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v15.1 (Delta Edition - MESH + SMOOTH)     ║
+    ║   ОРБИТА ФИГУР v15.0 (Delta Edition - MESH + SMOOTH)     ║
     ║   + 27 фигур с улучшенными деталями                      ║
     ║   + MESH_CONFIG для своих 3D-моделей                     ║
     ║   + 7 орбитальных узоров                                 ║
-    ║   + Аура: кольцо / частицы / мини-кольцо из фигур        ║
-    ║   + Аура использует те же цвета что и кольца             ║
+    ║   + Аура вокруг игрока с выбором цвета                   ║
     ║   + Система уведомлений                                  ║
     ║   + Статистика FPS / фигур / времени                     ║
     ║   + Автосмена фигур                                      ║
@@ -53,33 +52,33 @@ local HAS_FS = (writefile and readfile and isfile and type(writefile) == "functi
 
 -- ==================== МЕШИ ====================
 local MESH_CONFIG = {
-    ["БЛОК"] = { MeshId = "", TextureId = "" },
-    ["ШАР"] = { MeshId = "", TextureId = "" },
-    ["ЦИЛИНДР"] = { MeshId = "", TextureId = "" },
-    ["КЛИН"] = { MeshId = "", TextureId = "" },
-    ["ГОЛОВА"] = { MeshId = "", TextureId = "" },
-    ["СЕРДЦЕ"] = { MeshId = "", TextureId = "" },
-    ["ЗВЕЗДА"] = { MeshId = "", TextureId = "" },
-    ["ТРЕУГОЛЬНИК"] = { MeshId = "", TextureId = "" },
-    ["РОМБ"] = { MeshId = "", TextureId = "" },
-    ["КРЕСТ"] = { MeshId = "", TextureId = "" },
-    ["ЧЕРЕП"] = { MeshId = "", TextureId = "" },
-    ["МОЛНИЯ"] = { MeshId = "", TextureId = "" },
-    ["РУКА"] = { MeshId = "", TextureId = "" },
-    ["РУКА-СЕРДЦЕ"] = { MeshId = "", TextureId = "" },
-    ["ГАСТЕР БЛАСТЕР"] = { MeshId = "", TextureId = "" },
-    ["МЕЧ"] = { MeshId = "", TextureId = "" },
-    ["ЩИТ"] = { MeshId = "", TextureId = "" },
-    ["КОРОНА"] = { MeshId = "", TextureId = "" },
-    ["КОСТЬ"] = { MeshId = "", TextureId = "" },
-    ["КРИСТАЛЛ"] = { MeshId = "", TextureId = "" },
-    ["ПИРАМИДА"] = { MeshId = "", TextureId = "" },
-    ["ИНЬ-ЯН"] = { MeshId = "", TextureId = "" },
-    ["ГЛАЗ"] = { MeshId = "", TextureId = "" },
-    ["РУНА"] = { MeshId = "", TextureId = "" },
-    ["СПИРАЛЬ"] = { MeshId = "", TextureId = "" },
-    ["КРЫЛЬЯ"] = { MeshId = "", TextureId = "" },
-    ["ЩУПАЛЬЦЕ"] = { MeshId = "", TextureId = "" },
+    ["БЛОК"]            = { MeshId = "", TextureId = "" },
+    ["ШАР"]             = { MeshId = "", TextureId = "" },
+    ["ЦИЛИНДР"]         = { MeshId = "", TextureId = "" },
+    ["КЛИН"]            = { MeshId = "", TextureId = "" },
+    ["ГОЛОВА"]          = { MeshId = "", TextureId = "" },
+    ["СЕРДЦЕ"]          = { MeshId = "", TextureId = "" },
+    ["ЗВЕЗДА"]          = { MeshId = "", TextureId = "" },
+    ["ТРЕУГОЛЬНИК"]     = { MeshId = "", TextureId = "" },
+    ["РОМБ"]            = { MeshId = "", TextureId = "" },
+    ["КРЕСТ"]           = { MeshId = "", TextureId = "" },
+    ["ЧЕРЕП"]           = { MeshId = "", TextureId = "" },
+    ["МОЛНИЯ"]          = { MeshId = "", TextureId = "" },
+    ["РУКА"]            = { MeshId = "", TextureId = "" },
+    ["РУКА-СЕРДЦЕ"]     = { MeshId = "", TextureId = "" },
+    ["ГАСТЕР БЛАСТЕР"]  = { MeshId = "", TextureId = "" },
+    ["МЕЧ"]             = { MeshId = "", TextureId = "" },
+    ["ЩИТ"]             = { MeshId = "", TextureId = "" },
+    ["КОРОНА"]          = { MeshId = "", TextureId = "" },
+    ["КОСТЬ"]           = { MeshId = "", TextureId = "" },
+    ["КРИСТАЛЛ"]        = { MeshId = "", TextureId = "" },
+    ["ПИРАМИДА"]        = { MeshId = "", TextureId = "" },
+    ["ИНЬ-ЯН"]          = { MeshId = "", TextureId = "" },
+    ["ГЛАЗ"]            = { MeshId = "", TextureId = "" },
+    ["РУНА"]            = { MeshId = "", TextureId = "" },
+    ["СПИРАЛЬ"]         = { MeshId = "", TextureId = "" },
+    ["КРЫЛЬЯ"]          = { MeshId = "", TextureId = "" },
+    ["ЩУПАЛЬЦЕ"]        = { MeshId = "", TextureId = "" },
 }
 
 -- ==================== МУЗЫКА ====================
@@ -117,7 +116,11 @@ end
 -- ==================== УВЕДОМЛЕНИЯ ====================
 local NOTIF_QUEUE = {}
 local function notify(text, color, duration)
-    table.insert(NOTIF_QUEUE, { text = text, color = color or Color3.fromRGB(140, 255, 200), duration = duration or 2 })
+    table.insert(NOTIF_QUEUE, {
+        text = text,
+        color = color or Color3.fromRGB(140, 255, 200),
+        duration = duration or 2,
+    })
 end
 
 -- ==================== НАСТРОЙКИ ====================
@@ -154,6 +157,7 @@ local DEFAULT_SETTINGS = {
     ExplosionPower = 0.7,
     HeartScale = 0.65,
     OrbitPattern = "Круг",
+    OrbitPatternParam = 1.0,
     AuraEnabled = false,
     AuraType = "Кольцо",
     AuraSize = 3.5,
@@ -181,18 +185,19 @@ local SPREAD_PRESETS = {
 }
 local spreadIndex = 2
 
+-- НОВЫЕ ВЫСОТЫ ПО ТЕЛУ
 local HEIGHT_PRESETS = {
     { name = "Возле (у ног)", offset = -3.0 },
-    { name = "Ноги", offset = -1.0 },
-    { name = "Низко", offset = 0.5 },
-    { name = "Середина", offset = 2.0 },
-    { name = "Туловище", offset = 3.0 },
-    { name = "Голова", offset = 4.5 },
-    { name = "Высоко", offset = 6.5 },
-    { name = "Небо", offset = 35.0 },
-    { name = "Космос", offset = 60.0 },
+    { name = "Ноги",          offset = -1.0 },
+    { name = "Низко",         offset =  0.5 },
+    { name = "Середина",      offset =  2.0 },
+    { name = "Туловище",      offset =  3.0 },
+    { name = "Голова",        offset =  4.5 },
+    { name = "Высоко",        offset =  6.5 },
+    { name = "Небо",          offset = 35.0 },
+    { name = "Космос",        offset = 60.0 },
 }
-local heightIndex = 4
+local heightIndex = 4   -- по умолчанию "Середина"
 
 local SPEED_PRESETS = {
     { name = "0.5x", value = 0.5 }, { name = "1x", value = 1.0 }, { name = "1.5x", value = 1.5 },
@@ -237,16 +242,24 @@ local ORBIT_PATTERNS = {
 }
 local orbitPatternIndex = 1
 
-local AURA_TYPES = {
-    { name = "Кольцо" },
-    { name = "Частицы" },
-    { name = "Фигуры" },
-    { name = "Оба" },
-    { name = "Всё" },
-}
+local AURA_TYPES = { { name = "Кольцо" }, { name = "Частицы" }, { name = "Оба" } }
 local auraTypeIndex = 1
 
--- ЕДИНЫЙ СПИСОК ЦВЕТОВ (для колец и ауры)
+-- НОВЫЕ ЦВЕТА АУРЫ
+local AURA_COLORS = {
+    { name = "ФИОЛЕТОВЫЙ", color = Color3.fromRGB(150, 100, 255) },
+    { name = "КРАСНЫЙ",    color = Color3.fromRGB(255, 60, 60) },
+    { name = "ОРАНЖЕВЫЙ",  color = Color3.fromRGB(255, 140, 40) },
+    { name = "ЖЁЛТЫЙ",     color = Color3.fromRGB(255, 220, 60) },
+    { name = "ЗЕЛЁНЫЙ",    color = Color3.fromRGB(60, 255, 130) },
+    { name = "ГОЛУБОЙ",    color = Color3.fromRGB(0, 220, 255) },
+    { name = "СИНИЙ",      color = Color3.fromRGB(60, 130, 255) },
+    { name = "РОЗОВЫЙ",    color = Color3.fromRGB(255, 100, 200) },
+    { name = "ЗОЛОТОЙ",    color = Color3.fromRGB(255, 200, 50) },
+    { name = "БЕЛЫЙ",      color = Color3.fromRGB(240, 240, 255) },
+}
+local auraColorIndex = 1
+
 local COLOR_PRESETS = {
     { name = "РАДУГА", rainbow = true, color = nil },
     { name = "КРАСНЫЙ", rainbow = false, color = Color3.fromRGB(255, 50, 50) },
@@ -291,7 +304,6 @@ local COLOR_PRESETS = {
     { name = "ХАКИ", rainbow = false, color = Color3.fromRGB(189, 183, 107) },
 }
 local colorIndex = 1
-local auraColorIndex = 1   -- теперь указывает на COLOR_PRESETS, а не на отдельный список
 
 local TRAIL_LENGTH_PRESETS = {
     { name = "Короткий", value = 0.25 }, { name = "Средний", value = 0.5 },
@@ -324,10 +336,7 @@ local statsData = {
     fpsFrames = 0, fpsLastCheck = tick(),
 }
 local auraFolder = nil
-local auraParts = {}       -- кольцо, эмиттеры
-local auraBlocks = {}      -- мини-кольцо из фигур
-local auraAngle = 0
-local auraShapeIndex = 1   -- ключ в SHAPE_PRESETS
+local auraParts = {}
 
 local RING_STEP = 5
 local rings = {
@@ -748,6 +757,7 @@ local function createShield(size, color, name)
     return model, root, bodies
 end
 
+-- КОРОНА (возвращена)
 local function createCrown(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -803,6 +813,7 @@ local function createBone(size, color, name)
     return model, root, bodies
 end
 
+-- КРИСТАЛЛ (возвращён)
 local function createCrystal(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -935,6 +946,7 @@ local function createEye(size, color, name)
     return model, root, bodies
 end
 
+-- РУНА (возвращена)
 local function createRune(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -1401,54 +1413,35 @@ local SHAPE_PRESETS = {
 }
 local shapeIndex = 1
 
--- ==================== АУРА ====================
-local function getAuraColor(i, total)
-    local p = COLOR_PRESETS[auraColorIndex]
-    if p.rainbow then
-        local t = tick() - startTime
-        local hue = (t * 0.2 + i / math.max(total, 1)) % 1
-        return Color3.fromHSV(hue, 0.9, 1)
-    end
-    return p.color or SETTINGS.AuraColor
-end
-
+-- ==================== АУРА (с усиленными частицами) ====================
 local function setupAura()
     if auraFolder then auraFolder:Destroy(); auraFolder = nil end
     auraParts = {}
-    auraBlocks = {}
     if not SETTINGS.AuraEnabled then return end
-
     auraFolder = Instance.new("Folder")
     auraFolder.Name = "OrbitAura_" .. tostring(math.random(1, 999999))
     auraFolder.Parent = Workspace
 
-    local t = SETTINGS.AuraType
-    local needRing = (t == "Кольцо" or t == "Оба" or t == "Всё")
-    local needParticles = (t == "Частицы" or t == "Оба" or t == "Всё")
-    local needShapes = (t == "Фигуры" or t == "Всё")
-
     -- Кольцо
-    if needRing then
+    if SETTINGS.AuraType == "Кольцо" or SETTINGS.AuraType == "Оба" then
         local ring = Instance.new("Part")
         ring.Name = "AuraRing"; ring.Shape = Enum.PartType.Cylinder
         ring.Size = Vector3.new(SETTINGS.AuraThickness, SETTINGS.AuraSize*2, SETTINGS.AuraSize*2)
         ring.Anchored = true; ring.CanCollide = false; ring.CastShadow = false
-        ring.Material = Enum.Material.Neon
-        ring.Color = getAuraColor(1, 1)
-        ring.Transparency = 0.3
+        ring.Material = Enum.Material.Neon; ring.Color = SETTINGS.AuraColor; ring.Transparency = 0.3
         ring.Parent = auraFolder
         table.insert(auraParts, ring)
     end
 
-    -- Частицы (3 эмиттера)
-    if needParticles then
+    -- Частицы: 3 эмиттера, ~330 шт/сек всего
+    if SETTINGS.AuraType == "Частицы" or SETTINGS.AuraType == "Оба" then
         local emitter = Instance.new("Part")
         emitter.Name = "AuraEmitter"
         emitter.Size = Vector3.new(0.1, 0.1, 0.1); emitter.Transparency = 1
         emitter.Anchored = true; emitter.CanCollide = false; emitter.CastShadow = false
         emitter.Parent = auraFolder
 
-        local col = getAuraColor(1, 1)
+        -- Эмиттер 1: основной поток искр
         local p1 = Instance.new("ParticleEmitter")
         p1.Texture = "rbxasset://textures/particles/sparkles_main.dds"
         p1.Rate = 150
@@ -1461,13 +1454,14 @@ local function setupAura()
             NumberSequenceKeypoint.new(0.5, 0.7),
             NumberSequenceKeypoint.new(1, 0.2),
         })
-        p1.Color = ColorSequence.new(col)
+        p1.Color = ColorSequence.new(SETTINGS.AuraColor)
         p1.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 0.1),
             NumberSequenceKeypoint.new(1, 1),
         })
         p1.Parent = emitter
 
+        -- Эмиттер 2: вертикальные вспышки
         local p2 = Instance.new("ParticleEmitter")
         p2.Texture = "rbxasset://textures/particles/sparkles_main.dds"
         p2.Rate = 100
@@ -1475,13 +1469,14 @@ local function setupAura()
         p2.Speed = NumberRange.new(5, 9)
         p2.SpreadAngle = Vector2.new(20, 20)
         p2.Size = NumberSequence.new(0.5)
-        p2.Color = ColorSequence.new(col)
+        p2.Color = ColorSequence.new(SETTINGS.AuraColor)
         p2.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 0.3),
             NumberSequenceKeypoint.new(1, 1),
         })
         p2.Parent = emitter
 
+        -- Эмиттер 3: боковая дымка
         local p3 = Instance.new("ParticleEmitter")
         p3.Texture = "rbxasset://textures/particles/sparkles_main.dds"
         p3.Rate = 80
@@ -1492,7 +1487,7 @@ local function setupAura()
             NumberSequenceKeypoint.new(0, 0.8),
             NumberSequenceKeypoint.new(1, 0.3),
         })
-        p3.Color = ColorSequence.new(col)
+        p3.Color = ColorSequence.new(SETTINGS.AuraColor)
         p3.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 0.4),
             NumberSequenceKeypoint.new(1, 1),
@@ -1501,110 +1496,19 @@ local function setupAura()
 
         table.insert(auraParts, emitter)
     end
-
-    -- Мини-кольцо из фигур
-    if needShapes then
-        local folder = Instance.new("Folder")
-        folder.Name = "AuraShapes"
-        folder.Parent = auraFolder
-
-        local shape = SHAPE_PRESETS[auraShapeIndex] or SHAPE_PRESETS[1]
-        -- Фигуры ауры чуть меньше основных (×0.6)
-        local size = getCurrentShapeSize() * 0.6
-        local count = math.max(4, math.floor(SETTINGS.BlockCount * 0.75))
-
-        for i = 1, count do
-            local data = shape.create(size, "Aura_" .. i)
-            local refPart = data.part
-            if not data.isModel then
-                refPart.Material = SETTINGS.Material
-                refPart.CanCollide = false
-                refPart.Anchored = true
-                refPart.CastShadow = false
-                refPart.Transparency = SETTINGS.Transparency
-                refPart.Color = getAuraColor(i, count)
-            end
-            if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
-
-            table.insert(auraBlocks, {
-                part = refPart,
-                model = data.model,
-                isModel = data.isModel or false,
-                bodyParts = data.bodyParts,
-                index = i,
-                total = count,
-            })
-        end
-    end
 end
 
-local function updateAura(dt)
+local function updateAura()
     if not auraFolder then return end
     local char = LocalPlayer.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
-    local t = SETTINGS.AuraType
-    local needRing = (t == "Кольцо" or t == "Оба" or t == "Всё")
-    local needParticles = (t == "Частицы" or t == "Оба" or t == "Всё")
-    local needShapes = (t == "Фигуры" or t == "Всё")
-
-    local baseCol = getAuraColor(1, 1)
-
-    -- Кольцо + эмиттер
     for _, part in ipairs(auraParts) do
         if part.Name == "AuraRing" then
             part.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 2.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
-            if COLOR_PRESETS[auraColorIndex].rainbow or SETTINGS.Rainbow then
-                part.Color = baseCol
-            else
-                part.Color = COLOR_PRESETS[auraColorIndex].color or SETTINGS.AuraColor
-            end
         elseif part.Name == "AuraEmitter" then
             part.CFrame = hrp.CFrame
-            if COLOR_PRESETS[auraColorIndex].rainbow then
-                for _, child in ipairs(part:GetChildren()) do
-                    if child:IsA("ParticleEmitter") then
-                        child.Color = ColorSequence.new(baseCol)
-                    end
-                end
-            end
-        end
-    end
-
-    -- Мини-кольцо из фигур
-    if needShapes and #auraBlocks > 0 then
-        -- Скорость как у главного кольца, но чуть медленнее (×0.7)
-        local auraSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7
-        auraAngle = auraAngle + auraSpeed * dt
-
-        local radius = SETTINGS.AuraSize
-        local height = 0.5   -- на уровне бёдер
-
-        for _, data in ipairs(auraBlocks) do
-            if not data.part.Parent then continue end
-            local angle = math.rad(auraAngle + (data.index - 1) * (360 / data.total))
-            local px = math.cos(angle) * radius
-            local pz = math.sin(angle) * radius
-            local pos = hrp.Position + Vector3.new(px, height, pz)
-            local cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi / 2, 0)
-
-            if data.isModel and data.model then
-                data.model:PivotTo(cf)
-            else
-                data.part.CFrame = cf
-            end
-
-            -- Цвет
-            local col = getAuraColor(data.index, data.total)
-            if data.bodyParts then
-                for _, p in ipairs(data.bodyParts) do
-                    if not p:GetAttribute("NoRecolor") then p.Color = col end
-                end
-            elseif data.part then
-                data.part.Color = col
-            end
         end
     end
 end
@@ -1847,7 +1751,7 @@ local function startUpdateLoop()
         end
         statsData.sessionTime = t
 
-        updateAura(dt)
+        updateAura()
 
         if SETTINGS.AutoShapeSwap and (tick() - lastAutoSwap) > SETTINGS.AutoShapeSwapInterval then
             lastAutoSwap = tick()
@@ -2006,6 +1910,7 @@ end
 -- ==================== СОХРАНЕНИЕ ====================
 local SAVED_DATA = nil
 
+-- сериализация Color3/Vector3 для JSON
 local function encodeData(data)
     local function enc(v)
         if type(v) == "table" then
@@ -2050,7 +1955,7 @@ local function collectSaveData()
         directionIndex = directionIndex, speedModeIndex = speedModeIndex,
         heightIndex = heightIndex, shapeIndex = shapeIndex, formModeIndex = formModeIndex,
         orbitPatternIndex = orbitPatternIndex, auraTypeIndex = auraTypeIndex,
-        auraColorIndex = auraColorIndex, auraShapeIndex = auraShapeIndex,
+        auraColorIndex = auraColorIndex,
         ringShapes = ringShapes, ringEnabled = ringEnabled,
         lightEnabled = SETTINGS.LightEnabled, trailEnabled = SETTINGS.TrailEnabled,
         pulseEnabled = SETTINGS.PulseEnabled, showNames = SETTINGS.ShowBlockNames,
@@ -2076,6 +1981,7 @@ local function saveSettings()
 end
 
 local function loadSettings()
+    -- если в памяти нет — пробуем файл
     if not SAVED_DATA and HAS_FS then
         pcall(function()
             if isfile(SAVE_FILE) then
@@ -2103,7 +2009,6 @@ local function loadSettings()
     if data.orbitPatternIndex then orbitPatternIndex = data.orbitPatternIndex end
     if data.auraTypeIndex then auraTypeIndex = data.auraTypeIndex end
     if data.auraColorIndex then auraColorIndex = data.auraColorIndex end
-    if data.auraShapeIndex then auraShapeIndex = data.auraShapeIndex end
     if data.spinResetting ~= nil then spinResetting = data.spinResetting end
     if data.spinAxisEnabled ~= nil then spinAxisEnabled = data.spinAxisEnabled end
     if data.spinAxisDir ~= nil then spinAxisDir = data.spinAxisDir end
@@ -2141,9 +2046,7 @@ local function loadSettings()
         setMusicId(data.musicId)
     end
     -- применяем цвет ауры
-    if COLOR_PRESETS[auraColorIndex] and COLOR_PRESETS[auraColorIndex].color then
-        SETTINGS.AuraColor = COLOR_PRESETS[auraColorIndex].color
-    end
+    SETTINGS.AuraColor = AURA_COLORS[auraColorIndex].color
     return true
 end
 
@@ -2184,7 +2087,7 @@ panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 panel.BackgroundTransparency = 0.1
 panel.BorderSizePixel = 0
 panel.Visible = false
-panel.CanvasSize = UDim2.new(0, 0, 0, 2250)
+panel.CanvasSize = UDim2.new(0, 0, 0, 2100)
 panel.ScrollBarThickness = 3
 panel.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 255)
 panel.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -2198,7 +2101,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "✨ ОРБИТА v15.1 DELTA"
+title.Text = "✨ ОРБИТА v15.0 DELTA"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 12
@@ -2275,22 +2178,21 @@ local explosionBtn  = makeButton("💥 Взрыв: ВЫКЛ", 1030, 30, Color3.f
 local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 1063, 30, Color3.fromRGB(35, 35, 50))
 local gradientBtn   = makeButton("🌈 Градиент: ВЫКЛ", 1096, 30, Color3.fromRGB(55, 35, 75), Color3.fromRGB(255, 180, 255))
 
--- СЕКЦИЯ АУРА (с цветами колец + мини-кольцо из фигур)
-makeSection("🌀 АУРА (мини-кольцо)", 1133, Color3.fromRGB(80, 60, 120))
+-- СЕКЦИЯ АУРА (теперь с цветом)
+makeSection("🌀 АУРА", 1133, Color3.fromRGB(80, 60, 120))
 local auraBtn       = makeButton("🌀 Аура: ВЫКЛ", 1157, 30, Color3.fromRGB(50, 40, 70), Color3.fromRGB(200, 180, 255))
 local auraTypeBtn   = makeButton("🔮 Тип: " .. AURA_TYPES[auraTypeIndex].name, 1190, 30, Color3.fromRGB(50, 40, 70), Color3.fromRGB(200, 180, 255))
-local auraShapeBtn  = makeButton("🔷 Форма ауры: " .. SHAPE_PRESETS[auraShapeIndex].name, 1223, 30, Color3.fromRGB(60, 40, 80), Color3.fromRGB(220, 180, 255))
-local auraColorBtn  = makeButton("🎨 Цвет ауры: " .. COLOR_PRESETS[auraColorIndex].name, 1256, 30, Color3.fromRGB(60, 40, 80), Color3.fromRGB(220, 180, 255))
+local auraColorBtn  = makeButton("🎨 Цвет ауры: " .. AURA_COLORS[auraColorIndex].name, 1223, 30, Color3.fromRGB(60, 40, 80), Color3.fromRGB(220, 180, 255))
 
-makeSection("🎨 ЦВЕТ И СВЕТ", 1293, Color3.fromRGB(100, 100, 50))
-local colorBtn      = makeButton("🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name, 1317, 30)
-local lightBtn      = makeButton("💡 Свет: ВКЛ", 1350, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
-local nameBtn       = makeButton("🏷️ Имена: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ"), 1383, 30)
+makeSection("🎨 ЦВЕТ И СВЕТ", 1260, Color3.fromRGB(100, 100, 50))
+local colorBtn      = makeButton("🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name, 1284, 30)
+local lightBtn      = makeButton("💡 Свет: ВКЛ", 1317, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
+local nameBtn       = makeButton("🏷️ Имена: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ"), 1350, 30)
 
-makeSection("📊 СТАТИСТИКА", 1420, Color3.fromRGB(60, 60, 90))
+makeSection("📊 СТАТИСТИКА", 1387, Color3.fromRGB(60, 60, 90))
 local statsLabel = Instance.new("TextLabel")
 statsLabel.Size = UDim2.new(1, -20, 0, 50)
-statsLabel.Position = UDim2.new(0, 10, 0, 1444)
+statsLabel.Position = UDim2.new(0, 10, 0, 1411)
 statsLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 statsLabel.BorderSizePixel = 0
 statsLabel.TextColor3 = Color3.fromRGB(180, 220, 180)
@@ -2302,10 +2204,10 @@ statsLabel.Text = "FPS: -- | Фигур: 0 | Время: 0 сек"
 statsLabel.Parent = panel
 Instance.new("UICorner", statsLabel).CornerRadius = UDim.new(0, 6)
 
-makeSection("🎵 МУЗЫКА", 1504, Color3.fromRGB(80, 60, 100))
+makeSection("🎵 МУЗЫКА", 1471, Color3.fromRGB(80, 60, 100))
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
-musicInput.Position = UDim2.new(0, 10, 0, 1528)
+musicInput.Position = UDim2.new(0, 10, 0, 1495)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -2321,13 +2223,13 @@ local inputStroke = Instance.new("UIStroke", musicInput)
 inputStroke.Color = Color3.fromRGB(180, 140, 255)
 inputStroke.Thickness = 1
 
-local applyIdBtn = makeButton("✅ Применить ID", 1566, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
-local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1599, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
+local applyIdBtn = makeButton("✅ Применить ID", 1533, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
+local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1566, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
 
-makeSection("💾 СИСТЕМА", 1636, Color3.fromRGB(60, 60, 80))
-local saveBtn       = makeButton("💾 Сохранить", 1660, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
-local loadBtn       = makeButton("📂 Загрузить", 1693, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
-local resetBtn      = makeButton("🔄 Сброс", 1726, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
+makeSection("💾 СИСТЕМА", 1603, Color3.fromRGB(60, 60, 80))
+local saveBtn       = makeButton("💾 Сохранить", 1627, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
+local loadBtn       = makeButton("📂 Загрузить", 1660, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
+local resetBtn      = makeButton("🔄 Сброс", 1693, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -2395,19 +2297,9 @@ local function refreshHeartSizeBtn()
 end
 
 local function refreshAuraColorBtn()
-    local ac = COLOR_PRESETS[auraColorIndex]
+    local ac = AURA_COLORS[auraColorIndex]
     auraColorBtn.Text = "🎨 Цвет ауры: " .. ac.name
-    if ac.rainbow then
-        auraColorBtn.TextColor3 = Color3.fromRGB(255, 200, 255)
-        auraColorBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 90)
-    else
-        auraColorBtn.TextColor3 = ac.color
-        auraColorBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 80)
-    end
-end
-
-local function refreshAuraShapeBtn()
-    auraShapeBtn.Text = "🔷 Форма ауры: " .. SHAPE_PRESETS[auraShapeIndex].name
+    auraColorBtn.TextColor3 = ac.color
 end
 
 mainBtn.Activated:Connect(function() panel.Visible = not panel.Visible end)
@@ -2636,7 +2528,7 @@ gradientBtn.Activated:Connect(function()
     rebuildAllRings()
 end)
 
--- ОБРАБОТЧИКИ АУРЫ
+-- ОБРАБОТЧИК КНОПКИ АУРА
 auraBtn.Activated:Connect(function()
     SETTINGS.AuraEnabled = not SETTINGS.AuraEnabled
     auraBtn.Text = "🌀 Аура: " .. (SETTINGS.AuraEnabled and "ВКЛ" or "ВЫКЛ")
@@ -2659,22 +2551,15 @@ auraTypeBtn.Activated:Connect(function()
     if SETTINGS.AuraEnabled then setupAura() end
 end)
 
-auraShapeBtn.Activated:Connect(function()
-    auraShapeIndex = auraShapeIndex + 1
-    if auraShapeIndex > #SHAPE_PRESETS then auraShapeIndex = 1 end
-    refreshAuraShapeBtn()
-    if SETTINGS.AuraEnabled then setupAura() end
-    notify("🔷 Аура: " .. SHAPE_PRESETS[auraShapeIndex].name, Color3.fromRGB(220, 180, 255))
-end)
-
+-- НОВЫЙ ОБРАБОТЧИК ЦВЕТА АУРЫ
 auraColorBtn.Activated:Connect(function()
     auraColorIndex = auraColorIndex + 1
-    if auraColorIndex > #COLOR_PRESETS then auraColorIndex = 1 end
-    local ac = COLOR_PRESETS[auraColorIndex]
-    if ac.color then SETTINGS.AuraColor = ac.color end
+    if auraColorIndex > #AURA_COLORS then auraColorIndex = 1 end
+    local ac = AURA_COLORS[auraColorIndex]
+    SETTINGS.AuraColor = ac.color
     refreshAuraColorBtn()
     if SETTINGS.AuraEnabled then setupAura() end
-    notify("🎨 Аура: " .. ac.name, ac.color or Color3.fromRGB(220, 180, 255))
+    notify("🎨 Аура: " .. ac.name, ac.color)
 end)
 
 colorBtn.Activated:Connect(function()
@@ -2775,7 +2660,6 @@ loadBtn.Activated:Connect(function()
         refreshSpinSpeedBtn()
         refreshHeartSizeBtn()
         refreshAuraColorBtn()
-        refreshAuraShapeBtn()
         for ri = 2, 5 do refreshRingButton(ri) end
         applyDirectionPreset()
         applySpeedModePreset()
@@ -2798,7 +2682,7 @@ resetBtn.Activated:Connect(function()
     shapeSizeIndex, colorIndex, shapeIndex = 3, 1, 1
     trailLengthIndex, trailWidthIndex = 2, 2
     directionIndex, speedModeIndex, heightIndex, formModeIndex = 1, 1, 4, 1
-    orbitPatternIndex, auraTypeIndex, auraColorIndex, auraShapeIndex = 1, 1, 1, 1
+    orbitPatternIndex, auraTypeIndex, auraColorIndex = 1, 1, 1
     spinResetting = false
     spinAxisEnabled = true
     spinAxisDir = "X"
@@ -2806,6 +2690,7 @@ resetBtn.Activated:Connect(function()
     SETTINGS.SpinSpeedMultiplier = 1.0
     heartScaleIndex = 4
     SETTINGS.HeartScale = HEART_SCALE_STEPS[4]
+    SETTINGS.AuraColor = AURA_COLORS[1].color
     rings[1].shapeIndex = 1; rings[2].shapeIndex = 2; rings[3].shapeIndex = 3
     rings[4].shapeIndex = 4; rings[5].shapeIndex = 5
     heightBtn.Text = "⬆️ Высота: " .. HEIGHT_PRESETS[heightIndex].name
@@ -2843,7 +2728,6 @@ resetBtn.Activated:Connect(function()
     refreshSpinSpeedBtn()
     refreshHeartSizeBtn()
     refreshAuraColorBtn()
-    refreshAuraShapeBtn()
     allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
     allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
     allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
@@ -2927,7 +2811,7 @@ task.spawn(function()
     end
 end)
 
--- ==================== АВТОСОХРАНЕНИЕ 30 СЕК ====================
+-- ==================== АВТОСОХРАНЕНИЕ КАЖДЫЕ 30 СЕК ====================
 task.spawn(function()
     while task.wait(30) do
         if enabled and HAS_FS then pcall(saveSettings) end
@@ -2968,13 +2852,13 @@ createMusicSound()
 applyShapes()
 setupRespawnHook()
 refreshAuraColorBtn()
-refreshAuraShapeBtn()
+-- Пытаемся загрузить прошлые настройки из файла
 pcall(function() loadSettings() end)
 setEnabled(true)
 refreshSpinSpeedBtn()
 refreshHeartSizeBtn()
 
-notify("✨ ОРБИТА v15.1 DELTA загружена!", Color3.fromRGB(200, 200, 255), 3)
+notify("✨ ОРБИТА v15.0 DELTA загружена!", Color3.fromRGB(200, 200, 255), 3)
 notify(HAS_FS and "💾 Файл: " .. SAVE_FILE or "💾 Только в памяти", Color3.fromRGB(180, 220, 255), 4)
 
 return {
@@ -2988,5 +2872,6 @@ return {
     ColorPresets = COLOR_PRESETS,
     HeightPresets = HEIGHT_PRESETS,
     ShapePresets = SHAPE_PRESETS,
+    AuraColors = AURA_COLORS,
     Stats = statsData,
 }
