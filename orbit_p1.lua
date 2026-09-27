@@ -64,6 +64,10 @@ ORBIT.DEFAULT_SETTINGS = {
     AuraColor = Color3.fromRGB(150, 100, 255),
     AuraRing = true, AuraParticles = false, AuraShapes = false,
     AuraSpeedMult = 1.0, AuraDirection = 1,
+    AuraHeight = 0.5, AuraShapeScale = 1.0,
+    AuraTrailEnabled = false, AuraTrailLength = 0.5, AuraTrailWidth = 0.8,
+    AuraSpinEnabled = true, AuraSpinAxis = "Y", AuraSpinSpeed = 60,
+    AuraPulseEnabled = false,
     AutoShapeSwap = false, AutoShapeSwapInterval = 15,
     GradientEnabled = false, GradientSpeed = 0.5, GlowEnabled = true, GlowIntensity = 2,
 }
@@ -120,12 +124,24 @@ P.TRAIL_WID = { {name="Тонкий",value=0.3},{name="Средний",value=0.8
 P.trailWidthIndex = 2
 P.AURA_SPEED = { {name="0.25x",value=0.25},{name="0.5x",value=0.5},{name="1x",value=1.0},{name="2x",value=2.0},{name="3x",value=3.0},{name="5x",value=5.0} }
 P.auraSpeedIndex = 3
-P.AURA_DIR = { {name="→ Право",value=1},{name="← Лево",value=-1} }
+P.AURA_DIR = { {name="→ Право (↻)",value=1},{name="← Лево (↺)",value=-1} }
 P.auraDirIndex = 1
 P.AURA_SIZE = { {name="XS",value=2.0},{name="S",value=3.0},{name="M",value=3.5},{name="L",value=5.0},{name="XL",value=7.0},{name="XXL",value=10.0} }
 P.auraSizeIndex = 3
 P.AURA_THICK = { {name="Тонкая",value=0.08},{name="Обычная",value=0.15},{name="Толстая",value=0.3},{name="Очень толстая",value=0.5} }
 P.auraThickIndex = 2
+P.AURA_HEIGHT = { {name="Низко (ноги)",value=-1.0},{name="Обычно",value=0.5},{name="Середина",value=1.5},{name="Туловище",value=2.5},{name="Грудь",value=3.5},{name="Голова",value=4.5},{name="Высоко",value=6.5} }
+P.auraHeightIndex = 2
+P.AURA_SHAPE_SCALE = { {name="Крошка",factor=0.3},{name="XS",factor=0.45},{name="S",factor=0.6},{name="M",factor=0.8},{name="L",factor=1.0},{name="XL",factor=1.3},{name="XXL",factor=1.7} }
+P.auraShapeScaleIndex = 3
+P.AURA_TRAIL_LEN = { {name="Короткий",value=0.25},{name="Средний",value=0.5},{name="Длинный",value=0.9},{name="Очень длинный",value=1.6},{name="Гигантский",value=2.5} }
+P.auraTrailLengthIndex = 2
+P.AURA_TRAIL_WID = { {name="Тонкий",value=0.3},{name="Средний",value=0.8},{name="Толстый",value=1.5},{name="Широкий",value=2.5},{name="Огромный",value=4.0} }
+P.auraTrailWidthIndex = 2
+P.AURA_SPIN_SPEED = { {name="0.5x",value=30},{name="1x",value=60},{name="2x",value=120},{name="3x",value=180},{name="5x",value=300},{name="10x",value=600} }
+P.auraSpinSpeedIndex = 2
+P.AURA_SPIN_AXIS = { {name="↕️ ВЕРХ/ВНИЗ",value="Y"},{name="↔️ ВЛЕВО/ВПРАВО",value="X"} }
+P.auraSpinAxisIndex = 1
 P.HEART_STEPS = { 0.1625, 0.325, 0.455, 0.65, 0.975, 1.3, 1.625, 1.95 }
 P.heartScaleIndex = 4
 ORBIT.P = P
@@ -147,6 +163,7 @@ ORBIT.auraFolder = nil
 ORBIT.auraParts = {}
 ORBIT.auraBlocks = {}
 ORBIT.auraAngle = 0
+ORBIT.auraSpinAngle = 0
 ORBIT.auraShapeIndex = 1
 ORBIT.targetRings = {}
 ORBIT.peopleButtons = {}
