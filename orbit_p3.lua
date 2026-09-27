@@ -747,4 +747,4 @@ end
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
 if ORBIT.notify then ORBIT.notify("✅ Часть 3: логика загружена", Color3.fromRGB(180,255,180), 3) end
 
-return true ф
+return true
