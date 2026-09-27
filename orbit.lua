@@ -1,7 +1,7 @@
 --[[
     ОРБИТА ФИГУР v14.0 ULTIMATE — DELTA EDITION
-    Оптимизировано под мобильный эксплойт Delta.
-    Запуск: loadstring(...)() или просто вставить в Delta и Execute.
+    Убраны: КРИСТАЛЛ, РУНА, КОРОНА
+    Запуск: loadstring(game:HttpGet("..."))()
     Выгрузка: getgenv().OrbitFX_Unload()
 ]]
 
@@ -9,12 +9,10 @@
 local getgenv_fn = rawget(_G, "getgenv") or function() return _G end
 local GENV = getgenv_fn()
 
--- Автоочистка предыдущего запуска
 if GENV.OrbitFX_Unload then
     pcall(GENV.OrbitFX_Unload)
 end
 
--- Безопасный родитель для UI: gethui() -> CoreGui -> PlayerGui
 local function getSafeParent()
     if rawget(GENV, "gethui") then
         local ok, hui = pcall(GENV.gethui)
@@ -25,7 +23,6 @@ local function getSafeParent()
     return game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 end
 
--- Защита GUI (если поддерживается исполнителем)
 local function protectGui(gui)
     if syn and syn.protect_gui then
         pcall(syn.protect_gui, gui)
@@ -45,10 +42,6 @@ local LocalPlayer   = Players.LocalPlayer
 local PlayerGui     = LocalPlayer:WaitForChild("PlayerGui")
 
 -- ==================== МЕШИ ====================
--- Чтобы заменить фигуру на 3D-модель:
--- 1. Загрузи .fbx/.obj на Roblox через Studio/Mesh Importer
--- 2. Скопируй AssetId
--- 3. Вставь "rbxassetid://ВАШ_ID" сюда
 local MESH_CONFIG = {
     ["БЛОК"]            = { MeshId = "", TextureId = "" },
     ["ШАР"]             = { MeshId = "", TextureId = "" },
@@ -67,13 +60,10 @@ local MESH_CONFIG = {
     ["ГАСТЕР БЛАСТЕР"]  = { MeshId = "", TextureId = "" },
     ["МЕЧ"]             = { MeshId = "", TextureId = "" },
     ["ЩИТ"]             = { MeshId = "", TextureId = "" },
-    ["КОРОНА"]          = { MeshId = "", TextureId = "" },
     ["КОСТЬ"]           = { MeshId = "", TextureId = "" },
-    ["КРИСТАЛЛ"]        = { MeshId = "", TextureId = "" },
     ["ПИРАМИДА"]        = { MeshId = "", TextureId = "" },
     ["ИНЬ-ЯН"]          = { MeshId = "", TextureId = "" },
     ["ГЛАЗ"]            = { MeshId = "", TextureId = "" },
-    ["РУНА"]            = { MeshId = "", TextureId = "" },
     ["СПИРАЛЬ"]         = { MeshId = "", TextureId = "" },
     ["КРЫЛЬЯ"]          = { MeshId = "", TextureId = "" },
     ["ЩУПАЛЬЦЕ"]        = { MeshId = "", TextureId = "" },
@@ -734,45 +724,6 @@ local function createShield(size, color, name)
     return model, root, bodies
 end
 
-local function createCrown(size, color, name)
-    local model, root = newModelShell(name)
-    local bodies = {}
-    local s = size
-    local bandH, bandR = s*0.30, s*0.95
-    local function metalMesh(nm, sz, cf, col, meshType, noRecolor)
-        local p = newPart(model, nm, sz, cf, col, noRecolor)
-        p.Material = Enum.Material.Metal
-        local mesh = Instance.new("SpecialMesh")
-        mesh.MeshType = meshType; mesh.Parent = p
-        table.insert(bodies, p); return p
-    end
-    metalMesh("Band", Vector3.new(bandH, bandR*2, bandR*2), CFrame.Angles(0, 0, math.rad(90)), color, Enum.MeshType.Cylinder)
-    metalMesh("Rim", Vector3.new(bandH*0.4, bandR*2 + s*0.12, bandR*2 + s*0.12),
-        CFrame.new(0, -bandH*0.55, 0) * CFrame.Angles(0, 0, math.rad(90)), color, Enum.MeshType.Cylinder)
-    local points = 6
-    local bandTop = bandH * 0.5
-    for i = 1, points do
-        local angle = (i - 1) / points * math.pi * 2
-        local x, z = math.cos(angle) * bandR * 0.82, math.sin(angle) * bandR * 0.82
-        local main = (i % 2 == 1)
-        local h, w = main and s*1.5 or s*0.85, main and s*0.34 or s*0.22
-        metalMesh("Spike", Vector3.new(w, h, w), CFrame.new(x, bandTop + h*0.5, z), color, Enum.MeshType.Pyramid)
-        if main then
-            local gem = newPart(model, "Gem", Vector3.new(s*0.16, s*0.22, s*0.16),
-                CFrame.new(x, bandTop + h*0.85, z), Color3.fromRGB(200, 30, 70), true)
-            gem.Material = Enum.Material.Glass
-            local gm = Instance.new("SpecialMesh"); gm.MeshType = Enum.MeshType.Pyramid; gm.Parent = gem
-            table.insert(bodies, gem)
-        end
-    end
-    local mainGem = newPart(model, "MainGem", Vector3.new(s*0.26, s*0.26, s*0.16),
-        CFrame.new(0, 0, bandR), Color3.fromRGB(200, 30, 70), true)
-    mainGem.Material = Enum.Material.Glass
-    local mgm = Instance.new("SpecialMesh"); mgm.MeshType = Enum.MeshType.Sphere; mgm.Parent = mainGem
-    table.insert(bodies, mainGem)
-    return model, root, bodies
-end
-
 local function createBone(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -785,34 +736,6 @@ local function createBone(size, color, name)
         local bottom = newPart(model, "Bot", Vector3.new(s*0.5, s*0.4, s*0.5), CFrame.new(side*s*0.25, -s*1.0, 0), color)
         local m2 = Instance.new("SpecialMesh"); m2.MeshType = Enum.MeshType.Sphere; m2.Parent = bottom
         table.insert(bodies, bottom)
-    end
-    return model, root, bodies
-end
-
-local function createCrystal(size, color, name)
-    local model, root = newModelShell(name)
-    local bodies = {}
-    local s = size
-    local function gem(nm, cx, cy, cz, w, hTop, hBot, col, transp, cf)
-        cf = cf or CFrame.new()
-        local top = newPart(model, nm .. "Top", Vector3.new(w, hTop, w), cf * CFrame.new(cx, cy + hTop * 0.5, cz), col)
-        top.Material = Enum.Material.Glass; top.Transparency = transp
-        local tm = Instance.new("SpecialMesh"); tm.MeshType = Enum.MeshType.Pyramid; tm.Parent = top
-        table.insert(bodies, top)
-        local bot = newPart(model, nm .. "Bot", Vector3.new(w, hBot, w),
-            cf * CFrame.new(cx, cy - hBot * 0.5, cz) * CFrame.Angles(math.rad(180), 0, 0), col)
-        bot.Material = Enum.Material.Glass; bot.Transparency = transp
-        local bm = Instance.new("SpecialMesh"); bm.MeshType = Enum.MeshType.Pyramid; bm.Parent = bot
-        table.insert(bodies, bot)
-    end
-    gem("Main", 0, 0, 0, s*0.9, s*1.5, s*0.9, color, 0.05)
-    for i = 1, 5 do
-        local angle = (i - 1) / 5 * math.pi * 2 + 0.4
-        local dist = s * 0.68
-        local x, z = math.cos(angle) * dist, math.sin(angle) * dist
-        local w = s * (0.34 + (i % 3) * 0.08)
-        local tilt = CFrame.Angles(math.rad(20) * math.cos(angle), 0, math.rad(20) * math.sin(angle))
-        gem("Sat" .. i, x, -s*0.55, z, w, w*1.6, w*0.9, color, 0.08, tilt)
     end
     return model, root, bodies
 end
@@ -917,24 +840,6 @@ local function createEye(size, color, name)
             CFrame.new(0, sign*s*0.5, s*0.05), Color3.fromRGB(225, 205, 185), true)
         lid.Material = Enum.Material.SmoothPlastic
         table.insert(bodies, lid)
-    end
-    return model, root, bodies
-end
-
-local function createRune(size, color, name)
-    local model, root = newModelShell(name)
-    local bodies = {}
-    local s = size
-    local plate = newPart(model, "Plate", Vector3.new(s*0.5, s*1.9, s*1.9),
-        CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(70, 68, 66), true)
-    plate.Material = Enum.Material.Slate
-    local pm = Instance.new("SpecialMesh"); pm.MeshType = Enum.MeshType.Cylinder; pm.Parent = plate
-    table.insert(bodies, plate)
-    local t, d = s*0.09, s*0.16
-    local top, mid, bottom = Vector3.new(0, s*0.78, s*0.1), Vector3.new(0, -s*0.1, s*0.1), Vector3.new(0, -s*0.78, s*0.1)
-    local armL, armR = Vector3.new(-s*0.55, s*0.42, s*0.1), Vector3.new(s*0.55, s*0.42, s*0.1)
-    for _, seg in ipairs({ { mid, bottom }, { mid, top }, { mid, armL }, { mid, armR } }) do
-        table.insert(bodies, makeRod(model, seg[1], seg[2], t, d, color))
     end
     return model, root, bodies
 end
@@ -1133,12 +1038,18 @@ local function create3DBlasterPlaceholder(size, color, name)
     return model, root, bodies
 end
 
--- ==================== СПИСОК ФИГУР ====================
+-- ==================== СПИСОК ФИГУР (24 шт., без КРИСТАЛЛА, РУНЫ, КОРОНЫ) ====================
 local SHAPE_PRESETS = {
     { name = "БЛОК", create = function(size, name)
         local cfg = MESH_CONFIG["БЛОК"]
-        if isValidMesh(cfg.MeshId) then return { model = select(1, createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))), part = select(2, createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))), isModel = true, visualSize = size * 3 } end
-        local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Block; p.Size = Vector3.new(size, size, size)
+        if isValidMesh(cfg.MeshId) then
+            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255, 255, 255))
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
+        end
+        local p = Instance.new("Part")
+        p.Name = name
+        p.Shape = Enum.PartType.Block
+        p.Size = Vector3.new(size, size, size)
         return { part = p }
     end },
     { name = "ШАР", create = function(size, name)
@@ -1291,15 +1202,6 @@ local SHAPE_PRESETS = {
         local m, r, b = createShield(s, Color3.fromRGB(200, 220, 240), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
     end },
-    { name = "КОРОНА", create = function(s, n)
-        local cfg = MESH_CONFIG["КОРОНА"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,215,0))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
-        local m, r, b = createCrown(s, Color3.fromRGB(255, 215, 0), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
-    end },
     { name = "КОСТЬ", create = function(s, n)
         local cfg = MESH_CONFIG["КОСТЬ"]
         if isValidMesh(cfg.MeshId) then
@@ -1308,15 +1210,6 @@ local SHAPE_PRESETS = {
         end
         local m, r, b = createBone(s, Color3.fromRGB(245, 240, 220), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
-    end },
-    { name = "КРИСТАЛЛ", create = function(s, n)
-        local cfg = MESH_CONFIG["КРИСТАЛЛ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(150,230,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
-        local m, r, b = createCrystal(s, Color3.fromRGB(150, 230, 255), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
     end },
     { name = "ПИРАМИДА", create = function(s, n)
         local cfg = MESH_CONFIG["ПИРАМИДА"]
@@ -1344,15 +1237,6 @@ local SHAPE_PRESETS = {
         end
         local m, r, b = createEye(s, Color3.fromRGB(255, 200, 200), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
-    end },
-    { name = "РУНА", create = function(s, n)
-        local cfg = MESH_CONFIG["РУНА"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(180,150,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
-        local m, r, b = createRune(s, Color3.fromRGB(180, 150, 255), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
     end },
     { name = "СПИРАЛЬ", create = function(s, n)
         local cfg = MESH_CONFIG["СПИРАЛЬ"]
@@ -1928,7 +1812,6 @@ screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 1000
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- Delta: сначала пробуем gethui/CoreGui, потом PlayerGui
 protectGui(screenGui)
 local okParent = pcall(function() screenGui.Parent = getSafeParent() end)
 if not okParent or not screenGui.Parent then
@@ -2682,7 +2565,7 @@ mainBtn.InputChanged:Connect(function(input)
 end)
 mainBtn.InputEnded:Connect(function() dragging = false end)
 
--- ==================== ВЫГРУЗКА ДЛЯ DELTA ====================
+-- ==================== ВЫГРУЗКА ====================
 GENV.OrbitFX_Unload = function()
     pcall(function() setEnabled(false) end)
     pcall(function() stopUpdateLoop() end)
