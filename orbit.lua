@@ -1,14 +1,15 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v13.2 (Delta Edition)                     ║
-    ║   + Кнопка «🌀 Скорость кручения» (0.5x – 10x)           ║
-    ║   + Кнопка «💗 Сердце» (100%–250%)                       ║
-    ║   + Новая фигура: ГАСТЕР БЛАСТЕР                         ║
-    ║   + Поддержка реальных мешей (Gaster Hand / Blaster)     ║
-    ║   + Все кнопки работают всегда                           ║
-    ║   + Кнопка выбора оси: ВЕРХ/ВНИЗ или ВЛЕВО/ВПРАВО        ║
-    ║   + Большой палец торчит НАРУЖУ                          ║
-    ║   + Сохранение в файл (работает в Delta)                 ║
+    ║   ОРБИТА ФИГУР v14.0 (Delta Edition - ULTIMATE)          ║
+    ║   + 20+ фигур (включая новые: МЕЧ, ЩИТ, КОРОНА, ГЛАЗ...) ║
+    ║   + 7 орбитальных узоров (спираль, волна, восьмёрка...)  ║
+    ║   + Аура вокруг игрока                                   ║
+    ║   + Система уведомлений                                  ║
+    ║   + Статистика FPS / фигур / времени                     ║
+    ║   + Автосмена фигур                                      ║
+    ║   + Градиент-цвета                                       ║
+    ║   + Секции в UI                                          ║
+    ║   + Автосохранение                                       ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -17,17 +18,11 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local SoundService = game:GetService("SoundService")
 local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 
---[[
-    ==================== МЕШИ (Gaster Hand / Gaster Blaster) ====================
-    Если хочешь использовать реальные 3D-меши — загрузи их в Roblox Studio,
-    получи rbxassetid, и впиши сюда. Пока пусто — используются процедурные
-    заглушки (обычные Part'ы).
-
-    Для Delta: ID работают так же, если они ПУБЛИЧНЫЕ и уже одобрены Roblox.
---]]
+-- ==================== МЕШИ ====================
 local MESH_CONFIG = {
     HandMeshId          = "",
     HandTextureId        = "",
@@ -39,12 +34,13 @@ local MESH_CONFIG = {
 local musicEnabled = false
 local musicSound = nil
 local savedMusicId = ""
+local musicVolume = 0.5
 
 local function createMusicSound()
     if musicSound then return end
     musicSound = Instance.new("Sound")
     musicSound.Name = "OrbitMusic"
-    musicSound.Volume = 0.5
+    musicSound.Volume = musicVolume
     musicSound.Looped = true
     musicSound.Parent = SoundService
 end
@@ -55,17 +51,26 @@ local function setMusicId(idText)
     if clean == "" then return false, "Пустое поле" end
     local num = clean:match("(%d+)")
     if not num then return false, "Не найден ID" end
-
     local fullId = "rbxassetid://" .. num
     if musicSound.SoundId == fullId then
         if musicEnabled then musicSound:Play() end
         return true
     end
-
     musicSound.SoundId = fullId
     savedMusicId = num
     if musicEnabled then musicSound:Play() end
     return true
+end
+
+-- ==================== СИСТЕМА УВЕДОМЛЕНИЙ ====================
+local NOTIF_QUEUE = {}
+
+local function notify(text, color, duration)
+    table.insert(NOTIF_QUEUE, {
+        text = text,
+        color = color or Color3.fromRGB(140, 255, 200),
+        duration = duration or 2,
+    })
 end
 
 -- ==================== НАСТРОЙКИ ====================
@@ -101,12 +106,24 @@ local DEFAULT_SETTINGS = {
     ExplosionSpeed = 0.4,
     ExplosionPower = 0.7,
     HeartScale = 0.65,
+    -- НОВЫЕ:
+    OrbitPattern = "Круг",       -- Круг / Спираль / Волна / Восьмёрка / Зигзаг / Лиссажу / Хаос
+    OrbitPatternParam = 1.0,
+    AuraEnabled = false,
+    AuraType = "Кольцо",          -- Кольцо / Частицы / Оба
+    AuraSize = 3.5,
+    AuraThickness = 0.15,
+    AuraColor = Color3.fromRGB(150, 100, 255),
+    AutoShapeSwap = false,
+    AutoShapeSwapInterval = 15,
+    GradientEnabled = false,
+    GradientSpeed = 0.5,
+    GlowEnabled = true,
+    GlowIntensity = 2,
 }
 local SETTINGS = table.clone(DEFAULT_SETTINGS)
 
-local spinAxisEnabled = true
-local spinAxisDir = "X"
-
+-- ==================== ПРЕСЕТЫ ====================
 local SPIN_SPEED_PRESETS = {
     { name = "0.5x", value = 0.5 },
     { name = "1x",   value = 1.0 },
@@ -117,25 +134,34 @@ local SPIN_SPEED_PRESETS = {
 }
 local spinSpeedIndex = 2
 
--- ==================== ПРЕСЕТЫ ====================
 local SPREAD_PRESETS = {
-    { name = "1x  плотно", mult = 1.0 }, { name = "1.5x", mult = 1.5 },
-    { name = "2x  средне", mult = 2.0 }, { name = "3x  широко", mult = 3.0 },
+    { name = "1x  плотно", mult = 1.0 },
+    { name = "1.5x", mult = 1.5 },
+    { name = "2x  средне", mult = 2.0 },
+    { name = "3x  широко", mult = 3.0 },
     { name = "5x  максимально", mult = 5.0 },
 }
 local spreadIndex = 2
 
 local HEIGHT_PRESETS = {
-    { name = "Очень низко", offset = -12 }, { name = "Низко", offset = -6 },
-    { name = "Средне", offset = 0 }, { name = "Высоко", offset = 8 },
-    { name = "Очень высоко", offset = 18 }, { name = "Небо", offset = 35 },
+    { name = "Очень низко", offset = -12 },
+    { name = "Низко", offset = -6 },
+    { name = "Средне", offset = 0 },
+    { name = "Высоко", offset = 8 },
+    { name = "Очень высоко", offset = 18 },
+    { name = "Небо", offset = 35 },
+    { name = "Космос", offset = 60 },
 }
 local heightIndex = 3
 
 local SPEED_PRESETS = {
-    { name = "0.5x", value = 0.5 }, { name = "1x", value = 1.0 },
-    { name = "1.5x", value = 1.5 }, { name = "2x", value = 2.0 },
-    { name = "3x", value = 3.0 }, { name = "5x", value = 5.0 },
+    { name = "0.5x", value = 0.5 },
+    { name = "1x", value = 1.0 },
+    { name = "1.5x", value = 1.5 },
+    { name = "2x", value = 2.0 },
+    { name = "3x", value = 3.0 },
+    { name = "5x", value = 5.0 },
+    { name = "10x", value = 10.0 },
 }
 local speedIndex = 2
 
@@ -160,17 +186,41 @@ local FORM_MODES = {
 local formModeIndex = 1
 
 local ORBIT_PRESETS = {
-    { name = "S", radius = 5, height = 2 }, { name = "M", radius = 8, height = 3 },
-    { name = "L", radius = 12, height = 4 }, { name = "XL", radius = 18, height = 6 },
+    { name = "S", radius = 5, height = 2 },
+    { name = "M", radius = 8, height = 3 },
+    { name = "L", radius = 12, height = 4 },
+    { name = "XL", radius = 18, height = 6 },
+    { name = "XXL", radius = 25, height = 8 },
 }
 local orbitIndex = 2
 
 local SHAPE_SIZE_PRESETS = {
-    { name = "XS", factor = 0.5 }, { name = "S", factor = 0.75 },
-    { name = "M", factor = 1.0 }, { name = "L", factor = 1.5 },
+    { name = "XS", factor = 0.5 },
+    { name = "S", factor = 0.75 },
+    { name = "M", factor = 1.0 },
+    { name = "L", factor = 1.5 },
     { name = "XL", factor = 2.2 },
+    { name = "XXL", factor = 3.0 },
 }
 local shapeSizeIndex = 3
+
+local ORBIT_PATTERNS = {
+    { name = "Круг" },
+    { name = "Спираль" },
+    { name = "Волна" },
+    { name = "Восьмёрка" },
+    { name = "Зигзаг" },
+    { name = "Лиссажу" },
+    { name = "Хаос" },
+}
+local orbitPatternIndex = 1
+
+local AURA_TYPES = {
+    { name = "Кольцо" },
+    { name = "Частицы" },
+    { name = "Оба" },
+}
+local auraTypeIndex = 1
 
 local COLOR_PRESETS = {
     { name = "РАДУГА", rainbow = true, color = nil },
@@ -211,18 +261,27 @@ local COLOR_PRESETS = {
     { name = "БЕЛЫЙ", rainbow = false, color = Color3.fromRGB(245, 245, 255) },
     { name = "СЕРЫЙ", rainbow = false, color = Color3.fromRGB(150, 150, 160) },
     { name = "ЧЁРНЫЙ", rainbow = false, color = Color3.fromRGB(25, 25, 30) },
+    { name = "МАЛИНОВЫЙ", rainbow = false, color = Color3.fromRGB(200, 0, 80) },
+    { name = "ИНДИГО", rainbow = false, color = Color3.fromRGB(75, 0, 130) },
+    { name = "ХАКИ", rainbow = false, color = Color3.fromRGB(189, 183, 107) },
 }
 local colorIndex = 1
 
 local TRAIL_LENGTH_PRESETS = {
-    { name = "Короткий", value = 0.25 }, { name = "Средний", value = 0.5 },
-    { name = "Длинный", value = 0.9 }, { name = "Очень длинный", value = 1.6 },
+    { name = "Короткий", value = 0.25 },
+    { name = "Средний", value = 0.5 },
+    { name = "Длинный", value = 0.9 },
+    { name = "Очень длинный", value = 1.6 },
+    { name = "Гигантский", value = 2.5 },
 }
 local trailLengthIndex = 2
 
 local TRAIL_WIDTH_PRESETS = {
-    { name = "Тонкий", value = 0.3 }, { name = "Средний", value = 0.8 },
-    { name = "Толстый", value = 1.5 }, { name = "Широкий", value = 2.5 },
+    { name = "Тонкий", value = 0.3 },
+    { name = "Средний", value = 0.8 },
+    { name = "Толстый", value = 1.5 },
+    { name = "Широкий", value = 2.5 },
+    { name = "Огромный", value = 4.0 },
 }
 local trailWidthIndex = 2
 
@@ -234,6 +293,17 @@ local startTime = tick()
 local activeLightCount = 0
 local currentRadius, currentHeight, currentSpeed, currentSpin = {}, {}, {}, {}
 local currentOrbitAngle, currentSpinAngle, currentBobPhase = {}, {}, {}
+local lastAutoSwap = tick()
+local currentAutoShapeIndex = 1
+local statsData = {
+    totalShapes = 0,
+    sessionTime = 0,
+    lastFPS = 60,
+    fpsFrames = 0,
+    fpsLastCheck = tick(),
+}
+local auraFolder = nil
+local auraParts = {}
 
 local RING_STEP = 5
 local rings = {
@@ -245,16 +315,24 @@ local rings = {
 }
 
 for ri in pairs(rings) do
-    currentRadius[ri] = 8; currentHeight[ri] = 3
-    currentSpeed[ri] = 60; currentSpin[ri] = 120
-    currentOrbitAngle[ri] = 0; currentSpinAngle[ri] = 0; currentBobPhase[ri] = 0
+    currentRadius[ri] = 8
+    currentHeight[ri] = 3
+    currentSpeed[ri] = 60
+    currentSpin[ri] = 120
+    currentOrbitAngle[ri] = 0
+    currentSpinAngle[ri] = 0
+    currentBobPhase[ri] = 0
 end
 
 -- ==================== ХЕЛПЕРЫ ====================
 local function newPart(parent, name, size, cf, color, noRecolor)
     local p = Instance.new("Part")
-    p.Name = name; p.Size = size; p.CFrame = cf
-    p.Anchored = true; p.CanCollide = false; p.CastShadow = false
+    p.Name = name
+    p.Size = size
+    p.CFrame = cf
+    p.Anchored = true
+    p.CanCollide = false
+    p.CastShadow = false
     p.Material = Enum.Material.Neon
     p.Color = color or Color3.fromRGB(255, 255, 255)
     if noRecolor then p:SetAttribute("NoRecolor", true) end
@@ -266,20 +344,29 @@ local function newModelShell(name)
     local model = Instance.new("Model")
     model.Name = name
     local root = Instance.new("Part")
-    root.Name = "Root"; root.Size = Vector3.new(0.1, 0.1, 0.1)
-    root.Transparency = 1; root.Anchored = true; root.CanCollide = false
-    root.CastShadow = false; root.Parent = model
+    root.Name = "Root"
+    root.Size = Vector3.new(0.1, 0.1, 0.1)
+    root.Transparency = 1
+    root.Anchored = true
+    root.CanCollide = false
+    root.CastShadow = false
+    root.Parent = model
     model.PrimaryPart = root
     return model, root
 end
 
 local function makeRod(parent, a, b, thickness, depth, color)
-    local mid = (a + b) * 0.5; local diff = b - a
+    local mid = (a + b) * 0.5
+    local diff = b - a
     local part = Instance.new("Part")
-    part.Name = "Rod"; part.Size = Vector3.new(depth, thickness, diff.Magnitude)
+    part.Name = "Rod"
+    part.Size = Vector3.new(depth, thickness, diff.Magnitude)
     part.CFrame = CFrame.lookAt(mid, mid + diff.Unit)
-    part.Anchored = true; part.CanCollide = false; part.CastShadow = false
-    part.Material = Enum.Material.Neon; part.Color = color
+    part.Anchored = true
+    part.CanCollide = false
+    part.CastShadow = false
+    part.Material = Enum.Material.Neon
+    part.Color = color
     part.Parent = parent
     return part
 end
@@ -330,7 +417,9 @@ local function createPalmPlate(model, bodies, cf, size, color)
         w.Name = "Spike"
         w.Size = Vector3.new(spikeW, spikeLen, depth * 0.75)
         w.CFrame = spikeCF
-        w.Anchored = true; w.CanCollide = false; w.CastShadow = false
+        w.Anchored = true
+        w.CanCollide = false
+        w.CastShadow = false
         w.Material = Enum.Material.Neon
         w.Color = color
         w.Parent = model
@@ -364,7 +453,7 @@ local function createFinger(model, bodies, baseCF, length, width, color)
         baseCF * CFrame.new(0, seg1 + seg2 + seg3 * 0.55 + seg3 * 0.225, 0), color))
 end
 
--- ==================== ФИГУРЫ ====================
+-- ==================== БАЗОВЫЕ ФИГУРЫ ====================
 local function create3DStar(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -474,7 +563,9 @@ local function addTriangle(parent, a, b, c, thickness, color, bodies)
         w.Name = "W"
         w.Size = Vector3.new(thickness, height, lenZ)
         w.CFrame = cf
-        w.Anchored = true; w.CanCollide = false; w.CastShadow = false
+        w.Anchored = true
+        w.CanCollide = false
+        w.CastShadow = false
         w.Material = Enum.Material.SmoothPlastic
         w.Color = color
         w.Parent = parent
@@ -528,7 +619,8 @@ end
 local function create3DTriangle(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
-    local R = size * 0.75; local t, d = size * 0.13, size * 0.28
+    local R = size * 0.75
+    local t, d = size * 0.13, size * 0.28
     local v1 = Vector3.new(0, R, 0)
     local v2 = Vector3.new(math.cos(math.rad(210)) * R, math.sin(math.rad(210)) * R, 0)
     local v3 = Vector3.new(math.cos(math.rad(330)) * R, math.sin(math.rad(330)) * R, 0)
@@ -541,9 +633,12 @@ end
 local function create3DDiamond(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
-    local R = size * 0.75; local t, d = size * 0.13, size * 0.28
-    local vT = Vector3.new(0, R, 0); local vR = Vector3.new(R * 0.75, 0, 0)
-    local vB = Vector3.new(0, -R, 0); local vL = Vector3.new(-R * 0.75, 0, 0)
+    local R = size * 0.75
+    local t, d = size * 0.13, size * 0.28
+    local vT = Vector3.new(0, R, 0)
+    local vR = Vector3.new(R * 0.75, 0, 0)
+    local vB = Vector3.new(0, -R, 0)
+    local vL = Vector3.new(-R * 0.75, 0, 0)
     table.insert(bodies, makeRod(model, vT, vR, t, d, color))
     table.insert(bodies, makeRod(model, vR, vB, t, d, color))
     table.insert(bodies, makeRod(model, vB, vL, t, d, color))
@@ -553,7 +648,8 @@ end
 
 local HEART_PATTERN = { "11011", "11111", "11111", "01110", "00100" }
 local function createPixelHeart(sizeStuds, color, name)
-    local rows = #HEART_PATTERN; local cols = #HEART_PATTERN[1]
+    local rows = #HEART_PATTERN
+    local cols = #HEART_PATTERN[1]
     local pixel = sizeStuds / cols
     local model, root = newModelShell(name)
     local bodies = {}
@@ -570,7 +666,9 @@ local function createPixelHeart(sizeStuds, color, name)
                 local x = (cc - (cols + 1) / 2) * pixel
                 local y = ((rows + 1) / 2 - r) * pixel
                 table.insert(bodies, newPart(model, "P", Vector3.new(width, pixel, pixel), CFrame.new(x, y, 0), color))
-            else c = c + 1 end
+            else
+                c = c + 1
+            end
         end
     end
     return model, root, bodies
@@ -634,7 +732,9 @@ local function createMeshShape(meshId, textureId, size, name, color)
     mp.Name = "Mesh"
     mp.MeshId = meshId
     if textureId ~= "" then mp.TextureID = textureId end
-    mp.Anchored = true; mp.CanCollide = false; mp.CastShadow = false
+    mp.Anchored = true
+    mp.CanCollide = false
+    mp.CastShadow = false
     mp.Material = Enum.Material.Neon
     mp.Color = color or Color3.fromRGB(235, 230, 215)
     mp.Size = Vector3.new(size * 3, size * 3, size * 3)
@@ -643,12 +743,346 @@ local function createMeshShape(meshId, textureId, size, name, color)
     return model, root, { mp }
 end
 
+-- ==================== НОВЫЕ ФИГУРЫ ====================
+
+-- ★ МЕЧ (Sword)
+local function createSword(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    -- Лезвие
+    table.insert(bodies, newPart(model, "Blade",
+        Vector3.new(s * 0.18, s * 3.5, s * 0.10),
+        CFrame.new(0, s * 0.9, 0), color))
+    -- Остриё (пирамидка сверху)
+    local tip = newPart(model, "Tip", Vector3.new(s * 0.18, s * 0.4, s * 0.10),
+        CFrame.new(0, s * 2.85, 0), color)
+    table.insert(bodies, tip)
+    -- Гарда (крестовина)
+    table.insert(bodies, newPart(model, "Guard",
+        Vector3.new(s * 1.4, s * 0.15, s * 0.20),
+        CFrame.new(0, -s * 0.85, 0), color))
+    -- Рукоять
+    table.insert(bodies, newPart(model, "Handle",
+        Vector3.new(s * 0.20, s * 0.9, s * 0.20),
+        CFrame.new(0, -s * 1.35, 0), color))
+    -- Навершие (шарик)
+    local pommel = newPart(model, "Pommel", Vector3.new(s * 0.30, s * 0.30, s * 0.30),
+        CFrame.new(0, -s * 1.90, 0), color)
+    local m = Instance.new("SpecialMesh")
+    m.MeshType = Enum.MeshType.Sphere
+    m.Parent = pommel
+    table.insert(bodies, pommel)
+    return model, root, bodies
+end
+
+-- ★ ЩИТ (Shield)
+local function createShield(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    -- Основа щита (ромб)
+    local shield = newPart(model, "Base", Vector3.new(s * 1.6, s * 2.0, s * 0.18),
+        CFrame.new(0, 0, 0), color)
+    local m = Instance.new("SpecialMesh")
+    m.MeshType = Enum.MeshType.Wedge
+    m.Parent = shield
+    table.insert(bodies, shield)
+    -- Крест по центру
+    table.insert(bodies, newPart(model, "CrossV",
+        Vector3.new(s * 0.15, s * 1.5, s * 0.22),
+        CFrame.new(0, 0, -s * 0.06), color))
+    table.insert(bodies, newPart(model, "CrossH",
+        Vector3.new(s * 1.2, s * 0.15, s * 0.22),
+        CFrame.new(0, s * 0.20, -s * 0.06), color))
+    -- Умбо (центр)
+    local umbo = newPart(model, "Umbo", Vector3.new(s * 0.4, s * 0.4, s * 0.25),
+        CFrame.new(0, 0, -s * 0.12), color)
+    local m2 = Instance.new("SpecialMesh")
+    m2.MeshType = Enum.MeshType.Sphere
+    m2.Parent = umbo
+    table.insert(bodies, umbo)
+    return model, root, bodies
+end
+
+-- ★ КОРОНА (Crown)
+local function createCrown(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    -- Обод
+    local ring = newPart(model, "Ring", Vector3.new(s * 2.0, s * 0.4, s * 2.0),
+        CFrame.new(0, 0, 0), color)
+    local m = Instance.new("SpecialMesh")
+    m.MeshType = Enum.MeshType.Cylinder
+    m.Parent = ring
+    table.insert(bodies, ring)
+    -- Зубцы (7 штук)
+    local spikes = 7
+    for i = 1, spikes do
+        local angle = (i - 1) / spikes * math.pi * 2
+        local x = math.cos(angle) * s * 0.85
+        local z = math.sin(angle) * s * 0.85
+        local spike = newPart(model, "Spike", Vector3.new(s * 0.25, s * 0.7, s * 0.20),
+            CFrame.new(x, s * 0.5, z), color)
+        local sm = Instance.new("SpecialMesh")
+        sm.MeshType = Enum.MeshType.Pyramid
+        sm.Parent = spike
+        table.insert(bodies, spike)
+        -- Шарик на конце
+        local ball = newPart(model, "Ball", Vector3.new(s * 0.20, s * 0.20, s * 0.20),
+            CFrame.new(x, s * 0.9, z), color)
+        local bm = Instance.new("SpecialMesh")
+        bm.MeshType = Enum.MeshType.Sphere
+        bm.Parent = ball
+        table.insert(bodies, ball)
+    end
+    return model, root, bodies
+end
+
+-- ★ КОСТЬ (Bone)
+local function createBone(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    -- Стержень кости
+    table.insert(bodies, newPart(model, "Shaft",
+        Vector3.new(s * 0.3, s * 1.8, s * 0.3),
+        CFrame.new(0, 0, 0), color))
+    -- Верхние шишки
+    for _, side in ipairs({-1, 1}) do
+        local top = newPart(model, "Top", Vector3.new(s * 0.5, s * 0.4, s * 0.5),
+            CFrame.new(side * s * 0.25, s * 1.0, 0), color)
+        local m = Instance.new("SpecialMesh")
+        m.MeshType = Enum.MeshType.Sphere
+        m.Parent = top
+        table.insert(bodies, top)
+        local bottom = newPart(model, "Bot", Vector3.new(s * 0.5, s * 0.4, s * 0.5),
+            CFrame.new(side * s * 0.25, -s * 1.0, 0), color)
+        local m2 = Instance.new("SpecialMesh")
+        m2.MeshType = Enum.MeshType.Sphere
+        m2.Parent = bottom
+        table.insert(bodies, bottom)
+    end
+    return model, root, bodies
+end
+
+-- ★ КРИСТАЛЛ (Crystal)
+local function createCrystal(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    -- Основной кристалл
+    local main = newPart(model, "Main", Vector3.new(s * 0.6, s * 2.0, s * 0.6),
+        CFrame.new(0, 0, 0), color)
+    local m = Instance.new("SpecialMesh")
+    m.MeshType = Enum.MeshType.Pyramid
+    m.Parent = main
+    table.insert(bodies, main)
+    -- Побочные кристаллы
+    for i = 1, 4 do
+        local angle = (i - 1) / 4 * math.pi * 2
+        local x = math.cos(angle) * s * 0.4
+        local z = math.sin(angle) * s * 0.4
+        local side = newPart(model, "Side", Vector3.new(s * 0.3, s * 1.2, s * 0.3),
+            CFrame.new(x, -s * 0.3, z) * CFrame.Angles(math.rad(15), 0, 0), color)
+        local sm = Instance.new("SpecialMesh")
+        sm.MeshType = Enum.MeshType.Pyramid
+        sm.Parent = side
+        table.insert(bodies, side)
+    end
+    return model, root, bodies
+end
+
+-- ★ ПИРАМИДА
+local function createPyramid(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    local pyramid = newPart(model, "Pyr", Vector3.new(s * 1.5, s * 1.5, s * 1.5),
+        CFrame.new(0, 0, 0), color)
+    local m = Instance.new("SpecialMesh")
+    m.MeshType = Enum.MeshType.Pyramid
+    m.Parent = pyramid
+    table.insert(bodies, pyramid)
+    return model, root, bodies
+end
+
+-- ★ ИНЬ-ЯН
+local function createYinYang(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    -- Основа
+    local base = newPart(model, "Base", Vector3.new(s * 1.8, s * 0.3, s * 1.8),
+        CFrame.new(0, 0, 0), color)
+    local m = Instance.new("SpecialMesh")
+    m.MeshType = Enum.MeshType.Cylinder
+    m.Parent = base
+    table.insert(bodies, base)
+    -- Большая точка (светлая)
+    local white = newPart(model, "White", Vector3.new(s * 0.5, s * 0.4, s * 0.5),
+        CFrame.new(0, s * 0.2, s * 0.5), color)
+    local wm = Instance.new("SpecialMesh")
+    wm.MeshType = Enum.MeshType.Sphere
+    wm.Parent = white
+    table.insert(bodies, white)
+    -- Большая точка (тёмная)
+    local black = newPart(model, "Black", Vector3.new(s * 0.5, s * 0.4, s * 0.5),
+        CFrame.new(0, s * 0.2, -s * 0.5), color)
+    local bm = Instance.new("SpecialMesh")
+    bm.MeshType = Enum.MeshType.Sphere
+    bm.Parent = black
+    table.insert(bodies, black)
+    -- Маленькие точки
+    local wsmall = newPart(model, "WS", Vector3.new(s * 0.2, s * 0.3, s * 0.2),
+        CFrame.new(0, s * 0.3, -s * 0.5), color)
+    local wsm = Instance.new("SpecialMesh")
+    wsm.MeshType = Enum.MeshType.Sphere
+    wsm.Parent = wsmall
+    table.insert(bodies, wsmall)
+    local bsmall = newPart(model, "BS", Vector3.new(s * 0.2, s * 0.3, s * 0.2),
+        CFrame.new(0, s * 0.3, s * 0.5), color)
+    local bsm = Instance.new("SpecialMesh")
+    bsm.MeshType = Enum.MeshType.Sphere
+    bsm.Parent = bsmall
+    table.insert(bodies, bsmall)
+    return model, root, bodies
+end
+
+-- ★ ГЛАЗ (Eye of Sauron style)
+local function createEye(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    -- Веко-обод
+    local ring = newPart(model, "Ring", Vector3.new(s * 1.6, s * 0.4, s * 1.6),
+        CFrame.new(0, 0, 0), color)
+    local rm = Instance.new("SpecialMesh")
+    rm.MeshType = Enum.MeshType.Cylinder
+    rm.Parent = ring
+    table.insert(bodies, ring)
+    -- Яблоко
+    local apple = newPart(model, "Apple", Vector3.new(s * 1.2, s * 0.9, s * 1.2),
+        CFrame.new(0, 0, 0), color)
+    local am = Instance.new("SpecialMesh")
+    am.MeshType = Enum.MeshType.Sphere
+    am.Parent = apple
+    table.insert(bodies, apple)
+    -- Зрачок
+    local pupil = newPart(model, "Pupil", Vector3.new(s * 0.4, s * 0.4, s * 0.4),
+        CFrame.new(0, 0, 0), color)
+    pupil:SetAttribute("NoRecolor", true)
+    pupil.Color = Color3.fromRGB(15, 5, 5)
+    local pm = Instance.new("SpecialMesh")
+    pm.MeshType = Enum.MeshType.Sphere
+    pm.Parent = pupil
+    table.insert(bodies, pupil)
+    return model, root, bodies
+end
+
+-- ★ РУНА (Magic circle)
+local function createRune(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    -- Внешнее кольцо
+    local outer = newPart(model, "Outer", Vector3.new(s * 2.0, s * 0.15, s * 2.0),
+        CFrame.new(0, 0, 0), color)
+    local om = Instance.new("SpecialMesh")
+    om.MeshType = Enum.MeshType.Cylinder
+    om.Parent = outer
+    table.insert(bodies, outer)
+    -- Внутреннее кольцо
+    local inner = newPart(model, "Inner", Vector3.new(s * 1.2, s * 0.2, s * 1.2),
+        CFrame.new(0, 0, 0), color)
+    local im = Instance.new("SpecialMesh")
+    im.MeshType = Enum.MeshType.Cylinder
+    im.Parent = inner
+    table.insert(bodies, inner)
+    -- Лучи (6 штук)
+    for i = 1, 6 do
+        local angle = (i - 1) / 6 * math.pi * 2
+        local x = math.cos(angle) * s * 0.8
+        local z = math.sin(angle) * s * 0.8
+        local rod = newPart(model, "Rod", Vector3.new(s * 0.08, s * 0.25, s * 0.4),
+            CFrame.new(x, 0, z) * CFrame.Angles(0, -angle, 0), color)
+        table.insert(bodies, rod)
+    end
+    return model, root, bodies
+end
+
+-- ★ СПИРАЛЬ
+local function createSpiral(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    local segments = 20
+    for i = 1, segments do
+        local t = i / segments
+        local angle = t * math.pi * 4
+        local radius = t * s * 0.9
+        local x = math.cos(angle) * radius
+        local z = math.sin(angle) * radius
+        local cube = newPart(model, "Seg", Vector3.new(s * 0.25, s * 0.25, s * 0.25),
+            CFrame.new(x, 0, z), color)
+        table.insert(bodies, cube)
+    end
+    return model, root, bodies
+end
+
+-- ★ КРЫЛЬЯ
+local function createWings(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    for _, side in ipairs({-1, 1}) do
+        -- 3 пера
+        for i = 1, 3 do
+            local len = s * (1.6 - (i-1) * 0.3)
+            local feather = newPart(model, "Feather", Vector3.new(s * 0.15, s * 0.15, len),
+                CFrame.new(side * s * 0.4, (i-1) * s * 0.3 - s * 0.3, 0)
+                * CFrame.Angles(0, math.rad(side * 20), 0), color)
+            table.insert(bodies, feather)
+        end
+        -- Основание
+        local base = newPart(model, "Base", Vector3.new(s * 0.4, s * 0.5, s * 0.3),
+            CFrame.new(side * s * 0.2, 0, 0), color)
+        table.insert(bodies, base)
+    end
+    return model, root, bodies
+end
+
+-- ★ ЩУПАЛЬЦЕ
+local function createTentacle(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    local segments = 8
+    for i = 1, segments do
+        local t = i / segments
+        local angle = t * math.pi * 2
+        local x = math.sin(angle) * t * s * 0.5
+        local y = t * s * 1.8 - s * 0.5
+        local thickness = s * 0.3 * (1 - t * 0.7)
+        local seg = newPart(model, "Seg", Vector3.new(thickness, s * 0.3, thickness),
+            CFrame.new(x, y, 0), color)
+        local m = Instance.new("SpecialMesh")
+        m.MeshType = Enum.MeshType.Sphere
+        m.Parent = seg
+        table.insert(bodies, seg)
+    end
+    return model, root, bodies
+end
+
+-- ★ ГАСТЕР БЛАСТЕР (заглушка)
 local function create3DBlasterPlaceholder(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
     local bone = color or Color3.fromRGB(235, 230, 215)
-    local dark = Color3.fromRGB(15, 12, 10)
+    local dark = Color3.fromRGB(10, 9, 9)
+    local toothColor = Color3.fromRGB(250, 248, 240)
 
     local function block(sz, cf, col, noRecolor)
         local p = newPart(model, "B", sz, cf, col, noRecolor)
@@ -663,29 +1097,106 @@ local function create3DBlasterPlaceholder(size, color, name)
         m.Parent = p
         return p
     end
-
-    ellipsoid(Vector3.new(1.3 * s, 1.1 * s, 2.6 * s), CFrame.new(0, 0.1 * s, 0), bone)
-    ellipsoid(Vector3.new(1.05 * s, 0.55 * s, 2.0 * s), CFrame.new(0, -0.55 * s, 0.1 * s), bone)
-    block(Vector3.new(0.75 * s, 0.55 * s, 0.5 * s), CFrame.new(0, -0.15 * s, -1.55 * s), dark, true)
-    for _, side in ipairs({ -1, 1 }) do
-        ellipsoid(Vector3.new(0.32 * s, 0.30 * s, 0.24 * s), CFrame.new(side * 0.42 * s, 0.28 * s, -1.0 * s), dark, true)
-    end
-    for k = -1, 1 do
+    local function wedge(sz, cf, col, noRecolor)
         local w = Instance.new("WedgePart")
-        w.Name = "Spike"
-        w.Size = Vector3.new(0.18 * s, 0.5 * s, 0.4 * s)
-        w.CFrame = CFrame.new(0, 0.75 * s, k * 0.6 * s) * CFrame.Angles(0, math.rad(90), 0)
-        w.Anchored = true; w.CanCollide = false; w.CastShadow = false
-        w.Material = Enum.Material.Neon
-        w.Color = bone
+        w.Name = "W"
+        w.Size = sz
+        w.CFrame = cf
+        w.Anchored = true
+        w.CanCollide = false
+        w.CastShadow = false
+        w.Material = Enum.Material.SmoothPlastic
+        w.Color = col
+        if noRecolor then w:SetAttribute("NoRecolor", true) end
         w.Parent = model
         table.insert(bodies, w)
+        return w
+    end
+    local function tooth(cf, w, h, col)
+        local p = newPart(model, "Tooth", Vector3.new(w, h, w), cf, col, true)
+        p.Material = Enum.Material.SmoothPlastic
+        local m = Instance.new("SpecialMesh")
+        m.MeshType = Enum.MeshType.Pyramid
+        m.Parent = p
+        table.insert(bodies, p)
+        return p
+    end
+    local function addLight(part, col, range, bright)
+        if SETTINGS.LightEnabled and activeLightCount < SETTINGS.LightLimit then
+            local light = Instance.new("PointLight")
+            light.Range = range * s
+            light.Brightness = bright
+            light.Color = col
+            light.Parent = part
+            activeLightCount = activeLightCount + 1
+        end
+    end
+
+    ellipsoid(Vector3.new(1.45 * s, 1.00 * s, 1.35 * s), CFrame.new(0, 0.28 * s, 1.00 * s), bone)
+    ellipsoid(Vector3.new(1.30 * s, 0.88 * s, 1.20 * s), CFrame.new(0, 0.24 * s, 0.15 * s), bone)
+    ellipsoid(Vector3.new(1.00 * s, 0.68 * s, 1.10 * s), CFrame.new(0, 0.18 * s, -0.75 * s), bone)
+    ellipsoid(Vector3.new(0.62 * s, 0.46 * s, 0.85 * s), CFrame.new(0, 0.12 * s, -1.55 * s), bone)
+
+    for _, side in ipairs({ -1, 1 }) do
+        ellipsoid(Vector3.new(0.42 * s, 0.16 * s, 0.55 * s),
+            CFrame.new(side * 0.40 * s, 0.52 * s, -0.35 * s) * CFrame.Angles(math.rad(-8), 0, math.rad(side * 6)), bone)
+    end
+
+    for _, side in ipairs({ -1, 1 }) do
+        ellipsoid(Vector3.new(0.10 * s, 0.10 * s, 0.14 * s),
+            CFrame.new(side * 0.18 * s, 0.06 * s, -1.92 * s), dark, true)
+    end
+
+    ellipsoid(Vector3.new(1.10 * s, 0.42 * s, 1.35 * s), CFrame.new(0, -0.40 * s, 0.55 * s), bone)
+    ellipsoid(Vector3.new(0.72 * s, 0.30 * s, 1.00 * s), CFrame.new(0, -0.30 * s, -0.55 * s), bone)
+    ellipsoid(Vector3.new(0.42 * s, 0.20 * s, 0.60 * s), CFrame.new(0, -0.24 * s, -1.30 * s), bone)
+
+    block(Vector3.new(0.68 * s, 0.34 * s, 1.55 * s), CFrame.new(0, -0.05 * s, -0.50 * s), dark, true)
+
+    local core = ellipsoid(Vector3.new(0.22 * s, 0.22 * s, 0.22 * s), CFrame.new(0, -0.05 * s, -0.85 * s), bone)
+    addLight(core, bone, 8, 4)
+
+    for _, side in ipairs({ -1, 1 }) do
+        tooth(CFrame.new(side * 0.42 * s, -0.02 * s, -0.35 * s) * CFrame.Angles(math.rad(180), 0, 0),
+            0.16 * s, 0.30 * s, toothColor)
+        tooth(CFrame.new(side * 0.38 * s, -0.10 * s, -0.30 * s), 0.14 * s, 0.24 * s, toothColor)
+    end
+    for i = 1, 4 do
+        local z = -1.10 * s + (i - 1) * 0.20 * s
+        tooth(CFrame.new((i % 2 == 0 and 0.24 or -0.24) * s, -0.06 * s, z) * CFrame.Angles(math.rad(180), 0, 0),
+            0.12 * s, 0.16 * s, toothColor)
+    end
+    for i = 1, 3 do
+        local z = -0.95 * s + (i - 1) * 0.20 * s
+        tooth(CFrame.new((i % 2 == 0 and -0.20 or 0.20) * s, -0.12 * s, z), 0.11 * s, 0.14 * s, toothColor)
+    end
+
+    for _, side in ipairs({ -1, 1 }) do
+        ellipsoid(Vector3.new(0.38 * s, 0.34 * s, 0.30 * s), CFrame.new(side * 0.46 * s, 0.32 * s, -0.42 * s), dark, true)
+        local eye = ellipsoid(Vector3.new(0.15 * s, 0.15 * s, 0.10 * s), CFrame.new(side * 0.46 * s, 0.32 * s, -0.52 * s), bone)
+        addLight(eye, bone, 6, 3)
+    end
+
+    for i = 1, 3 do
+        local z = 1.35 * s - (i - 1) * 0.35 * s
+        local h = 0.70 * s - (i - 1) * 0.16 * s
+        wedge(Vector3.new(0.18 * s, h, 0.30 * s),
+            CFrame.new(0, 0.55 * s + h * 0.35, z) * CFrame.Angles(math.rad(-18), math.rad(90), 0), bone)
+    end
+
+    for _, side in ipairs({ -1, 1 }) do
+        wedge(Vector3.new(0.12 * s, 0.65 * s, 0.55 * s),
+            CFrame.new(side * 0.78 * s, 0.42 * s, 0.85 * s) * CFrame.Angles(math.rad(-10), 0, math.rad(side * -55)), bone)
+        wedge(Vector3.new(0.10 * s, 0.42 * s, 0.38 * s),
+            CFrame.new(side * 0.95 * s, 0.62 * s, 0.65 * s) * CFrame.Angles(math.rad(-10), 0, math.rad(side * -75)), bone)
     end
 
     return model, root, bodies
 end
 
+-- ==================== СПИСОК ФИГУР ====================
 local SHAPE_PRESETS = {
+    -- 1-4: базовые
     { name = "БЛОК", create = function(size, name)
         local p = Instance.new("Part")
         p.Name = name; p.Shape = Enum.PartType.Block
@@ -709,6 +1220,7 @@ local SHAPE_PRESETS = {
         p.Name = name; p.Size = Vector3.new(size, size, size)
         return { part = p }
     end },
+    -- 5-6
     { name = "ГОЛОВА", create = function(size, name)
         local m, r, b = createHead(size, Color3.fromRGB(255, 220, 60), name)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size }
@@ -718,9 +1230,10 @@ local SHAPE_PRESETS = {
         local m, r, b = createPixelHeart(hs, Color3.fromRGB(255, 60, 120), name)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = hs }
     end },
+    -- 7-12
     { name = "ЗВЕЗДА", create = function(s, n)
         local m, r, b = create3DStar(s, Color3.fromRGB(255, 200, 40), n)
-        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.0 }
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s }
     end },
     { name = "ТРЕУГОЛЬНИК", create = function(s, n)
         local m, r, b = create3DTriangle(s, Color3.fromRGB(0, 255, 120), n)
@@ -742,6 +1255,7 @@ local SHAPE_PRESETS = {
         local m, r, b = create3DLightning(s, Color3.fromRGB(255, 230, 60), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
     end },
+    -- 13-14: рука
     { name = "РУКА", create = function(s, n)
         if MESH_CONFIG.HandMeshId ~= "" then
             local m, r, b = createMeshShape(MESH_CONFIG.HandMeshId, MESH_CONFIG.HandTextureId, s, n, Color3.fromRGB(235, 230, 215))
@@ -763,6 +1277,7 @@ local SHAPE_PRESETS = {
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, true, hc)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
     end },
+    -- 15: бластер
     { name = "ГАСТЕР БЛАСТЕР", create = function(s, n)
         if MESH_CONFIG.BlasterMeshId ~= "" then
             local m, r, b = createMeshShape(MESH_CONFIG.BlasterMeshId, MESH_CONFIG.BlasterTextureId, s, n, Color3.fromRGB(240, 240, 245))
@@ -771,8 +1286,162 @@ local SHAPE_PRESETS = {
         local m, r, b = create3DBlasterPlaceholder(s, Color3.fromRGB(240, 240, 245), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.6 }
     end },
+    -- 16-20: НОВЫЕ
+    { name = "МЕЧ", create = function(s, n)
+        local m, r, b = createSword(s, Color3.fromRGB(220, 230, 245), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.0 }
+    end },
+    { name = "ЩИТ", create = function(s, n)
+        local m, r, b = createShield(s, Color3.fromRGB(200, 220, 240), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
+    end },
+    { name = "КОРОНА", create = function(s, n)
+        local m, r, b = createCrown(s, Color3.fromRGB(255, 215, 0), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
+    end },
+    { name = "КОСТЬ", create = function(s, n)
+        local m, r, b = createBone(s, Color3.fromRGB(245, 240, 220), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+    end },
+    { name = "КРИСТАЛЛ", create = function(s, n)
+        local m, r, b = createCrystal(s, Color3.fromRGB(150, 230, 255), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+    end },
+    -- 21-25: ещё больше
+    { name = "ПИРАМИДА", create = function(s, n)
+        local m, r, b = createPyramid(s, Color3.fromRGB(255, 200, 100), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
+    end },
+    { name = "ИНЬ-ЯН", create = function(s, n)
+        local m, r, b = createYinYang(s, Color3.fromRGB(220, 220, 240), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+    end },
+    { name = "ГЛАЗ", create = function(s, n)
+        local m, r, b = createEye(s, Color3.fromRGB(255, 200, 200), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
+    end },
+    { name = "РУНА", create = function(s, n)
+        local m, r, b = createRune(s, Color3.fromRGB(180, 150, 255), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+    end },
+    { name = "СПИРАЛЬ", create = function(s, n)
+        local m, r, b = createSpiral(s, Color3.fromRGB(120, 200, 255), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
+    end },
+    -- 26-27: крылья и щупальце
+    { name = "КРЫЛЬЯ", create = function(s, n)
+        local m, r, b = createWings(s, Color3.fromRGB(240, 240, 255), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
+    end },
+    { name = "ЩУПАЛЬЦЕ", create = function(s, n)
+        local m, r, b = createTentacle(s, Color3.fromRGB(150, 80, 180), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
+    end },
 }
 local shapeIndex = 1
+
+-- ==================== АУРА ====================
+local function setupAura()
+    if auraFolder then auraFolder:Destroy(); auraFolder = nil end
+    auraParts = {}
+    if not SETTINGS.AuraEnabled then return end
+
+    auraFolder = Instance.new("Folder")
+    auraFolder.Name = "OrbitAura"
+    auraFolder.Parent = Workspace
+
+    if SETTINGS.AuraType == "Кольцо" or SETTINGS.AuraType == "Оба" then
+        local ring = Instance.new("Part")
+        ring.Name = "AuraRing"
+        ring.Shape = Enum.PartType.Cylinder
+        ring.Size = Vector3.new(SETTINGS.AuraThickness, SETTINGS.AuraSize * 2, SETTINGS.AuraSize * 2)
+        ring.Anchored = true; ring.CanCollide = false; ring.CastShadow = false
+        ring.Material = Enum.Material.Neon
+        ring.Color = SETTINGS.AuraColor
+        ring.Transparency = 0.3
+        ring.Parent = auraFolder
+        table.insert(auraParts, ring)
+    end
+
+    if SETTINGS.AuraType == "Частицы" or SETTINGS.AuraType == "Оба" then
+        local emitter = Instance.new("Part")
+        emitter.Name = "AuraEmitter"
+        emitter.Size = Vector3.new(0.1, 0.1, 0.1)
+        emitter.Transparency = 1
+        emitter.Anchored = true; emitter.CanCollide = false; emitter.CastShadow = false
+        emitter.Parent = auraFolder
+        local particle = Instance.new("ParticleEmitter")
+        particle.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+        particle.Rate = 30
+        particle.Lifetime = NumberRange.new(0.8, 1.5)
+        particle.Speed = NumberRange.new(2, 4)
+        particle.SpreadAngle = Vector2.new(180, 180)
+        particle.Size = NumberSequence.new(0.5)
+        particle.Color = ColorSequence.new(SETTINGS.AuraColor)
+        particle.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        particle.Parent = emitter
+        table.insert(auraParts, emitter)
+    end
+end
+
+local function updateAura()
+    if not auraFolder then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    for _, part in ipairs(auraParts) do
+        if part.Name == "AuraRing" then
+            part.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 2.5, 0))
+                * CFrame.Angles(0, 0, math.rad(90))
+        elseif part.Name == "AuraEmitter" then
+            part.CFrame = hrp.CFrame
+        end
+    end
+end
+
+-- ==================== ОРБИТАЛЬНЫЕ УЗОРЫ ====================
+local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
+    local pattern = SETTINGS.OrbitPattern
+    local t = baseAngle
+    local param = SETTINGS.OrbitPatternParam
+
+    if pattern == "Круг" then
+        return math.cos(t) * baseRadius, baseHeight, math.sin(t) * baseRadius
+    elseif pattern == "Спираль" then
+        local spiralFactor = (math.sin(t * 0.3) + 1) * 0.5
+        local r = baseRadius * (0.4 + 0.6 * spiralFactor)
+        local h = baseHeight + math.sin(t * 0.5) * 3
+        return math.cos(t) * r, h, math.sin(t) * r
+    elseif pattern == "Волна" then
+        local h = baseHeight + math.sin(t * 2) * 4
+        return math.cos(t) * baseRadius, h, math.sin(t) * baseRadius
+    elseif pattern == "Восьмёрка" then
+        local x = math.sin(t) * baseRadius
+        local z = math.sin(t * 2) * baseRadius * 0.5
+        return x, baseHeight, z
+    elseif pattern == "Зигзаг" then
+        local seg = math.floor(t / (math.pi / 3))
+        local dir = (seg % 2 == 0) and 1 or -1
+        local x = math.cos(t) * baseRadius
+        local z = math.sin(t) * baseRadius
+        local h = baseHeight + dir * 2
+        return x, h, z
+    elseif pattern == "Лиссажу" then
+        local a, b = 3, 2
+        local x = math.sin(a * t) * baseRadius
+        local z = math.sin(b * t + math.pi/2) * baseRadius
+        return x, baseHeight, z
+    elseif pattern == "Хаос" then
+        local r = baseRadius * (0.7 + math.sin(t * 7.3 + ri) * 0.3)
+        local h = baseHeight + math.sin(t * 5.1 + ri * 2) * 3
+        return math.cos(t) * r, h, math.sin(t) * r
+    end
+    return math.cos(t) * baseRadius, baseHeight, math.sin(t) * baseRadius
+end
 
 -- ==================== УТИЛИТЫ ====================
 local function getCurrentShapeSize()
@@ -854,7 +1523,9 @@ local function buildRing(ri)
 
         if not data.isModel then
             refPart.Material = SETTINGS.Material
-            refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+            refPart.CanCollide = false
+            refPart.Anchored = true
+            refPart.CastShadow = false
             refPart.Transparency = SETTINGS.Transparency
             refPart.Color = SETTINGS.FixedColor
         end
@@ -866,7 +1537,7 @@ local function buildRing(ri)
             light.Name = blockName .. "_Light"
             light.Color = SETTINGS.FixedColor
             light.Range = SETTINGS.LightRange
-            light.Brightness = 2
+            light.Brightness = SETTINGS.GlowIntensity
             light.Parent = refPart
             activeLightCount = activeLightCount + 1
         end
@@ -890,15 +1561,21 @@ local function buildRing(ri)
         local nameGui = Instance.new("BillboardGui")
         nameGui.Size = UDim2.new(0, 140, 0, 30)
         nameGui.StudsOffset = Vector3.new(0, visualSize * 0.9 + 1, 0)
-        nameGui.AlwaysOnTop = true; nameGui.LightInfluence = 0
-        nameGui.Adornee = refPart; nameGui.Enabled = SETTINGS.ShowBlockNames
+        nameGui.AlwaysOnTop = true
+        nameGui.LightInfluence = 0
+        nameGui.Adornee = refPart
+        nameGui.Enabled = SETTINGS.ShowBlockNames
         nameGui.Parent = refPart
 
         local nameLabel = Instance.new("TextLabel")
-        nameLabel.Size = UDim2.new(1, 0, 1, 0); nameLabel.BackgroundTransparency = 1
-        nameLabel.Text = blockName; nameLabel.TextScaled = true
-        nameLabel.TextColor3 = SETTINGS.NameColor; nameLabel.Font = Enum.Font.GothamBold
-        nameLabel.TextStrokeTransparency = 0.3; nameLabel.Parent = nameGui
+        nameLabel.Size = UDim2.new(1, 0, 1, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = blockName
+        nameLabel.TextScaled = true
+        nameLabel.TextColor3 = SETTINGS.NameColor
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextStrokeTransparency = 0.3
+        nameLabel.Parent = nameGui
 
         table.insert(ring.blocks, {
             part = refPart, model = data.model, isModel = data.isModel or false,
@@ -907,6 +1584,7 @@ local function buildRing(ri)
             angleOffset = (i - 1) * (360 / SETTINGS.BlockCount) + ring.angleShift,
         })
     end
+    statsData.totalShapes = statsData.totalShapes + #ring.blocks
 end
 
 local function destroyRing(ri)
@@ -951,6 +1629,7 @@ end
 
 local function rebuildAllRings()
     if not enabled then return end
+    statsData.totalShapes = 0
     for ri, ring in pairs(rings) do
         if ring.enabled then destroyRing(ri) end
     end
@@ -978,6 +1657,29 @@ local function startUpdateLoop()
         local globalMult = SETTINGS.SpeedMultiplier
         local lerpFactor = math.clamp(dt * SETTINGS.LerpSpeed, 0, 1)
         local baseSize = getCurrentShapeSize()
+
+        -- FPS счётчик
+        statsData.fpsFrames = statsData.fpsFrames + 1
+        if t - statsData.fpsLastCheck >= 1 then
+            statsData.lastFPS = math.floor(statsData.fpsFrames / (t - statsData.fpsLastCheck))
+            statsData.fpsFrames = 0
+            statsData.fpsLastCheck = t
+        end
+        statsData.sessionTime = t
+
+        -- Аура
+        updateAura()
+
+        -- Автосмена фигур
+        if SETTINGS.AutoShapeSwap and (tick() - lastAutoSwap) > SETTINGS.AutoShapeSwapInterval then
+            lastAutoSwap = tick()
+            currentAutoShapeIndex = currentAutoShapeIndex + 1
+            if currentAutoShapeIndex > #SHAPE_PRESETS then currentAutoShapeIndex = 1 end
+            shapeIndex = currentAutoShapeIndex
+            applyShapes()
+            rebuildAllRings()
+            notify("🎭 Автосмена: " .. SHAPE_PRESETS[shapeIndex].name, Color3.fromRGB(220, 200, 255))
+        end
 
         for ri, ring in pairs(rings) do
             currentRadius[ri] = currentRadius[ri] + (getTargetRadius(ri) - currentRadius[ri]) * lerpFactor
@@ -1027,11 +1729,9 @@ local function startUpdateLoop()
                     yBob = math.sin(bobPhase + i + ri * 0.5) * SETTINGS.BobAmplitude
                 end
 
-                local offset = Vector3.new(
-                    math.cos(angle) * radius,
-                    height + yBob,
-                    math.sin(angle) * radius
-                )
+                -- Орбитальный узор
+                local px, py, pz = applyOrbitPattern(ri, angle, radius, height + yBob)
+                local offset = Vector3.new(px, py, pz)
 
                 local targetCF
                 if spinAxisDir == "X" then
@@ -1075,6 +1775,10 @@ local function startUpdateLoop()
                         data.trail.Color = ColorSequence.new(c)
                         data.lastTrailUpdate = now
                     end
+                elseif SETTINGS.GradientEnabled then
+                    local hue = (t * SETTINGS.GradientSpeed + i / SETTINGS.BlockCount) % 1
+                    local c = Color3.fromHSV(hue, 0.85, 1)
+                    applyColorToBlock(data, c)
                 end
             end
         end
@@ -1095,10 +1799,13 @@ local function setEnabled(state)
         applyColor()
         applyNameVisibility()
         startUpdateLoop()
+        notify("🟢 Скрипт включён", Color3.fromRGB(100, 255, 150))
     else
         stopUpdateLoop()
         for ri in pairs(rings) do destroyRing(ri) end
         activeLightCount = 0
+        if auraFolder then auraFolder:Destroy(); auraFolder = nil end
+        notify("🔴 Скрипт выключен", Color3.fromRGB(255, 100, 100))
     end
 end
 
@@ -1108,9 +1815,13 @@ local function setRingEnabled(ri, state)
     ring.enabled = state
     if not enabled then return end
     if state then
-        countActiveLights(); buildRing(ri); applyColor(); applyNameVisibility()
+        countActiveLights()
+        buildRing(ri)
+        applyColor()
+        applyNameVisibility()
     else
-        destroyRing(ri); countActiveLights()
+        destroyRing(ri)
+        countActiveLights()
     end
 end
 
@@ -1125,13 +1836,15 @@ local function setupRespawnHook()
             for ri, ring in pairs(rings) do
                 if ring.enabled then buildRing(ri) end
             end
-            applyColor(); applyNameVisibility()
+            applyColor()
+            applyNameVisibility()
+            setupAura()
         end
     end)
 end
 
--- ==================== СОХРАНЕНИЕ / ЗАГРУЗКА (ФАЙЛ) ====================
-local SAVE_FILE = "OrbitFX_v13_save.json"
+-- ==================== СОХРАНЕНИЕ / ЗАГРУЗКА ====================
+local SAVE_FILE = "OrbitFX_v14_save.json"
 
 local function collectSaveData()
     local ringShapes, ringEnabled = {}, {}
@@ -1145,16 +1858,22 @@ local function collectSaveData()
         trailLengthIndex = trailLengthIndex, trailWidthIndex = trailWidthIndex,
         directionIndex = directionIndex, speedModeIndex = speedModeIndex,
         heightIndex = heightIndex, shapeIndex = shapeIndex, formModeIndex = formModeIndex,
+        orbitPatternIndex = orbitPatternIndex, auraTypeIndex = auraTypeIndex,
         ringShapes = ringShapes, ringEnabled = ringEnabled,
         lightEnabled = SETTINGS.LightEnabled, trailEnabled = SETTINGS.TrailEnabled,
         pulseEnabled = SETTINGS.PulseEnabled, showNames = SETTINGS.ShowBlockNames,
         waveEnabled = SETTINGS.WaveEnabled, explosionEnabled = SETTINGS.ExplosionEnabled,
+        auraEnabled = SETTINGS.AuraEnabled, auraSize = SETTINGS.AuraSize,
+        autoShapeSwap = SETTINGS.AutoShapeSwap,
+        autoShapeSwapInterval = SETTINGS.AutoShapeSwapInterval,
+        gradientEnabled = SETTINGS.GradientEnabled,
         spinResetting = spinResetting,
         spinAxisEnabled = spinAxisEnabled,
         spinAxisDir = spinAxisDir,
         spinSpeedIndex = spinSpeedIndex,
         heartScale = SETTINGS.HeartScale,
         musicEnabled = musicEnabled, musicId = savedMusicId,
+        musicVolume = musicVolume,
     }
 end
 
@@ -1184,6 +1903,8 @@ local function loadSettings()
     if data.heightIndex then heightIndex = data.heightIndex end
     if data.shapeIndex then shapeIndex = data.shapeIndex end
     if data.formModeIndex then formModeIndex = data.formModeIndex end
+    if data.orbitPatternIndex then orbitPatternIndex = data.orbitPatternIndex end
+    if data.auraTypeIndex then auraTypeIndex = data.auraTypeIndex end
     if data.spinResetting ~= nil then spinResetting = data.spinResetting end
     if data.spinAxisEnabled ~= nil then spinAxisEnabled = data.spinAxisEnabled end
     if data.spinAxisDir ~= nil then spinAxisDir = data.spinAxisDir end
@@ -1191,9 +1912,13 @@ local function loadSettings()
         spinSpeedIndex = data.spinSpeedIndex
         SETTINGS.SpinSpeedMultiplier = SPIN_SPEED_PRESETS[spinSpeedIndex].value
     end
-    if data.heartScale then
-        SETTINGS.HeartScale = data.heartScale
-    end
+    if data.heartScale then SETTINGS.HeartScale = data.heartScale end
+    if data.auraEnabled ~= nil then SETTINGS.AuraEnabled = data.auraEnabled end
+    if data.auraSize then SETTINGS.AuraSize = data.auraSize end
+    if data.autoShapeSwap ~= nil then SETTINGS.AutoShapeSwap = data.autoShapeSwap end
+    if data.autoShapeSwapInterval then SETTINGS.AutoShapeSwapInterval = data.autoShapeSwapInterval end
+    if data.gradientEnabled ~= nil then SETTINGS.GradientEnabled = data.gradientEnabled end
+    if data.musicVolume then musicVolume = data.musicVolume end
 
     if data.ringShapes then
         for ri = 1, 5 do if data.ringShapes[ri] then rings[ri].shapeIndex = data.ringShapes[ri] end end
@@ -1222,6 +1947,13 @@ local function loadSettings()
     return true
 end
 
+-- ==================== АВТОСОХРАНЕНИЕ ====================
+task.spawn(function()
+    while task.wait(30) do
+        pcall(saveSettings)
+    end
+end)
+
 -- ==================== UI ====================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "OrbitFX_UI"
@@ -1247,13 +1979,13 @@ mainStroke.Color = Color3.fromRGB(120, 120, 255)
 mainStroke.Thickness = 1.5
 
 local panel = Instance.new("ScrollingFrame")
-panel.Size = UDim2.new(0, 250, 0, 700)
+panel.Size = UDim2.new(0, 270, 0, 700)
 panel.Position = UDim2.new(0, 90, 0, 5)
 panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 panel.BackgroundTransparency = 0.1
 panel.BorderSizePixel = 0
 panel.Visible = false
-panel.CanvasSize = UDim2.new(0, 0, 0, 1350)
+panel.CanvasSize = UDim2.new(0, 0, 0, 2000)
 panel.ScrollBarThickness = 3
 panel.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 255)
 panel.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -1267,11 +1999,29 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v13.2 (Delta)"
+title.Text = "✨ ОРБИТА v14.0 ULTIMATE"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
 title.Parent = panel
+
+-- Функция для создания секции (заголовок)
+local function makeSection(text, y, color)
+    local s = Instance.new("TextLabel")
+    s.Size = UDim2.new(1, -20, 0, 20)
+    s.Position = UDim2.new(0, 10, 0, y)
+    s.BackgroundTransparency = 0.6
+    s.BackgroundColor3 = color or Color3.fromRGB(50, 50, 80)
+    s.BorderSizePixel = 0
+    s.Text = "▸ " .. text
+    s.TextColor3 = Color3.fromRGB(220, 220, 255)
+    s.Font = Enum.Font.GothamBold
+    s.TextSize = 11
+    s.TextXAlignment = Enum.TextXAlignment.Left
+    s.Parent = panel
+    Instance.new("UICorner", s).CornerRadius = UDim.new(0, 6)
+    return s
+end
 
 local function makeButton(text, y, h, bgColor, textColor)
     local b = Instance.new("TextButton")
@@ -1288,50 +2038,82 @@ local function makeButton(text, y, h, bgColor, textColor)
     return b
 end
 
-local toggleBtn     = makeButton("🟢 ВКЛЮЧЕНО", 36, 30, Color3.fromRGB(40, 40, 55), Color3.fromRGB(0, 255, 120))
-local allRingsBtn   = makeButton("⭕ Все кольца: ВКЛ", 69, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
-local ring2Btn      = makeButton("➕ Кольцо 2", 102, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
-local ring3Btn      = makeButton("➕ Кольцо 3", 135, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
-local ring4Btn      = makeButton("➕ Кольцо 4", 168, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
-local ring5Btn      = makeButton("➕ Кольцо 5", 201, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
-local heightBtn     = makeButton("⬆️ Высота: " .. HEIGHT_PRESETS[heightIndex].name, 234, 30, Color3.fromRGB(35, 55, 65), Color3.fromRGB(140, 220, 255))
-local speedModeBtn  = makeButton("⚙️ Скорость: " .. SPEED_MODE_PRESETS[speedModeIndex].name, 267, 30, Color3.fromRGB(45, 50, 65), Color3.fromRGB(180, 220, 255))
-local directionBtn  = makeButton("🔃 Направление: " .. DIRECTION_PRESETS[directionIndex].name, 300, 30, Color3.fromRGB(45, 35, 60), Color3.fromRGB(200, 180, 255))
-local spreadBtn     = makeButton("📐 Разлёт: " .. SPREAD_PRESETS[spreadIndex].name, 333, 30, Color3.fromRGB(55, 30, 55), Color3.fromRGB(255, 180, 255))
-local speedBtn      = makeButton("⚡ Множитель: " .. SPEED_PRESETS[speedIndex].name, 366, 30, Color3.fromRGB(55, 45, 20), Color3.fromRGB(255, 220, 100))
-local shapeModeBtn  = makeButton("🎭 Формы: " .. FORM_MODES[formModeIndex].name, 399, 30, Color3.fromRGB(50, 40, 65), Color3.fromRGB(220, 200, 255))
-local shapeBtn      = makeButton("🔷 Форма: " .. SHAPE_PRESETS[shapeIndex].name, 432, 30)
-local orbitBtn      = makeButton("📏 Орбита: " .. ORBIT_PRESETS[orbitIndex].name, 465, 30)
-local shapeSizeBtn  = makeButton("🔍 Фигура: " .. SHAPE_SIZE_PRESETS[shapeSizeIndex].name, 498, 30)
-local colorBtn      = makeButton("🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name, 531, 30)
-local nameBtn       = makeButton("🏷️ Имена: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ"), 564, 30)
-local trailBtn      = makeButton("🌠 Трейлы: ВЫКЛ", 597, 30, Color3.fromRGB(35, 35, 50))
-local trailLenBtn   = makeButton("📏 Трейл: " .. TRAIL_LENGTH_PRESETS[trailLengthIndex].name, 630, 30, Color3.fromRGB(35, 45, 60), Color3.fromRGB(180, 220, 255))
-local trailWidBtn   = makeButton("🎚️ Толщина: " .. TRAIL_WIDTH_PRESETS[trailWidthIndex].name, 663, 30, Color3.fromRGB(35, 45, 60), Color3.fromRGB(180, 220, 255))
-local waveBtn       = makeButton("🌊 Волна: ВЫКЛ", 696, 30, Color3.fromRGB(30, 55, 75), Color3.fromRGB(140, 220, 255))
-local explosionBtn  = makeButton("💥 Взрыв: ВЫКЛ", 729, 30, Color3.fromRGB(70, 40, 30), Color3.fromRGB(255, 180, 120))
-local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 762, 30, Color3.fromRGB(35, 35, 50))
-local lightBtn      = makeButton("💡 Свет: ВКЛ", 795, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
-local spinBtn       = makeButton("↩️ Вращение в 0", 828, 30, Color3.fromRGB(50, 40, 60), Color3.fromRGB(200, 180, 255))
-local spinAxisBtn   = makeButton("🔄 Кручение оси: ВКЛ", 861, 30, Color3.fromRGB(35, 55, 55), Color3.fromRGB(140, 255, 220))
-local spinDirBtn    = makeButton("↕️ Ось: ВЕРХ/ВНИЗ", 894, 30, Color3.fromRGB(45, 55, 75), Color3.fromRGB(180, 220, 255))
-local spinSpeedBtn  = makeButton("🌀 Скорость кручения: 1x", 927, 30, Color3.fromRGB(55, 35, 75), Color3.fromRGB(220, 180, 255))
-local heartSizeBtn  = makeButton("💗 Сердце: 100%", 960, 30, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200))
+-- СЕКЦИЯ: Основное
+makeSection("⚡ ОСНОВНОЕ", 36, Color3.fromRGB(60, 60, 100))
+local toggleBtn     = makeButton("🟢 ВКЛЮЧЕНО", 60, 30, Color3.fromRGB(40, 40, 55), Color3.fromRGB(0, 255, 120))
+local allRingsBtn   = makeButton("⭕ Все кольца: ВКЛ", 93, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
+local ring2Btn      = makeButton("➕ Кольцо 2", 126, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
+local ring3Btn      = makeButton("➕ Кольцо 3", 159, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
+local ring4Btn      = makeButton("➕ Кольцо 4", 192, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
+local ring5Btn      = makeButton("➕ Кольцо 5", 225, 30, Color3.fromRGB(40, 55, 40), Color3.fromRGB(160, 255, 160))
 
-local musicSection = Instance.new("TextLabel")
-musicSection.Size = UDim2.new(1, -20, 0, 20)
-musicSection.Position = UDim2.new(0, 10, 0, 996)
-musicSection.BackgroundTransparency = 1
-musicSection.Text = "🎵 МУЗЫКА (вставь ID трека ниже)"
-musicSection.TextColor3 = Color3.fromRGB(220, 180, 255)
-musicSection.Font = Enum.Font.GothamBold
-musicSection.TextSize = 11
-musicSection.TextXAlignment = Enum.TextXAlignment.Left
-musicSection.Parent = panel
+-- СЕКЦИЯ: Форма
+makeSection("🔷 ФОРМА И ФИГУРЫ", 262, Color3.fromRGB(60, 80, 100))
+local shapeBtn      = makeButton("🔷 Форма: " .. SHAPE_PRESETS[shapeIndex].name, 286, 30)
+local shapeModeBtn  = makeButton("🎭 Формы: " .. FORM_MODES[formModeIndex].name, 319, 30, Color3.fromRGB(50, 40, 65), Color3.fromRGB(220, 200, 255))
+local shapeSizeBtn  = makeButton("🔍 Фигура: " .. SHAPE_SIZE_PRESETS[shapeSizeIndex].name, 352, 30)
+local heartSizeBtn  = makeButton("💗 Сердце: 100%", 385, 30, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200))
+local autoSwapBtn   = makeButton("🎭 Автосмена: ВЫКЛ", 418, 30, Color3.fromRGB(50, 50, 70), Color3.fromRGB(200, 200, 255))
 
+-- СЕКЦИЯ: Орбита
+makeSection("🛰️ ОРБИТА И ДВИЖЕНИЕ", 455, Color3.fromRGB(60, 100, 80))
+local orbitBtn      = makeButton("📏 Орбита: " .. ORBIT_PRESETS[orbitIndex].name, 479, 30)
+local spreadBtn     = makeButton("📐 Разлёт: " .. SPREAD_PRESETS[spreadIndex].name, 512, 30, Color3.fromRGB(55, 30, 55), Color3.fromRGB(255, 180, 255))
+local heightBtn     = makeButton("⬆️ Высота: " .. HEIGHT_PRESETS[heightIndex].name, 545, 30, Color3.fromRGB(35, 55, 65), Color3.fromRGB(140, 220, 255))
+local speedBtn      = makeButton("⚡ Множитель: " .. SPEED_PRESETS[speedIndex].name, 578, 30, Color3.fromRGB(55, 45, 20), Color3.fromRGB(255, 220, 100))
+local speedModeBtn  = makeButton("⚙️ Скорость: " .. SPEED_MODE_PRESETS[speedModeIndex].name, 611, 30, Color3.fromRGB(45, 50, 65), Color3.fromRGB(180, 220, 255))
+local directionBtn  = makeButton("🔃 Направление: " .. DIRECTION_PRESETS[directionIndex].name, 644, 30, Color3.fromRGB(45, 35, 60), Color3.fromRGB(200, 180, 255))
+local orbitPatternBtn = makeButton("🌀 Узор: " .. ORBIT_PATTERNS[orbitPatternIndex].name, 677, 30, Color3.fromRGB(60, 40, 90), Color3.fromRGB(220, 180, 255))
+
+-- СЕКЦИЯ: Кручение
+makeSection("🔄 КРУЧЕНИЕ", 714, Color3.fromRGB(100, 60, 80))
+local spinBtn       = makeButton("↩️ Вращение в 0", 738, 30, Color3.fromRGB(50, 40, 60), Color3.fromRGB(200, 180, 255))
+local spinAxisBtn   = makeButton("🔄 Кручение оси: ВКЛ", 771, 30, Color3.fromRGB(35, 55, 55), Color3.fromRGB(140, 255, 220))
+local spinDirBtn    = makeButton("↕️ Ось: ВЕРХ/ВНИЗ", 804, 30, Color3.fromRGB(45, 55, 75), Color3.fromRGB(180, 220, 255))
+local spinSpeedBtn  = makeButton("🌀 Скорость кручения: 1x", 837, 30, Color3.fromRGB(55, 35, 75), Color3.fromRGB(220, 180, 255))
+
+-- СЕКЦИЯ: Эффекты
+makeSection("✨ ЭФФЕКТЫ", 874, Color3.fromRGB(100, 80, 60))
+local trailBtn      = makeButton("🌠 Трейлы: ВЫКЛ", 898, 30, Color3.fromRGB(35, 35, 50))
+local trailLenBtn   = makeButton("📏 Трейл: " .. TRAIL_LENGTH_PRESETS[trailLengthIndex].name, 931, 30, Color3.fromRGB(35, 45, 60), Color3.fromRGB(180, 220, 255))
+local trailWidBtn   = makeButton("🎚️ Толщина: " .. TRAIL_WIDTH_PRESETS[trailWidthIndex].name, 964, 30, Color3.fromRGB(35, 45, 60), Color3.fromRGB(180, 220, 255))
+local waveBtn       = makeButton("🌊 Волна: ВЫКЛ", 997, 30, Color3.fromRGB(30, 55, 75), Color3.fromRGB(140, 220, 255))
+local explosionBtn  = makeButton("💥 Взрыв: ВЫКЛ", 1030, 30, Color3.fromRGB(70, 40, 30), Color3.fromRGB(255, 180, 120))
+local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 1063, 30, Color3.fromRGB(35, 35, 50))
+local gradientBtn   = makeButton("🌈 Градиент: ВЫКЛ", 1096, 30, Color3.fromRGB(55, 35, 75), Color3.fromRGB(255, 180, 255))
+
+-- СЕКЦИЯ: Аура
+makeSection("🌀 АУРА", 1133, Color3.fromRGB(80, 60, 120))
+local auraBtn       = makeButton("🌀 Аура: ВЫКЛ", 1157, 30, Color3.fromRGB(50, 40, 70), Color3.fromRGB(200, 180, 255))
+local auraTypeBtn   = makeButton("🔮 Тип: " .. AURA_TYPES[auraTypeIndex].name, 1190, 30, Color3.fromRGB(50, 40, 70), Color3.fromRGB(200, 180, 255))
+
+-- СЕКЦИЯ: Цвет и свет
+makeSection("🎨 ЦВЕТ И СВЕТ", 1227, Color3.fromRGB(100, 100, 50))
+local colorBtn      = makeButton("🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name, 1251, 30)
+local lightBtn      = makeButton("💡 Свет: ВКЛ", 1284, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
+local nameBtn       = makeButton("🏷️ Имена: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ"), 1317, 30)
+
+-- СЕКЦИЯ: Статистика
+makeSection("📊 СТАТИСТИКА", 1354, Color3.fromRGB(60, 60, 90))
+local statsLabel = Instance.new("TextLabel")
+statsLabel.Size = UDim2.new(1, -20, 0, 50)
+statsLabel.Position = UDim2.new(0, 10, 0, 1378)
+statsLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+statsLabel.BorderSizePixel = 0
+statsLabel.TextColor3 = Color3.fromRGB(180, 220, 180)
+statsLabel.Font = Enum.Font.Gotham
+statsLabel.TextSize = 11
+statsLabel.TextXAlignment = Enum.TextXAlignment.Left
+statsLabel.TextYAlignment = Enum.TextYAlignment.Top
+statsLabel.Text = "FPS: -- | Фигур: 0 | Время: 0 сек"
+statsLabel.Parent = panel
+Instance.new("UICorner", statsLabel).CornerRadius = UDim.new(0, 6)
+
+-- СЕКЦИЯ: Музыка
+makeSection("🎵 МУЗЫКА", 1438, Color3.fromRGB(80, 60, 100))
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
-musicInput.Position = UDim2.new(0, 10, 0, 1018)
+musicInput.Position = UDim2.new(0, 10, 0, 1462)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -1347,24 +2129,14 @@ local inputStroke = Instance.new("UIStroke", musicInput)
 inputStroke.Color = Color3.fromRGB(180, 140, 255)
 inputStroke.Thickness = 1
 
-local musicHint = Instance.new("TextLabel")
-musicHint.Size = UDim2.new(1, -20, 0, 44)
-musicHint.Position = UDim2.new(0, 10, 0, 1054)
-musicHint.BackgroundTransparency = 1
-musicHint.Text = "Как узнать ID:\n1) Открой roblox.com/library → Audio\n2) Найди трек → скопируй цифры из ссылки\n3) Вставь сюда → нажми «Применить»"
-musicHint.TextColor3 = Color3.fromRGB(170, 170, 200)
-musicHint.Font = Enum.Font.Gotham
-musicHint.TextSize = 10
-musicHint.TextWrapped = true
-musicHint.TextXAlignment = Enum.TextXAlignment.Left
-musicHint.TextYAlignment = Enum.TextYAlignment.Top
-musicHint.Parent = panel
+local applyIdBtn = makeButton("✅ Применить ID", 1500, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
+local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1533, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
 
-local applyIdBtn = makeButton("✅ Применить ID", 1104, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
-local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1137, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
-local saveBtn       = makeButton("💾 Сохранить", 1170, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
-local loadBtn       = makeButton("📂 Загрузить", 1203, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
-local resetBtn      = makeButton("🔄 Сброс", 1236, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
+-- СЕКЦИЯ: Система
+makeSection("💾 СИСТЕМА", 1570, Color3.fromRGB(60, 60, 80))
+local saveBtn       = makeButton("💾 Сохранить", 1594, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
+local loadBtn       = makeButton("📂 Загрузить", 1627, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
+local resetBtn      = makeButton("🔄 Сброс", 1660, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -1378,7 +2150,7 @@ closeBtn.AutoButtonColor = true
 closeBtn.Parent = panel
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
 
--- ==================== ОБРАБОТЧИКИ ====================
+-- ==================== ОБРАБОТЧИКИ UI ====================
 local ringButtons = { [2] = ring2Btn, [3] = ring3Btn, [4] = ring4Btn, [5] = ring5Btn }
 
 local function refreshRingButton(ri)
@@ -1410,10 +2182,37 @@ local function refreshSpinSpeedBtn()
     end
 end
 
+local HEART_SCALE_STEPS = {
+    0.1625,   -- 25%
+    0.325,    -- 50%
+    0.455,    -- 70%
+    0.65,     -- 100%
+    0.975,    -- 150%
+    1.3,      -- 200%
+    1.625,    -- 250%
+    1.95,     -- 300%
+}
+local heartScaleIndex = 4
+
 local function refreshHeartSizeBtn()
-    heartSizeBtn.Text = "💗 Сердце: " .. math.floor(SETTINGS.HeartScale / 0.65 * 100 + 0.5) .. "%"
+    local pct = math.floor(SETTINGS.HeartScale / 0.65 * 100 + 0.5)
+    heartSizeBtn.Text = "💗 Сердце: " .. pct .. "%"
+    if pct <= 50 then
+        heartSizeBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 60)
+        heartSizeBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+    elseif pct <= 100 then
+        heartSizeBtn.BackgroundColor3 = Color3.fromRGB(60, 35, 65)
+        heartSizeBtn.TextColor3 = Color3.fromRGB(255, 180, 220)
+    elseif pct <= 200 then
+        heartSizeBtn.BackgroundColor3 = Color3.fromRGB(75, 30, 60)
+        heartSizeBtn.TextColor3 = Color3.fromRGB(255, 160, 210)
+    else
+        heartSizeBtn.BackgroundColor3 = Color3.fromRGB(90, 25, 55)
+        heartSizeBtn.TextColor3 = Color3.fromRGB(255, 130, 200)
+    end
 end
 
+-- Обработчики
 mainBtn.Activated:Connect(function() panel.Visible = not panel.Visible end)
 closeBtn.Activated:Connect(function() panel.Visible = false end)
 
@@ -1453,10 +2252,76 @@ for ri, btn in pairs(ringButtons) do
     end)
 end
 
+shapeBtn.Activated:Connect(function()
+    shapeIndex = shapeIndex + 1
+    if shapeIndex > #SHAPE_PRESETS then shapeIndex = 1 end
+    shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[shapeIndex].name
+    applyShapes()
+    rebuildAllRings()
+    notify("🔷 " .. SHAPE_PRESETS[shapeIndex].name, Color3.fromRGB(180, 220, 255))
+end)
+
+shapeModeBtn.Activated:Connect(function()
+    formModeIndex = formModeIndex + 1
+    if formModeIndex > #FORM_MODES then formModeIndex = 1 end
+    shapeModeBtn.Text = "🎭 Формы: " .. FORM_MODES[formModeIndex].name
+    applyShapes()
+    rebuildAllRings()
+end)
+
+shapeSizeBtn.Activated:Connect(function()
+    shapeSizeIndex = shapeSizeIndex + 1
+    if shapeSizeIndex > #SHAPE_SIZE_PRESETS then shapeSizeIndex = 1 end
+    shapeSizeBtn.Text = "🔍 Фигура: " .. SHAPE_SIZE_PRESETS[shapeSizeIndex].name
+    rebuildAllRings()
+end)
+
+heartSizeBtn.Activated:Connect(function()
+    heartScaleIndex = heartScaleIndex + 1
+    if heartScaleIndex > #HEART_SCALE_STEPS then heartScaleIndex = 1 end
+    SETTINGS.HeartScale = HEART_SCALE_STEPS[heartScaleIndex]
+    refreshHeartSizeBtn()
+    rebuildAllRings()
+    notify("💗 Сердце: " .. math.floor(SETTINGS.HeartScale / 0.65 * 100) .. "%", Color3.fromRGB(255, 180, 220))
+end)
+
+autoSwapBtn.Activated:Connect(function()
+    SETTINGS.AutoShapeSwap = not SETTINGS.AutoShapeSwap
+    autoSwapBtn.Text = "🎭 Автосмена: " .. (SETTINGS.AutoShapeSwap and "ВКЛ" or "ВЫКЛ")
+    if SETTINGS.AutoShapeSwap then
+        autoSwapBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 80)
+        autoSwapBtn.TextColor3 = Color3.fromRGB(255, 200, 255)
+        lastAutoSwap = tick()
+        notify("🎭 Автосмена: ВКЛ (каждые " .. SETTINGS.AutoShapeSwapInterval .. " сек)", Color3.fromRGB(220, 180, 255))
+    else
+        autoSwapBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+        autoSwapBtn.TextColor3 = Color3.fromRGB(200, 200, 255)
+    end
+end)
+
+orbitBtn.Activated:Connect(function()
+    orbitIndex = orbitIndex + 1
+    if orbitIndex > #ORBIT_PRESETS then orbitIndex = 1 end
+    orbitBtn.Text = "📏 Орбита: " .. ORBIT_PRESETS[orbitIndex].name
+end)
+
+spreadBtn.Activated:Connect(function()
+    spreadIndex = spreadIndex + 1
+    if spreadIndex > #SPREAD_PRESETS then spreadIndex = 1 end
+    spreadBtn.Text = "📐 Разлёт: " .. SPREAD_PRESETS[spreadIndex].name
+end)
+
 heightBtn.Activated:Connect(function()
     heightIndex = heightIndex + 1
     if heightIndex > #HEIGHT_PRESETS then heightIndex = 1 end
     heightBtn.Text = "⬆️ Высота: " .. HEIGHT_PRESETS[heightIndex].name
+end)
+
+speedBtn.Activated:Connect(function()
+    speedIndex = speedIndex + 1
+    if speedIndex > #SPEED_PRESETS then speedIndex = 1 end
+    SETTINGS.SpeedMultiplier = SPEED_PRESETS[speedIndex].value
+    speedBtn.Text = "⚡ Множитель: " .. SPEED_PRESETS[speedIndex].name
 end)
 
 speedModeBtn.Activated:Connect(function()
@@ -1473,380 +2338,6 @@ directionBtn.Activated:Connect(function()
     applyDirectionPreset()
 end)
 
-spreadBtn.Activated:Connect(function()
-    spreadIndex = spreadIndex + 1
-    if spreadIndex > #SPREAD_PRESETS then spreadIndex = 1 end
-    spreadBtn.Text = "📐 Разлёт: " .. SPREAD_PRESETS[spreadIndex].name
-end)
-
-speedBtn.Activated:Connect(function()
-    speedIndex = speedIndex + 1
-    if speedIndex > #SPEED_PRESETS then speedIndex = 1 end
-    SETTINGS.SpeedMultiplier = SPEED_PRESETS[speedIndex].value
-    speedBtn.Text = "⚡ Множитель: " .. SPEED_PRESETS[speedIndex].name
-end)
-
-shapeModeBtn.Activated:Connect(function()
-    formModeIndex = formModeIndex + 1
-    if formModeIndex > #FORM_MODES then formModeIndex = 1 end
-    shapeModeBtn.Text = "🎭 Формы: " .. FORM_MODES[formModeIndex].name
-    applyShapes()
-    rebuildAllRings()
-end)
-
-shapeBtn.Activated:Connect(function()
-    shapeIndex = shapeIndex + 1
-    if shapeIndex > #SHAPE_PRESETS then shapeIndex = 1 end
-    shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[shapeIndex].name
-    applyShapes()
-    rebuildAllRings()
-end)
-
-orbitBtn.Activated:Connect(function()
-    orbitIndex = orbitIndex + 1
-    if orbitIndex > #ORBIT_PRESETS then orbitIndex = 1 end
-    orbitBtn.Text = "📏 Орбита: " .. ORBIT_PRESETS[orbitIndex].name
-end)
-
-shapeSizeBtn.Activated:Connect(function()
-    shapeSizeIndex = shapeSizeIndex + 1
-    if shapeSizeIndex > #SHAPE_SIZE_PRESETS then shapeSizeIndex = 1 end
-    shapeSizeBtn.Text = "🔍 Фигура: " .. SHAPE_SIZE_PRESETS[shapeSizeIndex].name
-    rebuildAllRings()
-end)
-
-colorBtn.Activated:Connect(function()
-    colorIndex = colorIndex + 1
-    if colorIndex > #COLOR_PRESETS then colorIndex = 1 end
-    applyColor()
-    colorBtn.Text = "🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name
-end)
-
-nameBtn.Activated:Connect(function()
-    SETTINGS.ShowBlockNames = not SETTINGS.ShowBlockNames
-    nameBtn.Text = "🏷️ Имена: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ")
-    applyNameVisibility()
-end)
-
-trailBtn.Activated:Connect(function()
-    SETTINGS.TrailEnabled = not SETTINGS.TrailEnabled
-    trailBtn.Text = "🌠 Трейлы: " .. (SETTINGS.TrailEnabled and "ВКЛ" or "ВЫКЛ")
-    trailBtn.TextColor3 = SETTINGS.TrailEnabled and Color3.fromRGB(255, 220, 100) or Color3.fromRGB(230, 230, 255)
-    rebuildAllRings()
-end)
-
-trailLenBtn.Activated:Connect(function()
-    trailLengthIndex = trailLengthIndex + 1
-    if trailLengthIndex > #TRAIL_LENGTH_PRESETS then trailLengthIndex = 1 end
-    SETTINGS.TrailLength = TRAIL_LENGTH_PRESETS[trailLengthIndex].value
-    trailLenBtn.Text = "📏 Трейл: " .. TRAIL_LENGTH_PRESETS[trailLengthIndex].name
-    refreshAllTrails()
-end)
-
-trailWidBtn.Activated:Connect(function()
-    trailWidthIndex = trailWidthIndex + 1
-    if trailWidthIndex > #TRAIL_WIDTH_PRESETS then trailWidthIndex = 1 end
-    SETTINGS.TrailWidth = TRAIL_WIDTH_PRESETS[trailWidthIndex].value
-    trailWidBtn.Text = "🎚️ Толщина: " .. TRAIL_WIDTH_PRESETS[trailWidthIndex].name
-    refreshAllTrails()
-end)
-
-waveBtn.Activated:Connect(function()
-    SETTINGS.WaveEnabled = not SETTINGS.WaveEnabled
-    waveBtn.Text = "🌊 Волна: " .. (SETTINGS.WaveEnabled and "ВКЛ" or "ВЫКЛ")
-    waveBtn.TextColor3 = SETTINGS.WaveEnabled and Color3.fromRGB(100, 220, 255) or Color3.fromRGB(180, 220, 255)
-end)
-
-explosionBtn.Activated:Connect(function()
-    SETTINGS.ExplosionEnabled = not SETTINGS.ExplosionEnabled
-    explosionBtn.Text = "💥 Взрыв: " .. (SETTINGS.ExplosionEnabled and "ВКЛ" or "ВЫКЛ")
-    explosionBtn.TextColor3 = SETTINGS.ExplosionEnabled and Color3.fromRGB(255, 120, 60) or Color3.fromRGB(255, 180, 120)
-end)
-
-pulseBtn.Activated:Connect(function()
-    SETTINGS.PulseEnabled = not SETTINGS.PulseEnabled
-    pulseBtn.Text = "💓 Пульсация: " .. (SETTINGS.PulseEnabled and "ВКЛ" or "ВЫКЛ")
-    pulseBtn.TextColor3 = SETTINGS.PulseEnabled and Color3.fromRGB(255, 100, 180) or Color3.fromRGB(230, 230, 255)
-end)
-
-lightBtn.Activated:Connect(function()
-    SETTINGS.LightEnabled = not SETTINGS.LightEnabled
-    lightBtn.Text = "💡 Свет: " .. (SETTINGS.LightEnabled and "ВКЛ" or "ВЫКЛ")
-    lightBtn.TextColor3 = SETTINGS.LightEnabled and Color3.fromRGB(160, 255, 160) or Color3.fromRGB(255, 160, 160)
-    rebuildAllRings()
-end)
-
-spinBtn.Activated:Connect(function()
-    spinResetting = not spinResetting
-    if spinResetting then
-        spinBtn.Text = "↩️ Вращение: ВОЗВРАТ"
-        spinBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
-        spinBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
-    else
-        spinBtn.Text = "↩️ Вращение в 0"
-        spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
-        spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
-    end
-end)
-
-spinAxisBtn.Activated:Connect(function()
-    spinAxisEnabled = not spinAxisEnabled
-    if spinAxisEnabled then
-        spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
-        spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
-        spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
-    else
-        spinAxisBtn.Text = "🔄 Кручение оси: ВЫКЛ"
-        spinAxisBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 35)
-        spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
-    end
-end)
-
-spinDirBtn.Activated:Connect(function()
-    if spinAxisDir == "X" then
-        spinAxisDir = "Y"
-        spinDirBtn.Text = "↔️ Ось: ВЛЕВО/ВПРАВО"
-        spinDirBtn.BackgroundColor3 = Color3.fromRGB(75, 55, 45)
-        spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
-    else
-        spinAxisDir = "X"
-        spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
-        spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
-        spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
-    end
-end)
-
-spinSpeedBtn.Activated:Connect(function()
-    spinSpeedIndex = spinSpeedIndex + 1
-    if spinSpeedIndex > #SPIN_SPEED_PRESETS then spinSpeedIndex = 1 end
-    SETTINGS.SpinSpeedMultiplier = SPIN_SPEED_PRESETS[spinSpeedIndex].value
-    refreshSpinSpeedBtn()
-end)
-
-local HEART_SCALE_STEPS = { 0.65, 1.0, 1.35, 1.7 }
-local heartScaleIndex = 1
-heartSizeBtn.Activated:Connect(function()
-    heartScaleIndex = heartScaleIndex + 1
-    if heartScaleIndex > #HEART_SCALE_STEPS then heartScaleIndex = 1 end
-    SETTINGS.HeartScale = HEART_SCALE_STEPS[heartScaleIndex]
-    refreshHeartSizeBtn()
-    rebuildAllRings()
-end)
-
-applyIdBtn.Activated:Connect(function()
-    local ok, err = setMusicId(musicInput.Text)
-    if ok then
-        applyIdBtn.Text = "✅ Применено!"
-        task.wait(1.2)
-        applyIdBtn.Text = "✅ Применить ID"
-    else
-        applyIdBtn.Text = "❌ " .. (err or "Ошибка")
-        task.wait(1.5)
-        applyIdBtn.Text = "✅ Применить ID"
-    end
-end)
-
-musicBtn.Activated:Connect(function()
-    if not musicSound or musicSound.SoundId == "" then
-        musicBtn.Text = "❌ Вставь ID!"
-        task.wait(1.2)
-        musicBtn.Text = "🎵 Музыка: ВЫКЛ"
-        return
-    end
-    musicEnabled = not musicEnabled
-    if musicEnabled then
-        musicSound:Play()
-        musicBtn.Text = "🎵 Музыка: ВКЛ"
-        musicBtn.BackgroundColor3 = Color3.fromRGB(70, 45, 90)
-    else
-        musicSound:Stop()
-        musicBtn.Text = "🎵 Музыка: ВЫКЛ"
-        musicBtn.BackgroundColor3 = Color3.fromRGB(50, 35, 60)
-    end
-end)
-
-saveBtn.Activated:Connect(function()
-    if musicInput.Text ~= "" then
-        setMusicId(musicInput.Text)
-    end
-    local ok = saveSettings()
-    if ok then
-        saveBtn.Text = "✅ Сохранено!"
-        task.wait(1.5)
-        saveBtn.Text = "💾 Сохранить"
-    else
-        saveBtn.Text = "❌ Ошибка сохранения"
-        task.wait(1.5)
-        saveBtn.Text = "💾 Сохранить"
-    end
-end)
-
-loadBtn.Activated:Connect(function()
-    local ok = loadSettings()
-    if ok then
-        heightBtn.Text = "⬆️ Высота: " .. HEIGHT_PRESETS[heightIndex].name
-        spreadBtn.Text = "📐 Разлёт: " .. SPREAD_PRESETS[spreadIndex].name
-        speedBtn.Text = "⚡ Множитель: " .. SPEED_PRESETS[speedIndex].name
-        directionBtn.Text = "🔃 Направление: " .. DIRECTION_PRESETS[directionIndex].name
-        speedModeBtn.Text = "⚙️ Скорость: " .. SPEED_MODE_PRESETS[speedModeIndex].name
-        shapeModeBtn.Text = "🎭 Формы: " .. FORM_MODES[formModeIndex].name
-        shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[shapeIndex].name
-        orbitBtn.Text = "📏 Орбита: " .. ORBIT_PRESETS[orbitIndex].name
-        shapeSizeBtn.Text = "🔍 Фигура: " .. SHAPE_SIZE_PRESETS[shapeSizeIndex].name
-        colorBtn.Text = "🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name
-        nameBtn.Text = "🏷️ Имена: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ")
-        trailBtn.Text = "🌠 Трейлы: " .. (SETTINGS.TrailEnabled and "ВКЛ" or "ВЫКЛ")
-        trailLenBtn.Text = "📏 Трейл: " .. TRAIL_LENGTH_PRESETS[trailLengthIndex].name
-        trailWidBtn.Text = "🎚️ Толщина: " .. TRAIL_WIDTH_PRESETS[trailWidthIndex].name
-        waveBtn.Text = "🌊 Волна: " .. (SETTINGS.WaveEnabled and "ВКЛ" or "ВЫКЛ")
-        explosionBtn.Text = "💥 Взрыв: " .. (SETTINGS.ExplosionEnabled and "ВКЛ" or "ВЫКЛ")
-        pulseBtn.Text = "💓 Пульсация: " .. (SETTINGS.PulseEnabled and "ВКЛ" or "ВЫКЛ")
-        lightBtn.Text = "💡 Свет: " .. (SETTINGS.LightEnabled and "ВКЛ" or "ВЫКЛ")
-        musicBtn.Text = "🎵 Музыка: " .. (musicEnabled and "ВКЛ" or "ВЫКЛ")
-        if savedMusicId ~= "" then musicInput.Text = savedMusicId end
-
-        if spinResetting then
-            spinBtn.Text = "↩️ Вращение: ВОЗВРАТ"
-            spinBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
-            spinBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
-        else
-            spinBtn.Text = "↩️ Вращение в 0"
-            spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
-            spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
-        end
-
-        if spinAxisEnabled then
-            spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
-            spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
-            spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
-        else
-            spinAxisBtn.Text = "🔄 Кручение оси: ВЫКЛ"
-            spinAxisBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 35)
-            spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
-        end
-
-        if spinAxisDir == "X" then
-            spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
-            spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
-            spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
-        else
-            spinDirBtn.Text = "↔️ Ось: ВЛЕВО/ВПРАВО"
-            spinDirBtn.BackgroundColor3 = Color3.fromRGB(75, 55, 45)
-            spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
-        end
-
-        refreshSpinSpeedBtn()
-        refreshHeartSizeBtn()
-
-        for ri = 2, 5 do refreshRingButton(ri) end
-        applyDirectionPreset()
-        applySpeedModePreset()
-        rebuildAllRings()
-
-        loadBtn.Text = "✅ Загружено!"
-        task.wait(1.5)
-        loadBtn.Text = "📂 Загрузить"
-    else
-        loadBtn.Text = "❌ Нет сохранения"
-        task.wait(1.5)
-        loadBtn.Text = "📂 Загрузить"
-    end
-end)
-
-resetBtn.Activated:Connect(function()
-    SETTINGS = table.clone(DEFAULT_SETTINGS)
-    spreadIndex, speedIndex, orbitIndex = 2, 2, 2
-    shapeSizeIndex, colorIndex, shapeIndex = 3, 1, 1
-    trailLengthIndex, trailWidthIndex = 2, 2
-    directionIndex, speedModeIndex, heightIndex, formModeIndex = 1, 1, 3, 1
-    spinResetting = false
-    spinAxisEnabled = true
-    spinAxisDir = "X"
-    spinSpeedIndex = 2
-    SETTINGS.SpinSpeedMultiplier = 1.0
-    heartScaleIndex = 1
-    SETTINGS.HeartScale = HEART_SCALE_STEPS[1]
-
-    rings[1].shapeIndex = 1; rings[2].shapeIndex = 2; rings[3].shapeIndex = 3
-    rings[4].shapeIndex = 4; rings[5].shapeIndex = 5
-
-    heightBtn.Text = "⬆️ Высота: " .. HEIGHT_PRESETS[heightIndex].name
-    spreadBtn.Text = "📐 Разлёт: " .. SPREAD_PRESETS[spreadIndex].name
-    speedBtn.Text = "⚡ Множитель: " .. SPEED_PRESETS[speedIndex].name
-    directionBtn.Text = "🔃 Направление: " .. DIRECTION_PRESETS[directionIndex].name
-    speedModeBtn.Text = "⚙️ Скорость: " .. SPEED_MODE_PRESETS[speedModeIndex].name
-    shapeModeBtn.Text = "🎭 Формы: " .. FORM_MODES[formModeIndex].name
-    shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[shapeIndex].name
-    orbitBtn.Text = "📏 Орбита: " .. ORBIT_PRESETS[orbitIndex].name
-    shapeSizeBtn.Text = "🔍 Фигура: " .. SHAPE_SIZE_PRESETS[shapeSizeIndex].name
-    colorBtn.Text = "🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name
-    nameBtn.Text = "🏷️ Имена: ВЫКЛ"
-    trailBtn.Text = "🌠 Трейлы: ВЫКЛ"; trailBtn.TextColor3 = Color3.fromRGB(230, 230, 255)
-    trailLenBtn.Text = "📏 Трейл: " .. TRAIL_LENGTH_PRESETS[trailLengthIndex].name
-    trailWidBtn.Text = "🎚️ Толщина: " .. TRAIL_WIDTH_PRESETS[trailWidthIndex].name
-    waveBtn.Text = "🌊 Волна: ВЫКЛ"; waveBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
-    explosionBtn.Text = "💥 Взрыв: ВЫКЛ"; explosionBtn.TextColor3 = Color3.fromRGB(255, 180, 120)
-    pulseBtn.Text = "💓 Пульсация: ВЫКЛ"; pulseBtn.TextColor3 = Color3.fromRGB(230, 230, 255)
-    lightBtn.Text = "💡 Свет: ВКЛ"; lightBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
-    spinBtn.Text = "↩️ Вращение в 0"
-    spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
-    spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
-    spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
-    spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
-    spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
-    spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
-    spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
-    spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
-    refreshSpinSpeedBtn()
-    refreshHeartSizeBtn()
-    allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
-    allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
-    allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
-
-    for ri = 2, 5 do
-        if rings[ri].enabled then
-            rings[ri].enabled = false
-            refreshRingButton(ri)
-        end
-    end
-    applyDirectionPreset()
-    applySpeedModePreset()
-    rebuildAllRings()
-end)
-
--- ==================== ПЕРЕТАСКИВАНИЕ ====================
-local dragging, dragStart, startPos = false, nil, nil
-mainBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch
-        or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true; dragStart = input.Position; startPos = mainBtn.Position
-    end
-end)
-mainBtn.InputChanged:Connect(function(input)
-    if not dragging then return end
-    if input.UserInputType == Enum.UserInputType.Touch
-        or input.UserInputType == Enum.UserInputType.MouseMovement then
-        local d = input.Position - dragStart
-        mainBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-    end
-end)
-mainBtn.InputEnded:Connect(function() dragging = false end)
-
--- ==================== СТАРТ ====================
-createMusicSound()
-applyShapes()
-setupRespawnHook()
-setEnabled(true)
-refreshSpinSpeedBtn()
-refreshHeartSizeBtn()
-
-return {
-    Stop = function() setEnabled(false) end,
-    Start = function() setEnabled(true) end,
-    Rings = rings,
-    Settings = SETTINGS,
-    Save = saveSettings,
-    Load = loadSettings,
-    ColorPresets = COLOR_PRESETS,
-    HeightPresets = HEIGHT_PRESETS,
-}
+orbitPatternBtn.Activated:Connect(function()
+    orbitPatternIndex = orbitPatternIndex + 1
+    if orbitPatternIndex > #ORBIT_P
