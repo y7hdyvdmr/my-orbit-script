@@ -1,6 +1,6 @@
 --[[ ОРБИТА v15.3 — ЧАСТЬ 4/4: ИНТЕРФЕЙС + СТАРТ ]]
 
-local ORBIT = getgenv().ORBIT
+local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
 
 local Players      = ORBIT.Players
@@ -16,7 +16,6 @@ local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
 if not SHAPE_PRESETS then warn("[Orbit P4] Часть 2 не загружена"); return end
 if not ORBIT.startUpdateLoop then warn("[Orbit P4] Часть 3 не загружена"); return end
 
--- ==================== ОКНО ====================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "_OrbitMain_" .. tostring(math.random(100000, 999999))
 screenGui.ResetOnSpawn = false
@@ -476,7 +475,6 @@ resetBtn.Activated:Connect(function()
     ORBIT.notify("🔄 Сброс", Color3.fromRGB(255,180,180))
 end)
 
--- ==================== СПИСОК ЛЮДЕЙ ====================
 local function rebuildPeopleList()
     for _, btn in pairs(ORBIT.peopleButtons) do pcall(function() btn:Destroy() end) end
     ORBIT.peopleButtons = {}
@@ -529,7 +527,6 @@ for _, p in ipairs(Players:GetPlayers()) do
     end
 end
 
--- ==================== УВЕДОМЛЕНИЯ ====================
 local notifContainer = Instance.new("Frame")
 notifContainer.Size = UDim2.new(0, 260, 0, 300)
 notifContainer.Position = UDim2.new(1, -280, 0, 50)
@@ -567,7 +564,6 @@ task.spawn(function()
     end
 end)
 
--- ==================== СТАТИСТИКА ====================
 task.spawn(function()
     while task.wait(0.5) do
         if statsLabel and statsLabel.Parent then
@@ -579,14 +575,12 @@ task.spawn(function()
     end
 end)
 
--- Автосохранение
 task.spawn(function()
     while task.wait(30) do
         if ORBIT.enabled and ORBIT.HAS_FS then pcall(ORBIT.saveSettings) end
     end
 end)
 
--- ==================== ПЕРЕТАСКИВАНИЕ ====================
 local dragging, dragStart, startPos = false, nil, nil
 mainBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -602,7 +596,6 @@ mainBtn.InputChanged:Connect(function(input)
 end)
 mainBtn.InputEnded:Connect(function() dragging = false end)
 
--- ==================== ПЕРЕОПРЕДЕЛЕНИЕ ЗАГРУЗЧИКА ====================
 ORBIT.start = function()
     if getgenv()._OrbitLoaderGui then pcall(function() getgenv()._OrbitLoaderGui:Destroy() end) end
     ORBIT.startLogic()
@@ -610,7 +603,6 @@ ORBIT.start = function()
     ORBIT.notify(ORBIT.HAS_FS and "💾 Сохранение в файл" or "💾 Только в памяти", Color3.fromRGB(180,220,255), 4)
 end
 
--- Обновляем информацию в окне загрузчика
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
 if ORBIT.notify then ORBIT.notify("✅ Часть 4: интерфейс загружен", Color3.fromRGB(180,255,180), 3) end
 
