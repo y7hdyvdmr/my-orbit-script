@@ -2340,4 +2340,466 @@ end)
 
 orbitPatternBtn.Activated:Connect(function()
     orbitPatternIndex = orbitPatternIndex + 1
-    if orbitPatternIndex > #ORBIT_P
+    if orbitPatternIndex > #ORBIT_PATTERNS then orbitPatternIndex = 1 end
+    SETTINGS.OrbitPattern = ORBIT_PATTERNS[orbitPatternIndex].name
+    orbitPatternBtn.Text = "🌀 Узор: " .. ORBIT_PATTERNS[orbitPatternIndex].name
+    notify("🌀 Узор: " .. ORBIT_PATTERNS[orbitPatternIndex].name, Color3.fromRGB(200, 180, 255))
+end)
+
+spinBtn.Activated:Connect(function()
+    spinResetting = not spinResetting
+    if spinResetting then
+        spinBtn.Text = "↩️ Вращение: ВОЗВРАТ"
+        spinBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
+        spinBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
+    else
+        spinBtn.Text = "↩️ Вращение в 0"
+        spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
+        spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+    end
+end)
+
+spinAxisBtn.Activated:Connect(function()
+    spinAxisEnabled = not spinAxisEnabled
+    if spinAxisEnabled then
+        spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
+        spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
+        spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
+    else
+        spinAxisBtn.Text = "🔄 Кручение оси: ВЫКЛ"
+        spinAxisBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 35)
+        spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
+    end
+end)
+
+spinDirBtn.Activated:Connect(function()
+    if spinAxisDir == "X" then
+        spinAxisDir = "Y"
+        spinDirBtn.Text = "↔️ Ось: ВЛЕВО/ВПРАВО"
+        spinDirBtn.BackgroundColor3 = Color3.fromRGB(75, 55, 45)
+        spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
+    else
+        spinAxisDir = "X"
+        spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
+        spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+        spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
+    end
+end)
+
+spinSpeedBtn.Activated:Connect(function()
+    spinSpeedIndex = spinSpeedIndex + 1
+    if spinSpeedIndex > #SPIN_SPEED_PRESETS then spinSpeedIndex = 1 end
+    SETTINGS.SpinSpeedMultiplier = SPIN_SPEED_PRESETS[spinSpeedIndex].value
+    refreshSpinSpeedBtn()
+end)
+
+trailBtn.Activated:Connect(function()
+    SETTINGS.TrailEnabled = not SETTINGS.TrailEnabled
+    trailBtn.Text = "🌠 Трейлы: " .. (SETTINGS.TrailEnabled and "ВКЛ" or "ВЫКЛ")
+    trailBtn.TextColor3 = SETTINGS.TrailEnabled and Color3.fromRGB(255, 220, 100) or Color3.fromRGB(230, 230, 255)
+    rebuildAllRings()
+end)
+
+trailLenBtn.Activated:Connect(function()
+    trailLengthIndex = trailLengthIndex + 1
+    if trailLengthIndex > #TRAIL_LENGTH_PRESETS then trailLengthIndex = 1 end
+    SETTINGS.TrailLength = TRAIL_LENGTH_PRESETS[trailLengthIndex].value
+    trailLenBtn.Text = "📏 Трейл: " .. TRAIL_LENGTH_PRESETS[trailLengthIndex].name
+    refreshAllTrails()
+end)
+
+trailWidBtn.Activated:Connect(function()
+    trailWidthIndex = trailWidthIndex + 1
+    if trailWidthIndex > #TRAIL_WIDTH_PRESETS then trailWidthIndex = 1 end
+    SETTINGS.TrailWidth = TRAIL_WIDTH_PRESETS[trailWidthIndex].value
+    trailWidBtn.Text = "🎚️ Толщина: " .. TRAIL_WIDTH_PRESETS[trailWidthIndex].name
+    refreshAllTrails()
+end)
+
+waveBtn.Activated:Connect(function()
+    SETTINGS.WaveEnabled = not SETTINGS.WaveEnabled
+    waveBtn.Text = "🌊 Волна: " .. (SETTINGS.WaveEnabled and "ВКЛ" or "ВЫКЛ")
+    waveBtn.TextColor3 = SETTINGS.WaveEnabled and Color3.fromRGB(100, 220, 255) or Color3.fromRGB(180, 220, 255)
+end)
+
+explosionBtn.Activated:Connect(function()
+    SETTINGS.ExplosionEnabled = not SETTINGS.ExplosionEnabled
+    explosionBtn.Text = "💥 Взрыв: " .. (SETTINGS.ExplosionEnabled and "ВКЛ" or "ВЫКЛ")
+    explosionBtn.TextColor3 = SETTINGS.ExplosionEnabled and Color3.fromRGB(255, 120, 60) or Color3.fromRGB(255, 180, 120)
+end)
+
+pulseBtn.Activated:Connect(function()
+    SETTINGS.PulseEnabled = not SETTINGS.PulseEnabled
+    pulseBtn.Text = "💓 Пульсация: " .. (SETTINGS.PulseEnabled and "ВКЛ" or "ВЫКЛ")
+    pulseBtn.TextColor3 = SETTINGS.PulseEnabled and Color3.fromRGB(255, 100, 180) or Color3.fromRGB(230, 230, 255)
+end)
+
+gradientBtn.Activated:Connect(function()
+    SETTINGS.GradientEnabled = not SETTINGS.GradientEnabled
+    gradientBtn.Text = "🌈 Градиент: " .. (SETTINGS.GradientEnabled and "ВКЛ" or "ВЫКЛ")
+    if SETTINGS.GradientEnabled then
+        gradientBtn.BackgroundColor3 = Color3.fromRGB(70, 40, 90)
+        gradientBtn.TextColor3 = Color3.fromRGB(255, 180, 255)
+        SETTINGS.Rainbow = false
+    end
+    rebuildAllRings()
+end)
+
+auraBtn.Activated:Connect(function()
+    SETTINGS.AuraEnabled = not SETTINGS.AuraEnabled
+    auraBtn.Text = "🌀 Аура: " .. (SETTINGS.AuraEnabled and "ВКЛ" or "ВЫКЛ")
+    if SETTINGS.AuraEnabled then
+        auraBtn.BackgroundColor3 = Color3.fromRGB(70, 50, 100)
+        auraBtn.TextColor3 = Color3.fromRGB(220, 200, 255)
+        setupAura()
+    else
+        auraBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 70)
+        auraBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+        if auraFolder then auraFolder:Destroy(); auraFolder = nil end
+    end
+end)
+
+auraTypeBtn.Activated:Connect(function()
+    auraTypeIndex = auraTypeIndex + 1
+    if auraTypeIndex > #AURA_TYPES then auraTypeIndex = 1 end
+    SETTINGS.AuraType = AURA_TYPES[auraTypeIndex].name
+    auraTypeBtn.Text = "🔮 Тип: " .. AURA_TYPES[auraTypeIndex].name
+    if SETTINGS.AuraEnabled then setupAura() end
+end)
+
+colorBtn.Activated:Connect(function()
+    colorIndex = colorIndex + 1
+    if colorIndex > #COLOR_PRESETS then colorIndex = 1 end
+    applyColor()
+    colorBtn.Text = "🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name
+end)
+
+lightBtn.Activated:Connect(function()
+    SETTINGS.LightEnabled = not SETTINGS.LightEnabled
+    lightBtn.Text = "💡 Свет: " .. (SETTINGS.LightEnabled and "ВКЛ" or "ВЫКЛ")
+    lightBtn.TextColor3 = SETTINGS.LightEnabled and Color3.fromRGB(160, 255, 160) or Color3.fromRGB(255, 160, 160)
+    rebuildAllRings()
+end)
+
+nameBtn.Activated:Connect(function()
+    SETTINGS.ShowBlockNames = not SETTINGS.ShowBlockNames
+    nameBtn.Text = "🏷️ Имена: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ")
+    applyNameVisibility()
+end)
+
+applyIdBtn.Activated:Connect(function()
+    local ok, err = setMusicId(musicInput.Text)
+    if ok then
+        applyIdBtn.Text = "✅ Применено!"
+        task.wait(1.2)
+        applyIdBtn.Text = "✅ Применить ID"
+        notify("🎵 ID применён", Color3.fromRGB(180, 255, 180))
+    else
+        applyIdBtn.Text = "❌ " .. (err or "Ошибка")
+        task.wait(1.5)
+        applyIdBtn.Text = "✅ Применить ID"
+    end
+end)
+
+musicBtn.Activated:Connect(function()
+    if not musicSound or musicSound.SoundId == "" then
+        musicBtn.Text = "❌ Вставь ID!"
+        task.wait(1.2)
+        musicBtn.Text = "🎵 Музыка: ВЫКЛ"
+        return
+    end
+    musicEnabled = not musicEnabled
+    if musicEnabled then
+        musicSound:Play()
+        musicBtn.Text = "🎵 Музыка: ВКЛ"
+        musicBtn.BackgroundColor3 = Color3.fromRGB(70, 45, 90)
+    else
+        musicSound:Stop()
+        musicBtn.Text = "🎵 Музыка: ВЫКЛ"
+        musicBtn.BackgroundColor3 = Color3.fromRGB(50, 35, 60)
+    end
+end)
+
+saveBtn.Activated:Connect(function()
+    if musicInput.Text ~= "" then
+        setMusicId(musicInput.Text)
+    end
+    local ok = saveSettings()
+    if ok then
+        saveBtn.Text = "✅ Сохранено!"
+        task.wait(1.5)
+        saveBtn.Text = "💾 Сохранить"
+        notify("💾 Настройки сохранены", Color3.fromRGB(160, 255, 180))
+    else
+        saveBtn.Text = "❌ Ошибка сохранения"
+        task.wait(1.5)
+        saveBtn.Text = "💾 Сохранить"
+    end
+end)
+
+loadBtn.Activated:Connect(function()
+    local ok = loadSettings()
+    if ok then
+        heightBtn.Text = "⬆️ Высота: " .. HEIGHT_PRESETS[heightIndex].name
+        spreadBtn.Text = "📐 Разлёт: " .. SPREAD_PRESETS[spreadIndex].name
+        speedBtn.Text = "⚡ Множитель: " .. SPEED_PRESETS[speedIndex].name
+        directionBtn.Text = "🔃 Направление: " .. DIRECTION_PRESETS[directionIndex].name
+        speedModeBtn.Text = "⚙️ Скорость: " .. SPEED_MODE_PRESETS[speedModeIndex].name
+        shapeModeBtn.Text = "🎭 Формы: " .. FORM_MODES[formModeIndex].name
+        shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[shapeIndex].name
+        orbitBtn.Text = "📏 Орбита: " .. ORBIT_PRESETS[orbitIndex].name
+        orbitPatternBtn.Text = "🌀 Узор: " .. ORBIT_PATTERNS[orbitPatternIndex].name
+        shapeSizeBtn.Text = "🔍 Фигура: " .. SHAPE_SIZE_PRESETS[shapeSizeIndex].name
+        colorBtn.Text = "🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name
+        nameBtn.Text = "🏷️ Имена: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ")
+        trailBtn.Text = "🌠 Трейлы: " .. (SETTINGS.TrailEnabled and "ВКЛ" or "ВЫКЛ")
+        trailLenBtn.Text = "📏 Трейл: " .. TRAIL_LENGTH_PRESETS[trailLengthIndex].name
+        trailWidBtn.Text = "🎚️ Толщина: " .. TRAIL_WIDTH_PRESETS[trailWidthIndex].name
+        waveBtn.Text = "🌊 Волна: " .. (SETTINGS.WaveEnabled and "ВКЛ" or "ВЫКЛ")
+        explosionBtn.Text = "💥 Взрыв: " .. (SETTINGS.ExplosionEnabled and "ВКЛ" or "ВЫКЛ")
+        pulseBtn.Text = "💓 Пульсация: " .. (SETTINGS.PulseEnabled and "ВКЛ" or "ВЫКЛ")
+        lightBtn.Text = "💡 Свет: " .. (SETTINGS.LightEnabled and "ВКЛ" or "ВЫКЛ")
+        gradientBtn.Text = "🌈 Градиент: " .. (SETTINGS.GradientEnabled and "ВКЛ" or "ВЫКЛ")
+        auraBtn.Text = "🌀 Аура: " .. (SETTINGS.AuraEnabled and "ВКЛ" or "ВЫКЛ")
+        auraTypeBtn.Text = "🔮 Тип: " .. SETTINGS.AuraType
+        autoSwapBtn.Text = "🎭 Автосмена: " .. (SETTINGS.AutoShapeSwap and "ВКЛ" or "ВЫКЛ")
+        musicBtn.Text = "🎵 Музыка: " .. (musicEnabled and "ВКЛ" or "ВЫКЛ")
+        if savedMusicId ~= "" then musicInput.Text = savedMusicId end
+
+        if spinResetting then
+            spinBtn.Text = "↩️ Вращение: ВОЗВРАТ"
+            spinBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 40)
+            spinBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
+        else
+            spinBtn.Text = "↩️ Вращение в 0"
+            spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
+            spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+        end
+
+        if spinAxisEnabled then
+            spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
+            spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
+            spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
+        else
+            spinAxisBtn.Text = "🔄 Кручение оси: ВЫКЛ"
+            spinAxisBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 35)
+            spinAxisBtn.TextColor3 = Color3.fromRGB(200, 160, 160)
+        end
+
+        if spinAxisDir == "X" then
+            spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
+            spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+            spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
+        else
+            spinDirBtn.Text = "↔️ Ось: ВЛЕВО/ВПРАВО"
+            spinDirBtn.BackgroundColor3 = Color3.fromRGB(75, 55, 45)
+            spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
+        end
+
+        refreshSpinSpeedBtn()
+        refreshHeartSizeBtn()
+
+        for ri = 2, 5 do refreshRingButton(ri) end
+        applyDirectionPreset()
+        applySpeedModePreset()
+        rebuildAllRings()
+        setupAura()
+
+        loadBtn.Text = "✅ Загружено!"
+        task.wait(1.5)
+        loadBtn.Text = "📂 Загрузить"
+        notify("📂 Настройки загружены", Color3.fromRGB(180, 220, 255))
+    else
+        loadBtn.Text = "❌ Нет сохранения"
+        task.wait(1.5)
+        loadBtn.Text = "📂 Загрузить"
+    end
+end)
+
+resetBtn.Activated:Connect(function()
+    SETTINGS = table.clone(DEFAULT_SETTINGS)
+    spreadIndex, speedIndex, orbitIndex = 2, 2, 2
+    shapeSizeIndex, colorIndex, shapeIndex = 3, 1, 1
+    trailLengthIndex, trailWidthIndex = 2, 2
+    directionIndex, speedModeIndex, heightIndex, formModeIndex = 1, 1, 3, 1
+    orbitPatternIndex, auraTypeIndex = 1, 1
+    spinResetting = false
+    spinAxisEnabled = true
+    spinAxisDir = "X"
+    spinSpeedIndex = 2
+    SETTINGS.SpinSpeedMultiplier = 1.0
+    heartScaleIndex = 4
+    SETTINGS.HeartScale = HEART_SCALE_STEPS[4]
+
+    rings[1].shapeIndex = 1; rings[2].shapeIndex = 2; rings[3].shapeIndex = 3
+    rings[4].shapeIndex = 4; rings[5].shapeIndex = 5
+
+    heightBtn.Text = "⬆️ Высота: " .. HEIGHT_PRESETS[heightIndex].name
+    spreadBtn.Text = "📐 Разлёт: " .. SPREAD_PRESETS[spreadIndex].name
+    speedBtn.Text = "⚡ Множитель: " .. SPEED_PRESETS[speedIndex].name
+    directionBtn.Text = "🔃 Направление: " .. DIRECTION_PRESETS[directionIndex].name
+    speedModeBtn.Text = "⚙️ Скорость: " .. SPEED_MODE_PRESETS[speedModeIndex].name
+    shapeModeBtn.Text = "🎭 Формы: " .. FORM_MODES[formModeIndex].name
+    shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[shapeIndex].name
+    orbitBtn.Text = "📏 Орбита: " .. ORBIT_PRESETS[orbitIndex].name
+    orbitPatternBtn.Text = "🌀 Узор: " .. ORBIT_PATTERNS[orbitPatternIndex].name
+    shapeSizeBtn.Text = "🔍 Фигура: " .. SHAPE_SIZE_PRESETS[shapeSizeIndex].name
+    colorBtn.Text = "🎨 Цвет: " .. COLOR_PRESETS[colorIndex].name
+    nameBtn.Text = "🏷️ Имена: ВЫКЛ"
+    trailBtn.Text = "🌠 Трейлы: ВЫКЛ"; trailBtn.TextColor3 = Color3.fromRGB(230, 230, 255)
+    trailLenBtn.Text = "📏 Трейл: " .. TRAIL_LENGTH_PRESETS[trailLengthIndex].name
+    trailWidBtn.Text = "🎚️ Толщина: " .. TRAIL_WIDTH_PRESETS[trailWidthIndex].name
+    waveBtn.Text = "🌊 Волна: ВЫКЛ"; waveBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
+    explosionBtn.Text = "💥 Взрыв: ВЫКЛ"; explosionBtn.TextColor3 = Color3.fromRGB(255, 180, 120)
+    pulseBtn.Text = "💓 Пульсация: ВЫКЛ"; pulseBtn.TextColor3 = Color3.fromRGB(230, 230, 255)
+    lightBtn.Text = "💡 Свет: ВКЛ"; lightBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
+    gradientBtn.Text = "🌈 Градиент: ВЫКЛ"
+    auraBtn.Text = "🌀 Аура: ВЫКЛ"
+    auraTypeBtn.Text = "🔮 Тип: " .. AURA_TYPES[auraTypeIndex].name
+    autoSwapBtn.Text = "🎭 Автосмена: ВЫКЛ"
+    spinBtn.Text = "↩️ Вращение в 0"
+    spinBtn.BackgroundColor3 = Color3.fromRGB(50, 40, 60)
+    spinBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+    spinAxisBtn.Text = "🔄 Кручение оси: ВКЛ"
+    spinAxisBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 55)
+    spinAxisBtn.TextColor3 = Color3.fromRGB(140, 255, 220)
+    spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ"
+    spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+    spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
+    refreshSpinSpeedBtn()
+    refreshHeartSizeBtn()
+    allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
+    allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
+    allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
+
+    for ri = 2, 5 do
+        if rings[ri].enabled then
+            rings[ri].enabled = false
+            refreshRingButton(ri)
+        end
+    end
+    applyDirectionPreset()
+    applySpeedModePreset()
+    rebuildAllRings()
+    if auraFolder then auraFolder:Destroy(); auraFolder = nil end
+    notify("🔄 Сброс выполнен", Color3.fromRGB(255, 180, 180))
+end)
+
+-- ==================== СИСТЕМА УВЕДОМЛЕНИЙ (UI) ====================
+local notifContainer = Instance.new("Frame")
+notifContainer.Size = UDim2.new(0, 260, 0, 300)
+notifContainer.Position = UDim2.new(1, -280, 0, 50)
+notifContainer.BackgroundTransparency = 1
+notifContainer.Parent = screenGui
+
+task.spawn(function()
+    local activeNotifs = {}
+    while true do
+        if #NOTIF_QUEUE > 0 then
+            local n = table.remove(NOTIF_QUEUE, 1)
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, 0, 0, 32)
+            lbl.Position = UDim2.new(0, 0, 0, #activeNotifs * 38)
+            lbl.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+            lbl.BackgroundTransparency = 0.15
+            lbl.BorderSizePixel = 0
+            lbl.TextColor3 = n.color
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextSize = 12
+            lbl.Text = " " .. n.text
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.Parent = notifContainer
+            Instance.new("UICorner", lbl).CornerRadius = UDim.new(0, 8)
+            local stroke = Instance.new("UIStroke", lbl)
+            stroke.Color = n.color
+            stroke.Thickness = 1
+            stroke.Transparency = 0.5
+            table.insert(activeNotifs, lbl)
+
+            task.spawn(function()
+                task.wait(n.duration)
+                local tween = TweenService:Create(lbl, TweenInfo.new(0.5), {
+                    BackgroundTransparency = 1,
+                    TextTransparency = 1,
+                })
+                tween:Play()
+                task.wait(0.5)
+                for i, l in ipairs(activeNotifs) do
+                    if l == lbl then
+                        table.remove(activeNotifs, i)
+                        break
+                    end
+                end
+                lbl:Destroy()
+                -- Пересобрать позиции
+                for i, l in ipairs(activeNotifs) do
+                    l.Position = UDim2.new(0, 0, 0, (i-1) * 38)
+                end
+            end)
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- ==================== ОБНОВЛЕНИЕ СТАТИСТИКИ ====================
+task.spawn(function()
+    while task.wait(0.5) do
+        if statsLabel and statsLabel.Parent then
+            local minutes = math.floor(statsData.sessionTime / 60)
+            local seconds = math.floor(statsData.sessionTime % 60)
+            statsLabel.Text = string.format(
+                "📊 FPS: %d | 🔷 Фигур: %d\n⏱️ Время: %d:%02d | 🌀 Узор: %s",
+                statsData.lastFPS, statsData.totalShapes, minutes, seconds, SETTINGS.OrbitPattern
+            )
+            -- Цвет по FPS
+            local c = Color3.fromRGB(180, 220, 180)
+            if statsData.lastFPS >= 50 then c = Color3.fromRGB(160, 255, 180)
+            elseif statsData.lastFPS >= 30 then c = Color3.fromRGB(255, 220, 140)
+            else c = Color3.fromRGB(255, 160, 160) end
+            statsLabel.TextColor3 = c
+        end
+    end
+end)
+
+-- ==================== ПЕРЕТАСКИВАНИЕ ====================
+local dragging, dragStart, startPos = false, nil, nil
+mainBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainBtn.Position
+    end
+end)
+mainBtn.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseMovement then
+        local d = input.Position - dragStart
+        mainBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+    end
+end)
+mainBtn.InputEnded:Connect(function() dragging = false end)
+
+-- ==================== СТАРТ ====================
+createMusicSound()
+applyShapes()
+setupRespawnHook()
+setEnabled(true)
+refreshSpinSpeedBtn()
+refreshHeartSizeBtn()
+
+notify("✨ ОРБИТА v14.0 ULTIMATE загружена!", Color3.fromRGB(200, 200, 255), 3)
+
+return {
+    Stop = function() setEnabled(false) end,
+    Start = function() setEnabled(true) end,
+    Rings = rings,
+    Settings = SETTINGS,
+    Save = saveSettings,
+    Load = loadSettings,
+    ColorPresets = COLOR_PRESETS,
+    HeightPresets = HEIGHT_PRESETS,
+    ShapePresets = SHAPE_PRESETS,
+    Stats = statsData,
+}
