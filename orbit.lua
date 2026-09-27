@@ -1,18 +1,13 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v15.2 (Delta Edition - MESH + SMOOTH)     ║
+    ║   ОРБИТА ФИГУР v15.3 (Delta Edition - MESH + SMOOTH)     ║
     ║   + 27 фигур с улучшенными деталями                      ║
     ║   + MESH_CONFIG для своих 3D-моделей                     ║
     ║   + 7 орбитальных узоров                                 ║
     ║   + Аура: кольцо / частицы / мини-кольцо из фигур        ║
-    ║   + Аура использует те же цвета что и кольца             ║
     ║   + Вкладка "Люди и кольца" - копия кольца на игрока     ║
-    ║   + Система уведомлений                                  ║
-    ║   + Статистика FPS / фигур / времени                     ║
-    ║   + Автосмена фигур                                      ║
-    ║   + Градиент-цвета                                       ║
-    ║   + Секции в UI                                          ║
-    ║   + Сохранение в файл + автосохранение каждые 30 сек     ║
+    ║   + Система уведомлений / статистика / автосмена         ║
+    ║   + Сохранение в файл + автосохранение 30 сек            ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -48,7 +43,6 @@ local HttpService  = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
--- ==================== ФАЙЛ СОХРАНЕНИЯ ====================
 local SAVE_FILE = "orbit_v15_settings.json"
 local HAS_FS = (writefile and readfile and isfile and type(writefile) == "function")
 
@@ -123,49 +117,20 @@ end
 
 -- ==================== НАСТРОЙКИ ====================
 local DEFAULT_SETTINGS = {
-    BlockCount = 8,
-    BaseShapeSize = 1.5,
-    OrbitSpeed = 60,
-    SpinSpeed = 120,
-    SpeedMultiplier = 1.0,
-    SpinSpeedMultiplier = 1.0,
-    BobAmplitude = 0.8,
-    Material = Enum.Material.Neon,
-    Transparency = 0.1,
-    LightRange = 6,
-    LightLimit = 20,
-    LightEnabled = true,
-    Rainbow = true,
-    FixedColor = Color3.fromRGB(0, 180, 255),
-    ShowBlockNames = false,
-    NameColor = Color3.fromRGB(255, 255, 255),
-    LerpSpeed = 5.0,
-    TrailEnabled = false,
-    TrailLength = 0.5,
-    TrailWidth = 0.8,
-    PulseEnabled = false,
-    PulseAmplitude = 0.15,
-    PulseSpeed = 4.0,
-    WaveEnabled = false,
-    WaveSpeed = 3.0,
-    WaveLength = 2.0,
-    WaveAmplitude = 2.5,
-    ExplosionEnabled = false,
-    ExplosionSpeed = 0.4,
-    ExplosionPower = 0.7,
-    HeartScale = 0.65,
-    OrbitPattern = "Круг",
-    AuraEnabled = false,
-    AuraType = "Кольцо",
-    AuraSize = 3.5,
-    AuraThickness = 0.15,
+    BlockCount = 8, BaseShapeSize = 1.5, OrbitSpeed = 60, SpinSpeed = 120,
+    SpeedMultiplier = 1.0, SpinSpeedMultiplier = 1.0, BobAmplitude = 0.8,
+    Material = Enum.Material.Neon, Transparency = 0.1, LightRange = 6, LightLimit = 20,
+    LightEnabled = true, Rainbow = true, FixedColor = Color3.fromRGB(0, 180, 255),
+    ShowBlockNames = false, NameColor = Color3.fromRGB(255, 255, 255), LerpSpeed = 5.0,
+    TrailEnabled = false, TrailLength = 0.5, TrailWidth = 0.8,
+    PulseEnabled = false, PulseAmplitude = 0.15, PulseSpeed = 4.0,
+    WaveEnabled = false, WaveSpeed = 3.0, WaveLength = 2.0, WaveAmplitude = 2.5,
+    ExplosionEnabled = false, ExplosionSpeed = 0.4, ExplosionPower = 0.7,
+    HeartScale = 0.65, OrbitPattern = "Круг",
+    AuraEnabled = false, AuraType = "Кольцо", AuraSize = 3.5, AuraThickness = 0.15,
     AuraColor = Color3.fromRGB(150, 100, 255),
-    AutoShapeSwap = false,
-    AutoShapeSwapInterval = 15,
-    GradientEnabled = false,
-    GradientSpeed = 0.5,
-    GlowEnabled = true,
-    GlowIntensity = 2,
+    AutoShapeSwap = false, AutoShapeSwapInterval = 15,
+    GradientEnabled = false, GradientSpeed = 0.5, GlowEnabled = true, GlowIntensity = 2,
 }
 local SETTINGS = table.clone(DEFAULT_SETTINGS)
 
@@ -183,15 +148,10 @@ local SPREAD_PRESETS = {
 local spreadIndex = 2
 
 local HEIGHT_PRESETS = {
-    { name = "Возле (у ног)", offset = -3.0 },
-    { name = "Ноги", offset = -1.0 },
-    { name = "Низко", offset = 0.5 },
-    { name = "Середина", offset = 2.0 },
-    { name = "Туловище", offset = 3.0 },
-    { name = "Голова", offset = 4.5 },
-    { name = "Высоко", offset = 6.5 },
-    { name = "Небо", offset = 35.0 },
-    { name = "Космос", offset = 60.0 },
+    { name = "Возле (у ног)", offset = -3.0 }, { name = "Ноги", offset = -1.0 },
+    { name = "Низко", offset = 0.5 }, { name = "Середина", offset = 2.0 },
+    { name = "Туловище", offset = 3.0 }, { name = "Голова", offset = 4.5 },
+    { name = "Высоко", offset = 6.5 }, { name = "Небо", offset = 35.0 }, { name = "Космос", offset = 60.0 },
 }
 local heightIndex = 4
 
@@ -239,11 +199,7 @@ local ORBIT_PATTERNS = {
 local orbitPatternIndex = 1
 
 local AURA_TYPES = {
-    { name = "Кольцо" },
-    { name = "Частицы" },
-    { name = "Фигуры" },
-    { name = "Оба" },
-    { name = "Всё" },
+    { name = "Кольцо" }, { name = "Частицы" }, { name = "Фигуры" }, { name = "Оба" }, { name = "Всё" },
 }
 local auraTypeIndex = 1
 
@@ -330,8 +286,13 @@ local auraAngle = 0
 local auraShapeIndex = 1
 
 -- Кольца на других игроках
-local targetRings = {}       -- [Player] = { folder, blocks, angle }
-local peopleButtons = {}     -- [Player] = кнопка
+local targetRings = {}
+local peopleButtons = {}
+
+-- ==================== FORWARD DECLARATIONS ====================
+-- Эти функции объявлены в секции УТИЛИТЫ ниже, но используются
+-- в setupAura/buildTargetRings/updateTargetRings, объявленных раньше.
+local getCurrentShapeSize, getTargetRadius, getHeightOffset, getTargetHeight, getTargetSpeed, getTargetSpin
 
 local RING_STEP = 5
 local rings = {
@@ -350,12 +311,8 @@ end
 -- ==================== ХЕЛПЕРЫ ====================
 local function newPart(parent, name, size, cf, color, noRecolor)
     local p = Instance.new("Part")
-    p.Name = name
-    p.Size = size
-    p.CFrame = cf
-    p.Anchored = true
-    p.CanCollide = false
-    p.CastShadow = false
+    p.Name = name; p.Size = size; p.CFrame = cf
+    p.Anchored = true; p.CanCollide = false; p.CastShadow = false
     p.Material = Enum.Material.Neon
     p.Color = color or Color3.fromRGB(255, 255, 255)
     if noRecolor then p:SetAttribute("NoRecolor", true) end
@@ -367,12 +324,8 @@ local function newModelShell(name)
     local model = Instance.new("Model")
     model.Name = name
     local root = Instance.new("Part")
-    root.Name = "Root"
-    root.Size = Vector3.new(0.1, 0.1, 0.1)
-    root.Transparency = 1
-    root.Anchored = true
-    root.CanCollide = false
-    root.CastShadow = false
+    root.Name = "Root"; root.Size = Vector3.new(0.1, 0.1, 0.1); root.Transparency = 1
+    root.Anchored = true; root.CanCollide = false; root.CastShadow = false
     root.Parent = model
     model.PrimaryPart = root
     return model, root
@@ -385,12 +338,8 @@ local function makeRod(parent, a, b, thickness, depth, color)
     part.Name = "Rod"
     part.Size = Vector3.new(depth, thickness, diff.Magnitude)
     part.CFrame = CFrame.lookAt(mid, mid + diff.Unit)
-    part.Anchored = true
-    part.CanCollide = false
-    part.CastShadow = false
-    part.Material = Enum.Material.Neon
-    part.Color = color
-    part.Parent = parent
+    part.Anchored = true; part.CanCollide = false; part.CastShadow = false
+    part.Material = Enum.Material.Neon; part.Color = color; part.Parent = parent
     return part
 end
 
@@ -411,10 +360,7 @@ local function createPalmPlate(model, bodies, cf, size, color)
         local cy = math.clamp(sinA * outerR, -(half - cornerR), half - cornerR)
         local dx, dy = cosA * outerR - cx, sinA * outerR - cy
         local dlen = math.sqrt(dx*dx + dy*dy)
-        if dlen > 0.001 then
-            cx = cx + dx / dlen * cornerR
-            cy = cy + dy / dlen * cornerR
-        end
+        if dlen > 0.001 then cx = cx + dx / dlen * cornerR; cy = cy + dy / dlen * cornerR end
         local outerPt = Vector3.new(cx, cy, 0)
         local innerPt = Vector3.new(math.cos(mid) * holeR, math.sin(mid) * holeR, 0)
         local midPt = (outerPt + innerPt) * 0.5
@@ -680,7 +626,6 @@ local function isValidMesh(meshId)
     return type(meshId) == "string" and meshId:match("^rbxassetid://%d+$") ~= nil
 end
 
--- ==================== НОВЫЕ ФИГУРЫ ====================
 local function createSword(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
@@ -1006,17 +951,15 @@ local function createWings(size, color, name)
             table.insert(bodies, rod)
             prevPos = pos
         end
-        local primaryCount = 8
-        for i = 1, primaryCount do
-            local t = (i - 1) / (primaryCount - 1)
+        for i = 1, 8 do
+            local t = (i - 1) / 7
             local arcAngle = t * math.rad(75)
             local bx = side * (s*0.15 + math.sin(arcAngle) * s*1.5)
             local by = math.cos(arcAngle) * s*0.4 + t*s*0.3
             feather(bx, by, side, s*(2.0 - t*1.2), s*(0.30 - t*0.13), 22 + t*48, t*22)
         end
-        local covertCount = 6
-        for i = 1, covertCount do
-            local t = (i - 1) / (covertCount - 1)
+        for i = 1, 6 do
+            local t = (i - 1) / 5
             local arcAngle = 0.15 + t * math.rad(45)
             local bx = side * (s*0.15 + math.sin(arcAngle) * s*0.9)
             local by = (math.cos(arcAngle) * s*0.25 + t*s*0.15) * 0.4 + s*0.15
@@ -1151,259 +1094,128 @@ local function create3DBlasterPlaceholder(size, color, name)
     return model, root, bodies
 end
 
--- ==================== СПИСОК ФИГУР (27 шт.) ====================
+-- ==================== СПИСОК ФИГУР ====================
 local SHAPE_PRESETS = {
     { name = "БЛОК", create = function(size, name)
-        local cfg = MESH_CONFIG["БЛОК"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
-        end
         local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Block; p.Size = Vector3.new(size, size, size)
         return { part = p }
     end },
     { name = "ШАР", create = function(size, name)
-        local cfg = MESH_CONFIG["ШАР"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
-        end
         local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Ball; p.Size = Vector3.new(size, size, size)
         return { part = p }
     end },
     { name = "ЦИЛИНДР", create = function(size, name)
-        local cfg = MESH_CONFIG["ЦИЛИНДР"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
-        end
         local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Cylinder; p.Size = Vector3.new(size, size, size)
         return { part = p }
     end },
     { name = "КЛИН", create = function(size, name)
-        local cfg = MESH_CONFIG["КЛИН"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,255,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
-        end
         local p = Instance.new("WedgePart"); p.Name = name; p.Size = Vector3.new(size, size, size)
         return { part = p }
     end },
     { name = "ГОЛОВА", create = function(size, name)
-        local cfg = MESH_CONFIG["ГОЛОВА"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,220,60))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
-        end
         local m, r, b = createHead(size, Color3.fromRGB(255, 220, 60), name)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size }
     end },
     { name = "СЕРДЦЕ", create = function(size, name)
-        local cfg = MESH_CONFIG["СЕРДЦЕ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, size, name, Color3.fromRGB(255,60,120))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = size * 3 }
-        end
         local hs = size * 1.8
         local m, r, b = createPixelHeart(hs, Color3.fromRGB(255, 60, 120), name)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = hs }
     end },
     { name = "ЗВЕЗДА", create = function(s, n)
-        local cfg = MESH_CONFIG["ЗВЕЗДА"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,200,40))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = create3DStar(s, Color3.fromRGB(255, 200, 40), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s }
     end },
     { name = "ТРЕУГОЛЬНИК", create = function(s, n)
-        local cfg = MESH_CONFIG["ТРЕУГОЛЬНИК"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(0,255,120))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = create3DTriangle(s, Color3.fromRGB(0, 255, 120), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
     end },
     { name = "РОМБ", create = function(s, n)
-        local cfg = MESH_CONFIG["РОМБ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(0,200,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = create3DDiamond(s, Color3.fromRGB(0, 200, 255), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
     end },
     { name = "КРЕСТ", create = function(s, n)
-        local cfg = MESH_CONFIG["КРЕСТ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(230,220,200))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = create3DCross(s, Color3.fromRGB(230, 220, 200), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
     end },
     { name = "ЧЕРЕП", create = function(s, n)
-        local cfg = MESH_CONFIG["ЧЕРЕП"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(235,230,215))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = create3DSkull(s, Color3.fromRGB(235, 230, 215), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.4 }
     end },
     { name = "МОЛНИЯ", create = function(s, n)
-        local cfg = MESH_CONFIG["МОЛНИЯ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,230,60))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = create3DLightning(s, Color3.fromRGB(255, 230, 60), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
     end },
     { name = "РУКА", create = function(s, n)
-        local cfg = MESH_CONFIG["РУКА"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(235,230,215))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, false)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
     end },
     { name = "РУКА-СЕРДЦЕ", create = function(s, n, idx)
         local hc = HEART_COLORS[((idx or 1) - 1) % #HEART_COLORS + 1]
-        local cfg = MESH_CONFIG["РУКА-СЕРДЦЕ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(235,230,215))
-            local heartSize = s * 1.8 * SETTINGS.HeartScale
-            local hModel = select(1, createPixelHeart(heartSize, hc, "Heart"))
-            hModel.Parent = m
-            hModel:PivotTo(CFrame.new(0, 0, s * 0.3))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, true, hc)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
     end },
     { name = "ГАСТЕР БЛАСТЕР", create = function(s, n)
-        local cfg = MESH_CONFIG["ГАСТЕР БЛАСТЕР"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(240,240,245))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = create3DBlasterPlaceholder(s, Color3.fromRGB(240, 240, 245), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.6 }
     end },
     { name = "МЕЧ", create = function(s, n)
-        local cfg = MESH_CONFIG["МЕЧ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(220,230,245))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createSword(s, Color3.fromRGB(220, 230, 245), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.0 }
     end },
     { name = "ЩИТ", create = function(s, n)
-        local cfg = MESH_CONFIG["ЩИТ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(200,220,240))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createShield(s, Color3.fromRGB(200, 220, 240), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
     end },
     { name = "КОРОНА", create = function(s, n)
-        local cfg = MESH_CONFIG["КОРОНА"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,215,0))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createCrown(s, Color3.fromRGB(255, 215, 0), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
     end },
     { name = "КОСТЬ", create = function(s, n)
-        local cfg = MESH_CONFIG["КОСТЬ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(245,240,220))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createBone(s, Color3.fromRGB(245, 240, 220), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
     end },
     { name = "КРИСТАЛЛ", create = function(s, n)
-        local cfg = MESH_CONFIG["КРИСТАЛЛ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(150,230,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createCrystal(s, Color3.fromRGB(150, 230, 255), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
     end },
     { name = "ПИРАМИДА", create = function(s, n)
-        local cfg = MESH_CONFIG["ПИРАМИДА"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,200,100))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createPyramid(s, Color3.fromRGB(255, 200, 100), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
     end },
     { name = "ИНЬ-ЯН", create = function(s, n)
-        local cfg = MESH_CONFIG["ИНЬ-ЯН"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(220,220,240))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createYinYang(s, Color3.fromRGB(220, 220, 240), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
     end },
     { name = "ГЛАЗ", create = function(s, n)
-        local cfg = MESH_CONFIG["ГЛАЗ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(255,200,200))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createEye(s, Color3.fromRGB(255, 200, 200), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.6 }
     end },
     { name = "РУНА", create = function(s, n)
-        local cfg = MESH_CONFIG["РУНА"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(180,150,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createRune(s, Color3.fromRGB(180, 150, 255), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
     end },
     { name = "СПИРАЛЬ", create = function(s, n)
-        local cfg = MESH_CONFIG["СПИРАЛЬ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(120,200,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createSpiral(s, Color3.fromRGB(120, 200, 255), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.8 }
     end },
     { name = "КРЫЛЬЯ", create = function(s, n)
-        local cfg = MESH_CONFIG["КРЫЛЬЯ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(240,240,255))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createWings(s, Color3.fromRGB(240, 240, 255), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.2 }
     end },
     { name = "ЩУПАЛЬЦЕ", create = function(s, n)
-        local cfg = MESH_CONFIG["ЩУПАЛЬЦЕ"]
-        if isValidMesh(cfg.MeshId) then
-            local m, r, b = createMeshShape(cfg.MeshId, cfg.TextureId, s, n, Color3.fromRGB(150,80,180))
-            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3 }
-        end
         local m, r, b = createTentacle(s, Color3.fromRGB(150, 80, 180), n)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.0 }
     end },
 }
 local shapeIndex = 1
+
+-- ==================== УТИЛИТЫ (без local — forward declared выше) ====================
+function getCurrentShapeSize() return SETTINGS.BaseShapeSize * SHAPE_SIZE_PRESETS[shapeSizeIndex].factor end
+function getTargetRadius(ri) return ORBIT_PRESETS[orbitIndex].radius + rings[ri].radiusOffset * RING_STEP * SPREAD_PRESETS[spreadIndex].mult end
+function getHeightOffset() return HEIGHT_PRESETS[heightIndex].offset end
+function getTargetHeight(ri) return ORBIT_PRESETS[orbitIndex].height + rings[ri].heightOffset * SPREAD_PRESETS[spreadIndex].mult + getHeightOffset() end
+function getTargetSpeed() return SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier end
+function getTargetSpin() return SETTINGS.SpinSpeed * SETTINGS.SpeedMultiplier * SETTINGS.SpinSpeedMultiplier end
 
 -- ==================== АУРА ====================
 local function getAuraColor(i, total)
@@ -1449,55 +1261,43 @@ local function setupAura()
         emitter.Size = Vector3.new(0.1, 0.1, 0.1); emitter.Transparency = 1
         emitter.Anchored = true; emitter.CanCollide = false; emitter.CastShadow = false
         emitter.Parent = auraFolder
-
         local col = getAuraColor(1, 1)
+
         local p1 = Instance.new("ParticleEmitter")
         p1.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-        p1.Rate = 150
-        p1.Lifetime = NumberRange.new(1.0, 2.0)
-        p1.Speed = NumberRange.new(3, 6)
-        p1.SpreadAngle = Vector2.new(180, 180)
+        p1.Rate = 150; p1.Lifetime = NumberRange.new(1.0, 2.0)
+        p1.Speed = NumberRange.new(3, 6); p1.SpreadAngle = Vector2.new(180, 180)
         p1.RotSpeed = NumberRange.new(-180, 180)
         p1.Size = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.4),
-            NumberSequenceKeypoint.new(0.5, 0.7),
-            NumberSequenceKeypoint.new(1, 0.2),
+            NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(0.5, 0.7), NumberSequenceKeypoint.new(1, 0.2)
         })
         p1.Color = ColorSequence.new(col)
         p1.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.1),
-            NumberSequenceKeypoint.new(1, 1),
+            NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1)
         })
         p1.Parent = emitter
 
         local p2 = Instance.new("ParticleEmitter")
         p2.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-        p2.Rate = 100
-        p2.Lifetime = NumberRange.new(0.6, 1.2)
-        p2.Speed = NumberRange.new(5, 9)
-        p2.SpreadAngle = Vector2.new(20, 20)
+        p2.Rate = 100; p2.Lifetime = NumberRange.new(0.6, 1.2)
+        p2.Speed = NumberRange.new(5, 9); p2.SpreadAngle = Vector2.new(20, 20)
         p2.Size = NumberSequence.new(0.5)
         p2.Color = ColorSequence.new(col)
         p2.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.3),
-            NumberSequenceKeypoint.new(1, 1),
+            NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 1)
         })
         p2.Parent = emitter
 
         local p3 = Instance.new("ParticleEmitter")
         p3.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-        p3.Rate = 80
-        p3.Lifetime = NumberRange.new(1.2, 2.5)
-        p3.Speed = NumberRange.new(1, 3)
-        p3.SpreadAngle = Vector2.new(180, 180)
+        p3.Rate = 80; p3.Lifetime = NumberRange.new(1.2, 2.5)
+        p3.Speed = NumberRange.new(1, 3); p3.SpreadAngle = Vector2.new(180, 180)
         p3.Size = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.8),
-            NumberSequenceKeypoint.new(1, 0.3),
+            NumberSequenceKeypoint.new(0, 0.8), NumberSequenceKeypoint.new(1, 0.3)
         })
         p3.Color = ColorSequence.new(col)
         p3.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.4),
-            NumberSequenceKeypoint.new(1, 1),
+            NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 1)
         })
         p3.Parent = emitter
 
@@ -1508,31 +1308,22 @@ local function setupAura()
         local folder = Instance.new("Folder")
         folder.Name = "AuraShapes"
         folder.Parent = auraFolder
-
         local shape = SHAPE_PRESETS[auraShapeIndex] or SHAPE_PRESETS[1]
         local size = getCurrentShapeSize() * 0.6
         local count = math.max(4, math.floor(SETTINGS.BlockCount * 0.75))
-
         for i = 1, count do
             local data = shape.create(size, "Aura_" .. i)
             local refPart = data.part
             if not data.isModel then
                 refPart.Material = SETTINGS.Material
-                refPart.CanCollide = false
-                refPart.Anchored = true
-                refPart.CastShadow = false
+                refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
                 refPart.Transparency = SETTINGS.Transparency
                 refPart.Color = getAuraColor(i, count)
             end
             if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
-
             table.insert(auraBlocks, {
-                part = refPart,
-                model = data.model,
-                isModel = data.isModel or false,
-                bodyParts = data.bodyParts,
-                index = i,
-                total = count,
+                part = refPart, model = data.model, isModel = data.isModel or false,
+                bodyParts = data.bodyParts, index = i, total = count,
             })
         end
     end
@@ -1547,7 +1338,6 @@ local function updateAura(dt)
 
     local t = SETTINGS.AuraType
     local needShapes = (t == "Фигуры" or t == "Всё")
-
     local baseCol = getAuraColor(1, 1)
 
     for _, part in ipairs(auraParts) do
@@ -1573,10 +1363,8 @@ local function updateAura(dt)
     if needShapes and #auraBlocks > 0 then
         local auraSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7
         auraAngle = auraAngle + auraSpeed * dt
-
         local radius = SETTINGS.AuraSize
         local height = 0.5
-
         for _, data in ipairs(auraBlocks) do
             if not data.part.Parent then continue end
             local angle = math.rad(auraAngle + (data.index - 1) * (360 / data.total))
@@ -1584,13 +1372,11 @@ local function updateAura(dt)
             local pz = math.sin(angle) * radius
             local pos = hrp.Position + Vector3.new(px, height, pz)
             local cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi / 2, 0)
-
             if data.isModel and data.model then
                 data.model:PivotTo(cf)
             else
                 data.part.CFrame = cf
             end
-
             local col = getAuraColor(data.index, data.total)
             if data.bodyParts then
                 for _, p in ipairs(data.bodyParts) do
@@ -1627,29 +1413,19 @@ local function buildTargetRings(player)
         local refPart = data.part
         if not data.isModel then
             refPart.Material = SETTINGS.Material
-            refPart.CanCollide = false
-            refPart.Anchored = true
-            refPart.CastShadow = false
+            refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
             refPart.Transparency = SETTINGS.Transparency
             refPart.Color = SETTINGS.FixedColor
         end
         if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
-
         table.insert(blocks, {
-            part = refPart,
-            model = data.model,
-            isModel = data.isModel or false,
+            part = refPart, model = data.model, isModel = data.isModel or false,
             bodyParts = data.bodyParts,
             angleOffset = (i - 1) * (360 / SETTINGS.BlockCount),
             index = i,
         })
     end
-
-    targetRings[player] = {
-        folder = folder,
-        blocks = blocks,
-        angle = 0,
-    }
+    targetRings[player] = { folder = folder, blocks = blocks, angle = 0 }
 end
 
 local function removeTargetRings(player)
@@ -1675,14 +1451,11 @@ local function updateTargetRings(dt)
         local radius = getTargetRadius(1)
         local height = getTargetHeight(1)
         local spinAngle = 0
-        if spinAxisEnabled and not spinResetting then
-            spinAngle = t * 3
-        end
+        if spinAxisEnabled and not spinResetting then spinAngle = t * 3 end
 
         for _, b in ipairs(data.blocks) do
             local ref = b.isModel and b.model or b.part
             if not ref or not ref.Parent then continue end
-
             local angle = math.rad(data.angle + b.angleOffset)
             local px = math.cos(angle) * radius
             local pz = math.sin(angle) * radius
@@ -1694,13 +1467,11 @@ local function updateTargetRings(dt)
                 targetCF = CFrame.new(hrp.Position + Vector3.new(px, height, pz))
                     * CFrame.Angles(0, math.rad(spinAngle), 0)
             end
-
             if b.isModel and b.model then
                 b.model:PivotTo(targetCF)
             else
                 b.part.CFrame = targetCF
             end
-
             local col = baseCol
             if SETTINGS.Rainbow then
                 local hue = (t * 0.15 * SETTINGS.SpeedMultiplier + b.index / SETTINGS.BlockCount) % 1
@@ -1718,12 +1489,8 @@ local function updateTargetRings(dt)
 end
 
 local function cleanupAllTargetRings()
-    for player in pairs(targetRings) do
-        removeTargetRings(player)
-    end
-    for _, btn in pairs(peopleButtons) do
-        pcall(function() btn:Destroy() end)
-    end
+    for player in pairs(targetRings) do removeTargetRings(player) end
+    for _, btn in pairs(peopleButtons) do pcall(function() btn:Destroy() end) end
     peopleButtons = {}
 end
 
@@ -1788,14 +1555,7 @@ local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
     return math.cos(t) * baseRadius, baseHeight, math.sin(t) * baseRadius
 end
 
--- ==================== УТИЛИТЫ ====================
-local function getCurrentShapeSize() return SETTINGS.BaseShapeSize * SHAPE_SIZE_PRESETS[shapeSizeIndex].factor end
-local function getTargetRadius(ri) return ORBIT_PRESETS[orbitIndex].radius + rings[ri].radiusOffset * RING_STEP * SPREAD_PRESETS[spreadIndex].mult end
-local function getHeightOffset() return HEIGHT_PRESETS[heightIndex].offset end
-local function getTargetHeight(ri) return ORBIT_PRESETS[orbitIndex].height + rings[ri].heightOffset * SPREAD_PRESETS[spreadIndex].mult + getHeightOffset() end
-local function getTargetSpeed() return SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier end
-local function getTargetSpin() return SETTINGS.SpinSpeed * SETTINGS.SpeedMultiplier * SETTINGS.SpinSpeedMultiplier end
-
+-- ==================== ДОП. УТИЛИТЫ ====================
 local function countActiveLights()
     local count = 0
     for _, ring in pairs(rings) do
@@ -1859,9 +1619,7 @@ local function buildRing(ri)
         local visualSize = data.visualSize or size
         if not data.isModel then
             refPart.Material = SETTINGS.Material
-            refPart.CanCollide = false
-            refPart.Anchored = true
-            refPart.CastShadow = false
+            refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
             refPart.Transparency = SETTINGS.Transparency
             refPart.Color = SETTINGS.FixedColor
         end
@@ -1885,8 +1643,7 @@ local function buildRing(ri)
             trail.Attachment0 = a0; trail.Attachment1 = a1
             trail.Color = ColorSequence.new(SETTINGS.FixedColor)
             trail.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.2),
-                NumberSequenceKeypoint.new(1, 1),
+                NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
             })
             applyTrailSettings(trail)
             trail.Parent = refPart
@@ -2220,9 +1977,7 @@ end
 local function saveSettings()
     SAVED_DATA = collectSaveData()
     if HAS_FS then
-        pcall(function()
-            writefile(SAVE_FILE, HttpService:JSONEncode(encodeData(SAVED_DATA)))
-        end)
+        pcall(function() writefile(SAVE_FILE, HttpService:JSONEncode(encodeData(SAVED_DATA))) end)
     end
     return true
 end
@@ -2308,9 +2063,7 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 protectGui(screenGui)
 local okParent = pcall(function() screenGui.Parent = getSafeParent() end)
-if not okParent or not screenGui.Parent then
-    screenGui.Parent = PlayerGui
-end
+if not okParent or not screenGui.Parent then screenGui.Parent = PlayerGui end
 
 local mainBtn = Instance.new("TextButton")
 mainBtn.Size = UDim2.new(0, 56, 0, 56)
@@ -2349,7 +2102,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "✨ ОРБИТА v15.2 DELTA"
+title.Text = "✨ ОРБИТА v15.3 DELTA"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 12
@@ -2437,7 +2190,6 @@ local colorBtn      = makeButton("🎨 Цвет: " .. COLOR_PRESETS[colorIndex].
 local lightBtn      = makeButton("💡 Свет: ВКЛ", 1350, 30, Color3.fromRGB(35, 50, 35), Color3.fromRGB(160, 255, 160))
 local nameBtn       = makeButton("🏷️ Имена: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ"), 1383, 30)
 
--- ==================== ЛЮДИ И КОЛЬЦА ====================
 makeSection("👥 ЛЮДИ И КОЛЬЦА", 1420, Color3.fromRGB(80, 40, 100))
 
 local peopleContainer = Instance.new("ScrollingFrame")
@@ -2464,7 +2216,6 @@ peoplePadding.PaddingLeft = UDim.new(0, 4)
 peoplePadding.PaddingRight = UDim.new(0, 4)
 peoplePadding.Parent = peopleContainer
 
--- Сдвинутые на 200 пикселей вниз элементы
 makeSection("📊 СТАТИСТИКА", 1620, Color3.fromRGB(60, 60, 90))
 local statsLabel = Instance.new("TextLabel")
 statsLabel.Size = UDim2.new(1, -20, 0, 50)
@@ -3045,9 +2796,7 @@ end)
 
 -- ==================== СПИСОК ИГРОКОВ ====================
 local function rebuildPeopleList()
-    for _, btn in pairs(peopleButtons) do
-        pcall(function() btn:Destroy() end)
-    end
+    for _, btn in pairs(peopleButtons) do pcall(function() btn:Destroy() end) end
     peopleButtons = {}
 
     local idx = 0
@@ -3065,13 +2814,8 @@ local function rebuildPeopleList()
             btn.AutoButtonColor = true
             btn.Parent = peopleContainer
             Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-
             peopleButtons[player] = btn
-
-            btn.Activated:Connect(function()
-                toggleTargetRings(player)
-            end)
-
+            btn.Activated:Connect(function() toggleTargetRings(player) end)
             if targetRings[player] then
                 btn.Text = "✅ " .. player.Name
                 btn.BackgroundColor3 = Color3.fromRGB(80, 40, 100)
@@ -3203,7 +2947,7 @@ task.spawn(function()
     end
 end)
 
--- ==================== АВТОСОХРАНЕНИЕ 30 СЕК ====================
+-- ==================== АВТОСОХРАНЕНИЕ ====================
 task.spawn(function()
     while task.wait(30) do
         if enabled and HAS_FS then pcall(saveSettings) end
@@ -3251,7 +2995,7 @@ setEnabled(true)
 refreshSpinSpeedBtn()
 refreshHeartSizeBtn()
 
-notify("✨ ОРБИТА v15.2 DELTA загружена!", Color3.fromRGB(200, 200, 255), 3)
+notify("✨ ОРБИТА v15.3 DELTA загружена!", Color3.fromRGB(200, 200, 255), 3)
 notify(HAS_FS and "💾 Файл: " .. SAVE_FILE or "💾 Только в памяти", Color3.fromRGB(180, 220, 255), 4)
 
 return {
