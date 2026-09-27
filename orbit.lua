@@ -1,11 +1,14 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v13.1                                     ║
+    ║   ОРБИТА ФИГУР v13.2 (Delta Edition)                     ║
     ║   + Кнопка «🌀 Скорость кручения» (0.5x – 10x)           ║
+    ║   + Кнопка «💗 Сердце» (100%–250%)                       ║
+    ║   + Новая фигура: ГАСТЕР БЛАСТЕР                         ║
+    ║   + Поддержка реальных мешей (Gaster Hand / Blaster)     ║
     ║   + Все кнопки работают всегда                           ║
     ║   + Кнопка выбора оси: ВЕРХ/ВНИЗ или ВЛЕВО/ВПРАВО        ║
     ║   + Большой палец торчит НАРУЖУ                          ║
-    ║   + Сердце в руке: 0.65                                  ║
+    ║   + Сохранение в файл (работает в Delta)                 ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -16,6 +19,21 @@ local SoundService = game:GetService("SoundService")
 local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
+
+--[[
+    ==================== МЕШИ (Gaster Hand / Gaster Blaster) ====================
+    Если хочешь использовать реальные 3D-меши — загрузи их в Roblox Studio,
+    получи rbxassetid, и впиши сюда. Пока пусто — используются процедурные
+    заглушки (обычные Part'ы).
+
+    Для Delta: ID работают так же, если они ПУБЛИЧНЫЕ и уже одобрены Roblox.
+--]]
+local MESH_CONFIG = {
+    HandMeshId          = "",
+    HandTextureId        = "",
+    BlasterMeshId        = "",
+    BlasterTextureId      = "",
+}
 
 -- ==================== МУЗЫКА ====================
 local musicEnabled = false
@@ -57,7 +75,7 @@ local DEFAULT_SETTINGS = {
     OrbitSpeed = 60,
     SpinSpeed = 120,
     SpeedMultiplier = 1.0,
-    SpinSpeedMultiplier = 1.0,   -- ★ НОВОЕ: множитель скорости кручения
+    SpinSpeedMultiplier = 1.0,
     BobAmplitude = 0.8,
     Material = Enum.Material.Neon,
     Transparency = 0.1,
@@ -82,13 +100,13 @@ local DEFAULT_SETTINGS = {
     ExplosionEnabled = false,
     ExplosionSpeed = 0.4,
     ExplosionPower = 0.7,
+    HeartScale = 0.65,
 }
 local SETTINGS = table.clone(DEFAULT_SETTINGS)
 
 local spinAxisEnabled = true
-local spinAxisDir = "X"     -- "X" = верх/вниз, "Y" = влево/вправо
+local spinAxisDir = "X"
 
--- ★ Пресеты скорости кручения
 local SPIN_SPEED_PRESETS = {
     { name = "0.5x", value = 0.5 },
     { name = "1x",   value = 1.0 },
@@ -578,7 +596,7 @@ local function create3DHand(size, color, name, withHeart, heartColor)
 
     if withHeart then
         local hc = heartColor or Color3.fromRGB(255, 40, 95)
-        local heartSize = s * 0.65
+        local heartSize = s * 1.8 * SETTINGS.HeartScale
         local hModel = select(1, createPixelHeart(heartSize, hc, "Heart"))
         hModel.Parent = model
         hModel:PivotTo(palmCF * CFrame.new(0, 0, s * 0.02))
@@ -606,6 +624,63 @@ local function create3DHand(size, color, name, withHeart, heartColor)
 
     local thumbCF = CFrame.new(s * 1.15, -s * 0.10, 0) * CFrame.Angles(0, 0, math.rad(-42))
     createFinger(model, bodies, thumbCF, s * 1.70, s * 0.46, color)
+
+    return model, root, bodies
+end
+
+local function createMeshShape(meshId, textureId, size, name, color)
+    local model, root = newModelShell(name)
+    local mp = Instance.new("MeshPart")
+    mp.Name = "Mesh"
+    mp.MeshId = meshId
+    if textureId ~= "" then mp.TextureID = textureId end
+    mp.Anchored = true; mp.CanCollide = false; mp.CastShadow = false
+    mp.Material = Enum.Material.Neon
+    mp.Color = color or Color3.fromRGB(235, 230, 215)
+    mp.Size = Vector3.new(size * 3, size * 3, size * 3)
+    mp.CFrame = CFrame.new()
+    mp.Parent = model
+    return model, root, { mp }
+end
+
+local function create3DBlasterPlaceholder(size, color, name)
+    local model, root = newModelShell(name)
+    local bodies = {}
+    local s = size
+    local bone = color or Color3.fromRGB(235, 230, 215)
+    local dark = Color3.fromRGB(15, 12, 10)
+
+    local function block(sz, cf, col, noRecolor)
+        local p = newPart(model, "B", sz, cf, col, noRecolor)
+        p.Material = Enum.Material.SmoothPlastic
+        table.insert(bodies, p)
+        return p
+    end
+    local function ellipsoid(sz, cf, col, noRecolor)
+        local p = block(sz, cf, col, noRecolor)
+        local m = Instance.new("SpecialMesh")
+        m.MeshType = Enum.MeshType.Sphere
+        m.Parent = p
+        return p
+    end
+
+    ellipsoid(Vector3.new(1.3 * s, 1.1 * s, 2.6 * s), CFrame.new(0, 0.1 * s, 0), bone)
+    ellipsoid(Vector3.new(1.05 * s, 0.55 * s, 2.0 * s), CFrame.new(0, -0.55 * s, 0.1 * s), bone)
+    block(Vector3.new(0.75 * s, 0.55 * s, 0.5 * s), CFrame.new(0, -0.15 * s, -1.55 * s), dark, true)
+    for _, side in ipairs({ -1, 1 }) do
+        ellipsoid(Vector3.new(0.32 * s, 0.30 * s, 0.24 * s), CFrame.new(side * 0.42 * s, 0.28 * s, -1.0 * s), dark, true)
+    end
+    for k = -1, 1 do
+        local w = Instance.new("WedgePart")
+        w.Name = "Spike"
+        w.Size = Vector3.new(0.18 * s, 0.5 * s, 0.4 * s)
+        w.CFrame = CFrame.new(0, 0.75 * s, k * 0.6 * s) * CFrame.Angles(0, math.rad(90), 0)
+        w.Anchored = true; w.CanCollide = false; w.CastShadow = false
+        w.Material = Enum.Material.Neon
+        w.Color = bone
+        w.Parent = model
+        table.insert(bodies, w)
+    end
 
     return model, root, bodies
 end
@@ -668,13 +743,33 @@ local SHAPE_PRESETS = {
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 1.5 }
     end },
     { name = "РУКА", create = function(s, n)
+        if MESH_CONFIG.HandMeshId ~= "" then
+            local m, r, b = createMeshShape(MESH_CONFIG.HandMeshId, MESH_CONFIG.HandTextureId, s, n, Color3.fromRGB(235, 230, 215))
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
+        end
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, false)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
     end },
     { name = "РУКА-СЕРДЦЕ", create = function(s, n, idx)
         local hc = HEART_COLORS[((idx or 1) - 1) % #HEART_COLORS + 1]
+        if MESH_CONFIG.HandMeshId ~= "" then
+            local m, r, b = createMeshShape(MESH_CONFIG.HandMeshId, MESH_CONFIG.HandTextureId, s, n, Color3.fromRGB(235, 230, 215))
+            local heartSize = s * 1.8 * SETTINGS.HeartScale
+            local hModel = select(1, createPixelHeart(heartSize, hc, "Heart"))
+            hModel.Parent = m
+            hModel:PivotTo(CFrame.new(0, 0, s * 0.3))
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
+        end
         local m, r, b = create3DHand(s, Color3.fromRGB(235, 230, 215), n, true, hc)
         return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.2 }
+    end },
+    { name = "ГАСТЕР БЛАСТЕР", create = function(s, n)
+        if MESH_CONFIG.BlasterMeshId ~= "" then
+            local m, r, b = createMeshShape(MESH_CONFIG.BlasterMeshId, MESH_CONFIG.BlasterTextureId, s, n, Color3.fromRGB(240, 240, 245))
+            return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 3.0 }
+        end
+        local m, r, b = create3DBlasterPlaceholder(s, Color3.fromRGB(240, 240, 245), n)
+        return { model = m, part = r, isModel = true, bodyParts = b, visualSize = s * 2.6 }
     end },
 }
 local shapeIndex = 1
@@ -691,7 +786,6 @@ local function getTargetHeight(ri)
     return ORBIT_PRESETS[orbitIndex].height + rings[ri].heightOffset * SPREAD_PRESETS[spreadIndex].mult + getHeightOffset()
 end
 local function getTargetSpeed() return SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier end
--- ★ Учитываем множитель кручения
 local function getTargetSpin() return SETTINGS.SpinSpeed * SETTINGS.SpeedMultiplier * SETTINGS.SpinSpeedMultiplier end
 
 local function countActiveLights()
@@ -1036,8 +1130,8 @@ local function setupRespawnHook()
     end)
 end
 
--- ==================== СОХРАНЕНИЕ / ЗАГРУЗКА ====================
-local SAVE_FILE = "OrbitFX_v11_save.json"
+-- ==================== СОХРАНЕНИЕ / ЗАГРУЗКА (ФАЙЛ) ====================
+local SAVE_FILE = "OrbitFX_v13_save.json"
 
 local function collectSaveData()
     local ringShapes, ringEnabled = {}, {}
@@ -1058,7 +1152,8 @@ local function collectSaveData()
         spinResetting = spinResetting,
         spinAxisEnabled = spinAxisEnabled,
         spinAxisDir = spinAxisDir,
-        spinSpeedIndex = spinSpeedIndex,             -- ★ сохраняем
+        spinSpeedIndex = spinSpeedIndex,
+        heartScale = SETTINGS.HeartScale,
         musicEnabled = musicEnabled, musicId = savedMusicId,
     }
 end
@@ -1092,10 +1187,12 @@ local function loadSettings()
     if data.spinResetting ~= nil then spinResetting = data.spinResetting end
     if data.spinAxisEnabled ~= nil then spinAxisEnabled = data.spinAxisEnabled end
     if data.spinAxisDir ~= nil then spinAxisDir = data.spinAxisDir end
-    -- ★ восстанавливаем множитель кручения
     if data.spinSpeedIndex then
         spinSpeedIndex = data.spinSpeedIndex
         SETTINGS.SpinSpeedMultiplier = SPIN_SPEED_PRESETS[spinSpeedIndex].value
+    end
+    if data.heartScale then
+        SETTINGS.HeartScale = data.heartScale
     end
 
     if data.ringShapes then
@@ -1156,7 +1253,7 @@ panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 panel.BackgroundTransparency = 0.1
 panel.BorderSizePixel = 0
 panel.Visible = false
-panel.CanvasSize = UDim2.new(0, 0, 0, 1285)
+panel.CanvasSize = UDim2.new(0, 0, 0, 1350)
 panel.ScrollBarThickness = 3
 panel.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 255)
 panel.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -1170,7 +1267,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v13.1"
+title.Text = "ОРБИТА v13.2 (Delta)"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
@@ -1218,13 +1315,12 @@ local lightBtn      = makeButton("💡 Свет: ВКЛ", 795, 30, Color3.fromRG
 local spinBtn       = makeButton("↩️ Вращение в 0", 828, 30, Color3.fromRGB(50, 40, 60), Color3.fromRGB(200, 180, 255))
 local spinAxisBtn   = makeButton("🔄 Кручение оси: ВКЛ", 861, 30, Color3.fromRGB(35, 55, 55), Color3.fromRGB(140, 255, 220))
 local spinDirBtn    = makeButton("↕️ Ось: ВЕРХ/ВНИЗ", 894, 30, Color3.fromRGB(45, 55, 75), Color3.fromRGB(180, 220, 255))
-
--- ★ НОВАЯ КНОПКА: скорость кручения
 local spinSpeedBtn  = makeButton("🌀 Скорость кручения: 1x", 927, 30, Color3.fromRGB(55, 35, 75), Color3.fromRGB(220, 180, 255))
+local heartSizeBtn  = makeButton("💗 Сердце: 100%", 960, 30, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200))
 
 local musicSection = Instance.new("TextLabel")
 musicSection.Size = UDim2.new(1, -20, 0, 20)
-musicSection.Position = UDim2.new(0, 10, 0, 963)
+musicSection.Position = UDim2.new(0, 10, 0, 996)
 musicSection.BackgroundTransparency = 1
 musicSection.Text = "🎵 МУЗЫКА (вставь ID трека ниже)"
 musicSection.TextColor3 = Color3.fromRGB(220, 180, 255)
@@ -1235,7 +1331,7 @@ musicSection.Parent = panel
 
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
-musicInput.Position = UDim2.new(0, 10, 0, 985)
+musicInput.Position = UDim2.new(0, 10, 0, 1018)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -1253,7 +1349,7 @@ inputStroke.Thickness = 1
 
 local musicHint = Instance.new("TextLabel")
 musicHint.Size = UDim2.new(1, -20, 0, 44)
-musicHint.Position = UDim2.new(0, 10, 0, 1021)
+musicHint.Position = UDim2.new(0, 10, 0, 1054)
 musicHint.BackgroundTransparency = 1
 musicHint.Text = "Как узнать ID:\n1) Открой roblox.com/library → Audio\n2) Найди трек → скопируй цифры из ссылки\n3) Вставь сюда → нажми «Применить»"
 musicHint.TextColor3 = Color3.fromRGB(170, 170, 200)
@@ -1264,11 +1360,11 @@ musicHint.TextXAlignment = Enum.TextXAlignment.Left
 musicHint.TextYAlignment = Enum.TextYAlignment.Top
 musicHint.Parent = panel
 
-local applyIdBtn = makeButton("✅ Применить ID", 1071, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
-local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1104, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
-local saveBtn       = makeButton("💾 Сохранить", 1137, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
-local loadBtn       = makeButton("📂 Загрузить", 1170, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
-local resetBtn      = makeButton("🔄 Сброс", 1203, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
+local applyIdBtn = makeButton("✅ Применить ID", 1104, 30, Color3.fromRGB(55, 80, 55), Color3.fromRGB(180, 255, 180))
+local musicBtn      = makeButton("🎵 Музыка: ВЫКЛ", 1137, 30, Color3.fromRGB(50, 35, 60), Color3.fromRGB(220, 180, 255))
+local saveBtn       = makeButton("💾 Сохранить", 1170, 30, Color3.fromRGB(35, 60, 45), Color3.fromRGB(160, 255, 180))
+local loadBtn       = makeButton("📂 Загрузить", 1203, 30, Color3.fromRGB(35, 50, 60), Color3.fromRGB(180, 220, 255))
+local resetBtn      = makeButton("🔄 Сброс", 1236, 30, Color3.fromRGB(50, 30, 30), Color3.fromRGB(255, 180, 180))
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -1299,11 +1395,9 @@ local function refreshRingButton(ri)
     end
 end
 
--- ★ Обновление кнопки скорости кручения
 local function refreshSpinSpeedBtn()
     local p = SPIN_SPEED_PRESETS[spinSpeedIndex]
     spinSpeedBtn.Text = "🌀 Скорость кручения: " .. p.name
-    -- Цвет по скорости
     if p.value <= 1.0 then
         spinSpeedBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 75)
         spinSpeedBtn.TextColor3 = Color3.fromRGB(180, 200, 255)
@@ -1314,6 +1408,10 @@ local function refreshSpinSpeedBtn()
         spinSpeedBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 90)
         spinSpeedBtn.TextColor3 = Color3.fromRGB(255, 160, 255)
     end
+end
+
+local function refreshHeartSizeBtn()
+    heartSizeBtn.Text = "💗 Сердце: " .. math.floor(SETTINGS.HeartScale / 0.65 * 100 + 0.5) .. "%"
 end
 
 mainBtn.Activated:Connect(function() panel.Visible = not panel.Visible end)
@@ -1518,12 +1616,21 @@ spinDirBtn.Activated:Connect(function()
     end
 end)
 
--- ★ ОБРАБОТЧИК: скорость кручения
 spinSpeedBtn.Activated:Connect(function()
     spinSpeedIndex = spinSpeedIndex + 1
     if spinSpeedIndex > #SPIN_SPEED_PRESETS then spinSpeedIndex = 1 end
     SETTINGS.SpinSpeedMultiplier = SPIN_SPEED_PRESETS[spinSpeedIndex].value
     refreshSpinSpeedBtn()
+end)
+
+local HEART_SCALE_STEPS = { 0.65, 1.0, 1.35, 1.7 }
+local heartScaleIndex = 1
+heartSizeBtn.Activated:Connect(function()
+    heartScaleIndex = heartScaleIndex + 1
+    if heartScaleIndex > #HEART_SCALE_STEPS then heartScaleIndex = 1 end
+    SETTINGS.HeartScale = HEART_SCALE_STEPS[heartScaleIndex]
+    refreshHeartSizeBtn()
+    rebuildAllRings()
 end)
 
 applyIdBtn.Activated:Connect(function()
@@ -1628,7 +1735,8 @@ loadBtn.Activated:Connect(function()
             spinDirBtn.TextColor3 = Color3.fromRGB(255, 200, 180)
         end
 
-        refreshSpinSpeedBtn()    -- ★ обновить кнопку скорости кручения
+        refreshSpinSpeedBtn()
+        refreshHeartSizeBtn()
 
         for ri = 2, 5 do refreshRingButton(ri) end
         applyDirectionPreset()
@@ -1654,8 +1762,10 @@ resetBtn.Activated:Connect(function()
     spinResetting = false
     spinAxisEnabled = true
     spinAxisDir = "X"
-    spinSpeedIndex = 2                         -- ★ сброс скорости кручения
+    spinSpeedIndex = 2
     SETTINGS.SpinSpeedMultiplier = 1.0
+    heartScaleIndex = 1
+    SETTINGS.HeartScale = HEART_SCALE_STEPS[1]
 
     rings[1].shapeIndex = 1; rings[2].shapeIndex = 2; rings[3].shapeIndex = 3
     rings[4].shapeIndex = 4; rings[5].shapeIndex = 5
@@ -1688,6 +1798,7 @@ resetBtn.Activated:Connect(function()
     spinDirBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
     spinDirBtn.TextColor3 = Color3.fromRGB(180, 220, 255)
     refreshSpinSpeedBtn()
+    refreshHeartSizeBtn()
     allRingsBtn.Text = "⭕ Все кольца: ВКЛ"
     allRingsBtn.TextColor3 = Color3.fromRGB(160, 255, 160)
     allRingsBtn.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
@@ -1727,6 +1838,7 @@ applyShapes()
 setupRespawnHook()
 setEnabled(true)
 refreshSpinSpeedBtn()
+refreshHeartSizeBtn()
 
 return {
     Stop = function() setEnabled(false) end,
