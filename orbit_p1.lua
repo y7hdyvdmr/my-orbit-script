@@ -1,12 +1,14 @@
---[[
-    ОРБИТА v15.3 — ЧАСТЬ 1/4: ЯДРО + ЗАГРУЗЧИК
-]]
+--[[ ОРБИТА v15.3 — ЧАСТЬ 1/4: ЯДРО + ЗАГРУЗЧИК ]]
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
-if GENV.ORBIT and GENV.ORBIT.unload then pcall(GENV.ORBIT.unload) end
+local OLD = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (GENV and GENV.ORBIT)
+if OLD and OLD.unload then pcall(OLD.unload) end
 
 local ORBIT = {}
-GENV.ORBIT = ORBIT
+shared.ORBIT = ORBIT
+rawset(_G, "ORBIT", ORBIT)
+if GENV then GENV.ORBIT = ORBIT end
+
 ORBIT.version = "v15.3-parts"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false }
 ORBIT.started = false
@@ -242,7 +244,9 @@ ORBIT.unload = function()
     if GENV._OrbitLoaderGui then pcall(function() GENV._OrbitLoaderGui:Destroy() end) end
     if GENV._OrbitMainGui then pcall(function() GENV._OrbitMainGui:Destroy() end) end
     if GENV._OrbitNotifGui then pcall(function() GENV._OrbitNotifGui:Destroy() end) end
-    GENV.ORBIT = nil
+    shared.ORBIT = nil
+    rawset(_G, "ORBIT", nil)
+    if GENV then GENV.ORBIT = nil end
 end
 
 local loaderGui = Instance.new("ScreenGui")
