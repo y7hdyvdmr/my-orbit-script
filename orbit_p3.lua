@@ -15,7 +15,7 @@ local P        = ORBIT.P
 local rings    = ORBIT.rings
 local statsData = ORBIT.statsData
 local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
-if not SHAPE_PRESETS then warn("[Orbit P3] Часть 2 не загружена — фигур нет"); return end
+if not SHAPE_PRESETS then warn("[Orbit P3] Часть 2 не загружена"); return end
 
 local function getAuraColor(i, total)
     local p = P.COLORS[P.auraColorIndex]
@@ -24,6 +24,10 @@ local function getAuraColor(i, total)
         return Color3.fromHSV((t*0.2 + i/math.max(total,1)) % 1, 0.9, 1)
     end
     return p.c or SETTINGS.AuraColor
+end
+
+local function getAuraShapeSize()
+    return ORBIT.getCurrentShapeSize() * SETTINGS.AuraShapeScale
 end
 
 function ORBIT.setupAura()
@@ -85,7 +89,7 @@ function ORBIT.setupAura()
     if needShapes then
         local folder = Instance.new("Folder"); folder.Name = "AuraShapes"; folder.Parent = ORBIT.auraFolder
         local shape = SHAPE_PRESETS[ORBIT.auraShapeIndex] or SHAPE_PRESETS[1]
-        local size = ORBIT.getCurrentShapeSize() * 0.6
+        local size = getAuraShapeSize()
         local count = math.max(4, math.floor(SETTINGS.BlockCount * 0.75))
         for i = 1, count do
             local data = shape.create(size, "Aura_" .. i)
@@ -97,9 +101,32 @@ function ORBIT.setupAura()
                 refPart.Color = getAuraColor(i, count)
             end
             if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
+
+            -- трейл для фигур ауры
+            local trail = nil
+            if SETTINGS.AuraTrailEnabled then
+                local span = (data.visualSize or size) * 0.35
+                local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span,0,0); a0.Parent = refPart
+                local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span,0,0); a1.Parent = refPart
+                trail = Instance.new("Trail")
+                trail.Attachment0 = a0; trail.Attachment1 = a1
+                trail.Color = ColorSequence.new(getAuraColor(i, count))
+                trail.Lifetime = SETTINGS.AuraTrailLength
+                trail.WidthScale = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, SETTINGS.AuraTrailWidth),
+                    NumberSequenceKeypoint.new(1, 0),
+                })
+                trail.Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 0.2),
+                    NumberSequenceKeypoint.new(1, 1),
+                })
+                trail.Parent = refPart
+            end
+
             table.insert(ORBIT.auraBlocks, {
                 part = refPart, model = data.model, isModel = data.isModel or false,
                 bodyParts = data.bodyParts, index = i, total = count,
+                trail = trail,
             })
         end
     end
@@ -130,15 +157,36 @@ local function updateAura(dt)
     end
 
     if needShapes and #ORBIT.auraBlocks > 0 then
-        local auraSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7 * SETTINGS.AuraSpeedMult * SETTINGS.AuraDirection
-        ORBIT.auraAngle = ORBIT.auraAngle + auraSpeed * dt
+        -- скорость вращения по орбите
+        local auraOrbitSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7
+            * SETTINGS.AuraSpeedMult * SETTINGS.AuraDirection
+        ORBIT.auraAngle = ORBIT.auraAngle + auraOrbitSpeed * dt
+
+        -- скорость вращения вокруг собственной оси
+        if SETTINGS.AuraSpinEnabled then
+            ORBIT.auraSpinAngle = ORBIT.auraSpinAngle + SETTINGS.AuraSpinSpeed * SETTINGS.SpeedMultiplier * dt
+        end
+
         local radius = SETTINGS.AuraSize
-        local height = 0.5
+        local height = SETTINGS.AuraHeight
+
         for _, data in ipairs(ORBIT.auraBlocks) do
             if not data.part.Parent then continue end
             local angle = math.rad(ORBIT.auraAngle + (data.index-1)*(360/data.total))
             local pos = hrp.Position + Vector3.new(math.cos(angle)*radius, height, math.sin(angle)*radius)
-            local cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
+            local cf
+            if SETTINGS.AuraSpinEnabled then
+                if SETTINGS.AuraSpinAxis == "Y" then
+                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
+                        * CFrame.Angles(0, math.rad(ORBIT.auraSpinAngle), 0)
+                else -- "X"
+                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
+                        * CFrame.Angles(math.rad(ORBIT.auraSpinAngle), 0, 0)
+                end
+            else
+                cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
+            end
+
             if data.isModel and data.model then data.model:PivotTo(cf) else data.part.CFrame = cf end
             local col = getAuraColor(data.index, data.total)
             if data.bodyParts then
@@ -146,6 +194,7 @@ local function updateAura(dt)
                     if not p:GetAttribute("NoRecolor") then p.Color = col end
                 end
             elseif data.part then data.part.Color = col end
+            if data.trail then data.trail.Color = ColorSequence.new(col) end
         end
     end
 end
@@ -650,6 +699,15 @@ local function collectSaveData()
         auraSpeedMult=SETTINGS.AuraSpeedMult, auraDirection=SETTINGS.AuraDirection,
         auraSpeedIndex=P.auraSpeedIndex, auraDirIndex=P.auraDirIndex,
         auraSizeIndex=P.auraSizeIndex, auraThickIndex=P.auraThickIndex,
+        auraHeight=SETTINGS.AuraHeight, auraHeightIndex=P.auraHeightIndex,
+        auraShapeScale=SETTINGS.AuraShapeScale, auraShapeScaleIndex=P.auraShapeScaleIndex,
+        auraTrailEnabled=SETTINGS.AuraTrailEnabled,
+        auraTrailLength=SETTINGS.AuraTrailLength, auraTrailLengthIndex=P.auraTrailLengthIndex,
+        auraTrailWidth=SETTINGS.AuraTrailWidth, auraTrailWidthIndex=P.auraTrailWidthIndex,
+        auraSpinEnabled=SETTINGS.AuraSpinEnabled, auraSpinAxis=SETTINGS.AuraSpinAxis,
+        auraSpinSpeed=SETTINGS.AuraSpinSpeed, auraSpinSpeedIndex=P.auraSpinSpeedIndex,
+        auraSpinAxisIndex=P.auraSpinAxisIndex,
+        auraPulseEnabled=SETTINGS.AuraPulseEnabled,
         autoShapeSwap=SETTINGS.AutoShapeSwap, autoShapeSwapInterval=SETTINGS.AutoShapeSwapInterval,
         gradientEnabled=SETTINGS.GradientEnabled,
         spinResetting=ORBIT.spinResetting, spinAxisEnabled=ORBIT.spinAxisEnabled, spinAxisDir=ORBIT.spinAxisDir,
@@ -709,6 +767,21 @@ function ORBIT.loadSettings()
     if d.auraDirIndex then P.auraDirIndex = d.auraDirIndex; SETTINGS.AuraDirection = P.AURA_DIR[P.auraDirIndex].value end
     if d.auraSizeIndex then P.auraSizeIndex = d.auraSizeIndex; SETTINGS.AuraSize = P.AURA_SIZE[P.auraSizeIndex].value end
     if d.auraThickIndex then P.auraThickIndex = d.auraThickIndex; SETTINGS.AuraThickness = P.AURA_THICK[P.auraThickIndex].value end
+    if d.auraHeight then SETTINGS.AuraHeight = d.auraHeight end
+    if d.auraHeightIndex then P.auraHeightIndex = d.auraHeightIndex; SETTINGS.AuraHeight = P.AURA_HEIGHT[P.auraHeightIndex].value end
+    if d.auraShapeScale then SETTINGS.AuraShapeScale = d.auraShapeScale end
+    if d.auraShapeScaleIndex then P.auraShapeScaleIndex = d.auraShapeScaleIndex; SETTINGS.AuraShapeScale = P.AURA_SHAPE_SCALE[P.auraShapeScaleIndex].factor end
+    if d.auraTrailEnabled ~= nil then SETTINGS.AuraTrailEnabled = d.auraTrailEnabled end
+    if d.auraTrailLength then SETTINGS.AuraTrailLength = d.auraTrailLength end
+    if d.auraTrailLengthIndex then P.auraTrailLengthIndex = d.auraTrailLengthIndex; SETTINGS.AuraTrailLength = P.AURA_TRAIL_LEN[P.auraTrailLengthIndex].value end
+    if d.auraTrailWidth then SETTINGS.AuraTrailWidth = d.auraTrailWidth end
+    if d.auraTrailWidthIndex then P.auraTrailWidthIndex = d.auraTrailWidthIndex; SETTINGS.AuraTrailWidth = P.AURA_TRAIL_WID[P.auraTrailWidthIndex].value end
+    if d.auraSpinEnabled ~= nil then SETTINGS.AuraSpinEnabled = d.auraSpinEnabled end
+    if d.auraSpinAxis then SETTINGS.AuraSpinAxis = d.auraSpinAxis end
+    if d.auraSpinSpeed then SETTINGS.AuraSpinSpeed = d.auraSpinSpeed end
+    if d.auraSpinSpeedIndex then P.auraSpinSpeedIndex = d.auraSpinSpeedIndex; SETTINGS.AuraSpinSpeed = P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].value end
+    if d.auraSpinAxisIndex then P.auraSpinAxisIndex = d.auraSpinAxisIndex; SETTINGS.AuraSpinAxis = P.AURA_SPIN_AXIS[P.auraSpinAxisIndex].value end
+    if d.auraPulseEnabled ~= nil then SETTINGS.AuraPulseEnabled = d.auraPulseEnabled end
     if d.autoShapeSwap ~= nil then SETTINGS.AutoShapeSwap = d.autoShapeSwap end
     if d.autoShapeSwapInterval then SETTINGS.AutoShapeSwapInterval = d.autoShapeSwapInterval end
     if d.gradientEnabled ~= nil then SETTINGS.GradientEnabled = d.gradientEnabled end
