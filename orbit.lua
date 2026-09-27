@@ -1,8 +1,8 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА ФИГУР v14.1 (Delta Edition - MESH SUPPORT)      ║
-    ║   + 27 фигур с поддержкой своих мешей                    ║
-    ║   + MESH_CONFIG: впиши ID и получи 3D-модель             ║
+    ║   ОРБИТА ФИГУР v14.2 (Delta Edition - MESH + SMOOTH)     ║
+    ║   + 27 фигур с улучшенными деталями                      ║
+    ║   + MESH_CONFIG для своих 3D-моделей                     ║
     ║   + 7 орбитальных узоров                                 ║
     ║   + Аура вокруг игрока                                   ║
     ║   + Система уведомлений                                  ║
@@ -24,9 +24,7 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
 -- ==================== МЕШИ ====================
--- Впиши сюда настоящие rbxassetid://ЧИСЛО, чтобы заменить процедурные
--- заглушки на реальные 3D-модели. Формат: "rbxassetid://1234567890".
--- Пока ID пуст или не по формату — используется процедурная фигура.
+-- Впиши сюда rbxassetid://ЧИСЛО из публичного ассета. Пока пусто — процедурная фигура.
 local MESH_CONFIG = {
     ["БЛОК"]            = { MeshId = "", TextureId = "" },
     ["ШАР"]             = { MeshId = "", TextureId = "" },
@@ -623,18 +621,41 @@ local function isValidMesh(meshId)
     return type(meshId) == "string" and meshId:match("^rbxassetid://%d+$") ~= nil
 end
 
--- ==================== НОВЫЕ ФИГУРЫ ====================
+-- ==================== УЛУЧШЕННЫЕ ФИГУРЫ ====================
 local function createSword(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    table.insert(bodies, newPart(model, "Blade", Vector3.new(s*0.18, s*3.5, s*0.10), CFrame.new(0, s*0.9, 0), color))
-    table.insert(bodies, newPart(model, "Tip", Vector3.new(s*0.18, s*0.4, s*0.10), CFrame.new(0, s*2.85, 0), color))
-    table.insert(bodies, newPart(model, "Guard", Vector3.new(s*1.4, s*0.15, s*0.20), CFrame.new(0, -s*0.85, 0), color))
-    table.insert(bodies, newPart(model, "Handle", Vector3.new(s*0.20, s*0.9, s*0.20), CFrame.new(0, -s*1.35, 0), color))
-    local pommel = newPart(model, "Pommel", Vector3.new(s*0.30, s*0.30, s*0.30), CFrame.new(0, -s*1.90, 0), color)
-    local m = Instance.new("SpecialMesh"); m.MeshType = Enum.MeshType.Sphere; m.Parent = pommel
-    table.insert(bodies, pommel)
+    local gripColor = Color3.fromRGB(90, 60, 40)
+    local function metalPart(nm, sz, cf, col, noRecolor)
+        local p = newPart(model, nm, sz, cf, col, noRecolor)
+        p.Material = Enum.Material.Metal
+        table.insert(bodies, p)
+        return p
+    end
+    metalPart("Blade", Vector3.new(s*0.16, s*2.9, s*0.09), CFrame.new(0, s*0.75, 0), color)
+    metalPart("Fuller", Vector3.new(s*0.04, s*2.55, s*0.02), CFrame.new(0, s*0.75, s*0.045), Color3.fromRGB(150,160,175), true)
+    local tip = Instance.new("WedgePart")
+    tip.Name = "Tip"; tip.Size = Vector3.new(s*0.16, s*0.55, s*0.09)
+    tip.CFrame = CFrame.new(0, s*2.475, 0) * CFrame.Angles(0, 0, math.rad(180))
+    tip.Anchored = true; tip.CanCollide = false; tip.CastShadow = false
+    tip.Material = Enum.Material.Metal; tip.Color = color; tip.Parent = model
+    table.insert(bodies, tip)
+    metalPart("Guard", Vector3.new(s*1.3, s*0.14, s*0.22), CFrame.new(0, -s*0.75, 0), color)
+    local guardL = metalPart("GuardKnobL", Vector3.new(s*0.17, s*0.17, s*0.17), CFrame.new(-s*0.65, -s*0.75, 0), color)
+    local gkl = Instance.new("SpecialMesh"); gkl.MeshType = Enum.MeshType.Sphere; gkl.Parent = guardL
+    local guardR = metalPart("GuardKnobR", Vector3.new(s*0.17, s*0.17, s*0.17), CFrame.new(s*0.65, -s*0.75, 0), color)
+    local gkr = Instance.new("SpecialMesh"); gkr.MeshType = Enum.MeshType.Sphere; gkr.Parent = guardR
+    local grip = newPart(model, "Handle", Vector3.new(s*0.18, s*0.85, s*0.18), CFrame.new(0, -s*1.2, 0), gripColor, true)
+    grip.Material = Enum.Material.Fabric
+    table.insert(bodies, grip)
+    for i = 1, 4 do
+        local wrap = newPart(model, "Wrap", Vector3.new(s*0.20, s*0.03, s*0.20), CFrame.new(0, -s*(0.85 + i*0.16), 0), Color3.fromRGB(60,40,25), true)
+        wrap.Material = Enum.Material.Fabric
+        table.insert(bodies, wrap)
+    end
+    local pommel = metalPart("Pommel", Vector3.new(s*0.30, s*0.30, s*0.30), CFrame.new(0, -s*1.72, 0), color)
+    local pm = Instance.new("SpecialMesh"); pm.MeshType = Enum.MeshType.Sphere; pm.Parent = pommel
     return model, root, bodies
 end
 
@@ -642,14 +663,41 @@ local function createShield(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local shield = newPart(model, "Base", Vector3.new(s*1.6, s*2.0, s*0.18), CFrame.new(0, 0, 0), color)
-    local m = Instance.new("SpecialMesh"); m.MeshType = Enum.MeshType.Wedge; m.Parent = shield
-    table.insert(bodies, shield)
-    table.insert(bodies, newPart(model, "CrossV", Vector3.new(s*0.15, s*1.5, s*0.22), CFrame.new(0, 0, -s*0.06), color))
-    table.insert(bodies, newPart(model, "CrossH", Vector3.new(s*1.2, s*0.15, s*0.22), CFrame.new(0, s*0.20, -s*0.06), color))
-    local umbo = newPart(model, "Umbo", Vector3.new(s*0.4, s*0.4, s*0.25), CFrame.new(0, 0, -s*0.12), color)
-    local m2 = Instance.new("SpecialMesh"); m2.MeshType = Enum.MeshType.Sphere; m2.Parent = umbo
-    table.insert(bodies, umbo)
+    local rows = 22
+    local H = s * 2.2
+    local maxW = s * 1.5
+    local depth = s * 0.16
+    local roundFrac = 0.24
+    for r = 1, rows do
+        local t = (r - 0.5) / rows
+        local y = H * 0.5 - t * H
+        local width
+        if t < roundFrac then
+            local k = 1 - (t / roundFrac)
+            width = maxW * math.sqrt(math.max(0, 1 - k*k))
+        else
+            local k = (t - roundFrac) / (1 - roundFrac)
+            width = maxW * (1 - k)
+        end
+        if width > s * 0.03 then
+            local p = newPart(model, "Row", Vector3.new(width, (H/rows)*1.08, depth), CFrame.new(0, y, 0), color)
+            p.Material = Enum.Material.Metal
+            table.insert(bodies, p)
+        end
+    end
+    local goldAccent = Color3.fromRGB(230, 190, 70)
+    local crossV = newPart(model, "CrossV", Vector3.new(s*0.14, H*0.72, depth*1.7), CFrame.new(0, s*0.05, -depth*0.45), goldAccent, true)
+    crossV.Material = Enum.Material.Metal; table.insert(bodies, crossV)
+    local crossH = newPart(model, "CrossH", Vector3.new(maxW*0.6, s*0.14, depth*1.7), CFrame.new(0, s*0.35, -depth*0.45), goldAccent, true)
+    crossH.Material = Enum.Material.Metal; table.insert(bodies, crossH)
+    local rim = newPart(model, "Rim", Vector3.new(s*0.08, H*0.98, depth*1.4), CFrame.new(-maxW*0.5, 0, -depth*0.3), goldAccent, true)
+    rim.Material = Enum.Material.Metal; table.insert(bodies, rim)
+    local rim2 = newPart(model, "Rim2", Vector3.new(s*0.08, H*0.98, depth*1.4), CFrame.new(maxW*0.5, 0, -depth*0.3), goldAccent, true)
+    rim2.Material = Enum.Material.Metal; table.insert(bodies, rim2)
+    local boss = newPart(model, "Boss", Vector3.new(s*0.36, s*0.36, s*0.28), CFrame.new(0, s*0.35, -depth*0.55), goldAccent, true)
+    boss.Material = Enum.Material.Metal
+    local bm = Instance.new("SpecialMesh"); bm.MeshType = Enum.MeshType.Sphere; bm.Parent = boss
+    table.insert(bodies, boss)
     return model, root, bodies
 end
 
@@ -657,20 +705,34 @@ local function createCrown(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local ring = newPart(model, "Ring", Vector3.new(s*2.0, s*0.4, s*2.0), CFrame.new(0, 0, 0), color)
-    local m = Instance.new("SpecialMesh"); m.MeshType = Enum.MeshType.Cylinder; m.Parent = ring
-    table.insert(bodies, ring)
-    for i = 1, 7 do
-        local angle = (i - 1) / 7 * math.pi * 2
-        local x = math.cos(angle) * s * 0.85
-        local z = math.sin(angle) * s * 0.85
-        local spike = newPart(model, "Spike", Vector3.new(s*0.25, s*0.7, s*0.20), CFrame.new(x, s*0.5, z), color)
-        local sm = Instance.new("SpecialMesh"); sm.MeshType = Enum.MeshType.Pyramid; sm.Parent = spike
-        table.insert(bodies, spike)
-        local ball = newPart(model, "Ball", Vector3.new(s*0.20, s*0.20, s*0.20), CFrame.new(x, s*0.9, z), color)
-        local bm = Instance.new("SpecialMesh"); bm.MeshType = Enum.MeshType.Sphere; bm.Parent = ball
-        table.insert(bodies, ball)
+    local function metalMesh(nm, sz, cf, col, meshType, noRecolor)
+        local p = newPart(model, nm, sz, cf, col, noRecolor)
+        p.Material = Enum.Material.Metal
+        local mesh = Instance.new("SpecialMesh"); mesh.MeshType = meshType; mesh.Parent = p
+        table.insert(bodies, p); return p
     end
+    metalMesh("Band", Vector3.new(s*0.55, s*1.9, s*1.9), CFrame.Angles(0, 0, math.rad(90)), color, Enum.MeshType.Cylinder)
+    metalMesh("Rim", Vector3.new(s*0.16, s*2.05, s*2.05), CFrame.new(0, -s*0.32, 0) * CFrame.Angles(0, 0, math.rad(90)), color, Enum.MeshType.Cylinder)
+    local points = 6
+    for i = 1, points do
+        local angle = (i - 1) / points * math.pi * 2
+        local x = math.cos(angle) * s * 0.9
+        local z = math.sin(angle) * s * 0.9
+        local main = (i % 2 == 1)
+        local h = main and s * 0.95 or s * 0.55
+        local w = main and s * 0.32 or s * 0.22
+        metalMesh("Spike", Vector3.new(w, h, w), CFrame.new(x, h*0.5 - s*0.1, z), color, Enum.MeshType.Pyramid)
+        if main then
+            local gem = newPart(model, "Gem", Vector3.new(s*0.16, s*0.22, s*0.16), CFrame.new(x, h - s*0.02, z), Color3.fromRGB(200,30,70), true)
+            gem.Material = Enum.Material.Glass
+            local gm = Instance.new("SpecialMesh"); gm.MeshType = Enum.MeshType.Pyramid; gm.Parent = gem
+            table.insert(bodies, gem)
+        end
+    end
+    local mainGem = newPart(model, "MainGem", Vector3.new(s*0.26, s*0.26, s*0.16), CFrame.new(0, 0, s*0.95), Color3.fromRGB(200,30,70), true)
+    mainGem.Material = Enum.Material.Glass
+    local mgm = Instance.new("SpecialMesh"); mgm.MeshType = Enum.MeshType.Sphere; mgm.Parent = mainGem
+    table.insert(bodies, mainGem)
     return model, root, bodies
 end
 
@@ -694,16 +756,26 @@ local function createCrystal(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local main = newPart(model, "Main", Vector3.new(s*0.6, s*2.0, s*0.6), CFrame.new(0, 0, 0), color)
-    local m = Instance.new("SpecialMesh"); m.MeshType = Enum.MeshType.Pyramid; m.Parent = main
-    table.insert(bodies, main)
-    for i = 1, 4 do
-        local angle = (i - 1) / 4 * math.pi * 2
-        local x = math.cos(angle) * s * 0.4
-        local z = math.sin(angle) * s * 0.4
-        local side = newPart(model, "Side", Vector3.new(s*0.3, s*1.2, s*0.3), CFrame.new(x, -s*0.3, z) * CFrame.Angles(math.rad(15), 0, 0), color)
-        local sm = Instance.new("SpecialMesh"); sm.MeshType = Enum.MeshType.Pyramid; sm.Parent = side
-        table.insert(bodies, side)
+    local function shard(nm, sz, cf, col, transp, noRecolor)
+        local p = newPart(model, nm, sz, cf, col, noRecolor)
+        p.Material = Enum.Material.Glass
+        p.Transparency = transp or 0.15
+        local m = Instance.new("SpecialMesh"); m.MeshType = Enum.MeshType.Pyramid; m.Parent = p
+        table.insert(bodies, p); return p
+    end
+    shard("Main", Vector3.new(s*0.55, s*2.1, s*0.55), CFrame.new(0, s*0.15, 0), color, 0.1)
+    local baseCap = newPart(model, "Base", Vector3.new(s*0.7, s*0.3, s*0.7), CFrame.new(0, -s*0.75, 0), color)
+    baseCap.Material = Enum.Material.Glass; baseCap.Transparency = 0.3
+    table.insert(bodies, baseCap)
+    local satellites = 5
+    for i = 1, satellites do
+        local angle = (i - 1) / satellites * math.pi * 2 + 0.3
+        local dist = s * 0.45
+        local x = math.cos(angle) * dist
+        local z = math.sin(angle) * dist
+        local h = s * (0.6 + (i % 3) * 0.25)
+        local tilt = math.rad(18 + (i % 2) * 10)
+        shard("Shard", Vector3.new(s*0.22, h, s*0.22), CFrame.new(x, h*0.5 - s*0.55, z) * CFrame.Angles(tilt*math.cos(angle), 0, tilt*math.sin(angle)), color, 0.15)
     end
     return model, root, bodies
 end
@@ -711,9 +783,24 @@ end
 local function createPyramid(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
-    local pyramid = newPart(model, "Pyr", Vector3.new(size*1.5, size*1.5, size*1.5), CFrame.new(0, 0, 0), color)
-    local m = Instance.new("SpecialMesh"); m.MeshType = Enum.MeshType.Pyramid; m.Parent = pyramid
-    table.insert(bodies, pyramid)
+    local s = size
+    local tiers = 5
+    local totalH = s * 1.8
+    local baseW = s * 1.7
+    local tierH = totalH / tiers
+    for i = 1, tiers do
+        local t = (i - 1) / tiers
+        local w = baseW * (1 - t)
+        local y = -totalH * 0.5 + (i - 0.5) * tierH
+        local block = newPart(model, "Tier", Vector3.new(w, tierH*0.96, w), CFrame.new(0, y, 0), color)
+        block.Material = Enum.Material.Sand
+        table.insert(bodies, block)
+    end
+    local capH = tierH * 0.9
+    local cap = newPart(model, "Capstone", Vector3.new(s*0.22, capH, s*0.22), CFrame.new(0, totalH*0.5 + capH*0.5, 0), Color3.fromRGB(255,220,120), true)
+    cap.Material = Enum.Material.Metal
+    local cm = Instance.new("SpecialMesh"); cm.MeshType = Enum.MeshType.Pyramid; cm.Parent = cap
+    table.insert(bodies, cap)
     return model, root, bodies
 end
 
@@ -758,6 +845,7 @@ local function createYinYang(size, color, name)
                 local px = (cc - (rows + 1) / 2) * pixel
                 local partColor = (col == "white") and whiteColor or blackColor
                 local p = newPart(model, col, Vector3.new(width, pixel, depth), CFrame.new(px, y, 0), partColor, true)
+                p.Material = Enum.Material.SmoothPlastic
                 table.insert(bodies, p)
             else c = c + 1 end
         end
@@ -769,16 +857,27 @@ local function createEye(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local ring = newPart(model, "Ring", Vector3.new(s*1.6, s*0.4, s*1.6), CFrame.new(0, 0, 0), color)
-    local rm = Instance.new("SpecialMesh"); rm.MeshType = Enum.MeshType.Cylinder; rm.Parent = ring
-    table.insert(bodies, ring)
-    local apple = newPart(model, "Apple", Vector3.new(s*1.2, s*0.9, s*1.2), CFrame.new(0, 0, 0), color)
-    local am = Instance.new("SpecialMesh"); am.MeshType = Enum.MeshType.Sphere; am.Parent = apple
-    table.insert(bodies, apple)
-    local pupil = newPart(model, "Pupil", Vector3.new(s*0.4, s*0.4, s*0.4), CFrame.new(0, 0, 0), color)
-    pupil:SetAttribute("NoRecolor", true); pupil.Color = Color3.fromRGB(15, 5, 5)
-    local pm = Instance.new("SpecialMesh"); pm.MeshType = Enum.MeshType.Sphere; pm.Parent = pupil
+    local sclera = newPart(model, "Sclera", Vector3.new(s*1.5, s*1.0, s*0.7), CFrame.new(0, 0, 0), Color3.fromRGB(250,248,245), true)
+    sclera.Material = Enum.Material.SmoothPlastic
+    local scMesh = Instance.new("SpecialMesh"); scMesh.MeshType = Enum.MeshType.Sphere; scMesh.Parent = sclera
+    table.insert(bodies, sclera)
+    local iris = newPart(model, "Iris", Vector3.new(s*0.62, s*0.62, s*0.18), CFrame.new(0, 0, s*0.32) * CFrame.Angles(math.rad(90), 0, 0), color)
+    iris.Material = Enum.Material.SmoothPlastic
+    local irMesh = Instance.new("SpecialMesh"); irMesh.MeshType = Enum.MeshType.Cylinder; irMesh.Parent = iris
+    table.insert(bodies, iris)
+    local pupil = newPart(model, "Pupil", Vector3.new(s*0.28, s*0.28, s*0.11), CFrame.new(0, 0, s*0.40) * CFrame.Angles(math.rad(90), 0, 0), Color3.fromRGB(10,10,12), true)
+    pupil.Material = Enum.Material.SmoothPlastic
+    local puMesh = Instance.new("SpecialMesh"); puMesh.MeshType = Enum.MeshType.Cylinder; puMesh.Parent = pupil
     table.insert(bodies, pupil)
+    local glint = newPart(model, "Glint", Vector3.new(s*0.10, s*0.10, s*0.06), CFrame.new(s*0.14, s*0.14, s*0.46), Color3.fromRGB(255,255,255), true)
+    glint.Material = Enum.Material.Neon
+    local glMesh = Instance.new("SpecialMesh"); glMesh.MeshType = Enum.MeshType.Sphere; glMesh.Parent = glint
+    table.insert(bodies, glint)
+    for _, sign in ipairs({1, -1}) do
+        local lid = newPart(model, "Lid", Vector3.new(s*1.65, s*0.18, s*0.55), CFrame.new(0, sign*s*0.5, s*0.05), Color3.fromRGB(225,205,185), true)
+        lid.Material = Enum.Material.SmoothPlastic
+        table.insert(bodies, lid)
+    end
     return model, root, bodies
 end
 
@@ -786,18 +885,18 @@ local function createRune(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    local outer = newPart(model, "Outer", Vector3.new(s*2.0, s*0.15, s*2.0), CFrame.new(0, 0, 0), color)
-    local om = Instance.new("SpecialMesh"); om.MeshType = Enum.MeshType.Cylinder; om.Parent = outer
-    table.insert(bodies, outer)
-    local inner = newPart(model, "Inner", Vector3.new(s*1.2, s*0.2, s*1.2), CFrame.new(0, 0, 0), color)
-    local im = Instance.new("SpecialMesh"); im.MeshType = Enum.MeshType.Cylinder; im.Parent = inner
-    table.insert(bodies, inner)
-    for i = 1, 6 do
-        local angle = (i - 1) / 6 * math.pi * 2
-        local x = math.cos(angle) * s * 0.8
-        local z = math.sin(angle) * s * 0.8
-        local rod = newPart(model, "Rod", Vector3.new(s*0.08, s*0.25, s*0.4), CFrame.new(x, 0, z) * CFrame.Angles(0, -angle, 0), color)
-        table.insert(bodies, rod)
+    local plate = newPart(model, "Plate", Vector3.new(s*0.5, s*1.9, s*1.9), CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(70,68,66), true)
+    plate.Material = Enum.Material.Slate
+    local pm = Instance.new("SpecialMesh"); pm.MeshType = Enum.MeshType.Cylinder; pm.Parent = plate
+    table.insert(bodies, plate)
+    local t, d = s * 0.09, s * 0.16
+    local top = Vector3.new(0, s*0.78, s*0.1)
+    local mid = Vector3.new(0, -s*0.1, s*0.1)
+    local bottom = Vector3.new(0, -s*0.78, s*0.1)
+    local armL = Vector3.new(-s*0.55, s*0.42, s*0.1)
+    local armR = Vector3.new(s*0.55, s*0.42, s*0.1)
+    for _, seg in ipairs({ { mid, bottom }, { mid, top }, { mid, armL }, { mid, armR } }) do
+        table.insert(bodies, makeRod(model, seg[1], seg[2], t, d, color))
     end
     return model, root, bodies
 end
@@ -806,14 +905,24 @@ local function createSpiral(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    for i = 1, 20 do
-        local t = i / 20
-        local angle = t * math.pi * 4
-        local radius = t * s * 0.9
+    local turns = 3
+    local segments = 48
+    local radius = s * 0.55
+    local height = s * 2.0
+    local thickness = s * 0.10
+    local function point(i)
+        local t = i / segments
+        local angle = t * math.pi * 2 * turns
         local x = math.cos(angle) * radius
         local z = math.sin(angle) * radius
-        local cube = newPart(model, "Seg", Vector3.new(s*0.25, s*0.25, s*0.25), CFrame.new(x, 0, z), color)
-        table.insert(bodies, cube)
+        local y = -height * 0.5 + t * height
+        return Vector3.new(x, y, z)
+    end
+    local prev = point(0)
+    for i = 1, segments do
+        local cur = point(i)
+        table.insert(bodies, makeRod(model, prev, cur, thickness, thickness, color))
+        prev = cur
     end
     return model, root, bodies
 end
@@ -822,14 +931,49 @@ local function createWings(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
+    local function feather(cx, cy, side, len, w, spreadDeg, droopDeg)
+        local cf = CFrame.new(cx, cy, 0)
+            * CFrame.Angles(0, math.rad(side * spreadDeg), 0)
+            * CFrame.Angles(math.rad(-droopDeg), 0, 0)
+            * CFrame.new(0, 0, -len * 0.5)
+        local f = Instance.new("WedgePart")
+        f.Name = "Feather"; f.Size = Vector3.new(w, s*0.06, len); f.CFrame = cf
+        f.Anchored = true; f.CanCollide = false; f.CastShadow = false
+        f.Material = Enum.Material.SmoothPlastic; f.Color = color; f.Parent = model
+        table.insert(bodies, f)
+    end
     for _, side in ipairs({-1, 1}) do
-        for i = 1, 3 do
-            local len = s * (1.6 - (i-1) * 0.3)
-            local feather = newPart(model, "Feather", Vector3.new(s*0.15, s*0.15, len), CFrame.new(side*s*0.4, (i-1)*s*0.3 - s*0.3, 0) * CFrame.Angles(0, math.rad(side*20), 0), color)
-            table.insert(bodies, feather)
+        local boneSegments = 5
+        local prevPos = Vector3.new(side*s*0.15, 0, 0)
+        for seg = 1, boneSegments do
+            local t = seg / boneSegments
+            local arcAngle = t * math.rad(75)
+            local bx = side * (s*0.15 + math.sin(arcAngle) * s*1.5)
+            local by = math.cos(arcAngle) * s * 0.4 + t * s * 0.3
+            local pos = Vector3.new(bx, by, 0)
+            local rod = makeRod(model, prevPos, pos, s*0.16, s*0.12, color)
+            rod.Material = Enum.Material.SmoothPlastic
+            table.insert(bodies, rod)
+            prevPos = pos
         end
-        local base = newPart(model, "Base", Vector3.new(s*0.4, s*0.5, s*0.3), CFrame.new(side*s*0.2, 0, 0), color)
-        table.insert(bodies, base)
+        local primaryCount = 8
+        for i = 1, primaryCount do
+            local t = (i - 1) / (primaryCount - 1)
+            local arcAngle = t * math.rad(75)
+            local bx = side * (s*0.15 + math.sin(arcAngle) * s*1.5)
+            local by = math.cos(arcAngle) * s * 0.4 + t * s * 0.3
+            local len = s * (2.0 - t * 1.2)
+            local w = s * (0.30 - t * 0.13)
+            feather(bx, by, side, len, w, 22 + t * 48, t * 22)
+        end
+        local covertCount = 6
+        for i = 1, covertCount do
+            local t = (i - 1) / (covertCount - 1)
+            local arcAngle = 0.15 + t * math.rad(45)
+            local bx = side * (s*0.15 + math.sin(arcAngle) * s*0.9)
+            local by = (math.cos(arcAngle) * s * 0.25 + t * s * 0.15) * 0.4 + s * 0.15
+            feather(bx, by, side, s * 0.75, s * 0.22, 10 + t * 20, t * 10)
+        end
     end
     return model, root, bodies
 end
@@ -838,15 +982,35 @@ local function createTentacle(size, color, name)
     local model, root = newModelShell(name)
     local bodies = {}
     local s = size
-    for i = 1, 8 do
-        local t = i / 8
-        local angle = t * math.pi * 2
-        local x = math.sin(angle) * t * s * 0.5
-        local y = t * s * 1.8 - s * 0.5
-        local thickness = s * 0.3 * (1 - t * 0.7)
-        local seg = newPart(model, "Seg", Vector3.new(thickness, s*0.3, thickness), CFrame.new(x, y, 0), color)
-        local m = Instance.new("SpecialMesh"); m.MeshType = Enum.MeshType.Sphere; m.Parent = seg
+    local segments = 10
+    local function point(i)
+        local t = i / segments
+        local curl = t * t * math.rad(200)
+        local x = math.sin(curl) * s * 0.9 * t
+        local z = (1 - math.cos(curl)) * s * 0.5 * t
+        local y = -s * 0.9 + t * s * 1.8
+        return Vector3.new(x, y, z), t
+    end
+    local prevPos = point(0)
+    for i = 1, segments do
+        local pos, t = point(i)
+        local thickness = s * 0.42 * (1 - t * 0.75) + s * 0.05
+        local seg = newPart(model, "Seg", Vector3.new(thickness, thickness, thickness), CFrame.new(pos), color)
+        seg.Material = Enum.Material.SmoothPlastic
+        local sm = Instance.new("SpecialMesh"); sm.MeshType = Enum.MeshType.Sphere; sm.Parent = seg
         table.insert(bodies, seg)
+        if i % 2 == 0 and t < 0.85 then
+            local sucker = newPart(model, "Sucker", Vector3.new(thickness*0.55, thickness*0.55, thickness*0.2), CFrame.new(pos) * CFrame.new(0, 0, thickness*0.4), Color3.fromRGB(255,200,210), true)
+            sucker.Material = Enum.Material.SmoothPlastic
+            local suM = Instance.new("SpecialMesh"); suM.MeshType = Enum.MeshType.Cylinder; suM.Parent = sucker
+            table.insert(bodies, sucker)
+        end
+        if i > 1 then
+            local rod = makeRod(model, prevPos, pos, thickness*0.85, thickness*0.85, color)
+            rod.Material = Enum.Material.SmoothPlastic
+            table.insert(bodies, rod)
+        end
+        prevPos = pos
     end
     return model, root, bodies
 end
@@ -1747,7 +1911,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
 title.BackgroundTransparency = 1
-title.Text = "✨ ОРБИТА v14.1 (Delta MESH)"
+title.Text = "✨ ОРБИТА v14.2 (Delta MESH)"
 title.TextColor3 = Color3.fromRGB(200, 200, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 12
@@ -2181,13 +2345,11 @@ applyIdBtn.Activated:Connect(function()
     local ok, err = setMusicId(musicInput.Text)
     if ok then
         applyIdBtn.Text = "✅ Применено!"
-        task.wait(1.2)
-        applyIdBtn.Text = "✅ Применить ID"
+        task.wait(1.2); applyIdBtn.Text = "✅ Применить ID"
         notify("🎵 ID применён", Color3.fromRGB(180, 255, 180))
     else
         applyIdBtn.Text = "❌ " .. (err or "Ошибка")
-        task.wait(1.5)
-        applyIdBtn.Text = "✅ Применить ID"
+        task.wait(1.5); applyIdBtn.Text = "✅ Применить ID"
     end
 end)
 
@@ -2414,7 +2576,7 @@ setEnabled(true)
 refreshSpinSpeedBtn()
 refreshHeartSizeBtn()
 
-notify("✨ ОРБИТА v14.1 (Delta MESH) загружена!", Color3.fromRGB(200, 200, 255), 3)
+notify("✨ ОРБИТА v14.2 (Delta MESH) загружена!", Color3.fromRGB(200, 200, 255), 3)
 
 return {
     Stop = function() setEnabled(false) end,
