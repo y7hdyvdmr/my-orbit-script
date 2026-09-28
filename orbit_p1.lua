@@ -1,11 +1,8 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v20.0 — ULTIMATE EFFECTS EDITION                ║
+    ║   ОРБИТА v20.1 — ULTIMATE EFFECTS EDITION                ║
     ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + ПРЕСЕТЫ                  ║
-    ║   + 60+ эффектов (без фигур)                             ║
-    ║   + Расширенные трейлы ауры                              ║
-    ║   + Кнопки "у всех" в списке людей                       ║
-    ║   + Сохранение только по кнопке (без автосейва)          ║
+    ║   FIX: добавлена ORBIT.P = P (была пропущена)            ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -18,7 +15,7 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v20.0"
+ORBIT.version = "v20.1"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false }
 ORBIT.started = false
 
@@ -60,7 +57,7 @@ end
 ORBIT.getSafeParent = getSafeParent
 ORBIT.protectGui = protectGui
 
--- ==================== НАСТРОЙКИ (много новых для эффектов) ====================
+-- ==================== НАСТРОЙКИ ====================
 ORBIT.DEFAULT_SETTINGS = {
     BlockCount = 8, BaseShapeSize = 1.5, OrbitSpeed = 60, SpinSpeed = 120,
     SpeedMultiplier = 1.0, SpinSpeedMultiplier = 1.0, BobAmplitude = 0.8,
@@ -74,7 +71,6 @@ ORBIT.DEFAULT_SETTINGS = {
     WaveEnabled = false, WaveSpeed = 3.0, WaveLength = 2.0, WaveAmplitude = 2.5,
     ExplosionEnabled = false, ExplosionSpeed = 0.4, ExplosionPower = 0.7,
     HeartScale = 0.65, OrbitPattern = "Круг",
-    -- АУРА
     AuraEnabled = false, AuraType = "Кольцо",
     AuraSize = 3.5, AuraThickness = 0.15,
     AuraColor = Color3.fromRGB(150, 100, 255),
@@ -84,7 +80,6 @@ ORBIT.DEFAULT_SETTINGS = {
     AuraTrailEnabled = false, AuraTrailLength = 0.5, AuraTrailWidth = 0.8,
     AuraSpinEnabled = true, AuraSpinAxis = "Y", AuraSpinSpeed = 60,
     AuraPulseEnabled = false,
-    -- НОВЫЕ ЭФФЕКТЫ
     LightningEnabled = false, LightningRate = 5,
     FireEnabled = false, FireRate = 40, FireColor = Color3.fromRGB(255, 90, 0),
     SmokeEnabled = false, SmokeRate = 20,
@@ -100,11 +95,9 @@ ORBIT.DEFAULT_SETTINGS = {
     StarfieldEnabled = false, StarfieldRadius = 15,
     HaloEnabled = false, HaloRadius = 2,
     SpikesEnabled = false, SpikesCount = 8,
-    -- Сохранение
-    AutoSaveEnabled = false,    -- ВЫКЛЮЧЕНО по просьбе
+    AutoSaveEnabled = false,
     ShowNotifications = true,
     NotificationsDuration = 2,
-    -- Визуал
     RainbowSpeed = 0.15,
     GradientEnabled = false, GradientSpeed = 0.5,
     AutoShapeSwap = false, AutoShapeSwapInterval = 15,
@@ -114,7 +107,6 @@ ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
 -- ==================== ПРЕСЕТЫ ====================
 local P = {}
 
--- Кольца
 P.SPIN_SPEED = {
     {name="0.1x",value=0.1},{name="0.25x",value=0.25},{name="0.5x",value=0.5},
     {name="1x",value=1.0},{name="2x",value=2.0},{name="3x",value=3.0},
@@ -123,7 +115,7 @@ P.SPIN_SPEED = {
 P.spinSpeedIndex = 4
 
 P.SPREAD = {
-    {name="0.5x очень плотно",mult=0.5},{name="1x плотно",mult=1.0},{name="1.5x",mult=1.5},
+    {name="0.5x плотно",mult=0.5},{name="1x плотно",mult=1.0},{name="1.5x",mult=1.5},
     {name="2x средне",mult=2.0},{name="3x широко",mult=3.0},{name="5x максимально",mult=5.0},
     {name="8x огромно",mult=8.0},{name="12x громадно",mult=12.0},
 }
@@ -191,7 +183,6 @@ P.ORBIT_PATTERNS = {
 }
 P.orbitPatternIndex = 1
 
--- Аура
 P.AURA_TYPES = { {name="Кольцо"},{name="Частицы"},{name="Фигуры"},{name="Оба"},{name="Всё"} }
 P.auraTypeIndex = 1
 
@@ -252,7 +243,6 @@ P.COLORS = {
 P.colorIndex = 1
 P.auraColorIndex = 1
 
--- Трейлы обычных колец
 P.TRAIL_LEN = {
     {name="Очень короткий",value=0.15},{name="Короткий",value=0.25},
     {name="Средний",value=0.5},{name="Длинный",value=0.9},
@@ -267,7 +257,6 @@ P.TRAIL_WID = {
 }
 P.trailWidthIndex = 2
 
--- ТРЕЙЛЫ АУРЫ (сильно увеличены)
 P.AURA_TRAIL_LEN = {
     {name="Микро",value=0.1},{name="Очень короткий",value=0.2},{name="Короткий",value=0.35},
     {name="Средний",value=0.6},{name="Длинный",value=1.0},{name="Очень длинный",value=1.8},
@@ -282,7 +271,6 @@ P.AURA_TRAIL_WID = {
 }
 P.auraTrailWidthIndex = 2
 
--- Аура: скорость, направление, размеры
 P.AURA_SPEED = {
     {name="0.05x",value=0.05},{name="0.1x",value=0.1},{name="0.25x",value=0.25},
     {name="0.5x",value=0.5},{name="0.75x",value=0.75},{name="1x",value=1.0},
@@ -331,7 +319,6 @@ P.AURA_SPIN_AXIS = {
 }
 P.auraSpinAxisIndex = 1
 
--- НОВЫЕ ЭФФЕКТЫ: рейты и цвета
 P.LIGHTNING_RATE = {
     {name="Редко (1/сек)",value=1},{name="Норма (3/сек)",value=3},
     {name="Часто (5/сек)",value=5},{name="Очень часто (10/сек)",value=10},
@@ -359,6 +346,9 @@ P.SPARKLES_RATE = {
     {name="Слабо",value=20},{name="Норма",value=40},{name="Ярко",value=80},
 }
 P.sparklesRateIndex = 0
+
+-- ✅ ГЛАВНЫЙ ФИКС — передаём P дальше
+ORBIT.P = P
 
 -- ==================== СОСТОЯНИЕ ====================
 ORBIT.enabled = true
@@ -568,8 +558,8 @@ Instance.new("UICorner", statusLabel).CornerRadius = UDim.new(0, 8)
 
 local BASE_URL = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
 local PARTS = {
-    { num = 2, file = "orbit_p2.lua", desc = "⬇ Часть 2: ФИГУРЫ (24 шт.)" },
-    { num = 3, file = "orbit_p3.lua", desc = "⬇ Часть 3: ЛОГИКА / ЭФФЕКТЫ / ЦИКЛ" },
+    { num = 2, file = "orbit_p2.lua", desc = "⬇ Часть 2: ФИГУРЫ" },
+    { num = 3, file = "orbit_p3.lua", desc = "⬇ Часть 3: ЛОГИКА / ЭФФЕКТЫ" },
     { num = 4, file = "orbit_p4.lua", desc = "⬇ Часть 4: ИНТЕРФЕЙС" },
 }
 
@@ -606,7 +596,7 @@ local verLabel = Instance.new("TextLabel")
 verLabel.Size = UDim2.new(1, -20, 0, 16)
 verLabel.Position = UDim2.new(0, 10, 0, 268)
 verLabel.BackgroundTransparency = 1
-verLabel.Text = "v20.0 • EFFECTS EDITION • " .. tostring(math.floor(tick() % 1000000))
+verLabel.Text = "v20.1 • EFFECTS EDITION"
 verLabel.TextColor3 = Color3.fromRGB(120, 110, 170)
 verLabel.Font = Enum.Font.Gotham
 verLabel.TextSize = 9
@@ -740,6 +730,6 @@ task.spawn(function()
     end
 end)
 
-ORBIT.notify("✨ ОРБИТА v20.0: загружаю части 2-4...", Color3.fromRGB(200, 200, 255), 4)
+ORBIT.notify("✨ ОРБИТА v20.1: загружаю части 2-4...", Color3.fromRGB(200, 200, 255), 4)
 
 return ORBIT
