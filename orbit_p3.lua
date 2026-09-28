@@ -1,4 +1,4 @@
---[[ ОРБИТА v20.0 — ЧАСТЬ 3/4: ЛОГИКА (fire edition) ]]
+--[[ ОРБИТА v20.0 — ЧАСТЬ 3/4: ЛОГИКА (fire + categories) ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -16,6 +16,23 @@ local statsData = ORBIT.statsData
 local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
 if not P then warn("[Orbit P3] P не передан (p1 старая)"); return end
 if not SHAPE_PRESETS then warn("[Orbit P3] Часть 2 не загружена"); return end
+
+-- ==================== КАТЕГОРИИ ФИГУР ====================
+function ORBIT.getShapeIndicesInCategory()
+    local cat = P.SHAPE_CATEGORIES[P.shapeCategoryIndex]
+    if not cat or not cat.shapes then
+        local list = {}
+        for i = 1, #SHAPE_PRESETS do list[i] = i end
+        return list
+    end
+    local list = {}
+    for _, name in ipairs(cat.shapes) do
+        for i, sp in ipairs(SHAPE_PRESETS) do
+            if sp.name == name then table.insert(list, i); break end
+        end
+    end
+    return list
+end
 
 -- ==================== АУРА ====================
 local function getAuraColor(i, total)
@@ -331,7 +348,7 @@ local function updateTargetRings(dt)
                 col = Color3.fromHSV((t*SETTINGS.RainbowSpeed*SETTINGS.SpeedMultiplier + b.index/SETTINGS.BlockCount) % 1, 0.9, 1)
             end
             if b.bodyParts then
-                for _, p in ipairs(bodyParts) do
+                for _, p in ipairs(b.bodyParts) do
                     if not p:GetAttribute("NoRecolor") then p.Color = col end
                 end
             elseif b.part then b.part.Color = col end
@@ -744,6 +761,7 @@ local function collectSaveData()
         heightIndex=P.heightIndex, shapeIndex=ORBIT.shapeIndex, formModeIndex=P.formModeIndex,
         orbitPatternIndex=P.orbitPatternIndex, auraTypeIndex=P.auraTypeIndex,
         auraColorIndex=P.auraColorIndex, auraShapeIndex=ORBIT.auraShapeIndex,
+        shapeCategoryIndex=P.shapeCategoryIndex,
         ringShapes=rs, ringEnabled=re,
         lightEnabled=SETTINGS.LightEnabled, trailEnabled=SETTINGS.TrailEnabled,
         pulseEnabled=SETTINGS.PulseEnabled, showNames=SETTINGS.ShowBlockNames,
@@ -808,6 +826,7 @@ function ORBIT.loadSettings()
     if d.auraTypeIndex then P.auraTypeIndex = d.auraTypeIndex end
     if d.auraColorIndex then P.auraColorIndex = d.auraColorIndex end
     if d.auraShapeIndex then ORBIT.auraShapeIndex = d.auraShapeIndex end
+    if d.shapeCategoryIndex then P.shapeCategoryIndex = d.shapeCategoryIndex end
     if d.spinResetting ~= nil then ORBIT.spinResetting = d.spinResetting end
     if d.spinAxisEnabled ~= nil then ORBIT.spinAxisEnabled = d.spinAxisEnabled end
     if d.spinAxisDir ~= nil then ORBIT.spinAxisDir = d.spinAxisDir end
