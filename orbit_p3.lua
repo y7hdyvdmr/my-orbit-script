@@ -1,4 +1,9 @@
---[[ ОРБИТА v15.3 — ЧАСТЬ 3/4: ЛОГИКА (аура, кольца, цикл) ]]
+--[[
+    ОРБИТА v20.0 — ЧАСТЬ 3/4: ЛОГИКА / ЭФФЕКТЫ / ЦИКЛ
+    + Все эффекты (свет, огонь, дым, снег, конфетти, и т.д.)
+    + Кнопка "У ВСЕХ" в списке людей
+    + Автосейв выключен
+--]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -9,6 +14,7 @@ local Workspace    = ORBIT.Workspace
 local LocalPlayer  = ORBIT.LocalPlayer
 local TweenService = ORBIT.TweenService
 local HttpService  = ORBIT.HttpService
+local Lighting     = ORBIT.Lighting
 
 local SETTINGS = ORBIT.SETTINGS
 local P        = ORBIT.P
@@ -17,6 +23,7 @@ local statsData = ORBIT.statsData
 local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
 if not SHAPE_PRESETS then warn("[Orbit P3] Часть 2 не загружена"); return end
 
+-- ==================== АУРА ====================
 local function getAuraColor(i, total)
     local p = P.COLORS[P.auraColorIndex]
     if p.rainbow then
@@ -102,7 +109,6 @@ function ORBIT.setupAura()
             end
             if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
 
-            -- трейл для фигур ауры
             local trail = nil
             if SETTINGS.AuraTrailEnabled then
                 local span = (data.visualSize or size) * 0.35
@@ -157,18 +163,20 @@ local function updateAura(dt)
     end
 
     if needShapes and #ORBIT.auraBlocks > 0 then
-        -- скорость вращения по орбите
         local auraOrbitSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7
             * SETTINGS.AuraSpeedMult * SETTINGS.AuraDirection
         ORBIT.auraAngle = ORBIT.auraAngle + auraOrbitSpeed * dt
 
-        -- скорость вращения вокруг собственной оси
         if SETTINGS.AuraSpinEnabled then
             ORBIT.auraSpinAngle = ORBIT.auraSpinAngle + SETTINGS.AuraSpinSpeed * SETTINGS.SpeedMultiplier * dt
         end
 
         local radius = SETTINGS.AuraSize
         local height = SETTINGS.AuraHeight
+        local pulseScale = 1.0
+        if SETTINGS.AuraPulseEnabled then
+            pulseScale = 1.0 + math.sin((tick() - ORBIT.startTime) * 3) * 0.2
+        end
 
         for _, data in ipairs(ORBIT.auraBlocks) do
             if not data.part.Parent then continue end
@@ -176,18 +184,36 @@ local function updateAura(dt)
             local pos = hrp.Position + Vector3.new(math.cos(angle)*radius, height, math.sin(angle)*radius)
             local cf
             if SETTINGS.AuraSpinEnabled then
-                if SETTINGS.AuraSpinAxis == "Y" then
+                local ax = SETTINGS.AuraSpinAxis
+                if ax == "Y" then
                     cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
                         * CFrame.Angles(0, math.rad(ORBIT.auraSpinAngle), 0)
-                else -- "X"
+                elseif ax == "X" then
                     cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
                         * CFrame.Angles(math.rad(ORBIT.auraSpinAngle), 0, 0)
+                elseif ax == "XYZ" then
+                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
+                        * CFrame.Angles(math.rad(ORBIT.auraSpinAngle), math.rad(ORBIT.auraSpinAngle), 0)
+                else
+                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
+                        * CFrame.Angles(math.rad(ORBIT.auraSpinAngle), math.rad(ORBIT.auraSpinAngle), 0)
                 end
             else
                 cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
             end
 
-            if data.isModel and data.model then data.model:PivotTo(cf) else data.part.CFrame = cf end
+            if data.isModel and data.model then
+                data.model:PivotTo(cf)
+                if SETTINGS.AuraPulseEnabled then
+                    local cur = data.model:GetAttribute("Scale") or 1
+                    if math.abs(cur - pulseScale) > 0.01 then
+                        data.model:ScaleTo(pulseScale)
+                        data.model:SetAttribute("Scale", pulseScale)
+                    end
+                end
+            else
+                data.part.CFrame = cf
+            end
             local col = getAuraColor(data.index, data.total)
             if data.bodyParts then
                 for _, p in ipairs(data.bodyParts) do
@@ -199,6 +225,239 @@ local function updateAura(dt)
     end
 end
 
+-- ==================== ЭФФЕКТЫ ====================
+function ORBIT.setupEffects()
+    if ORBIT.effectFolder then ORBIT.effectFolder:Destroy(); ORBIT.effectFolder = nil end
+    ORBIT.effectParts = {}
+    if not (SETTINGS.LightningEnabled or SETTINGS.FireEnabled or SETTINGS.SmokeEnabled
+        or SETTINGS.SnowEnabled or SETTINGS.ConfettiEnabled or SETTINGS.SparklesEnabled
+        or SETTINGS.GroundRippleEnabled or SETTINGS.PortalEnabled or SETTINGS.WaveBurstEnabled
+        or SETTINGS.RingPulseEnabled or SETTINGS.BeamEnabled or SETTINGS.StarfieldEnabled
+        or SETTINGS.HaloEnabled or SETTINGS.SpikesEnabled) then return end
+
+    ORBIT.effectFolder = Instance.new("Folder")
+    ORBIT.effectFolder.Name = "OrbitEffects_" .. tostring(math.random(1, 999999))
+    ORBIT.effectFolder.Parent = Workspace
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    -- ОГОНЬ
+    if SETTINGS.FireEnabled then
+        local e = Instance.new("Part")
+        e.Name = "FireEmitter"; e.Size = Vector3.new(2, 2, 2)
+        e.Anchored = true; e.CanCollide = false; e.CastShadow = false
+        e.Transparency = 1; e.Parent = ORBIT.effectFolder
+        local f = Instance.new("Fire")
+        f.Heat = 10; f.Size = 6; f.Color = SETTINGS.FireColor
+        f.Parent = e
+        table.insert(ORBIT.effectParts, e)
+    end
+
+    -- ЧАСТИЦЫ (огонь, дым, снег, конфетти, искры) — через эмиттеры
+    local function addEmitter(name, texture, rate, color, size, speed, spread, lifetime)
+        local e = Instance.new("Part")
+        e.Name = name; e.Size = Vector3.new(0.5, 0.5, 0.5)
+        e.Anchored = true; e.CanCollide = false; e.CastShadow = false
+        e.Transparency = 1; e.Parent = ORBIT.effectFolder
+        local pe = Instance.new("ParticleEmitter")
+        pe.Texture = texture; pe.Rate = rate
+        pe.Lifetime = NumberRange.new(lifetime[1], lifetime[2])
+        pe.Speed = NumberRange.new(speed[1], speed[2])
+        pe.SpreadAngle = spread
+        pe.Size = NumberSequence.new(size)
+        pe.Color = ColorSequence.new(color)
+        pe.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.1),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        pe.RotSpeed = NumberRange.new(-90, 90)
+        pe.Parent = e
+        table.insert(ORBIT.effectParts, e)
+        return e
+    end
+
+    if SETTINGS.SmokeEnabled then
+        addEmitter("SmokeEmitter", "rbxasset://textures/particles/smoke_main.dds",
+            SETTINGS.SmokeRate, Color3.fromRGB(80,80,80),
+            NumberSequence.new({NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 2)}),
+            {1, 3}, Vector2.new(180, 180), {1.5, 3})
+    end
+    if SETTINGS.SnowEnabled then
+        addEmitter("SnowEmitter", "rbxasset://textures/particles/sparkles_main.dds",
+            SETTINGS.SnowRate, Color3.fromRGB(240, 248, 255),
+            NumberSequence.new({NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 0.1)}),
+            {1, 3}, Vector2.new(180, 180), {3, 6})
+    end
+    if SETTINGS.ConfettiEnabled then
+        addEmitter("ConfettiEmitter", "rbxasset://textures/particles/sparkles_main.dds",
+            SETTINGS.ConfettiRate, Color3.fromRGB(255, 100, 200),
+            NumberSequence.new({NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0.1)}),
+            {3, 6}, Vector2.new(180, 180), {2, 4})
+    end
+    if SETTINGS.SparklesEnabled then
+        addEmitter("SparklesEmitter", "rbxasset://textures/particles/sparkles_main.dds",
+            SETTINGS.SparklesRate, Color3.fromRGB(255, 255, 255),
+            NumberSequence.new({NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 0.1)}),
+            {2, 5}, Vector2.new(180, 180), {1, 2})
+    end
+    if SETTINGS.LightningEnabled then
+        addEmitter("LightningEmitter", "rbxasset://textures/particles/sparkles_main.dds",
+            SETTINGS.LightningRate, Color3.fromRGB(200, 220, 255),
+            NumberSequence.new({NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0.1)}),
+            {5, 15}, Vector2.new(180, 180), {0.2, 0.5})
+    end
+    if SETTINGS.WaveBurstEnabled then
+        addEmitter("WaveEmitter", "rbxasset://textures/particles/sparkles_main.dds",
+            SETTINGS.WaveBurstRate, Color3.fromRGB(0, 220, 255),
+            NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 3)}),
+            {10, 20}, Vector2.new(180, 180), {0.5, 1})
+    end
+
+    -- ЗЕМЛЯНОЙ РИППЛ
+    if SETTINGS.GroundRippleEnabled then
+        local r = Instance.new("Part")
+        r.Name = "GroundRipple"; r.Shape = Enum.PartType.Cylinder
+        r.Size = Vector3.new(0.1, SETTINGS.GroundRippleRadius*2, SETTINGS.GroundRippleRadius*2)
+        r.Anchored = true; r.CanCollide = false; r.CastShadow = false
+        r.Material = Enum.Material.Neon; r.Color = Color3.fromRGB(0, 220, 255)
+        r.Transparency = 0.5; r.Parent = ORBIT.effectFolder
+        table.insert(ORBIT.effectParts, r)
+    end
+
+    -- ПОРТАЛ (круг)
+    if SETTINGS.PortalEnabled then
+        local p = Instance.new("Part")
+        p.Name = "Portal"; p.Shape = Enum.PartType.Cylinder
+        p.Size = Vector3.new(0.3, 6, 6)
+        p.Anchored = true; p.CanCollide = false; p.CastShadow = false
+        p.Material = Enum.Material.Neon; p.Color = Color3.fromRGB(150, 100, 255)
+        p.Transparency = 0.4; p.Parent = ORBIT.effectFolder
+        table.insert(ORBIT.effectParts, p)
+    end
+
+    -- КОЛЬЦО-ПУЛЬС
+    if SETTINGS.RingPulseEnabled then
+        for i = 1, 3 do
+            local r = Instance.new("Part")
+            r.Name = "RingPulse" .. i; r.Shape = Enum.PartType.Cylinder
+            r.Size = Vector3.new(0.1, 8, 8)
+            r.Anchored = true; r.CanCollide = false; r.CastShadow = false
+            r.Material = Enum.Material.Neon; r.Color = Color3.fromRGB(0, 255, 220)
+            r.Transparency = 0.3; r.Parent = ORBIT.effectFolder
+            table.insert(ORBIT.effectParts, r)
+        end
+    end
+
+    -- ЛУЧ
+    if SETTINGS.BeamEnabled then
+        local a = Instance.new("Attachment")
+        a.Name = "BeamAttachA"
+        a.Parent = root
+        local b = Instance.new("Attachment")
+        b.Name = "BeamAttachB"; b.Position = Vector3.new(0, 20, 0)
+        b.Parent = root
+        local beam = Instance.new("Beam")
+        beam.Attachment0 = a; beam.Attachment1 = b
+        beam.Width0 = 1; beam.Width1 = 0.5
+        beam.Color = ColorSequence.new(SETTINGS.BeamColor)
+        beam.Transparency = NumberSequence.new(0.3)
+        beam.FaceCamera = true
+        beam.Parent = root
+        table.insert(ORBIT.effectParts, beam)
+    end
+
+    -- ЗВЁЗДЫ
+    if SETTINGS.StarfieldEnabled then
+        local folder = Instance.new("Folder"); folder.Name = "Starfield"; folder.Parent = ORBIT.effectFolder
+        for i = 1, 40 do
+            local s = Instance.new("Part")
+            s.Name = "Star"; s.Shape = Enum.PartType.Ball
+            s.Size = Vector3.new(0.3, 0.3, 0.3)
+            s.Anchored = true; s.CanCollide = false; s.CastShadow = false
+            s.Material = Enum.Material.Neon; s.Color = Color3.fromRGB(255, 255, 220)
+            s.Parent = folder
+            table.insert(ORBIT.effectParts, s)
+        end
+    end
+
+    -- ГАЛО (ореол над головой)
+    if SETTINGS.HaloEnabled then
+        local h = Instance.new("Part")
+        h.Name = "Halo"; h.Shape = Enum.PartType.Cylinder
+        h.Size = Vector3.new(0.1, SETTINGS.HaloRadius*2, SETTINGS.HaloRadius*2)
+        h.Anchored = true; h.CanCollide = false; h.CastShadow = false
+        h.Material = Enum.Material.Neon; h.Color = Color3.fromRGB(255, 220, 80)
+        h.Transparency = 0.2; h.Parent = ORBIT.effectFolder
+        table.insert(ORBIT.effectParts, h)
+    end
+
+    -- ШИПЫ
+    if SETTINGS.SpikesEnabled then
+        for i = 1, SETTINGS.SpikesCount do
+            local angle = (i-1)/SETTINGS.SpikesCount * math.pi * 2
+            local s = Instance.new("Part")
+            s.Name = "Spike"
+            s.Size = Vector3.new(0.3, 2, 0.3)
+            s.Anchored = true; s.CanCollide = false; s.CastShadow = false
+            s.Material = Enum.Material.Neon; s.Color = Color3.fromRGB(255, 60, 60)
+            s.Parent = ORBIT.effectFolder
+            table.insert(ORBIT.effectParts, s)
+        end
+    end
+end
+
+local function updateEffects(dt)
+    if not ORBIT.effectFolder then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local t = tick() - ORBIT.startTime
+
+    for _, part in ipairs(ORBIT.effectParts) do
+        if not part.Parent then continue end
+        if part.Name == "FireEmitter" then
+            part.CFrame = hrp.CFrame
+        elseif part.Name == "SmokeEmitter" or part.Name == "SnowEmitter"
+            or part.Name == "ConfettiEmitter" or part.Name == "SparklesEmitter"
+            or part.Name == "LightningEmitter" or part.Name == "WaveEmitter" then
+            part.CFrame = hrp.CFrame
+        elseif part.Name == "GroundRipple" then
+            local scale = 1 + math.sin(t * 2) * 0.3
+            part.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 3, 0)) * CFrame.Angles(0, 0, math.rad(90))
+                * CFrame.Angles(0, t, 0)
+            part.Size = Vector3.new(0.1, SETTINGS.GroundRippleRadius*2*scale, SETTINGS.GroundRippleRadius*2*scale)
+        elseif part.Name == "Portal" then
+            part.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 3, 0)) * CFrame.Angles(0, t, math.rad(90))
+        elseif part.Name and part.Name:sub(1, 9) == "RingPulse" then
+            local idx = tonumber(part.Name:sub(10)) or 1
+            local scale = ((t * 0.8 + idx * 0.3) % 1) * 3 + 1
+            part.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 2.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
+            part.Size = Vector3.new(0.1, 8 * scale, 8 * scale)
+            part.Transparency = 0.2 + ((t * 0.8 + idx * 0.3) % 1) * 0.6
+        elseif part.Name == "Halo" then
+            part.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 3.5 + math.sin(t * 2) * 0.2, 0))
+                * CFrame.Angles(0, 0, math.rad(90)) * CFrame.Angles(0, t, 0)
+        elseif part.Name == "Star" then
+            local idx = part:GetAttribute("Idx") or 1
+            local a = t * 0.5 + (idx / 40) * math.pi * 2
+            local r = SETTINGS.StarfieldRadius
+            local h = math.sin(t + idx) * 5
+            part.CFrame = CFrame.new(hrp.Position + Vector3.new(math.cos(a) * r, h, math.sin(a) * r))
+        elseif part.Name == "Spike" then
+            local idx = part:GetAttribute("Idx") or 1
+            local a = (idx-1)/SETTINGS.SpikesCount * math.pi * 2 + t
+            local r = 2.5
+            part.CFrame = CFrame.new(hrp.Position + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r))
+                * CFrame.Angles(math.rad(-90), 0, 0)
+        end
+    end
+end
+
+-- ==================== КОЛЬЦА НА ДРУГИХ ====================
 function ORBIT.buildTargetRings(player)
     if ORBIT.targetRings[player] then
         pcall(function() ORBIT.targetRings[player].folder:Destroy() end)
@@ -238,6 +497,34 @@ function ORBIT.removeTargetRings(player)
     if ORBIT.targetRings[player] then
         pcall(function() ORBIT.targetRings[player].folder:Destroy() end)
         ORBIT.targetRings[player] = nil
+    end
+end
+
+function ORBIT.addRingsToAll()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            ORBIT.buildTargetRings(player)
+        end
+    end
+    ORBIT.notify("➕ Кольца ВСЕМ игрокам", Color3.fromRGB(160, 255, 160), 2)
+end
+
+function ORBIT.removeRingsFromAll()
+    local count = 0
+    for player in pairs(ORBIT.targetRings) do
+        ORBIT.removeTargetRings(player)
+        count = count + 1
+    end
+    ORBIT.notify("➖ Убрано у всех (" .. count .. ")", Color3.fromRGB(255, 160, 160), 2)
+end
+
+function ORBIT.toggleAllRings()
+    local any = false
+    for _ in pairs(ORBIT.targetRings) do any = true; break end
+    if any then
+        ORBIT.removeRingsFromAll()
+    else
+        ORBIT.addRingsToAll()
     end
 end
 
@@ -302,6 +589,7 @@ function ORBIT.rebuildAllTargetRings()
     for _, p in ipairs(t) do ORBIT.removeTargetRings(p); ORBIT.buildTargetRings(p) end
 end
 
+-- ==================== УЗОРЫ ====================
 local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
     local pattern = SETTINGS.OrbitPattern
     local t = baseAngle
@@ -324,10 +612,21 @@ local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
     elseif pattern == "Хаос" then
         local r = baseRadius*(0.7 + math.sin(t*7.3+ri)*0.3)
         return math.cos(t)*r, baseHeight + math.sin(t*5.1+ri*2)*3, math.sin(t)*r
+    elseif pattern == "Двойная спираль" then
+        local h1 = baseHeight + math.sin(t*3)*2
+        local h2 = baseHeight - math.sin(t*3)*2
+        return math.cos(t)*baseRadius, h1 + h2, math.sin(t)*baseRadius
+    elseif pattern == "Роза" then
+        local r = baseRadius * math.cos(4*t) * 0.8
+        return math.cos(t)*r, baseHeight, math.sin(t)*r
+    elseif pattern == "Пульс" then
+        local r = baseRadius * (0.8 + math.sin(t*4)*0.2)
+        return math.cos(t)*r, baseHeight, math.sin(t)*r
     end
     return math.cos(t)*baseRadius, baseHeight, math.sin(t)*baseRadius
 end
 
+-- ==================== ДОП. УТИЛИТЫ ====================
 function ORBIT.countActiveLights()
     local count = 0
     for _, ring in pairs(rings) do
@@ -368,8 +667,10 @@ end
 function ORBIT.applyShapes()
     if P.formModeIndex == 1 then
         for ri = 1, 5 do rings[ri].shapeIndex = ORBIT.shapeIndex end
-    else
+    elseif P.formModeIndex == 2 then
         for ri = 1, 5 do rings[ri].shapeIndex = ((ORBIT.shapeIndex + ri - 2) % #SHAPE_PRESETS) + 1 end
+    else
+        for ri = 1, 5 do rings[ri].shapeIndex = ((ORBIT.shapeIndex + ri - 2 + math.floor(math.random(0,3))) % #SHAPE_PRESETS) + 1 end
     end
 end
 
@@ -501,6 +802,7 @@ function ORBIT.rebuildAllRings()
     ORBIT.applyNameVisibility()
 end
 
+-- ==================== ГЛАВНЫЙ ЦИКЛ ====================
 function ORBIT.startUpdateLoop()
     if ORBIT.updateConn then return end
     ORBIT.startTime = tick()
@@ -525,6 +827,7 @@ function ORBIT.startUpdateLoop()
 
         updateAura(dt)
         updateTargetRings(dt)
+        updateEffects(dt)
 
         if SETTINGS.AutoShapeSwap and (tick() - ORBIT.lastAutoSwap) > SETTINGS.AutoShapeSwapInterval then
             ORBIT.lastAutoSwap = tick()
@@ -596,7 +899,7 @@ function ORBIT.startUpdateLoop()
                     if math.abs(data.part.Size.X - sz) > 0.001 then data.part.Size = Vector3.new(sz, sz, sz) end
                 end
                 if SETTINGS.Rainbow then
-                    local hue = (t*0.15*globalMult*ring.speedMult + i/SETTINGS.BlockCount + ring.colorShift) % 1
+                    local hue = (t*SETTINGS.RainbowSpeed*globalMult*ring.speedMult + i/SETTINGS.BlockCount + ring.colorShift) % 1
                     local c = Color3.fromHSV(hue, 0.9, 1)
                     ORBIT.applyColorToBlock(data, c)
                     if data.trail and (now - data.lastTrailUpdate) > 0.1 then
@@ -630,6 +933,7 @@ function ORBIT.setEnabled(state)
         for ri in pairs(rings) do ORBIT.destroyRing(ri) end
         ORBIT.activeLightCount = 0
         if ORBIT.auraFolder then ORBIT.auraFolder:Destroy(); ORBIT.auraFolder = nil end
+        if ORBIT.effectFolder then ORBIT.effectFolder:Destroy(); ORBIT.effectFolder = nil end
         ORBIT.cleanupAllTargetRings()
         ORBIT.notify("🔴 Скрипт выключен", Color3.fromRGB(255,100,100))
     end
@@ -657,10 +961,12 @@ function ORBIT.setupRespawnHook()
             end
             ORBIT.applyColor(); ORBIT.applyNameVisibility()
             ORBIT.setupAura()
+            ORBIT.setupEffects()
         end
     end)
 end
 
+-- ==================== СОХРАНЕНИЕ ====================
 local SAVED_DATA = nil
 
 local function enc(v)
@@ -708,6 +1014,21 @@ local function collectSaveData()
         auraSpinSpeed=SETTINGS.AuraSpinSpeed, auraSpinSpeedIndex=P.auraSpinSpeedIndex,
         auraSpinAxisIndex=P.auraSpinAxisIndex,
         auraPulseEnabled=SETTINGS.AuraPulseEnabled,
+        lightningEnabled=SETTINGS.LightningEnabled, lightningRate=SETTINGS.LightningRate,
+        fireEnabled=SETTINGS.FireEnabled, fireRate=SETTINGS.FireRate,
+        smokeEnabled=SETTINGS.SmokeEnabled, smokeRate=SETTINGS.SmokeRate,
+        snowEnabled=SETTINGS.SnowEnabled, snowRate=SETTINGS.SnowRate,
+        confettiEnabled=SETTINGS.ConfettiEnabled, confettiRate=SETTINGS.ConfettiRate,
+        sparklesEnabled=SETTINGS.SparklesEnabled, sparklesRate=SETTINGS.SparklesRate,
+        groundRippleEnabled=SETTINGS.GroundRippleEnabled, groundRippleRadius=SETTINGS.GroundRippleRadius,
+        portalEnabled=SETTINGS.PortalEnabled, portalSpinSpeed=SETTINGS.PortalSpinSpeed,
+        waveBurstEnabled=SETTINGS.WaveBurstEnabled,
+        ringPulseEnabled=SETTINGS.RingPulseEnabled,
+        beamEnabled=SETTINGS.BeamEnabled,
+        starfieldEnabled=SETTINGS.StarfieldEnabled, starfieldRadius=SETTINGS.StarfieldRadius,
+        haloEnabled=SETTINGS.HaloEnabled, haloRadius=SETTINGS.HaloRadius,
+        spikesEnabled=SETTINGS.SpikesEnabled, spikesCount=SETTINGS.SpikesCount,
+        rainbowSpeed=SETTINGS.RainbowSpeed,
         autoShapeSwap=SETTINGS.AutoShapeSwap, autoShapeSwapInterval=SETTINGS.AutoShapeSwapInterval,
         gradientEnabled=SETTINGS.GradientEnabled,
         spinResetting=ORBIT.spinResetting, spinAxisEnabled=ORBIT.spinAxisEnabled, spinAxisDir=ORBIT.spinAxisDir,
@@ -719,7 +1040,8 @@ end
 function ORBIT.saveSettings()
     SAVED_DATA = collectSaveData()
     if ORBIT.HAS_FS then
-        pcall(function() writefile(ORBIT.SAVE_FILE, HttpService:JSONEncode(enc(SAVED_DATA))) end)
+        local ok = pcall(function() writefile(ORBIT.SAVE_FILE, HttpService:JSONEncode(enc(SAVED_DATA))) end)
+        return ok
     end
     return true
 end
@@ -782,6 +1104,27 @@ function ORBIT.loadSettings()
     if d.auraSpinSpeedIndex then P.auraSpinSpeedIndex = d.auraSpinSpeedIndex; SETTINGS.AuraSpinSpeed = P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].value end
     if d.auraSpinAxisIndex then P.auraSpinAxisIndex = d.auraSpinAxisIndex; SETTINGS.AuraSpinAxis = P.AURA_SPIN_AXIS[P.auraSpinAxisIndex].value end
     if d.auraPulseEnabled ~= nil then SETTINGS.AuraPulseEnabled = d.auraPulseEnabled end
+    if d.lightningEnabled ~= nil then SETTINGS.LightningEnabled = d.lightningEnabled end
+    if d.lightningRate then SETTINGS.LightningRate = d.lightningRate end
+    if d.fireEnabled ~= nil then SETTINGS.FireEnabled = d.fireEnabled end
+    if d.fireRate then SETTINGS.FireRate = d.fireRate end
+    if d.smokeEnabled ~= nil then SETTINGS.SmokeEnabled = d.smokeEnabled end
+    if d.smokeRate then SETTINGS.SmokeRate = d.smokeRate end
+    if d.snowEnabled ~= nil then SETTINGS.SnowEnabled = d.snowEnabled end
+    if d.snowRate then SETTINGS.SnowRate = d.snowRate end
+    if d.confettiEnabled ~= nil then SETTINGS.ConfettiEnabled = d.confettiEnabled end
+    if d.confettiRate then SETTINGS.ConfettiRate = d.confettiRate end
+    if d.sparklesEnabled ~= nil then SETTINGS.SparklesEnabled = d.sparklesEnabled end
+    if d.sparklesRate then SETTINGS.SparklesRate = d.sparklesRate end
+    if d.groundRippleEnabled ~= nil then SETTINGS.GroundRippleEnabled = d.groundRippleEnabled end
+    if d.portalEnabled ~= nil then SETTINGS.PortalEnabled = d.portalEnabled end
+    if d.waveBurstEnabled ~= nil then SETTINGS.WaveBurstEnabled = d.waveBurstEnabled end
+    if d.ringPulseEnabled ~= nil then SETTINGS.RingPulseEnabled = d.ringPulseEnabled end
+    if d.beamEnabled ~= nil then SETTINGS.BeamEnabled = d.beamEnabled end
+    if d.starfieldEnabled ~= nil then SETTINGS.StarfieldEnabled = d.starfieldEnabled end
+    if d.haloEnabled ~= nil then SETTINGS.HaloEnabled = d.haloEnabled end
+    if d.spikesEnabled ~= nil then SETTINGS.SpikesEnabled = d.spikesEnabled end
+    if d.rainbowSpeed then SETTINGS.RainbowSpeed = d.rainbowSpeed end
     if d.autoShapeSwap ~= nil then SETTINGS.AutoShapeSwap = d.autoShapeSwap end
     if d.autoShapeSwapInterval then SETTINGS.AutoShapeSwapInterval = d.autoShapeSwapInterval end
     if d.gradientEnabled ~= nil then SETTINGS.GradientEnabled = d.gradientEnabled end
@@ -815,9 +1158,11 @@ function ORBIT.startLogic()
     ORBIT.setupRespawnHook()
     pcall(function() ORBIT.loadSettings() end)
     ORBIT.setEnabled(true)
+    ORBIT.setupAura()
+    ORBIT.setupEffects()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 3: логика загружена", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 3: логика и эффекты загружены", Color3.fromRGB(180,255,180), 3) end
 
 return true
