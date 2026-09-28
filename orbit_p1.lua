@@ -1,4 +1,9 @@
---[[ ОРБИТА v20.0 — ЧАСТЬ 1/4: ЯДРО (fire edition, стабильная база v15.3) ]]
+--[[
+    ╔══════════════════════════════════════════════════════════╗
+    ║   ОРБИТА v20.0 — FIRE + SHAPE CATEGORIES                 ║
+    ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + КАТЕГОРИИ ФИГУР          ║
+    ╚══════════════════════════════════════════════════════════╝
+--]]
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 local OLD = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (GENV and GENV.ORBIT)
@@ -63,7 +68,6 @@ ORBIT.DEFAULT_SETTINGS = {
     WaveEnabled = false, WaveSpeed = 3.0, WaveLength = 2.0, WaveAmplitude = 2.5,
     ExplosionEnabled = false, ExplosionSpeed = 0.4, ExplosionPower = 0.7,
     HeartScale = 0.65, OrbitPattern = "Круг",
-    -- АУРА
     AuraEnabled = false, AuraSize = 3.5, AuraThickness = 0.15,
     AuraColor = Color3.fromRGB(150, 100, 255),
     AuraRing = true, AuraParticles = false, AuraShapes = false,
@@ -72,13 +76,10 @@ ORBIT.DEFAULT_SETTINGS = {
     AuraTrailEnabled = false, AuraTrailLength = 0.5, AuraTrailWidth = 0.8,
     AuraSpinEnabled = true, AuraSpinAxis = "Y", AuraSpinSpeed = 60,
     AuraPulseEnabled = false,
-    -- ОГОНЬ
     FireEnabled = false, FireColor = Color3.fromRGB(255, 120, 0),
     FireSize = 6, FireHeat = 8,
-    -- Автосейв
     AutoSaveEnabled = false,
-    ShowNotifications = true,
-    NotificationsDuration = 2,
+    ShowNotifications = true, NotificationsDuration = 2,
     RainbowSpeed = 0.15,
     GradientEnabled = false, GradientSpeed = 0.5,
     AutoShapeSwap = false, AutoShapeSwapInterval = 15,
@@ -138,6 +139,17 @@ P.ORBIT_PATTERNS = {
     {name="Зигзаг"},{name="Лиссажу"},{name="Хаос"},
 }
 P.orbitPatternIndex = 1
+
+-- ==================== КАТЕГОРИИ ФИГУР ====================
+P.SHAPE_CATEGORIES = {
+    {name="ВСЕ"},
+    {name="ОСНОВНЫЕ",  shapes={"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"}},
+    {name="ОРУЖИЕ",    shapes={"МЕЧ","ЩИТ","КОРОНА"}},
+    {name="МАГИЯ",     shapes={"ГЛАЗ","РУНА","КРИСТАЛЛ","ИНЬ-ЯН","МОЛНИЯ","ГАСТЕР БЛАСТЕР"}},
+    {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ"}},
+}
+P.shapeCategoryIndex = 1
+
 P.AURA_TYPES = { {name="Кольцо"},{name="Частицы"},{name="Фигуры"},{name="Оба"},{name="Всё"} }
 P.auraTypeIndex = 1
 
@@ -198,7 +210,6 @@ P.TRAIL_WID = {
 }
 P.trailWidthIndex = 2
 
--- БОЛЬШИЕ ТРЕЙЛЫ АУРЫ
 P.AURA_TRAIL_LEN = {
     {name="Микро",value=0.1},{name="Очень короткий",value=0.2},{name="Короткий",value=0.35},
     {name="Средний",value=0.6},{name="Длинный",value=1.0},{name="Очень длинный",value=1.8},
@@ -250,7 +261,6 @@ P.AURA_SPIN_AXIS = {
 }
 P.auraSpinAxisIndex = 1
 
--- ОГОНЬ пресеты
 P.FIRE_SIZE = {
     {name="Маленький",value=3},{name="Средний",value=6},{name="Большой",value=10},
     {name="Огромный",value=16},{name="Адский",value=25},
@@ -406,7 +416,7 @@ ORBIT.start = function()
     ORBIT.notify("⏳ Не все части загружены", Color3.fromRGB(255,200,100), 3)
 end
 
--- ==================== ОКНО ЗАГРУЗЧИКА ====================
+-- ==================== УЛУЧШЕННЫЙ ЗАГРУЗЧИК ====================
 local loaderGui = Instance.new("ScreenGui")
 loaderGui.Name = "_OrbitLoader_" .. tostring(math.random(100000, 999999))
 loaderGui.ResetOnSpawn = false
@@ -418,109 +428,171 @@ local okp = pcall(function() loaderGui.Parent = getSafeParent() end)
 if not okp or not loaderGui.Parent then loaderGui.Parent = PlayerGui end
 GENV._OrbitLoaderGui = loaderGui
 
+-- Фон затемнения
+local backdrop = Instance.new("Frame")
+backdrop.Size = UDim2.new(1, 0, 1, 0)
+backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+backdrop.BackgroundTransparency = 0.5
+backdrop.BorderSizePixel = 0
+backdrop.ZIndex = 1
+backdrop.Parent = loaderGui
+
 local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 340, 0, 340)
-frame.Position = UDim2.new(0.5, -170, 0.5, -170)
-frame.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
+frame.Size = UDim2.new(0, 380, 0, 400)
+frame.Position = UDim2.new(0.5, -190, 0.5, -200)
+frame.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
 frame.BorderSizePixel = 0
+frame.ZIndex = 2
 frame.Parent = loaderGui
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 18)
 local frStroke = Instance.new("UIStroke", frame)
 frStroke.Color = Color3.fromRGB(140, 100, 255)
 frStroke.Thickness = 2
+frStroke.Transparency = 0.2
+
+-- Верхняя полоска градиента
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 6)
+topBar.Position = UDim2.new(0, 0, 0, 0)
+topBar.BackgroundColor3 = Color3.fromRGB(140, 100, 255)
+topBar.BorderSizePixel = 0
+topBar.ZIndex = 3
+topBar.Parent = frame
+Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 18)
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 28)
-title.Position = UDim2.new(0, 0, 0, 10)
+title.Size = UDim2.new(1, 0, 0, 32)
+title.Position = UDim2.new(0, 0, 0, 16)
 title.BackgroundTransparency = 1
 title.Text = "✨ ОРБИТА " .. ORBIT.version
-title.TextColor3 = Color3.fromRGB(220, 200, 255)
+title.TextColor3 = Color3.fromRGB(230, 210, 255)
 title.Font = Enum.Font.GothamBold
-title.TextSize = 15
+title.TextSize = 20
+title.ZIndex = 3
 title.Parent = frame
 
 local subtitle = Instance.new("TextLabel")
 subtitle.Size = UDim2.new(1, -20, 0, 20)
-subtitle.Position = UDim2.new(0, 10, 0, 36)
+subtitle.Position = UDim2.new(0, 10, 0, 48)
 subtitle.BackgroundTransparency = 1
-subtitle.Text = "FIRE EDITION"
+subtitle.Text = "◆ FIRE EDITION ◆"
 subtitle.TextColor3 = Color3.fromRGB(255, 140, 60)
 subtitle.Font = Enum.Font.GothamBold
-subtitle.TextSize = 10
+subtitle.TextSize = 11
+subtitle.ZIndex = 3
 subtitle.Parent = frame
 
+-- Статус в карточке
+local statusCard = Instance.new("Frame")
+statusCard.Size = UDim2.new(1, -30, 0, 70)
+statusCard.Position = UDim2.new(0, 15, 0, 80)
+statusCard.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
+statusCard.BorderSizePixel = 0
+statusCard.ZIndex = 3
+statusCard.Parent = frame
+Instance.new("UICorner", statusCard).CornerRadius = UDim.new(0, 10)
+local scStroke = Instance.new("UIStroke", statusCard)
+scStroke.Color = Color3.fromRGB(80, 60, 140)
+scStroke.Thickness = 1
+scStroke.Transparency = 0.5
+
 local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, -20, 0, 44)
-statusLabel.Position = UDim2.new(0, 10, 0, 60)
-statusLabel.BackgroundColor3 = Color3.fromRGB(12, 12, 20)
-statusLabel.BackgroundTransparency = 0.3
-statusLabel.BorderSizePixel = 0
+statusLabel.Size = UDim2.new(1, -16, 1, -10)
+statusLabel.Position = UDim2.new(0, 8, 0, 5)
+statusLabel.BackgroundTransparency = 1
 statusLabel.TextColor3 = Color3.fromRGB(180, 220, 180)
 statusLabel.Font = Enum.Font.Gotham
 statusLabel.TextSize = 11
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 statusLabel.TextYAlignment = Enum.TextYAlignment.Top
 statusLabel.Text = "  Статус: 1/4 загружено\n  Часть 1: ✅"
-statusLabel.Parent = frame
-Instance.new("UICorner", statusLabel).CornerRadius = UDim.new(0, 8)
+statusLabel.ZIndex = 4
+statusLabel.Parent = statusCard
+
+-- Прогресс-бар
+local progressBG = Instance.new("Frame")
+progressBG.Size = UDim2.new(1, -30, 0, 6)
+progressBG.Position = UDim2.new(0, 15, 0, 158)
+progressBG.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+progressBG.BorderSizePixel = 0
+progressBG.ZIndex = 3
+progressBG.Parent = frame
+Instance.new("UICorner", progressBG).CornerRadius = UDim.new(1, 0)
+
+local progressFill = Instance.new("Frame")
+progressFill.Size = UDim2.new(0.25, 0, 1, 0)
+progressFill.BackgroundColor3 = Color3.fromRGB(140, 100, 255)
+progressFill.BorderSizePixel = 0
+progressFill.ZIndex = 4
+progressFill.Parent = progressBG
+Instance.new("UICorner", progressFill).CornerRadius = UDim.new(1, 0)
 
 local BASE_URL = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
 local PARTS = {
-    { num = 2, file = "orbit_p2.lua", desc = "⬇ Часть 2: ФИГУРЫ" },
-    { num = 3, file = "orbit_p3.lua", desc = "⬇ Часть 3: ЛОГИКА" },
-    { num = 4, file = "orbit_p4.lua", desc = "⬇ Часть 4: ИНТЕРФЕЙС" },
+    { num = 2, file = "orbit_p2.lua", desc = "🎨 Часть 2: ФИГУРЫ (27 шт.)" },
+    { num = 3, file = "orbit_p3.lua", desc = "⚙️ Часть 3: ЛОГИКА + ОГОНЬ" },
+    { num = 4, file = "orbit_p4.lua", desc = "🎮 Часть 4: ИНТЕРФЕЙС" },
 }
 
 local partButtons = {}
-local yStart = 112
+local yStart = 180
 for i, part in ipairs(PARTS) do
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -20, 0, 32)
-    btn.Position = UDim2.new(0, 10, 0, yStart + (i - 1) * 34)
-    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+    btn.Size = UDim2.new(1, -30, 0, 36)
+    btn.Position = UDim2.new(0, 15, 0, yStart + (i - 1) * 42)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
     btn.TextColor3 = Color3.fromRGB(220, 220, 255)
     btn.Font = Enum.Font.GothamBold
     btn.TextSize = 12
     btn.Text = part.desc
     btn.AutoButtonColor = true
+    btn.ZIndex = 3
     btn.Parent = frame
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+    local bst = Instance.new("UIStroke", btn)
+    bst.Color = Color3.fromRGB(80, 80, 120)
+    bst.Thickness = 1
+    bst.Transparency = 0.5
     partButtons[part.num] = btn
 end
 
 local startBtn = Instance.new("TextButton")
-startBtn.Size = UDim2.new(1, -20, 0, 40)
-startBtn.Position = UDim2.new(0, 10, 0, 222)
+startBtn.Size = UDim2.new(1, -30, 0, 44)
+startBtn.Position = UDim2.new(0, 15, 0, 315)
 startBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
 startBtn.TextColor3 = Color3.fromRGB(150, 150, 180)
 startBtn.Font = Enum.Font.GothamBold
-startBtn.TextSize = 14
+startBtn.TextSize = 15
 startBtn.Text = "⏳ Ждём части 2-4..."
 startBtn.AutoButtonColor = true
+startBtn.ZIndex = 3
 startBtn.Parent = frame
-Instance.new("UICorner", startBtn).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", startBtn).CornerRadius = UDim.new(0, 12)
 
 local verLabel = Instance.new("TextLabel")
 verLabel.Size = UDim2.new(1, -20, 0, 16)
-verLabel.Position = UDim2.new(0, 10, 0, 268)
+verLabel.Position = UDim2.new(0, 10, 0, 372)
 verLabel.BackgroundTransparency = 1
-verLabel.Text = "v20.0 • FIRE EDITION"
-verLabel.TextColor3 = Color3.fromRGB(120, 110, 170)
+verLabel.Text = "v20.0 • FIRE EDITION • built " .. os.date("%Y-%m-%d")
+verLabel.TextColor3 = Color3.fromRGB(110, 100, 150)
 verLabel.Font = Enum.Font.Gotham
 verLabel.TextSize = 9
+verLabel.ZIndex = 3
 verLabel.Parent = frame
 
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 26, 0, 26)
-closeBtn.Position = UDim2.new(1, -32, 0, 6)
-closeBtn.BackgroundColor3 = Color3.fromRGB(60, 30, 30)
-closeBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
+closeBtn.Size = UDim2.new(0, 28, 0, 28)
+closeBtn.Position = UDim2.new(1, -38, 0, 10)
+closeBtn.BackgroundColor3 = Color3.fromRGB(70, 35, 35)
+closeBtn.BackgroundTransparency = 0.3
+closeBtn.TextColor3 = Color3.fromRGB(255, 130, 130)
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 14
 closeBtn.Text = "✖"
+closeBtn.ZIndex = 4
 closeBtn.Parent = frame
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
-closeBtn.Activated:Connect(function() frame.Visible = false end)
+closeBtn.Activated:Connect(function() frame.Visible = false; backdrop.Visible = false end)
 
 local function refreshStatus()
     local n = 1
@@ -528,15 +600,17 @@ local function refreshStatus()
     if ORBIT.loaded.p3 then n = n + 1 end
     if ORBIT.loaded.p4 then n = n + 1 end
     local lines = {
-        "  Статус: " .. n .. "/4 загружено",
-        "  Часть 1: ✅" .. (ORBIT.loaded.p2 and "  Часть 2: ✅" or "  Часть 2: ⬜"),
-        "  Часть 3: " .. (ORBIT.loaded.p3 and "✅" or "⬜") .. "  Часть 4: " .. (ORBIT.loaded.p4 and "✅" or "⬜"),
+        "  📦 Статус: " .. n .. "/4 загружено",
+        "  Часть 1: ✅" .. (ORBIT.loaded.p2 and "   Часть 2: ✅" or "   Часть 2: ⬜"),
+        "  Часть 3: " .. (ORBIT.loaded.p3 and "✅" or "⬜") .. "   Часть 4: " .. (ORBIT.loaded.p4 and "✅" or "⬜"),
     }
     statusLabel.Text = table.concat(lines, "\n")
+    progressFill:TweenSize(UDim2.new(n/4, 0, 1, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.3, true)
     if ORBIT.loaded.p2 and ORBIT.loaded.p3 and ORBIT.loaded.p4 then
-        startBtn.Text = "▶ ЗАПУСТИТЬ ОРБИТУ"
-        startBtn.BackgroundColor3 = Color3.fromRGB(50, 100, 60)
+        startBtn.Text = "▶  ЗАПУСТИТЬ ОРБИТУ"
+        startBtn.BackgroundColor3 = Color3.fromRGB(50, 110, 65)
         startBtn.TextColor3 = Color3.fromRGB(180, 255, 180)
+        progressFill.BackgroundColor3 = Color3.fromRGB(80, 220, 100)
     else
         startBtn.Text = "⏳ Ждём части 2-4..."
         startBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
@@ -568,7 +642,7 @@ local function loadPart(part)
             ORBIT.notify("❌ Не удалось скачать часть " .. part.num, Color3.fromRGB(255, 100, 100), 4)
             task.wait(2)
             btn.Text = part.desc
-            btn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+            btn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
             return
         end
 
@@ -580,7 +654,7 @@ local function loadPart(part)
             ORBIT.notify("❌ Compile: " .. tostring(err):sub(1, 90), Color3.fromRGB(255, 100, 100), 6)
             task.wait(3)
             btn.Text = part.desc
-            btn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+            btn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
             return
         end
 
@@ -592,13 +666,13 @@ local function loadPart(part)
             ORBIT.notify("❌ Runtime: " .. tostring(runErr):sub(1, 90), Color3.fromRGB(255, 100, 100), 6)
             task.wait(3)
             btn.Text = part.desc
-            btn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+            btn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
             return
         end
 
         ORBIT.loaded["p" .. part.num] = true
-        btn.Text = "✅ Часть " .. part.num .. " загружена"
-        btn.BackgroundColor3 = Color3.fromRGB(40, 75, 50)
+        btn.Text = "✅ " .. part.desc:gsub("^[^ ]+ ", "")
+        btn.BackgroundColor3 = Color3.fromRGB(40, 80, 55)
         btn.TextColor3 = Color3.fromRGB(180, 255, 180)
         loading[part.num] = nil
         ORBIT.notify("✅ Часть " .. part.num .. " загружена", Color3.fromRGB(160, 255, 180), 3)
@@ -619,8 +693,9 @@ startBtn.Activated:Connect(function()
     if ORBIT.started then return end
     ORBIT.started = true
     startBtn.Text = "▶ Работает"
-    startBtn.BackgroundColor3 = Color3.fromRGB(40, 100, 50)
+    startBtn.BackgroundColor3 = Color3.fromRGB(40, 110, 55)
     task.wait(0.2)
+    backdrop.Visible = false
     frame.Visible = false
     pcall(function() ORBIT.start() end)
 end)
