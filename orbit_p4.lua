@@ -1,4 +1,4 @@
---[[ ОРБИТА v20.1 — ЧАСТЬ 4/4: v15.3 CLASSIC UI + MATRIX BG ]]
+--[[ ОРБИТА v20.1 — ЧАСТЬ 4/4: v15.3 CLASSIC UI + MATRIX BG + HEART ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
@@ -30,7 +30,7 @@ local okp = pcall(function() screenGui.Parent = ORBIT.getSafeParent() end)
 if not okp or not screenGui.Parent then screenGui.Parent = PlayerGui end
 getgenv()._OrbitMainGui = screenGui
 
--- Кнопка открытия (как в 15.3)
+-- Кнопка открытия
 local mainBtn = Instance.new("TextButton")
 mainBtn.Size = UDim2.new(0, 56, 0, 56)
 mainBtn.Position = UDim2.new(0, 20, 0, 100)
@@ -47,7 +47,7 @@ local mainStroke = Instance.new("UIStroke", mainBtn)
 mainStroke.Color = Color3.fromRGB(120, 120, 255)
 mainStroke.Thickness = 1.5
 
--- Панель (как в 15.3)
+-- Панель
 local panel = Instance.new("ScrollingFrame")
 panel.Size = UDim2.new(0, 270, 0, 700)
 panel.Position = UDim2.new(0, 90, 0, 5)
@@ -55,7 +55,7 @@ panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 panel.BackgroundTransparency = 0.15
 panel.BorderSizePixel = 0
 panel.Visible = false
-panel.CanvasSize = UDim2.new(0, 0, 0, 2700)
+panel.CanvasSize = UDim2.new(0, 0, 0, 3500)
 panel.ScrollBarThickness = 3
 panel.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 255)
 panel.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -122,7 +122,7 @@ task.spawn(function()
     end
 end)
 
--- Заголовок (как в 15.3)
+-- Заголовок
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 24)
 title.Position = UDim2.new(0, 0, 0, 8)
@@ -134,7 +134,7 @@ title.TextSize = 12
 title.ZIndex = 2
 title.Parent = panel
 
--- ==================== ХЕЛПЕРЫ (как в 15.3) ====================
+-- ==================== ХЕЛПЕРЫ ====================
 local function makeSection(text, y, color)
     local s = Instance.new("TextLabel")
     s.Size = UDim2.new(1, -20, 0, 20)
@@ -169,7 +169,7 @@ local function makeButton(text, y, h, bgColor, textColor)
     return b
 end
 
--- ==================== СЕКЦИИ UI (всё как в 15.3) ====================
+-- ==================== СЕКЦИИ UI ====================
 makeSection("⚡ ОСНОВНОЕ", 36, Color3.fromRGB(60, 60, 100))
 local toggleBtn     = makeButton("🟢 ВКЛЮЧЕНО", 60, 30, Color3.fromRGB(40,40,55), Color3.fromRGB(0,255,120))
 local allRingsBtn   = makeButton("⭕ Все кольца: ВКЛ", 93, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
@@ -324,10 +324,13 @@ savesLayout.SortOrder = Enum.SortOrder.LayoutOrder
 savesLayout.Padding = UDim.new(0, 4)
 savesLayout.Parent = savesContainer
 
-makeSection("🎵 МУЗЫКА", 3040, Color3.fromRGB(80, 60, 100))
+makeSection("🔧 ДОПОЛНИТЕЛЬНО", 3040, Color3.fromRGB(70, 50, 80))
+local heartSizeBtn  = makeButton("💗 Сердце: 100%", 3064, 30, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200))
+
+makeSection("🎵 МУЗЫКА", 3100, Color3.fromRGB(80, 60, 100))
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
-musicInput.Position = UDim2.new(0, 10, 0, 3064)
+musicInput.Position = UDim2.new(0, 10, 0, 3124)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -343,22 +346,19 @@ Instance.new("UICorner", musicInput).CornerRadius = UDim.new(0, 8)
 local miStroke = Instance.new("UIStroke", musicInput)
 miStroke.Color = Color3.fromRGB(180, 140, 255); miStroke.Thickness = 1
 
-local applyIdBtn = makeButton("✅ Применить ID", 3102, 30, Color3.fromRGB(55,80,55), Color3.fromRGB(180,255,180))
-local musicBtn   = makeButton("🎵 Музыка: ВЫКЛ", 3135, 30, Color3.fromRGB(50,35,60), Color3.fromRGB(220,180,255))
+local applyIdBtn = makeButton("✅ Применить ID", 3162, 30, Color3.fromRGB(55,80,55), Color3.fromRGB(180,255,180))
+local musicBtn   = makeButton("🎵 Музыка: ВЫКЛ", 3195, 30, Color3.fromRGB(50,35,60), Color3.fromRGB(220,180,255))
 
-makeSection("💾 СИСТЕМА", 3172, Color3.fromRGB(60, 60, 80))
-local saveBtn   = makeButton("💾 Сохранить (автослот)", 3196, 30, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
-local loadBtn   = makeButton("📂 Загрузить (автослот)", 3229, 30, Color3.fromRGB(35,50,60), Color3.fromRGB(180,220,255))
-local resetBtn  = makeButton("🔄 Сброс", 3262, 30, Color3.fromRGB(50,30,30), Color3.fromRGB(255,180,180))
-local unloadBtn = makeButton("❌ ВЫГРУЗИТЬ СКРИПТ", 3295, 30, Color3.fromRGB(80,30,30), Color3.fromRGB(255,140,140))
+makeSection("💾 СИСТЕМА", 3232, Color3.fromRGB(60, 60, 80))
+local saveBtn   = makeButton("💾 Сохранить (автослот)", 3256, 30, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
+local loadBtn   = makeButton("📂 Загрузить (автослот)", 3289, 30, Color3.fromRGB(35,50,60), Color3.fromRGB(180,220,255))
+local resetBtn  = makeButton("🔄 Сброс", 3322, 30, Color3.fromRGB(50,30,30), Color3.fromRGB(255,180,180))
+local unloadBtn = makeButton("❌ ВЫГРУЗИТЬ СКРИПТ", 3355, 30, Color3.fromRGB(80,30,30), Color3.fromRGB(255,140,140))
 
--- Обновить CanvasSize
-panel.CanvasSize = UDim2.new(0, 0, 0, 3340)
-
--- ==================== СТАТИСТИКА (как в 15.3) ====================
+makeSection("📊 СТАТИСТИКА", 3392, Color3.fromRGB(60, 60, 90))
 local statsLabel = Instance.new("TextLabel")
-statsLabel.Size = UDim2.new(1, -20, 0, 50)
-statsLabel.Position = UDim2.new(0, 10, 0, 2888)
+statsLabel.Size = UDim2.new(1, -20, 0, 60)
+statsLabel.Position = UDim2.new(0, 10, 0, 3416)
 statsLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 statsLabel.BackgroundTransparency = 0.2
 statsLabel.BorderSizePixel = 0
@@ -372,8 +372,8 @@ statsLabel.ZIndex = 2
 statsLabel.Parent = panel
 Instance.new("UICorner", statsLabel).CornerRadius = UDim.new(0, 6)
 
--- переносим статистику выше музыки
-statsLabel.Position = UDim2.new(0, 10, 0, 2888)
+-- Финал CanvasSize
+panel.CanvasSize = UDim2.new(0, 0, 0, 3490)
 
 -- ==================== ОБРАБОТЧИКИ ====================
 local ringButtons = { [2]=ring2Btn, [3]=ring3Btn, [4]=ring4Btn, [5]=ring5Btn }
@@ -679,6 +679,45 @@ nameBtn.Activated:Connect(function()
     ORBIT.applyNameVisibility()
 end)
 
+-- ==================== КНОПКА СЕРДЦА ====================
+local heartScaleIndex = 4
+if P.HEART_STEPS then
+    for i, v in ipairs(P.HEART_STEPS) do
+        if math.abs(v - SETTINGS.HeartScale) < 0.01 then heartScaleIndex = i; break end
+    end
+end
+
+local function refreshHeartSizeBtn()
+    local pct = math.floor(SETTINGS.HeartScale / 0.65 * 100 + 0.5)
+    heartSizeBtn.Text = "💗 Сердце: " .. pct .. "%"
+    if pct <= 50 then
+        heartSizeBtn.BackgroundColor3 = Color3.fromRGB(45, 35, 60)
+        heartSizeBtn.TextColor3 = Color3.fromRGB(200, 180, 255)
+    elseif pct <= 100 then
+        heartSizeBtn.BackgroundColor3 = Color3.fromRGB(60, 35, 65)
+        heartSizeBtn.TextColor3 = Color3.fromRGB(255, 180, 220)
+    elseif pct <= 200 then
+        heartSizeBtn.BackgroundColor3 = Color3.fromRGB(75, 30, 60)
+        heartSizeBtn.TextColor3 = Color3.fromRGB(255, 160, 210)
+    else
+        heartSizeBtn.BackgroundColor3 = Color3.fromRGB(90, 25, 55)
+        heartSizeBtn.TextColor3 = Color3.fromRGB(255, 130, 200)
+    end
+end
+refreshHeartSizeBtn()
+
+heartSizeBtn.Activated:Connect(function()
+    if not P.HEART_STEPS then return end
+    heartScaleIndex = heartScaleIndex + 1
+    if heartScaleIndex > #P.HEART_STEPS then heartScaleIndex = 1 end
+    SETTINGS.HeartScale = P.HEART_STEPS[heartScaleIndex]
+    refreshHeartSizeBtn()
+    ORBIT.rebuildAllRings()
+    ORBIT.rebuildAllTargetRings()
+    ORBIT.notify("💗 Сердце: " .. math.floor(SETTINGS.HeartScale / 0.65 * 100) .. "%", Color3.fromRGB(255, 180, 220))
+end)
+
+-- ОСТАЛЬНОЕ
 addAllRingsBtn.Activated:Connect(function()
     ORBIT.addRingsToAll()
     task.wait(0.1)
@@ -824,6 +863,7 @@ local function rebuildSavesList()
                 if SETTINGS.ProtEnabled and ORBIT.enableProtection then ORBIT.enableProtection() end
                 shapeCatBtn.Text = "📁 Категория: " .. P.SHAPE_CATEGORIES[P.shapeCategoryIndex].name
                 shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name
+                refreshHeartSizeBtn()
             else
                 ORBIT.notify("❌ Ошибка загрузки", Color3.fromRGB(255,100,100))
             end
@@ -904,6 +944,7 @@ loadBtn.Activated:Connect(function()
         if ORBIT.setupAura then ORBIT.setupAura() end
         if ORBIT.setupFire then ORBIT.setupFire() end
         if SETTINGS.ProtEnabled and ORBIT.enableProtection then ORBIT.enableProtection() end
+        refreshHeartSizeBtn()
     else
         ORBIT.notify("❌ Нет сохранения", Color3.fromRGB(255,100,100))
     end
@@ -983,7 +1024,7 @@ end
 
 rebuildSavesList()
 
--- ==================== УВЕДОМЛЕНИЯ (как в 15.3) ====================
+-- ==================== УВЕДОМЛЕНИЯ ====================
 local notifContainer = Instance.new("Frame")
 notifContainer.Size = UDim2.new(0, 260, 0, 300)
 notifContainer.Position = UDim2.new(1, -280, 0, 50)
@@ -1068,6 +1109,6 @@ ORBIT.start = function()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 4: classic UI + matrix загружен", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 4: classic UI + heart загружен", Color3.fromRGB(180,255,180), 3) end
 
 return true
