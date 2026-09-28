@@ -1,7 +1,7 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v20.0 — FIRE + SHAPE CATEGORIES                 ║
-    ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + КАТЕГОРИИ + TERMINAL UI  ║
+    ║   ОРБИТА v20.1 — MULTI-SAVE + SELF-PROTECTION            ║
+    ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + МУЛЬТИ-СОХРАНЕНИЯ        ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -14,7 +14,7 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v20.0"
+ORBIT.version = "v20.1"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false }
 ORBIT.started = false
 
@@ -35,7 +35,8 @@ ORBIT.TweenService = TweenService
 ORBIT.HttpService = HttpService
 ORBIT.LocalPlayer = LocalPlayer
 ORBIT.PlayerGui = PlayerGui
-ORBIT.SAVE_FILE = "orbit_v20_settings.json"
+ORBIT.SAVE_FILE = "orbit_v20_settings.json"        -- автосейв настроек
+ORBIT.SAVES_FILE = "orbit_v20_saves.json"          -- список сохранений
 ORBIT.HAS_FS = (writefile and readfile and isfile and type(writefile) == "function")
 
 local function getSafeParent()
@@ -83,6 +84,20 @@ ORBIT.DEFAULT_SETTINGS = {
     RainbowSpeed = 0.15,
     GradientEnabled = false, GradientSpeed = 0.5,
     AutoShapeSwap = false, AutoShapeSwapInterval = 15,
+
+    -- ЗАЩИТА
+    ProtEnabled = false,
+    AntiKnockback = true,
+    AntiTeleport = true,
+    AntiFreeze = true,
+    AutoHeal = false,
+    AutoHealValue = 100,
+    AntiVoid = true,
+    AntiVoidY = -50,
+    AntiExplosion = true,
+    AntiFling = true,
+    SavePosOnEnable = false,
+    LockPosition = false,
 }
 ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
 
@@ -140,7 +155,6 @@ P.ORBIT_PATTERNS = {
 }
 P.orbitPatternIndex = 1
 
--- КАТЕГОРИИ ФИГУР
 P.SHAPE_CATEGORIES = {
     {name="ВСЕ"},
     {name="ОСНОВНЫЕ",  shapes={"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"}},
@@ -272,7 +286,6 @@ P.FIRE_HEAT = {
 }
 P.fireHeatIndex = 2
 
--- ✅ КРИТИЧНЫЙ ФИКС
 ORBIT.P = P
 
 -- ==================== СОСТОЯНИЕ ====================
@@ -281,6 +294,7 @@ ORBIT.spinResetting = false
 ORBIT.spinAxisEnabled = true
 ORBIT.spinAxisDir = "X"
 ORBIT.updateConn = nil
+ORBIT.protConn = nil
 ORBIT.startTime = tick()
 ORBIT.activeLightCount = 0
 ORBIT.currentRadius, ORBIT.currentHeight = {}, {}
@@ -302,6 +316,8 @@ ORBIT.fireParts = {}
 ORBIT.shapeIndex = 1
 ORBIT.SHAPE_PRESETS = nil
 ORBIT.RING_STEP = 5
+ORBIT.SAVES = {}            -- { [name] = { data = ..., time = ... } }
+ORBIT.lastSafePos = nil
 
 ORBIT.rings = {
     [1] = {enabled=true,  shapeIndex=1, folder=nil, blocks={}, radiusOffset=0, heightOffset=0,   direction=1,  speedMult=1.0, angleShift=0,   colorShift=0   },
@@ -394,9 +410,30 @@ end
 function ORBIT.getTargetSpeed() return ORBIT.SETTINGS.OrbitSpeed * ORBIT.SETTINGS.SpeedMultiplier end
 function ORBIT.getTargetSpin() return ORBIT.SETTINGS.SpinSpeed * ORBIT.SETTINGS.SpeedMultiplier * ORBIT.SETTINGS.SpinSpeedMultiplier end
 
+-- ==================== ЗАГРУЗКА СПИСКА СОХРАНЕНИЙ ====================
+function ORBIT.loadSavesList()
+    if not ORBIT.HAS_FS then return end
+    pcall(function()
+        if isfile(ORBIT.SAVES_FILE) then
+            local txt = readfile(ORBIT.SAVES_FILE)
+            if txt and #txt > 0 then
+                ORBIT.SAVES = HttpService:JSONDecode(txt) or {}
+            end
+        end
+    end)
+end
+
+function ORBIT.saveSavesList()
+    if not ORBIT.HAS_FS then return false end
+    return pcall(function()
+        writefile(ORBIT.SAVES_FILE, HttpService:JSONEncode(ORBIT.SAVES))
+    end)
+end
+
 -- ==================== ВЫГРУЗКА ====================
 ORBIT.unload = function()
     if ORBIT.updateConn then pcall(function() ORBIT.updateConn:Disconnect() end); ORBIT.updateConn = nil end
+    if ORBIT.protConn then pcall(function() ORBIT.protConn:Disconnect() end); ORBIT.protConn = nil end
     for ri in pairs(ORBIT.rings) do
         local r = ORBIT.rings[ri]
         if r.folder then pcall(function() r.folder:Destroy() end); r.folder = nil end
@@ -416,7 +453,7 @@ ORBIT.start = function()
     ORBIT.notify("⏳ Не все части загружены", Color3.fromRGB(255,200,100), 3)
 end
 
--- ==================== ОКНО ЗАГРУЗЧИКА (TERMINAL STYLE) ====================
+-- ==================== ЗАГРУЗЧИК (терминал) ====================
 local loaderGui = Instance.new("ScreenGui")
 loaderGui.Name = "_OrbitLoader_" .. tostring(math.random(100000, 999999))
 loaderGui.ResetOnSpawn = false
@@ -428,15 +465,12 @@ local okp = pcall(function() loaderGui.Parent = getSafeParent() end)
 if not okp or not loaderGui.Parent then loaderGui.Parent = PlayerGui end
 GENV._OrbitLoaderGui = loaderGui
 
--- Палитра
 local LC_BG      = Color3.fromRGB(10, 18, 14)
-local LC_BG2     = Color3.fromRGB(14, 24, 18)
 local LC_GREEN   = Color3.fromRGB(92, 255, 180)
 local LC_ORANGE  = Color3.fromRGB(255, 168, 79)
 local LC_DIM     = Color3.fromRGB(80, 120, 95)
 local LC_BORDER  = Color3.fromRGB(60, 140, 90)
 
--- Фон затемнения
 local backdrop = Instance.new("Frame")
 backdrop.Size = UDim2.new(1, 0, 1, 0)
 backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -445,7 +479,6 @@ backdrop.BorderSizePixel = 0
 backdrop.ZIndex = 1
 backdrop.Parent = loaderGui
 
--- Главный фрейм
 local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 500, 0, 620)
 frame.Position = UDim2.new(0.5, -250, 0.5, -310)
@@ -460,30 +493,28 @@ frameStroke.Color = LC_BORDER
 frameStroke.Thickness = 1.5
 frameStroke.Transparency = 0.2
 
--- Заголовок
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 52)
 title.Position = UDim2.new(0, 0, 0, 14)
 title.BackgroundTransparency = 1
-title.Text = "ОРБИТА v20.0"
+title.Text = "ОРБИТА " .. ORBIT.version
 title.TextColor3 = LC_GREEN
 title.Font = Enum.Font.Code
-title.TextSize = 34
+title.TextSize = 32
 title.ZIndex = 3
 title.Parent = frame
 
 local subtitle = Instance.new("TextLabel")
 subtitle.Size = UDim2.new(1, 0, 0, 22)
-subtitle.Position = UDim2.new(0, 0, 0, 62)
+subtitle.Position = UDim2.new(0, 0, 0, 60)
 subtitle.BackgroundTransparency = 1
-subtitle.Text = "FIRE EDITION  •  SCRIPT LOADER"
+subtitle.Text = "MULTI-SAVE + SELF-PROTECTION"
 subtitle.TextColor3 = LC_ORANGE
 subtitle.Font = Enum.Font.Code
 subtitle.TextSize = 14
 subtitle.ZIndex = 3
 subtitle.Parent = frame
 
--- Декоративные уголки
 local function makeCorner(x, y, isRight, isBottom)
     local h = Instance.new("Frame")
     h.Size = UDim2.new(0, 30, 0, 2)
@@ -506,7 +537,6 @@ makeCorner(0.98, 0.02, true, false)
 makeCorner(0.02, 0.98, false, true)
 makeCorner(0.98, 0.98, true, true)
 
--- ==================== ТЕРМИНАЛ ====================
 local term = Instance.new("Frame")
 term.Size = UDim2.new(1, -40, 0, 320)
 term.Position = UDim2.new(0, 20, 0, 96)
@@ -585,14 +615,7 @@ consoleLabel.ZIndex = 4
 consoleLabel.Parent = termScroll
 
 local LOG_ENTRIES = {}
-local LOG_COLORS = {
-    INFO = "5CFFB4",
-    WAIT = "FFD966",
-    WARN = "FFA84F",
-    OK   = "80FF80",
-    ERR  = "FF6B6B",
-    SYS  = "8CD0FF",
-}
+local LOG_COLORS = { INFO="5CFFB4", WAIT="FFD966", WARN="FFA84F", OK="80FF80", ERR="FF6B6B", SYS="8CD0FF" }
 local function addLog(kind, text)
     local c = LOG_COLORS[kind] or "5CFFB4"
     table.insert(LOG_ENTRIES, string.format('<font color="#%s">[%s]</font> %s', c, kind, text))
@@ -601,7 +624,6 @@ local function addLog(kind, text)
     termScroll.CanvasPosition = Vector2.new(0, math.max(0, termScroll.AbsoluteCanvasSize.Y - termScroll.AbsoluteWindowSize.Y))
 end
 
--- ==================== ПРОГРЕСС-БАР ====================
 local progHolder = Instance.new("Frame")
 progHolder.Size = UDim2.new(1, -40, 0, 34)
 progHolder.Position = UDim2.new(0, 20, 0, 430)
@@ -631,11 +653,10 @@ progText.TextSize = 14
 progText.ZIndex = 5
 progText.Parent = progHolder
 
--- ==================== КНОПКИ ЧАСТЕЙ ====================
 local BASE_URL = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
 local PARTS = {
     { num = 2, file = "orbit_p2.lua", title = "PART 2", sub = "SHAPES" },
-    { num = 3, file = "orbit_p3.lua", title = "PART 3", sub = "LOGIC+FIRE" },
+    { num = 3, file = "orbit_p3.lua", title = "PART 3", sub = "LOGIC" },
     { num = 4, file = "orbit_p4.lua", title = "PART 4", sub = "INTERFACE" },
 }
 
@@ -677,7 +698,6 @@ for i, part in ipairs(PARTS) do
     partButtons[part.num] = btn
 end
 
--- Кнопка старта
 local startBtn = Instance.new("TextButton")
 startBtn.Size = UDim2.new(1, -40, 0, 50)
 startBtn.Position = UDim2.new(0, 20, 0, 532)
@@ -694,25 +714,6 @@ Instance.new("UICorner", startBtn).CornerRadius = UDim.new(0, 10)
 local stStroke = Instance.new("UIStroke", startBtn)
 stStroke.Color = LC_BORDER; stStroke.Thickness = 1.5; stStroke.Transparency = 0.4
 
-startBtn.MouseButton1Down:Connect(function()
-    if not (ORBIT.loaded.p2 and ORBIT.loaded.p3 and ORBIT.loaded.p4) then return end
-    TweenService:Create(startBtn, TweenInfo.new(0.08), {BackgroundColor3 = LC_GREEN, BackgroundTransparency = 0, TextColor3 = Color3.fromRGB(10, 25, 18)}):Play()
-end)
-startBtn.MouseButton1Up:Connect(function()
-    TweenService:Create(startBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(25, 45, 32), BackgroundTransparency = 0.15, TextColor3 = startBtn.TextColor3}):Play()
-end)
-startBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch and (ORBIT.loaded.p2 and ORBIT.loaded.p3 and ORBIT.loaded.p4) then
-        TweenService:Create(startBtn, TweenInfo.new(0.08), {BackgroundColor3 = LC_GREEN, BackgroundTransparency = 0, TextColor3 = Color3.fromRGB(10, 25, 18)}):Play()
-    end
-end)
-startBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch then
-        TweenService:Create(startBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(25, 45, 32), BackgroundTransparency = 0.15, TextColor3 = startBtn.TextColor3}):Play()
-    end
-end)
-
--- Нижняя статус-полоса
 local statusBar = Instance.new("TextLabel")
 statusBar.Size = UDim2.new(1, -40, 0, 22)
 statusBar.Position = UDim2.new(0, 20, 1, -32)
@@ -729,7 +730,7 @@ local verLabel = Instance.new("TextLabel")
 verLabel.Size = UDim2.new(0, 200, 0, 22)
 verLabel.Position = UDim2.new(1, -210, 1, -32)
 verLabel.BackgroundTransparency = 1
-verLabel.Text = "v20.0 • FIRE EDITION"
+verLabel.Text = ORBIT.version .. " • MULTI-SAVE"
 verLabel.TextColor3 = LC_DIM
 verLabel.Font = Enum.Font.Code
 verLabel.TextSize = 11
@@ -737,7 +738,6 @@ verLabel.TextXAlignment = Enum.TextXAlignment.Right
 verLabel.ZIndex = 3
 verLabel.Parent = frame
 
--- ==================== ЛОГИКА ЗАГРУЗЧИКА ====================
 local function refreshStatus()
     local n = 1
     if ORBIT.loaded.p2 then n = n + 1 end
@@ -758,37 +758,34 @@ local function refreshStatus()
 end
 ORBIT.refreshLoaderStatus = refreshStatus
 
--- Логи старта
 task.spawn(function()
     addLog("SYS", "$ executing orbit_loader.lua...")
     task.wait(0.15)
-    addLog("INFO", "Loading ORBITA v20.0 — FIRE EDITION")
-    addLog("INFO", "Part 1/4: CORE + SETTINGS")
-    addLog("INFO", "Initializing services: Players, RunService...")
+    addLog("INFO", "Loading ORBITA " .. ORBIT.version)
+    addLog("INFO", "Part 1/4: CORE + SETTINGS + MULTI-SAVE")
+    addLog("INFO", "Initializing services...")
     addLog("INFO", "Setting up shape categories...")
-    addLog("INFO", "Creating 5 orbit rings with default config...")
-    addLog("INFO", "Configuring music + notification system...")
+    addLog("INFO", "Loading saved configurations...")
+    ORBIT.loadSavesList()
+    local saveCount = 0
+    for _ in pairs(ORBIT.SAVES) do saveCount = saveCount + 1 end
+    addLog("OK", "Found " .. saveCount .. " save(s) in storage")
+    addLog("INFO", "Setting up protection module...")
     addLog("INFO", "Building loader GUI (500x620)...")
     task.wait(0.25)
-    addLog("WAIT", "Part 2/4: SHAPES — loading 27 figures...")
-    addLog("WAIT", "Part 3/4: LOGIC + FIRE — orbit physics...")
-    addLog("WAIT", "Part 4/4: INTERFACE — main UI panel...")
+    addLog("WAIT", "Part 2/4: SHAPES — loading figures...")
+    addLog("WAIT", "Part 3/4: LOGIC + PROTECTION...")
+    addLog("WAIT", "Part 4/4: INTERFACE — tabbed UI...")
     task.wait(0.15)
-    addLog("WARN", "Parts 2-4 require manual download")
-    addLog("WARN", "Click load buttons in the GUI to continue")
-    task.wait(0.1)
+    addLog("WARN", "Parts 2-4 require download")
     addLog("OK", "Auto-save: DISABLED")
-    addLog("OK", "Notifications: ENABLED")
-    addLog("OK", "Rainbow mode: ON (speed 0.15)")
-    addLog("OK", "Default shape: БЛОК (Neon material)")
-    addLog("OK", "Orbit pattern: Круг | Radius: 8 | Height: 3")
+    addLog("OK", "Multi-save: ENABLED")
+    addLog("OK", "Protection: available in tab")
     task.wait(0.15)
     addLog("INFO", "Github URL configured:")
-    addLog("INFO", "  -> raw.githubusercontent.com/y7hdyvdmr/...")
     addLog("INFO", "  -> orbit_p2.lua orbit_p3.lua orbit_p4.lua")
 end)
 
--- Загрузка частей
 local loading = {}
 local function loadPart(part)
     if loading[part.num] then return end
@@ -808,7 +805,6 @@ local function loadPart(part)
             btn.Text = "❌ ERROR"
             addLog("ERR", "Failed to download " .. part.file)
             loading[part.num] = nil
-            ORBIT.notify("❌ Не удалось скачать часть " .. part.num, Color3.fromRGB(255, 100, 100), 4)
             task.wait(2)
             btn.Text = part.title .. "\n" .. part.sub
             return
@@ -819,7 +815,6 @@ local function loadPart(part)
             btn.Text = "❌ ERROR"
             addLog("ERR", "Compile error: " .. tostring(err):sub(1, 60))
             loading[part.num] = nil
-            ORBIT.notify("❌ Compile: " .. tostring(err):sub(1, 90), Color3.fromRGB(255, 100, 100), 6)
             task.wait(3)
             btn.Text = part.title .. "\n" .. part.sub
             return
@@ -830,7 +825,6 @@ local function loadPart(part)
             btn.Text = "❌ ERROR"
             addLog("ERR", "Runtime error: " .. tostring(runErr):sub(1, 60))
             loading[part.num] = nil
-            ORBIT.notify("❌ Runtime: " .. tostring(runErr):sub(1, 90), Color3.fromRGB(255, 100, 100), 6)
             task.wait(3)
             btn.Text = part.title .. "\n" .. part.sub
             return
@@ -876,6 +870,6 @@ task.spawn(function()
     end
 end)
 
-ORBIT.notify("✨ ОРБИТА v20.0: загружаю части 2-4...", Color3.fromRGB(200, 200, 255), 4)
+ORBIT.notify("✨ ОРБИТА " .. ORBIT.version .. ": загружаю части 2-4...", Color3.fromRGB(200, 200, 255), 4)
 
 return ORBIT
