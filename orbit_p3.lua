@@ -1,4 +1,4 @@
---[[ ОРБИТА v20.0 — ЧАСТЬ 3/4: ЛОГИКА (fire + categories) ]]
+--[[ ОРБИТА v20.1 — ЧАСТЬ 3/4: ЛОГИКА + ЗАЩИТА + МУЛЬТИ-СОХРАНЕНИЯ ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -14,7 +14,7 @@ local P        = ORBIT.P
 local rings    = ORBIT.rings
 local statsData = ORBIT.statsData
 local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
-if not P then warn("[Orbit P3] P не передан (p1 старая)"); return end
+if not P then warn("[Orbit P3] P не передан"); return end
 if not SHAPE_PRESETS then warn("[Orbit P3] Часть 2 не загружена"); return end
 
 -- ==================== КАТЕГОРИИ ФИГУР ====================
@@ -246,6 +246,183 @@ local function updateFire()
     for _, part in ipairs(ORBIT.fireParts) do
         if part.Parent then part.CFrame = hrp.CFrame end
     end
+end
+
+-- ==================== МОДУЛЬ ЗАЩИТЫ ====================
+local PROT_STATE = {
+    lastSafePos = nil,
+    lastCheckTime = 0,
+    lastHealTime = 0,
+}
+
+-- Найти и удалить BodyMover'ы (отброс)
+local function cleanBodyMovers(char)
+    if not char then return end
+    for _, child in ipairs(char:GetDescendants()) do
+        if child:IsA("BodyVelocity") or child:IsA("BodyForce")
+            or child:IsA("BodyAngularVelocity") or child:IsA("BodyGyro")
+            or child:IsA("BodyPosition") or child:IsA("BodyThrust")
+            or child:IsA("LinearVelocity") or child:IsA("AngularVelocity")
+            or child:IsA("VectorForce") or child:IsA("Torque")
+            or child:IsA("AlignPosition") or child:IsA("AlignOrientation") then
+            pcall(function() child:Destroy() end)
+        end
+    end
+    -- Сброс скорости
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            pcall(function()
+                p.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                p.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                p.Velocity = Vector3.new(0, 0, 0)
+                p.RotVelocity = Vector3.new(0, 0, 0)
+            end)
+        end
+    end
+end
+
+-- Anti-Fling: если вращение бешеное — обнулить
+local function antiFling(char, hrp)
+    if not SETTINGS.AntiFling then return end
+    pcall(function()
+        local vel = hrp.AssemblyAngularVelocity
+        if vel.Magnitude > 50 then
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0)
+        end
+        local lin = hrp.AssemblyLinearVelocity
+        if lin.Magnitude > 500 then
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        end
+    end)
+end
+
+-- Anti-Freeze: снять якорь, восстановить скорость
+local function antiFreeze(char)
+    if not SETTINGS.AntiFreeze then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        pcall(function()
+            if hum.WalkSpeed < 1 and hum.WalkSpeed ~= 0 then hum.WalkSpeed = 16 end
+            if hum.WalkSpeed == 0 then hum.WalkSpeed = 16 end
+            if hum.JumpPower < 1 then hum.JumpPower = 50 end
+        end)
+    end
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") and p.Anchored and p.Name ~= "HumanoidRootPart" then
+            pcall(function() p.Anchored = false end)
+        end
+        if p:IsA("BasePart") and p.Name == "HumanoidRootPart" and p.Anchored then
+            pcall(function() p.Anchored = false end)
+        end
+    end
+end
+
+-- Anti-Knockback: удаление BodyMover'ов
+local function antiKnockback(char)
+    if not SETTINGS.AntiKnockback then return end
+    cleanBodyMovers(char)
+end
+
+-- AutoHeal
+local function autoHeal(char)
+    if not SETTINGS.AutoHeal then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health < hum.MaxHealth and hum.Health > 0 then
+        pcall(function()
+            hum.Health = math.min(hum.MaxHealth, hum.Health + SETTINGS.AutoHealValue)
+        end)
+    end
+end
+
+-- Anti-Void: если упал ниже Y-порога — вернуть
+local function antiVoid(char, hrp)
+    if not SETTINGS.AntiVoid then return end
+    if hrp.Position.Y < SETTINGS.AntiVoidY and PROT_STATE.lastSafePos then
+        pcall(function()
+            hrp.CFrame = CFrame.new(PROT_STATE.lastSafePos + Vector3.new(0, 5, 0))
+        end)
+        ORBIT.notify("> Anti-Void: возврат наверх", Color3.fromRGB(120, 220, 255), 1)
+    end
+end
+
+-- Anti-Teleport: если улетел далеко за мгновение — вернуть
+local function antiTeleport(char, hrp)
+    if not SETTINGS.AntiTeleport then return end
+    if not PROT_STATE.lastSafePos then return end
+    local dist = (hrp.Position - PROT_STATE.lastSafePos).Magnitude
+    if dist > 100 then
+        pcall(function() hrp.CFrame = CFrame.new(PROT_STATE.lastSafePos + Vector3.new(0, 3, 0)) end)
+        ORBIT.notify("> Anti-Teleport: возврат", Color3.fromRGB(255, 180, 100), 1)
+    end
+end
+
+-- LockPosition: держит позицию каждые 0.1с
+local function lockPosition(char, hrp)
+    if not SETTINGS.LockPosition then return end
+    if PROT_STATE.lastSafePos then
+        pcall(function()
+            hrp.CFrame = CFrame.new(PROT_STATE.lastSafePos) * CFrame.Angles(0, hrp.Orientation.Y * math.pi / 180, 0)
+        end)
+    end
+end
+
+function ORBIT.enableProtection()
+    if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
+    if not SETTINGS.ProtEnabled then return end
+
+    PROT_STATE.lastSafePos = nil
+    PROT_STATE.lastHealTime = 0
+    PROT_STATE.lastCheckTime = 0
+
+    ORBIT.protConn = RunService.Heartbeat:Connect(function(dt)
+        if not SETTINGS.ProtEnabled then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        -- Обновляем "безопасную" позицию каждые 0.5с
+        local now = tick()
+        if now - PROT_STATE.lastCheckTime > 0.5 then
+            PROT_STATE.lastCheckTime = now
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 and hrp.Position.Y > (SETTINGS.AntiVoidY + 10) then
+                PROT_STATE.lastSafePos = hrp.Position
+            end
+        end
+
+        -- Anti-Fling
+        antiFling(char, hrp)
+
+        -- Anti-Knockback (каждые 0.2с)
+        if now - PROT_STATE.lastHealTime > 0.2 then
+            antiKnockback(char)
+            antiFreeze(char)
+        end
+
+        -- AutoHeal (каждые 0.3с)
+        if SETTINGS.AutoHeal and now - PROT_STATE.lastHealTime > 0.3 then
+            PROT_STATE.lastHealTime = now
+            autoHeal(char)
+        end
+
+        -- Anti-Void
+        antiVoid(char, hrp)
+
+        -- Anti-Teleport
+        antiTeleport(char, hrp)
+
+        -- LockPosition
+        lockPosition(char, hrp)
+    end)
+
+    ORBIT.notify("> Защита включена", Color3.fromRGB(120, 255, 180), 2)
+end
+
+function ORBIT.disableProtection()
+    if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
+    PROT_STATE.lastSafePos = nil
 end
 
 -- ==================== КОЛЬЦА НА ДРУГИХ ====================
@@ -728,12 +905,16 @@ function ORBIT.setupRespawnHook()
             ORBIT.applyColor(); ORBIT.applyNameVisibility()
             ORBIT.setupAura()
             ORBIT.setupFire()
+            if SETTINGS.ProtEnabled then
+                PROT_STATE.lastSafePos = nil
+            end
         end
     end)
 end
 
--- ==================== СОХРАНЕНИЕ ====================
+-- ==================== СОХРАНЕНИЯ (одиночные + мульти) ====================
 local SAVED_DATA = nil
+
 local function enc(v)
     if type(v) == "table" then
         local o = {}; for k, x in pairs(v) do o[k] = enc(x) end; return o
@@ -788,28 +969,16 @@ local function collectSaveData()
         spinResetting=ORBIT.spinResetting, spinAxisEnabled=ORBIT.spinAxisEnabled, spinAxisDir=ORBIT.spinAxisDir,
         spinSpeedIndex=P.spinSpeedIndex, heartScale=SETTINGS.HeartScale,
         musicEnabled=ORBIT.musicEnabled, musicId=ORBIT.savedMusicId, musicVolume=ORBIT.musicVolume,
+        -- защита
+        protEnabled=SETTINGS.ProtEnabled, antiKnockback=SETTINGS.AntiKnockback,
+        antiTeleport=SETTINGS.AntiTeleport, antiFreeze=SETTINGS.AntiFreeze,
+        autoHeal=SETTINGS.AutoHeal, antiVoid=SETTINGS.AntiVoid, antiFling=SETTINGS.AntiFling,
+        antiExplosion=SETTINGS.AntiExplosion, lockPosition=SETTINGS.LockPosition,
     }
 end
 
-function ORBIT.saveSettings()
-    SAVED_DATA = collectSaveData()
-    if ORBIT.HAS_FS then
-        return pcall(function() writefile(ORBIT.SAVE_FILE, HttpService:JSONEncode(enc(SAVED_DATA))) end)
-    end
-    return true
-end
-
-function ORBIT.loadSettings()
-    if not SAVED_DATA and ORBIT.HAS_FS then
-        pcall(function()
-            if isfile(ORBIT.SAVE_FILE) then
-                local txt = readfile(ORBIT.SAVE_FILE)
-                if txt and #txt > 0 then SAVED_DATA = dec(HttpService:JSONDecode(txt)) end
-            end
-        end)
-    end
-    if not SAVED_DATA then return false end
-    local d = SAVED_DATA
+local function applySaveData(d)
+    if not d then return end
     if d.spreadIndex then P.spreadIndex = d.spreadIndex end
     if d.speedIndex then P.speedIndex = d.speedIndex end
     if d.orbitIndex then P.orbitIndex = d.orbitIndex end
@@ -887,10 +1056,72 @@ function ORBIT.loadSettings()
     if d.explosionEnabled ~= nil then SETTINGS.ExplosionEnabled = d.explosionEnabled end
     if d.musicEnabled ~= nil then ORBIT.musicEnabled = d.musicEnabled end
     if d.musicId then ORBIT.savedMusicId = d.musicId; ORBIT.setMusicId(d.musicId) end
+    -- защита
+    if d.protEnabled ~= nil then SETTINGS.ProtEnabled = d.protEnabled end
+    if d.antiKnockback ~= nil then SETTINGS.AntiKnockback = d.antiKnockback end
+    if d.antiTeleport ~= nil then SETTINGS.AntiTeleport = d.antiTeleport end
+    if d.antiFreeze ~= nil then SETTINGS.AntiFreeze = d.antiFreeze end
+    if d.autoHeal ~= nil then SETTINGS.AutoHeal = d.autoHeal end
+    if d.antiVoid ~= nil then SETTINGS.AntiVoid = d.antiVoid end
+    if d.antiFling ~= nil then SETTINGS.AntiFling = d.antiFling end
+    if d.antiExplosion ~= nil then SETTINGS.AntiExplosion = d.antiExplosion end
+    if d.lockPosition ~= nil then SETTINGS.LockPosition = d.lockPosition end
     if P.COLORS[P.auraColorIndex] and P.COLORS[P.auraColorIndex].c then SETTINGS.AuraColor = P.COLORS[P.auraColorIndex].c end
+end
+
+function ORBIT.saveSettings()
+    SAVED_DATA = collectSaveData()
+    if ORBIT.HAS_FS then
+        return pcall(function() writefile(ORBIT.SAVE_FILE, HttpService:JSONEncode(enc(SAVED_DATA))) end)
+    end
     return true
 end
 
+function ORBIT.loadSettings()
+    if not SAVED_DATA and ORBIT.HAS_FS then
+        pcall(function()
+            if isfile(ORBIT.SAVE_FILE) then
+                local txt = readfile(ORBIT.SAVE_FILE)
+                if txt and #txt > 0 then SAVED_DATA = dec(HttpService:JSONDecode(txt)) end
+            end
+        end)
+    end
+    if not SAVED_DATA then return false end
+    applySaveData(SAVED_DATA)
+    return true
+end
+
+-- ==================== МУЛЬТИ-СОХРАНЕНИЯ ====================
+function ORBIT.saveNamed(name)
+    if not name or name == "" then return false, "Пустое имя" end
+    local data = enc(collectSaveData())
+    ORBIT.SAVES[name] = { data = data, time = os.time() }
+    ORBIT.saveSavesList()
+    return true
+end
+
+function ORBIT.loadNamed(name)
+    if not ORBIT.SAVES[name] then return false, "Нет такого сохранения" end
+    local data = dec(ORBIT.SAVES[name].data)
+    applySaveData(data)
+    return true
+end
+
+function ORBIT.deleteNamed(name)
+    if not ORBIT.SAVES[name] then return false, "Нет такого сохранения" end
+    ORBIT.SAVES[name] = nil
+    ORBIT.saveSavesList()
+    return true
+end
+
+function ORBIT.getSaveNames()
+    local names = {}
+    for name, _ in pairs(ORBIT.SAVES) do table.insert(names, name) end
+    table.sort(names)
+    return names
+end
+
+-- ==================== СТАРТ ====================
 function ORBIT.startLogic()
     ORBIT.createMusicSound()
     ORBIT.applyShapes()
@@ -899,9 +1130,10 @@ function ORBIT.startLogic()
     ORBIT.setEnabled(true)
     ORBIT.setupAura()
     ORBIT.setupFire()
+    if SETTINGS.ProtEnabled then ORBIT.enableProtection() end
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 3: логика загружена", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 3: логика + защита загружены", Color3.fromRGB(180,255,180), 3) end
 
 return true
