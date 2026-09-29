@@ -212,7 +212,6 @@ P.COLORS = {
 P.colorIndex = 1
 P.auraColorIndex = 1
 
--- 🔧 ИСПРАВЛЕНО: добавлена таблица шагов размера сердца
 P.HEART_STEPS = {0.2, 0.35, 0.5, 0.65, 0.9, 1.2, 1.6, 2.2}
 
 P.TRAIL_LEN = {
@@ -455,7 +454,7 @@ ORBIT.start = function()
     ORBIT.notify("⏳ Не все части загружены", Color3.fromRGB(255,200,100), 3)
 end
 
--- ==================== ЗАГРУЗЧИК (терминал) ====================
+-- ==================== ЗАГРУЗЧИК ====================
 local loaderGui = Instance.new("ScreenGui")
 loaderGui.Name = "_OrbitLoader_" .. tostring(math.random(100000, 999999))
 loaderGui.ResetOnSpawn = false
