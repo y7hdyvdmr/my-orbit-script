@@ -35,8 +35,8 @@ ORBIT.TweenService = TweenService
 ORBIT.HttpService = HttpService
 ORBIT.LocalPlayer = LocalPlayer
 ORBIT.PlayerGui = PlayerGui
-ORBIT.SAVE_FILE = "orbit_v20_settings.json"        -- автосейв настроек
-ORBIT.SAVES_FILE = "orbit_v20_saves.json"          -- список сохранений
+ORBIT.SAVE_FILE = "orbit_v20_settings.json"
+ORBIT.SAVES_FILE = "orbit_v20_saves.json"
 ORBIT.HAS_FS = (writefile and readfile and isfile and type(writefile) == "function")
 
 local function getSafeParent()
@@ -85,7 +85,6 @@ ORBIT.DEFAULT_SETTINGS = {
     GradientEnabled = false, GradientSpeed = 0.5,
     AutoShapeSwap = false, AutoShapeSwapInterval = 15,
 
-    -- ЗАЩИТА
     ProtEnabled = false,
     AntiKnockback = true,
     AntiTeleport = true,
@@ -213,6 +212,9 @@ P.COLORS = {
 P.colorIndex = 1
 P.auraColorIndex = 1
 
+-- 🔧 ИСПРАВЛЕНО: добавлена таблица шагов размера сердца
+P.HEART_STEPS = {0.2, 0.35, 0.5, 0.65, 0.9, 1.2, 1.6, 2.2}
+
 P.TRAIL_LEN = {
     {name="Короткий",value=0.25},{name="Средний",value=0.5},
     {name="Длинный",value=0.9},{name="Очень длинный",value=1.6},{name="Гигантский",value=2.5},
@@ -316,7 +318,7 @@ ORBIT.fireParts = {}
 ORBIT.shapeIndex = 1
 ORBIT.SHAPE_PRESETS = nil
 ORBIT.RING_STEP = 5
-ORBIT.SAVES = {}            -- { [name] = { data = ..., time = ... } }
+ORBIT.SAVES = {}
 ORBIT.lastSafePos = nil
 
 ORBIT.rings = {
