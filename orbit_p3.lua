@@ -255,7 +255,13 @@ local PROT_STATE = {
     lastHealTime = 0,
 }
 
--- Найти и удалить BodyMover'ы (отброс)
+-- 🔧 ИСПРАВЛЕНО: сохранение оригинальных WalkSpeed / JumpPower
+local ORIG_WS, ORIG_JP = 16, 50
+LocalPlayer.CharacterAdded:Connect(function(c)
+    local h = c:WaitForChild("Humanoid", 5)
+    if h then ORIG_WS, ORIG_JP = h.WalkSpeed, h.JumpPower end
+end)
+
 local function cleanBodyMovers(char)
     if not char then return end
     for _, child in ipairs(char:GetDescendants()) do
@@ -268,7 +274,6 @@ local function cleanBodyMovers(char)
             pcall(function() child:Destroy() end)
         end
     end
-    -- Сброс скорости
     for _, p in ipairs(char:GetDescendants()) do
         if p:IsA("BasePart") then
             pcall(function()
@@ -281,7 +286,6 @@ local function cleanBodyMovers(char)
     end
 end
 
--- Anti-Fling: если вращение бешеное — обнулить
 local function antiFling(char, hrp)
     if not SETTINGS.AntiFling then return end
     pcall(function()
@@ -297,34 +301,28 @@ local function antiFling(char, hrp)
     end)
 end
 
--- Anti-Freeze: снять якорь, восстановить скорость
+-- 🔧 ИСПРАВЛЕНО: восстанавливаем оригинальные значения, не хардкодим 16/50
 local function antiFreeze(char)
     if not SETTINGS.AntiFreeze then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
         pcall(function()
-            if hum.WalkSpeed < 1 and hum.WalkSpeed ~= 0 then hum.WalkSpeed = 16 end
-            if hum.WalkSpeed == 0 then hum.WalkSpeed = 16 end
-            if hum.JumpPower < 1 then hum.JumpPower = 50 end
+            if hum.WalkSpeed < 1 then hum.WalkSpeed = ORIG_WS end
+            if hum.JumpPower < 1 then hum.JumpPower = ORIG_JP end
         end)
     end
     for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") and p.Anchored and p.Name ~= "HumanoidRootPart" then
-            pcall(function() p.Anchored = false end)
-        end
-        if p:IsA("BasePart") and p.Name == "HumanoidRootPart" and p.Anchored then
+        if p:IsA("BasePart") and p.Anchored then
             pcall(function() p.Anchored = false end)
         end
     end
 end
 
--- Anti-Knockback: удаление BodyMover'ов
 local function antiKnockback(char)
     if not SETTINGS.AntiKnockback then return end
     cleanBodyMovers(char)
 end
 
--- AutoHeal
 local function autoHeal(char)
     if not SETTINGS.AutoHeal then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -335,7 +333,6 @@ local function autoHeal(char)
     end
 end
 
--- Anti-Void: если упал ниже Y-порога — вернуть
 local function antiVoid(char, hrp)
     if not SETTINGS.AntiVoid then return end
     if hrp.Position.Y < SETTINGS.AntiVoidY and PROT_STATE.lastSafePos then
@@ -346,18 +343,17 @@ local function antiVoid(char, hrp)
     end
 end
 
--- Anti-Teleport: если улетел далеко за мгновение — вернуть
+-- 🔧 ИСПРАВЛЕНО: порог 250 studs вместо 100
 local function antiTeleport(char, hrp)
     if not SETTINGS.AntiTeleport then return end
     if not PROT_STATE.lastSafePos then return end
     local dist = (hrp.Position - PROT_STATE.lastSafePos).Magnitude
-    if dist > 100 then
+    if dist > 250 then
         pcall(function() hrp.CFrame = CFrame.new(PROT_STATE.lastSafePos + Vector3.new(0, 3, 0)) end)
         ORBIT.notify("> Anti-Teleport: возврат", Color3.fromRGB(255, 180, 100), 1)
     end
 end
 
--- LockPosition: держит позицию каждые 0.1с
 local function lockPosition(char, hrp)
     if not SETTINGS.LockPosition then return end
     if PROT_STATE.lastSafePos then
@@ -367,13 +363,15 @@ local function lockPosition(char, hrp)
     end
 end
 
+-- 🔧 ИСПРАВЛЕНО: правильная частота вызовов + grace-период после спавна
 function ORBIT.enableProtection()
     if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
     if not SETTINGS.ProtEnabled then return end
 
     PROT_STATE.lastSafePos = nil
-    PROT_STATE.lastHealTime = 0
     PROT_STATE.lastCheckTime = 0
+    local kbTimer, healTimer = 0, 0
+    local spawnGrace = tick()
 
     ORBIT.protConn = RunService.Heartbeat:Connect(function(dt)
         if not SETTINGS.ProtEnabled then return end
@@ -382,8 +380,9 @@ function ORBIT.enableProtection()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
 
-        -- Обновляем "безопасную" позицию каждые 0.5с
         local now = tick()
+        local inGrace = (now - spawnGrace) < 2.0
+
         if now - PROT_STATE.lastCheckTime > 0.5 then
             PROT_STATE.lastCheckTime = now
             local hum = char:FindFirstChildOfClass("Humanoid")
@@ -392,29 +391,27 @@ function ORBIT.enableProtection()
             end
         end
 
-        -- Anti-Fling
         antiFling(char, hrp)
 
-        -- Anti-Knockback (каждые 0.2с)
-        if now - PROT_STATE.lastHealTime > 0.2 then
+        kbTimer = kbTimer + dt
+        if kbTimer >= 0.25 then
+            kbTimer = 0
             antiKnockback(char)
             antiFreeze(char)
         end
 
-        -- AutoHeal (каждые 0.3с)
-        if SETTINGS.AutoHeal and now - PROT_STATE.lastHealTime > 0.3 then
-            PROT_STATE.lastHealTime = now
+        healTimer = healTimer + dt
+        if SETTINGS.AutoHeal and healTimer >= 0.3 then
+            healTimer = 0
             autoHeal(char)
         end
 
-        -- Anti-Void
         antiVoid(char, hrp)
 
-        -- Anti-Teleport
-        antiTeleport(char, hrp)
-
-        -- LockPosition
-        lockPosition(char, hrp)
+        if not inGrace then
+            antiTeleport(char, hrp)
+            lockPosition(char, hrp)
+        end
     end)
 
     ORBIT.notify("> Защита включена", Color3.fromRGB(120, 255, 180), 2)
@@ -424,6 +421,14 @@ function ORBIT.disableProtection()
     if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
     PROT_STATE.lastSafePos = nil
 end
+
+-- Anti-Explosion (реализация флага из Part 1)
+Workspace.DescendantAdded:Connect(function(inst)
+    if not SETTINGS.ProtEnabled or not SETTINGS.AntiExplosion then return end
+    if inst:IsA("Explosion") then
+        task.defer(function() pcall(function() inst:Destroy() end) end)
+    end
+end)
 
 -- ==================== КОЛЬЦА НА ДРУГИХ ====================
 function ORBIT.buildTargetRings(player)
@@ -861,6 +866,7 @@ function ORBIT.stopUpdateLoop()
     if ORBIT.updateConn then ORBIT.updateConn:Disconnect(); ORBIT.updateConn = nil end
 end
 
+-- 🔧 ИСПРАВЛЕНО: при выключении скрипта отключаем защиту
 function ORBIT.setEnabled(state)
     ORBIT.enabled = state
     if state then
@@ -873,6 +879,7 @@ function ORBIT.setEnabled(state)
         ORBIT.notify("🟢 Скрипт включён", Color3.fromRGB(100,255,150))
     else
         ORBIT.stopUpdateLoop()
+        if ORBIT.protConn then ORBIT.disableProtection() end
         for ri in pairs(rings) do ORBIT.destroyRing(ri) end
         ORBIT.activeLightCount = 0
         if ORBIT.auraFolder then ORBIT.auraFolder:Destroy(); ORBIT.auraFolder = nil end
@@ -912,7 +919,7 @@ function ORBIT.setupRespawnHook()
     end)
 end
 
--- ==================== СОХРАНЕНИЯ (одиночные + мульти) ====================
+-- ==================== СОХРАНЕНИЯ ====================
 local SAVED_DATA = nil
 
 local function enc(v)
@@ -969,7 +976,6 @@ local function collectSaveData()
         spinResetting=ORBIT.spinResetting, spinAxisEnabled=ORBIT.spinAxisEnabled, spinAxisDir=ORBIT.spinAxisDir,
         spinSpeedIndex=P.spinSpeedIndex, heartScale=SETTINGS.HeartScale,
         musicEnabled=ORBIT.musicEnabled, musicId=ORBIT.savedMusicId, musicVolume=ORBIT.musicVolume,
-        -- защита
         protEnabled=SETTINGS.ProtEnabled, antiKnockback=SETTINGS.AntiKnockback,
         antiTeleport=SETTINGS.AntiTeleport, antiFreeze=SETTINGS.AntiFreeze,
         autoHeal=SETTINGS.AutoHeal, antiVoid=SETTINGS.AntiVoid, antiFling=SETTINGS.AntiFling,
@@ -1056,7 +1062,6 @@ local function applySaveData(d)
     if d.explosionEnabled ~= nil then SETTINGS.ExplosionEnabled = d.explosionEnabled end
     if d.musicEnabled ~= nil then ORBIT.musicEnabled = d.musicEnabled end
     if d.musicId then ORBIT.savedMusicId = d.musicId; ORBIT.setMusicId(d.musicId) end
-    -- защита
     if d.protEnabled ~= nil then SETTINGS.ProtEnabled = d.protEnabled end
     if d.antiKnockback ~= nil then SETTINGS.AntiKnockback = d.antiKnockback end
     if d.antiTeleport ~= nil then SETTINGS.AntiTeleport = d.antiTeleport end
@@ -1067,6 +1072,11 @@ local function applySaveData(d)
     if d.antiExplosion ~= nil then SETTINGS.AntiExplosion = d.antiExplosion end
     if d.lockPosition ~= nil then SETTINGS.LockPosition = d.lockPosition end
     if P.COLORS[P.auraColorIndex] and P.COLORS[P.auraColorIndex].c then SETTINGS.AuraColor = P.COLORS[P.auraColorIndex].c end
+
+    -- 🔧 ДОБАВЛЕНО: восстанавливаем музыку, если была включена
+    if ORBIT.musicEnabled and ORBIT.musicSound and not ORBIT.musicSound.Playing and ORBIT.musicSound.SoundId ~= "" then
+        pcall(function() ORBIT.musicSound:Play() end)
+    end
 end
 
 function ORBIT.saveSettings()
