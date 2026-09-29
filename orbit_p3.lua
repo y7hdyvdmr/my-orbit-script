@@ -1,4 +1,4 @@
---[[ ОРБИТА v20.5 — ЧАСТЬ 3/4: ЛОГИКА + ЗАЩИТА + БОТЫ + КОЛЬЦА ]]
+--[[ ОРБИТА v20.6 — ЧАСТЬ 3/4: ЛОГИКА + УСИЛЕННАЯ ЗАЩИТА + БОТЫ ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -227,24 +227,40 @@ local function updateFire()
     end
 end
 
--- ==================== ЗАЩИТА ====================
-local PROT_STATE = { lastSafePos = nil, lastCheckTime = 0, lastHealTime = 0 }
+-- ==================== УСИЛЕННАЯ ЗАЩИТА ====================
+local PROT_STATE = {
+    lastSafePos = nil,
+    lastSafeCFrame = nil,
+    lastCheckTime = 0,
+    lastHealTime = 0,
+    lastHealth = 100,
+    lastKnockTime = 0,
+    lastFreezeTime = 0,
+    spawnGrace = 0,
+    watchConn = nil,
+}
+
 local ORIG_WS, ORIG_JP = 16, 50
 LocalPlayer.CharacterAdded:Connect(function(c)
     local h = c:WaitForChild("Humanoid", 5)
     if h then ORIG_WS, ORIG_JP = h.WalkSpeed, h.JumpPower end
 end)
 
-local function cleanBodyMovers(char)
+-- Все классы, которые считаем атакующим мусором
+local BAD_CLASSES = {
+    BodyVelocity = true, BodyForce = true, BodyAngularVelocity = true,
+    BodyGyro = true, BodyPosition = true, BodyThrust = true,
+    LinearVelocity = true, AngularVelocity = true, VectorForce = true,
+    Torque = true, AlignPosition = true, AlignOrientation = true,
+}
+
+local function killObject(obj)
+    if not obj or not obj.Parent then return end
+    pcall(function() obj:Destroy() end)
+end
+
+local function resetVelocity(char)
     if not char then return end
-    for _, child in ipairs(char:GetDescendants()) do
-        if child:IsA("BodyVelocity") or child:IsA("BodyForce") or child:IsA("BodyAngularVelocity")
-            or child:IsA("BodyGyro") or child:IsA("BodyPosition") or child:IsA("BodyThrust")
-            or child:IsA("LinearVelocity") or child:IsA("AngularVelocity") or child:IsA("VectorForce")
-            or child:IsA("Torque") or child:IsA("AlignPosition") or child:IsA("AlignOrientation") then
-            pcall(function() child:Destroy() end)
-        end
-    end
     for _, p in ipairs(char:GetDescendants()) do
         if p:IsA("BasePart") then
             pcall(function()
@@ -258,11 +274,10 @@ end
 local function antiFling(char, hrp)
     if not SETTINGS.AntiFling then return end
     pcall(function()
-        if hrp.AssemblyAngularVelocity.Magnitude > 50 then
+        if hrp.AssemblyAngularVelocity.Magnitude > 30 then
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0)
         end
-        if hrp.AssemblyLinearVelocity.Magnitude > 500 then
+        if hrp.AssemblyLinearVelocity.Magnitude > 400 then
             hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         end
     end)
@@ -286,7 +301,52 @@ end
 
 local function antiKnockback(char)
     if not SETTINGS.AntiKnockback then return end
-    cleanBodyMovers(char)
+    for _, child in ipairs(char:GetDescendants()) do
+        if BAD_CLASSES[child.ClassName] then
+            killObject(child)
+        end
+    end
+end
+
+local function antiAnchor(char)
+    if not SETTINGS.ProtEnabled then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp and hrp.Anchored then
+        pcall(function() hrp.Anchored = false end)
+        ORBIT.notify("🛡 Anti-Anchor", Color3.fromRGB(120, 220, 255), 1)
+    end
+end
+
+local function antiInstantKill(char)
+    if not SETTINGS.ProtEnabled then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    if PROT_STATE.lastHealth > 20 and hum.Health < 5 and hum.Health > 0 then
+        if PROT_STATE.lastSafeCFrame then
+            pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame) end)
+            resetVelocity(char)
+            ORBIT.notify("🛡 Anti-Kill", Color3.fromRGB(255, 120, 120), 1.5)
+        end
+    end
+    PROT_STATE.lastHealth = hum.Health
+end
+
+local function antiVoid(char, hrp)
+    if not SETTINGS.AntiVoid then return end
+    if hrp.Position.Y < SETTINGS.AntiVoidY and PROT_STATE.lastSafeCFrame then
+        pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame + Vector3.new(0, 5, 0)) end)
+        ORBIT.notify("> Anti-Void", Color3.fromRGB(120, 220, 255), 1)
+    end
+end
+
+local function antiTeleport(char, hrp)
+    if not SETTINGS.AntiTeleport then return end
+    if not PROT_STATE.lastSafePos then return end
+    if (hrp.Position - PROT_STATE.lastSafePos).Magnitude > 200 then
+        pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame + Vector3.new(0, 2, 0)) end)
+        resetVelocity(char)
+        ORBIT.notify("> Anti-Teleport", Color3.fromRGB(255, 180, 100), 1)
+    end
 end
 
 local function autoHeal(char)
@@ -297,72 +357,104 @@ local function autoHeal(char)
     end
 end
 
-local function antiVoid(char, hrp)
-    if not SETTINGS.AntiVoid then return end
-    if hrp.Position.Y < SETTINGS.AntiVoidY and PROT_STATE.lastSafePos then
-        pcall(function() hrp.CFrame = CFrame.new(PROT_STATE.lastSafePos + Vector3.new(0, 5, 0)) end)
-        ORBIT.notify("> Anti-Void", Color3.fromRGB(120, 220, 255), 1)
-    end
-end
-
-local function antiTeleport(char, hrp)
-    if not SETTINGS.AntiTeleport then return end
-    if not PROT_STATE.lastSafePos then return end
-    if (hrp.Position - PROT_STATE.lastSafePos).Magnitude > 250 then
-        pcall(function() hrp.CFrame = CFrame.new(PROT_STATE.lastSafePos + Vector3.new(0, 3, 0)) end)
-        ORBIT.notify("> Anti-Teleport", Color3.fromRGB(255, 180, 100), 1)
-    end
-end
-
 local function lockPosition(char, hrp)
     if not SETTINGS.LockPosition then return end
-    if PROT_STATE.lastSafePos then
-        pcall(function()
-            hrp.CFrame = CFrame.new(PROT_STATE.lastSafePos) * CFrame.Angles(0, math.rad(hrp.Orientation.Y), 0)
-        end)
+    if PROT_STATE.lastSafeCFrame then
+        pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame) end)
     end
+end
+
+local function processProtection(dt, char, hrp)
+    local now = tick()
+    -- 1. Каждый кадр
+    antiFling(char, hrp)
+    antiAnchor(char)
+    -- 2. Раз в 0.1с
+    if now - PROT_STATE.lastKnockTime >= 0.1 then
+        PROT_STATE.lastKnockTime = now
+        antiKnockback(char)
+    end
+    -- 3. Раз в 0.25с
+    if now - PROT_STATE.lastFreezeTime >= 0.25 then
+        PROT_STATE.lastFreezeTime = now
+        antiFreeze(char)
+    end
+    -- 4. Auto-heal раз в 0.3с
+    if SETTINGS.AutoHeal and now - PROT_STATE.lastHealTime >= 0.3 then
+        PROT_STATE.lastHealTime = now
+        autoHeal(char)
+    end
+    -- 5. Anti-Void / Anti-Teleport
+    local inGrace = (now - PROT_STATE.spawnGrace) < 2.0
+    antiVoid(char, hrp)
+    if not inGrace then
+        antiTeleport(char, hrp)
+        lockPosition(char, hrp)
+    end
+    -- 6. Anti-Kill
+    antiInstantKill(char)
+    -- 7. Обновление safe-позиции раз в 0.5с
+    if now - PROT_STATE.lastCheckTime > 0.5 then
+        PROT_STATE.lastCheckTime = now
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 and hrp.Position.Y > (SETTINGS.AntiVoidY + 10) then
+            PROT_STATE.lastSafePos = hrp.Position
+            PROT_STATE.lastSafeCFrame = hrp.CFrame
+        end
+    end
+end
+
+local function watchCharacter(char)
+    if not char then return end
+    antiKnockback(char)
+    if PROT_STATE.watchConn then pcall(function() PROT_STATE.watchConn:Disconnect() end) end
+    PROT_STATE.watchConn = char.DescendantAdded:Connect(function(obj)
+        if not SETTINGS.ProtEnabled then return end
+        if BAD_CLASSES[obj.ClassName] then
+            task.defer(function() killObject(obj) end)
+        end
+    end)
 end
 
 function ORBIT.enableProtection()
     if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
     if not SETTINGS.ProtEnabled then return end
+
     PROT_STATE.lastSafePos = nil
+    PROT_STATE.lastSafeCFrame = nil
     PROT_STATE.lastCheckTime = 0
-    local kbTimer, healTimer = 0, 0
-    local spawnGrace = tick()
+    PROT_STATE.lastHealTime = 0
+    PROT_STATE.lastHealth = 100
+    PROT_STATE.lastKnockTime = 0
+    PROT_STATE.lastFreezeTime = 0
+    PROT_STATE.spawnGrace = tick()
+
+    if LocalPlayer.Character then watchCharacter(LocalPlayer.Character) end
+    LocalPlayer.CharacterAdded:Connect(function(newChar)
+        PROT_STATE.spawnGrace = tick()
+        PROT_STATE.lastSafePos = nil
+        PROT_STATE.lastSafeCFrame = nil
+        task.wait(0.3)
+        watchCharacter(newChar)
+    end)
+
     ORBIT.protConn = RunService.Heartbeat:Connect(function(dt)
         if not SETTINGS.ProtEnabled then return end
         local char = LocalPlayer.Character
         if not char then return end
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
-        local now = tick()
-        local inGrace = (now - spawnGrace) < 2.0
-        if now - PROT_STATE.lastCheckTime > 0.5 then
-            PROT_STATE.lastCheckTime = now
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health > 0 and hrp.Position.Y > (SETTINGS.AntiVoidY + 10) then
-                PROT_STATE.lastSafePos = hrp.Position
-            end
-        end
-        antiFling(char, hrp)
-        kbTimer = kbTimer + dt
-        if kbTimer >= 0.25 then
-            kbTimer = 0; antiKnockback(char); antiFreeze(char)
-        end
-        healTimer = healTimer + dt
-        if SETTINGS.AutoHeal and healTimer >= 0.3 then
-            healTimer = 0; autoHeal(char)
-        end
-        antiVoid(char, hrp)
-        if not inGrace then antiTeleport(char, hrp); lockPosition(char, hrp) end
+        pcall(processProtection, dt, char, hrp)
     end)
-    ORBIT.notify("> Защита включена", Color3.fromRGB(120, 255, 180), 2)
+
+    ORBIT.notify("🛡 Защита ВКЛ (усиленная)", Color3.fromRGB(120, 255, 180), 2)
 end
 
 function ORBIT.disableProtection()
     if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
+    if PROT_STATE.watchConn then pcall(function() PROT_STATE.watchConn:Disconnect() end); PROT_STATE.watchConn = nil end
     PROT_STATE.lastSafePos = nil
+    PROT_STATE.lastSafeCFrame = nil
 end
 
 Workspace.DescendantAdded:Connect(function(inst)
@@ -606,7 +698,6 @@ function ORBIT.cleanupAllTargetRings()
     for p in pairs(ORBIT.targetRings) do ORBIT.removeTargetRings(p) end
 end
 
--- Список игроков для UI
 function ORBIT.getPlayerList()
     local list = {}
     for _, p in ipairs(Players:GetPlayers()) do
@@ -667,14 +758,14 @@ end
 ORBIT.bots = {}
 ORBIT.botIdCounter = 0
 ORBIT.botSettings = {
-    CollectRadius    = 12,          -- было 6, увеличено чтобы проще собирать
+    CollectRadius    = 12,
     AutoCollect      = true,
     BotRingRadius    = 4,
     BotRingHeight    = 2,
     BotRingBlockCount = 6,
     BotSpeed         = 60,
     UseMySkin        = false,
-    BotYOffset       = 1.5,         -- высота корня бота от земли
+    BotYOffset       = 1.5,
 }
 ORBIT.botAvatarTemplate = nil
 
@@ -693,7 +784,6 @@ function ORBIT.getBotAvatarTemplate()
     return nil
 end
 
--- Находит Y-координату земли под точкой XZ (чтобы бот не был в воздухе)
 local function findGroundY(x, z, fromY)
     local origin = Vector3.new(x, fromY + 10, z)
     local dir = Vector3.new(0, -100, 0)
@@ -710,7 +800,6 @@ local function findGroundY(x, z, fromY)
 end
 
 local function createDummyCharacter(position, useSkin)
-    -- Находим реальный уровень земли
     local groundY = findGroundY(position.X, position.Z, position.Y)
     local rootY = groundY + ORBIT.botSettings.BotYOffset
 
@@ -726,7 +815,6 @@ local function createDummyCharacter(position, useSkin)
                         part.CanCollide = false
                     end
                 end
-                -- PivotTo для R15 устанавливает позицию HRP
                 pcall(function()
                     model:PivotTo(CFrame.new(Vector3.new(position.X, rootY, position.Z)))
                 end)
@@ -738,7 +826,6 @@ local function createDummyCharacter(position, useSkin)
         end
     end
 
-    -- Fallback — dummy с правильной высотой
     local model = Instance.new("Model")
     model.Name = "OrbitBot_" .. tostring(math.random(1000, 999999))
 
@@ -822,7 +909,6 @@ function ORBIT.createBot(shapeIndex, position)
     return model
 end
 
--- 🆕 Создать бота прямо рядом (2-3 стада вперёд)
 function ORBIT.createBotNear(shapeIndex, offsetStuds)
     local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not myHrp then
@@ -877,19 +963,14 @@ function ORBIT.removeAllBots()
     ORBIT.notify("🗑 Все боты удалены", Color3.fromRGB(255, 180, 180), 2)
 end
 
--- 🔧 ИСПРАВЛЕНО: теперь заменяет ТОЛЬКО кольцо 2 (фиксированный слот)
 local function collectBotRing(botModel, data)
     if data.collected then return end
     data.collected = true
     local shapeName = SHAPE_PRESETS[data.shapeIndex] and SHAPE_PRESETS[data.shapeIndex].name or "?"
-
-    -- Фиксированный слот для сбора — кольцо 2
     local SLOT = 2
     rings[SLOT].shapeIndex = data.shapeIndex
     ORBIT.setRingEnabled(SLOT, true)
-
     ORBIT.notify("🎁 " .. shapeName .. " → кольцо " .. SLOT, Color3.fromRGB(255, 220, 100), 3)
-
     task.spawn(function()
         for i = 1, 10 do
             for _, b in ipairs(data.blocks) do
@@ -940,7 +1021,6 @@ local function updateBots(dt)
         if torso and not ORBIT.botSettings.UseMySkin then
             pcall(function() torso.Color = Color3.fromHSV(data.hueBase, 0.75, 1) end)
         end
-        -- Проверка сбора (по горизонтали, чтобы высота не мешала)
         if ORBIT.botSettings.AutoCollect then
             local dx = myHrp.Position.X - botRoot.Position.X
             local dz = myHrp.Position.Z - botRoot.Position.Z
@@ -1310,7 +1390,10 @@ function ORBIT.setupRespawnHook()
             ORBIT.applyColor(); ORBIT.applyNameVisibility()
             ORBIT.setupAura()
             ORBIT.setupFire()
-            if SETTINGS.ProtEnabled then PROT_STATE.lastSafePos = nil end
+            if SETTINGS.ProtEnabled then
+                PROT_STATE.lastSafePos = nil
+                PROT_STATE.lastSafeCFrame = nil
+            end
         end
     end)
 end
@@ -1496,6 +1579,6 @@ function ORBIT.startLogic()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v20.5 загружена", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P3 v20.6 (усиленная защита)", Color3.fromRGB(180,255,180), 3) end
 
 return true
