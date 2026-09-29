@@ -1,4 +1,4 @@
---[[ ОРБИТА v20.4 — ЧАСТЬ 3/4: ЛОГИКА + ЗАЩИТА + БОТЫ + КОЛЬЦА НА ИГРОКАХ ]]
+--[[ ОРБИТА v20.5 — ЧАСТЬ 3/4: ЛОГИКА + ЗАЩИТА + БОТЫ + КОЛЬЦА ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -606,6 +606,24 @@ function ORBIT.cleanupAllTargetRings()
     for p in pairs(ORBIT.targetRings) do ORBIT.removeTargetRings(p) end
 end
 
+-- Список игроков для UI
+function ORBIT.getPlayerList()
+    local list = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(list, {
+                player = p,
+                name = p.Name,
+                displayName = p.DisplayName,
+                hasRing = ORBIT.targetRings[p] ~= nil,
+                isTagged = ORBIT.taggedPlayers[p] == true,
+            })
+        end
+    end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    return list
+end
+
 local function updateTargetRings(dt)
     local t = tick() - ORBIT.startTime
     local baseCol = SETTINGS.FixedColor
@@ -649,13 +667,14 @@ end
 ORBIT.bots = {}
 ORBIT.botIdCounter = 0
 ORBIT.botSettings = {
-    CollectRadius    = 6,
+    CollectRadius    = 12,          -- было 6, увеличено чтобы проще собирать
     AutoCollect      = true,
     BotRingRadius    = 4,
     BotRingHeight    = 2,
     BotRingBlockCount = 6,
     BotSpeed         = 60,
     UseMySkin        = false,
+    BotYOffset       = 1.5,         -- высота корня бота от земли
 }
 ORBIT.botAvatarTemplate = nil
 
@@ -674,7 +693,27 @@ function ORBIT.getBotAvatarTemplate()
     return nil
 end
 
+-- Находит Y-координату земли под точкой XZ (чтобы бот не был в воздухе)
+local function findGroundY(x, z, fromY)
+    local origin = Vector3.new(x, fromY + 10, z)
+    local dir = Vector3.new(0, -100, 0)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local ignore = {LocalPlayer.Character}
+    for _, b in pairs(ORBIT.bots) do
+        if b.model then table.insert(ignore, b.model) end
+    end
+    params.FilterDescendantsInstances = ignore
+    local result = Workspace:Raycast(origin, dir, params)
+    if result then return result.Position.Y end
+    return fromY
+end
+
 local function createDummyCharacter(position, useSkin)
+    -- Находим реальный уровень земли
+    local groundY = findGroundY(position.X, position.Z, position.Y)
+    local rootY = groundY + ORBIT.botSettings.BotYOffset
+
     if useSkin then
         local template = ORBIT.getBotAvatarTemplate()
         if template then
@@ -687,7 +726,10 @@ local function createDummyCharacter(position, useSkin)
                         part.CanCollide = false
                     end
                 end
-                pcall(function() model:PivotTo(CFrame.new(position + Vector3.new(0, 3, 0))) end)
+                -- PivotTo для R15 устанавливает позицию HRP
+                pcall(function()
+                    model:PivotTo(CFrame.new(Vector3.new(position.X, rootY, position.Z)))
+                end)
                 local hum = model:FindFirstChildOfClass("Humanoid")
                 if hum then hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end
                 model.Parent = Workspace
@@ -696,6 +738,7 @@ local function createDummyCharacter(position, useSkin)
         end
     end
 
+    -- Fallback — dummy с правильной высотой
     local model = Instance.new("Model")
     model.Name = "OrbitBot_" .. tostring(math.random(1000, 999999))
 
@@ -703,7 +746,7 @@ local function createDummyCharacter(position, useSkin)
     root.Name = "HumanoidRootPart"
     root.Size = Vector3.new(2, 2, 1); root.Transparency = 1
     root.Anchored = true; root.CanCollide = false
-    root.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
+    root.CFrame = CFrame.new(Vector3.new(position.X, rootY, position.Z))
     root.Parent = model; model.PrimaryPart = root
 
     local torso = Instance.new("Part")
@@ -779,6 +822,19 @@ function ORBIT.createBot(shapeIndex, position)
     return model
 end
 
+-- 🆕 Создать бота прямо рядом (2-3 стада вперёд)
+function ORBIT.createBotNear(shapeIndex, offsetStuds)
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHrp then
+        ORBIT.notify("❌ Нет персонажа", Color3.fromRGB(255, 120, 120), 2)
+        return nil
+    end
+    offsetStuds = offsetStuds or 3
+    local fwd = myHrp.CFrame.LookVector
+    local pos = myHrp.Position + Vector3.new(fwd.X, 0, fwd.Z).Unit * offsetStuds
+    return ORBIT.createBot(shapeIndex, pos)
+end
+
 function ORBIT.createMultipleBots(count)
     count = count or 5
     local indices = {}
@@ -821,18 +877,19 @@ function ORBIT.removeAllBots()
     ORBIT.notify("🗑 Все боты удалены", Color3.fromRGB(255, 180, 180), 2)
 end
 
+-- 🔧 ИСПРАВЛЕНО: теперь заменяет ТОЛЬКО кольцо 2 (фиксированный слот)
 local function collectBotRing(botModel, data)
     if data.collected then return end
     data.collected = true
     local shapeName = SHAPE_PRESETS[data.shapeIndex] and SHAPE_PRESETS[data.shapeIndex].name or "?"
-    local freeSlot = nil
-    for ri = 2, 5 do
-        if not rings[ri].enabled then freeSlot = ri; break end
-    end
-    if not freeSlot then freeSlot = math.random(2, 5) end
-    rings[freeSlot].shapeIndex = data.shapeIndex
-    ORBIT.setRingEnabled(freeSlot, true)
-    ORBIT.notify("🎁 " .. shapeName .. " → кольцо " .. freeSlot, Color3.fromRGB(255, 220, 100), 3)
+
+    -- Фиксированный слот для сбора — кольцо 2
+    local SLOT = 2
+    rings[SLOT].shapeIndex = data.shapeIndex
+    ORBIT.setRingEnabled(SLOT, true)
+
+    ORBIT.notify("🎁 " .. shapeName .. " → кольцо " .. SLOT, Color3.fromRGB(255, 220, 100), 3)
+
     task.spawn(function()
         for i = 1, 10 do
             for _, b in ipairs(data.blocks) do
@@ -883,8 +940,11 @@ local function updateBots(dt)
         if torso and not ORBIT.botSettings.UseMySkin then
             pcall(function() torso.Color = Color3.fromHSV(data.hueBase, 0.75, 1) end)
         end
+        -- Проверка сбора (по горизонтали, чтобы высота не мешала)
         if ORBIT.botSettings.AutoCollect then
-            local dist = (myHrp.Position - botRoot.Position).Magnitude
+            local dx = myHrp.Position.X - botRoot.Position.X
+            local dz = myHrp.Position.Z - botRoot.Position.Z
+            local dist = math.sqrt(dx*dx + dz*dz)
             if dist < ORBIT.botSettings.CollectRadius then
                 collectBotRing(botModel, data)
             end
@@ -1412,7 +1472,6 @@ end
 function ORBIT.deleteNamed(name)
     if not ORBIT.SAVES[name] then return false end
     ORBIT.SAVES[name] = nil
-    ORBIT.savesList = nil
     ORBIT.saveSavesList()
     return true
 end
@@ -1437,6 +1496,6 @@ function ORBIT.startLogic()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v20.4 загружена (боты + скин + кольца на игроках)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P3 v20.5 загружена", Color3.fromRGB(180,255,180), 3) end
 
 return true
