@@ -1,4 +1,4 @@
---[[ ОРБИТА v20.5 — ЧАСТЬ 4/4: UI + БОТЫ + СКИН + ЛЮДИ ]]
+--[[ ОРБИТА v20.8 — ЧАСТЬ 4/4: UI (часть 1/2 — ОСНОВНАЯ ПАНЕЛЬ) ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
@@ -47,13 +47,13 @@ mainStroke.Color = Color3.fromRGB(120, 120, 255)
 mainStroke.Thickness = 1.5
 
 local panel = Instance.new("ScrollingFrame")
-panel.Size = UDim2.new(0, 300, 0, 720)
+panel.Size = UDim2.new(0, 320, 0, 720)
 panel.Position = UDim2.new(0, 90, 0, 5)
 panel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 panel.BackgroundTransparency = 0.15
 panel.BorderSizePixel = 0
 panel.Visible = false
-panel.CanvasSize = UDim2.new(0, 0, 0, 4300)
+panel.CanvasSize = UDim2.new(0, 0, 0, 5200)
 panel.ScrollBarThickness = 4
 panel.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 255)
 panel.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -67,7 +67,7 @@ panelStroke.Thickness = 1
 local bgLayer = Instance.new("Frame")
 bgLayer.Size = UDim2.new(1, 0, 1, 0)
 bgLayer.BackgroundColor3 = Color3.fromRGB(0, 5, 2)
-bgLayer.BackgroundTransparency = 0.6
+bgLayer.BackgroundTransparency = 0.65
 bgLayer.BorderSizePixel = 0
 bgLayer.ClipsDescendants = true
 bgLayer.ZIndex = 0
@@ -84,7 +84,7 @@ task.spawn(function()
         col.Position = UDim2.new((i - 0.5) / NUM_COLS, 0, -1, 0)
         col.BackgroundTransparency = 1
         col.TextColor3 = Color3.fromRGB(80, 255, 140)
-        col.TextTransparency = 0.7
+        col.TextTransparency = 0.75
         col.Font = Enum.Font.Code
         col.TextSize = 11
         col.TextYAlignment = Enum.TextYAlignment.Top
@@ -118,12 +118,11 @@ task.spawn(function()
     end
 end)
 
--- Заголовок панели
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 30)
 title.Position = UDim2.new(0, 0, 0, 6)
 title.BackgroundTransparency = 1
-title.Text = "✨  ОРБИТА v20.5"
+title.Text = "✨  ОРБИТА v20.8"
 title.TextColor3 = Color3.fromRGB(220, 210, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 15
@@ -141,7 +140,6 @@ local function makeBigSection(text, y, color)
     holder.ZIndex = 2
     holder.Parent = panel
     Instance.new("UICorner", holder).CornerRadius = UDim.new(0, 8)
-
     local stripe = Instance.new("Frame")
     stripe.Size = UDim2.new(0, 4, 1, -8)
     stripe.Position = UDim2.new(0, 4, 0, 4)
@@ -150,7 +148,6 @@ local function makeBigSection(text, y, color)
     stripe.ZIndex = 3
     stripe.Parent = holder
     Instance.new("UICorner", stripe).CornerRadius = UDim.new(0, 2)
-
     local s = Instance.new("TextLabel")
     s.Size = UDim2.new(1, -14, 1, 0)
     s.Position = UDim2.new(0, 12, 0, 0)
@@ -185,36 +182,112 @@ local function makeButton(text, y, h, bgColor, textColor)
     return b
 end
 
--- ============================================================
---                   ⚡ ОСНОВНОЕ
--- ============================================================
-makeBigSection("⚡  ОСНОВНОЕ", 42, Color3.fromRGB(60, 60, 100))
-local toggleBtn     = makeButton("🟢 ВКЛЮЧЕНО", 74, 32, Color3.fromRGB(40,50,40), Color3.fromRGB(0,255,120))
-local allRingsBtn   = makeButton("⭕ Все кольца: ВКЛ", 110, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
-local ring2Btn      = makeButton("➕ Кольцо 2", 144, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
-local ring3Btn      = makeButton("➕ Кольцо 3", 178, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
-local ring4Btn      = makeButton("➕ Кольцо 4", 212, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
-local ring5Btn      = makeButton("➕ Кольцо 5", 246, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
+local function makeHalfBtn(parent, text, x, y, w, h, bgColor, textColor)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(w, 0, 0, h or 30)
+    b.Position = UDim2.new(x, 0, 0, y)
+    b.BackgroundColor3 = bgColor or Color3.fromRGB(45, 45, 62)
+    b.TextColor3 = textColor or Color3.fromRGB(235, 235, 255)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 11
+    b.Text = text
+    b.AutoButtonColor = true
+    b.Parent = parent
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    local stroke = Instance.new("UIStroke", b)
+    stroke.Color = bgColor or Color3.fromRGB(80, 80, 120)
+    stroke.Thickness = 1
+    stroke.Transparency = 0.65
+    return b
+end
 
 -- ============================================================
---                   🤖 БОТЫ
+--              РЕЖИМ (ОБЫЧНЫЙ / МАГАЗИН)
 -- ============================================================
-makeBigSection("🤖  БОТЫ — ФАРМ КОЛЕЦ", 288, Color3.fromRGB(110, 70, 150))
-local botCreateNearBtn = makeButton("📍 Создать бота РЯДОМ (перед тобой)", 320, 34, Color3.fromRGB(45,80,65), Color3.fromRGB(170,255,200))
-local botCreate1Btn    = makeButton("➕ Создать 1 бота (случайно вокруг)", 358, 30, Color3.fromRGB(55,40,80), Color3.fromRGB(220,200,255))
-local botCreate5Btn    = makeButton("🔥 Создать 5 ботов", 392, 30, Color3.fromRGB(65,40,90), Color3.fromRGB(225,200,255))
-local botCreate10Btn   = makeButton("💥 Создать 10 ботов", 426, 30, Color3.fromRGB(75,45,100), Color3.fromRGB(230,200,255))
-local botCreate25Btn   = makeButton("🌟 Создать 25 ботов", 460, 30, Color3.fromRGB(85,45,110), Color3.fromRGB(235,200,255))
-local botCreate50Btn   = makeButton("💫 Создать 50 ботов", 494, 30, Color3.fromRGB(95,50,120), Color3.fromRGB(240,200,255))
-local botCreate100Btn  = makeButton("👑 Создать 100 ботов", 528, 30, Color3.fromRGB(105,55,130), Color3.fromRGB(245,200,255))
-local botRemoveAll     = makeButton("🗑 Удалить всех ботов", 562, 30, Color3.fromRGB(80,30,30), Color3.fromRGB(255,180,180))
+local MODE = "regular"  -- regular | shop
+ORBIT.uiMode = MODE
 
-local botAutoCollectBtn = makeButton("🎁 Автосбор при подходе: ВКЛ", 598, 30, Color3.fromRGB(35,60,45), Color3.fromRGB(180,255,180))
-local botRadiusBtn      = makeButton("📏 Радиус сбора: " .. ORBIT.botSettings.CollectRadius .. " st", 632, 30, Color3.fromRGB(35,50,65), Color3.fromRGB(180,220,255))
+makeBigSection("🎮  РЕЖИМ ИНТЕРФЕЙСА", 44, Color3.fromRGB(80, 60, 130))
+local modeRegularBtn = makeButton("📋 ОБЫЧНЫЙ РЕЖИМ", 76, 32, Color3.fromRGB(35,80,60), Color3.fromRGB(180,255,200))
+local modeShopBtn    = makeButton("🛒 РЕЖИМ МАГАЗИНА", 112, 32, Color3.fromRGB(90,50,130), Color3.fromRGB(255,200,255))
+
+local function setMode(newMode)
+    MODE = newMode
+    ORBIT.uiMode = newMode
+    if newMode == "regular" then
+        modeRegularBtn.BackgroundColor3 = Color3.fromRGB(35,80,60)
+        modeRegularBtn.TextColor3 = Color3.fromRGB(180,255,200)
+        modeShopBtn.BackgroundColor3 = Color3.fromRGB(60,45,80)
+        modeShopBtn.TextColor3 = Color3.fromRGB(200,180,220)
+    else
+        modeRegularBtn.BackgroundColor3 = Color3.fromRGB(50,55,45)
+        modeRegularBtn.TextColor3 = Color3.fromRGB(180,200,180)
+        modeShopBtn.BackgroundColor3 = Color3.fromRGB(120,60,180)
+        modeShopBtn.TextColor3 = Color3.fromRGB(255,220,255)
+    end
+    ORBIT.notify("🎮 Режим: " .. (newMode == "regular" and "ОБЫЧНЫЙ" or "МАГАЗИН"), Color3.fromRGB(200,180,255), 1.5)
+end
+
+modeRegularBtn.Activated:Connect(function() setMode("regular") end)
+modeShopBtn.Activated:Connect(function() setMode("shop") end)
+
+-- ============================================================
+--              ОСНОВНОЕ
+-- ============================================================
+makeBigSection("⚡  ОСНОВНОЕ", 156, Color3.fromRGB(60, 60, 100))
+local toggleBtn     = makeButton("🟢 ВКЛЮЧЕНО", 188, 32, Color3.fromRGB(40,50,40), Color3.fromRGB(0,255,120))
+local allRingsBtn   = makeButton("⭕ Все кольца: ВКЛ", 224, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
+local ring2Btn      = makeButton("➕ Кольцо 2", 258, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
+local ring3Btn      = makeButton("➕ Кольцо 3", 292, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
+local ring4Btn      = makeButton("➕ Кольцо 4", 326, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
+local ring5Btn      = makeButton("➕ Кольцо 5", 360, 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
+
+-- ============================================================
+--              🛒 МАГАЗИН / РЕДАКТОР
+-- ============================================================
+makeBigSection("🛒  МАГАЗИН И РЕДАКТОР", 402, Color3.fromRGB(110, 60, 150))
+local openShopBtn    = makeButton("🛒 Открыть МАГАЗИН", 434, 34, Color3.fromRGB(90,50,130), Color3.fromRGB(255,210,255))
+local openEditorBtn  = makeButton("🎨 Редактор своей фигуры", 472, 32, Color3.fromRGB(70,60,110), Color3.fromRGB(220,210,255))
+
+-- ============================================================
+--              🤖 ОБЫЧНЫЕ БОТЫ (кладут в кольцо 1)
+-- ============================================================
+makeBigSection("🤖  ОБЫЧНЫЕ БОТЫ → КОЛЬЦО 1", 512, Color3.fromRGB(80, 110, 70))
+local regNearBtn = makeButton("📍 Обычный бот РЯДОМ → в 1 кольцо", 544, 32, Color3.fromRGB(45,80,55), Color3.fromRGB(170,255,200))
+local reg1Btn    = makeButton("➕ 1 бот → кольцо 1", 580, 28, Color3.fromRGB(55,75,45), Color3.fromRGB(200,255,180))
+local reg5Btn    = makeButton("🔥 5 ботов → кольцо 1", 612, 28, Color3.fromRGB(60,80,50), Color3.fromRGB(205,255,185))
+local reg10Btn   = makeButton("💥 10 ботов → кольцо 1", 644, 28, Color3.fromRGB(65,85,55), Color3.fromRGB(210,255,190))
+local reg25Btn   = makeButton("🌟 25 ботов → кольцо 1", 676, 28, Color3.fromRGB(70,90,60), Color3.fromRGB(215,255,195))
+
+-- ============================================================
+--              🌟 СПЕЦИАЛЬНЫЕ БОТЫ → КОЛЬЦА 2-5
+-- ============================================================
+makeBigSection("🌟  СПЕЦИАЛЬНЫЕ БОТЫ → КОЛЬЦА 2-5", 716, Color3.fromRGB(130, 70, 130))
+
+-- Кольцо 2
+local sp2NearBtn = makeButton("📍 Бот РЯДОМ → в кольцо 2", 748, 30, Color3.fromRGB(70,55,110), Color3.fromRGB(220,200,255))
+local sp2x5Btn   = makeButton("🌟 5 ботов → в кольцо 2", 782, 28, Color3.fromRGB(75,60,120), Color3.fromRGB(225,205,255))
+
+-- Кольцо 3
+local sp3NearBtn = makeButton("📍 Бот РЯДОМ → в кольцо 3", 814, 30, Color3.fromRGB(90,55,110), Color3.fromRGB(230,200,255))
+local sp3x5Btn   = makeButton("🌟 5 ботов → в кольцо 3", 848, 28, Color3.fromRGB(95,60,120), Color3.fromRGB(235,205,255))
+
+-- Кольцо 4
+local sp4NearBtn = makeButton("📍 Бот РЯДОМ → в кольцо 4", 880, 30, Color3.fromRGB(110,55,110), Color3.fromRGB(240,200,255))
+local sp4x5Btn   = makeButton("🌟 5 ботов → в кольцо 4", 914, 28, Color3.fromRGB(115,60,120), Color3.fromRGB(245,205,255))
+
+-- Кольцо 5
+local sp5NearBtn = makeButton("📍 Бот РЯДОМ → в кольцо 5", 946, 30, Color3.fromRGB(130,55,110), Color3.fromRGB(255,200,255))
+local sp5x5Btn   = makeButton("🌟 5 ботов → в кольцо 5", 980, 28, Color3.fromRGB(135,60,120), Color3.fromRGB(255,205,255))
+
+-- Общие действия с ботами
+local botRemoveAll      = makeButton("🗑 Удалить всех ботов", 1014, 30, Color3.fromRGB(80,30,30), Color3.fromRGB(255,180,180))
+local botAutoCollectBtn = makeButton("🎁 Автосбор при подходе: ВКЛ", 1048, 30, Color3.fromRGB(35,60,45), Color3.fromRGB(180,255,180))
+local botRadiusBtn      = makeButton("📏 Радиус сбора: " .. ORBIT.botSettings.CollectRadius .. " st", 1082, 30, Color3.fromRGB(35,50,65), Color3.fromRGB(180,220,255))
 
 local botInfoLbl = Instance.new("TextLabel")
 botInfoLbl.Size = UDim2.new(1, -20, 0, 22)
-botInfoLbl.Position = UDim2.new(0, 10, 0, 666)
+botInfoLbl.Position = UDim2.new(0, 10, 0, 1116)
 botInfoLbl.BackgroundColor3 = Color3.fromRGB(25, 20, 40)
 botInfoLbl.BackgroundTransparency = 0.3
 botInfoLbl.BorderSizePixel = 0
@@ -228,7 +301,7 @@ Instance.new("UICorner", botInfoLbl).CornerRadius = UDim.new(0, 6)
 
 local botListScroll = Instance.new("ScrollingFrame")
 botListScroll.Size = UDim2.new(1, -20, 0, 130)
-botListScroll.Position = UDim2.new(0, 10, 0, 692)
+botListScroll.Position = UDim2.new(0, 10, 0, 1142)
 botListScroll.BackgroundColor3 = Color3.fromRGB(15, 12, 25)
 botListScroll.BackgroundTransparency = 0.2
 botListScroll.BorderSizePixel = 0
@@ -245,22 +318,22 @@ botListLayout.Padding = UDim.new(0, 3)
 botListLayout.Parent = botListScroll
 
 -- ============================================================
---                   👤 СКИН БОТА
+--              👤 СКИН БОТА
 -- ============================================================
-makeBigSection("👤  СКИН БОТА", 832, Color3.fromRGB(85, 65, 130))
-local botSkinBtnEnd = makeButton("👤 Скин как у меня: ВЫКЛ", 864, 32, Color3.fromRGB(55,45,75), Color3.fromRGB(220,200,255))
+makeBigSection("👤  СКИН БОТА", 1282, Color3.fromRGB(85, 65, 130))
+local botSkinBtnEnd = makeButton("👤 Скин как у меня: ВЫКЛ", 1314, 32, Color3.fromRGB(55,45,75), Color3.fromRGB(220,200,255))
 
 -- ============================================================
---                   👥 ЛЮДИ И КОЛЬЦА
+--              👥 ЛЮДИ И КОЛЬЦА
 -- ============================================================
-makeBigSection("👥  ЛЮДИ И КОЛЬЦА", 904, Color3.fromRGB(100, 50, 130))
-local addAllRingsBtn    = makeButton("➕ Навесить кольца У ВСЕХ игроков", 936, 30, Color3.fromRGB(40,70,45), Color3.fromRGB(160,255,180))
-local remAllRingsBtn    = makeButton("➖ Убрать кольца У ВСЕХ", 970, 30, Color3.fromRGB(70,40,40), Color3.fromRGB(255,160,160))
-local toggleAllRingsBtn = makeButton("🔄 Переключить ВСЕМ (вкл/выкл)", 1004, 30, Color3.fromRGB(50,50,70), Color3.fromRGB(200,200,255))
+makeBigSection("👥  ЛЮДИ И КОЛЬЦА", 1354, Color3.fromRGB(100, 50, 130))
+local addAllRingsBtn    = makeButton("➕ Навесить кольца У ВСЕХ", 1386, 30, Color3.fromRGB(40,70,45), Color3.fromRGB(160,255,180))
+local remAllRingsBtn    = makeButton("➖ Убрать у ВСЕХ", 1420, 30, Color3.fromRGB(70,40,40), Color3.fromRGB(255,160,160))
+local toggleAllRingsBtn = makeButton("🔄 Переключить ВСЕМ", 1454, 30, Color3.fromRGB(50,50,70), Color3.fromRGB(200,200,255))
 
 local peopleListLabel = Instance.new("TextLabel")
 peopleListLabel.Size = UDim2.new(1, -20, 0, 18)
-peopleListLabel.Position = UDim2.new(0, 10, 0, 1042)
+peopleListLabel.Position = UDim2.new(0, 10, 0, 1492)
 peopleListLabel.BackgroundTransparency = 1
 peopleListLabel.Text = "  👤 Игроки на сервере:"
 peopleListLabel.TextColor3 = Color3.fromRGB(190, 190, 230)
@@ -272,7 +345,7 @@ peopleListLabel.Parent = panel
 
 local peopleListScroll = Instance.new("ScrollingFrame")
 peopleListScroll.Size = UDim2.new(1, -20, 0, 200)
-peopleListScroll.Position = UDim2.new(0, 10, 0, 1064)
+peopleListScroll.Position = UDim2.new(0, 10, 0, 1514)
 peopleListScroll.BackgroundColor3 = Color3.fromRGB(15, 12, 25)
 peopleListScroll.BackgroundTransparency = 0.2
 peopleListScroll.BorderSizePixel = 0
@@ -288,112 +361,140 @@ peopleListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 peopleListLayout.Padding = UDim.new(0, 4)
 peopleListLayout.Parent = peopleListScroll
 
-local refreshPeopleBtn = makeButton("🔄 Обновить список игроков", 1276, 30, Color3.fromRGB(45,55,90), Color3.fromRGB(180,220,255))
+local refreshPeopleBtn = makeButton("🔄 Обновить список игроков", 1726, 30, Color3.fromRGB(45,55,90), Color3.fromRGB(180,220,255))
 
 -- ============================================================
---                   🎨 ВНЕШНИЙ ВИД
+--              🎨 ВНЕШНИЙ ВИД
 -- ============================================================
-makeBigSection("🎨  ВНЕШНИЙ ВИД", 1320, Color3.fromRGB(60, 100, 120))
-local shapeCatBtn   = makeButton("📁 Категория: " .. P.SHAPE_CATEGORIES[P.shapeCategoryIndex].name, 1352, 30, Color3.fromRGB(60,50,80), Color3.fromRGB(220,200,255))
-local shapeBtn      = makeButton("🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name, 1386, 30)
-local shapeModeBtn  = makeButton("🎭 Режим форм: " .. P.FORM_MODES[P.formModeIndex].name, 1420, 30, Color3.fromRGB(50,40,65), Color3.fromRGB(220,200,255))
-local shapeSizeBtn  = makeButton("🔍 Размер фигуры: " .. P.SHAPE_SIZE[P.shapeSizeIndex].name, 1454, 30)
-local autoSwapBtn   = makeButton("🎭 Автосмена фигуры: ВЫКЛ", 1488, 30, Color3.fromRGB(50,50,70), Color3.fromRGB(200,200,255))
-local colorBtn      = makeButton("🎨 Цвет: " .. P.COLORS[P.colorIndex].name, 1522, 30)
-local gradientBtn   = makeButton("🌈 Градиент: ВЫКЛ", 1556, 30, Color3.fromRGB(55,35,75), Color3.fromRGB(255,180,255))
-local lightBtn      = makeButton("💡 Свет: ВКЛ", 1590, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local nameBtn       = makeButton("🏷️ Имена блоков: ВЫКЛ", 1624, 30)
+makeBigSection("🎨  ВНЕШНИЙ ВИД", 1770, Color3.fromRGB(60, 100, 120))
+local shapeCatBtn   = makeButton("📁 Категория: " .. P.SHAPE_CATEGORIES[P.shapeCategoryIndex].name, 1802, 30, Color3.fromRGB(60,50,80), Color3.fromRGB(220,200,255))
+local shapeBtn      = makeButton("🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name, 1836, 30)
+local shapeModeBtn  = makeButton("🎭 Режим форм: " .. P.FORM_MODES[P.formModeIndex].name, 1870, 30, Color3.fromRGB(50,40,65), Color3.fromRGB(220,200,255))
+local shapeSizeBtn  = makeButton("🔍 Размер фигуры: " .. P.SHAPE_SIZE[P.shapeSizeIndex].name, 1904, 30)
+local autoSwapBtn   = makeButton("🎭 Автосмена фигуры: ВЫКЛ", 1938, 30, Color3.fromRGB(50,50,70), Color3.fromRGB(200,200,255))
+local colorBtn      = makeButton("🎨 Цвет: " .. P.COLORS[P.colorIndex].name, 1972, 30)
+local gradientBtn   = makeButton("🌈 Градиент: ВЫКЛ", 2006, 30, Color3.fromRGB(55,35,75), Color3.fromRGB(255,180,255))
+local lightBtn      = makeButton("💡 Свет: ВКЛ", 2040, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
+local nameBtn       = makeButton("🏷️ Имена блоков: ВЫКЛ", 2074, 30)
 
 -- ============================================================
---                   🛰️ ДВИЖЕНИЕ
+--              🛰️ ДВИЖЕНИЕ И ОРБИТА
 -- ============================================================
-makeBigSection("🛰️  ДВИЖЕНИЕ И ОРБИТА", 1666, Color3.fromRGB(60, 100, 80))
-local orbitBtn        = makeButton("📏 Орбита: " .. P.ORBIT[P.orbitIndex].name, 1698, 30)
-local spreadBtn       = makeButton("📐 Разлёт: " .. P.SPREAD[P.spreadIndex].name, 1732, 30, Color3.fromRGB(55,30,55), Color3.fromRGB(255,180,255))
-local heightBtn       = makeButton("⬆️ Высота: " .. P.HEIGHT[P.heightIndex].name, 1766, 30, Color3.fromRGB(35,55,65), Color3.fromRGB(140,220,255))
-local speedBtn        = makeButton("⚡ Множитель скорости: " .. P.SPEED[P.speedIndex].name, 1800, 30, Color3.fromRGB(55,45,20), Color3.fromRGB(255,220,100))
-local speedModeBtn    = makeButton("⚙️ Режим скорости: " .. P.SPEED_MODE[P.speedModeIndex].name, 1834, 30, Color3.fromRGB(45,50,65), Color3.fromRGB(180,220,255))
-local directionBtn    = makeButton("🔃 Направление: " .. P.DIRECTION[P.directionIndex].name, 1868, 30, Color3.fromRGB(45,35,60), Color3.fromRGB(200,180,255))
-local orbitPatternBtn = makeButton("🌀 Узор орбиты: " .. P.ORBIT_PATTERNS[P.orbitPatternIndex].name, 1902, 30, Color3.fromRGB(60,40,90), Color3.fromRGB(220,180,255))
+makeBigSection("🛰️  ДВИЖЕНИЕ И ОРБИТА", 2116, Color3.fromRGB(60, 100, 80))
+local orbitBtn        = makeButton("📏 Орбита: " .. P.ORBIT[P.orbitIndex].name, 2148, 30)
+local spreadBtn       = makeButton("📐 Разлёт: " .. P.SPREAD[P.spreadIndex].name, 2182, 30, Color3.fromRGB(55,30,55), Color3.fromRGB(255,180,255))
+local heightBtn       = makeButton("⬆️ Высота: " .. P.HEIGHT[P.heightIndex].name, 2216, 30, Color3.fromRGB(35,55,65), Color3.fromRGB(140,220,255))
+local speedBtn        = makeButton("⚡ Множитель: " .. P.SPEED[P.speedIndex].name, 2250, 30, Color3.fromRGB(55,45,20), Color3.fromRGB(255,220,100))
+local speedModeBtn    = makeButton("⚙️ Режим скорости: " .. P.SPEED_MODE[P.speedModeIndex].name, 2284, 30, Color3.fromRGB(45,50,65), Color3.fromRGB(180,220,255))
+local directionBtn    = makeButton("🔃 Направление: " .. P.DIRECTION[P.directionIndex].name, 2318, 30, Color3.fromRGB(45,35,60), Color3.fromRGB(200,180,255))
+local orbitPatternBtn = makeButton("🌀 Узор: " .. P.ORBIT_PATTERNS[P.orbitPatternIndex].name, 2352, 30, Color3.fromRGB(60,40,90), Color3.fromRGB(220,180,255))
 
 -- ============================================================
---                   🔄 КРУЧЕНИЕ
+--              🔄 КРУЧЕНИЕ
 -- ============================================================
-makeBigSection("🔄  КРУЧЕНИЕ", 1944, Color3.fromRGB(100, 60, 80))
-local spinBtn       = makeButton("↩️ Вращение в 0", 1976, 30, Color3.fromRGB(50,40,60), Color3.fromRGB(200,180,255))
-local spinAxisBtn   = makeButton("🔄 Кручение оси: ВКЛ", 2010, 30, Color3.fromRGB(35,55,55), Color3.fromRGB(140,255,220))
-local spinDirBtn    = makeButton("↕️ Ось: ВЕРХ/ВНИЗ", 2044, 30, Color3.fromRGB(45,55,75), Color3.fromRGB(180,220,255))
-local spinSpeedBtn  = makeButton("🌀 Скорость вращения: " .. P.SPIN_SPEED[P.spinSpeedIndex].name, 2078, 30, Color3.fromRGB(55,35,75), Color3.fromRGB(220,180,255))
+makeBigSection("🔄  КРУЧЕНИЕ", 2394, Color3.fromRGB(100, 60, 80))
+local spinBtn       = makeButton("↩️ Вращение в 0", 2426, 30, Color3.fromRGB(50,40,60), Color3.fromRGB(200,180,255))
+local spinAxisBtn   = makeButton("🔄 Кручение оси: ВКЛ", 2460, 30, Color3.fromRGB(35,55,55), Color3.fromRGB(140,255,220))
+local spinDirBtn    = makeButton("↕️ Ось: ВЕРХ/ВНИЗ", 2494, 30, Color3.fromRGB(45,55,75), Color3.fromRGB(180,220,255))
+local spinSpeedBtn  = makeButton("🌀 Скорость: " .. P.SPIN_SPEED[P.spinSpeedIndex].name, 2528, 30, Color3.fromRGB(55,35,75), Color3.fromRGB(220,180,255))
 
 -- ============================================================
---                   ✨ ЭФФЕКТЫ
+--              ✨ ЭФФЕКТЫ КОЛЕЦ (ТРЕЙЛЫ)
 -- ============================================================
-makeBigSection("✨  ЭФФЕКТЫ КОЛЕЦ", 2120, Color3.fromRGB(100, 80, 60))
-local trailBtn      = makeButton("🌠 Трейлы: ВЫКЛ", 2152, 30, Color3.fromRGB(35,35,50))
-local trailLenBtn   = makeButton("📏 Длина трейла: " .. P.TRAIL_LEN[P.trailLengthIndex].name, 2186, 30, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
-local trailWidBtn   = makeButton("🎚️ Толщина трейла: " .. P.TRAIL_WID[P.trailWidthIndex].name, 2220, 30, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
-local waveBtn       = makeButton("🌊 Волна: ВЫКЛ", 2254, 30, Color3.fromRGB(30,55,75), Color3.fromRGB(140,220,255))
-local explosionBtn  = makeButton("💥 Взрыв (пульс): ВЫКЛ", 2288, 30, Color3.fromRGB(70,40,30), Color3.fromRGB(255,180,120))
-local pulseBtn      = makeButton("💓 Пульсация размера: ВЫКЛ", 2322, 30, Color3.fromRGB(35,35,50))
+makeBigSection("✨  ЭФФЕКТЫ КОЛЕЦ (трейлы)", 2570, Color3.fromRGB(100, 80, 60))
+local trailBtn      = makeButton("🌠 Трейлы: ВЫКЛ", 2602, 30, Color3.fromRGB(35,35,50))
+local trailLenBtn   = makeButton("📏 Длина трейла: " .. P.TRAIL_LEN[P.trailLengthIndex].name, 2636, 30, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
+local trailWidBtn   = makeButton("🎚️ Толщина трейла: " .. P.TRAIL_WID[P.trailWidthIndex].name, 2670, 30, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
+local waveBtn       = makeButton("🌊 Волна: ВЫКЛ", 2704, 30, Color3.fromRGB(30,55,75), Color3.fromRGB(140,220,255))
+local explosionBtn  = makeButton("💥 Взрыв (пульс): ВЫКЛ", 2738, 30, Color3.fromRGB(70,40,30), Color3.fromRGB(255,180,120))
+local pulseBtn      = makeButton("💓 Пульсация: ВЫКЛ", 2772, 30, Color3.fromRGB(35,35,50))
 
 -- ============================================================
---                   🔥 ОГОНЬ
+--              🔥 ОГОНЬ
 -- ============================================================
-makeBigSection("🔥  ОГОНЬ", 2364, Color3.fromRGB(150, 60, 20))
-local fireBtn       = makeButton("🔥 Огонь: ВЫКЛ", 2396, 34, Color3.fromRGB(80,30,10), Color3.fromRGB(255,140,60))
-local fireSizeBtn   = makeButton("📏 Размер огня: " .. P.FIRE_SIZE[P.fireSizeIndex].name, 2434, 30, Color3.fromRGB(60,30,15), Color3.fromRGB(255,180,120))
-local fireHeatBtn   = makeButton("🌡️ Жар огня: " .. P.FIRE_HEAT[P.fireHeatIndex].name, 2468, 30, Color3.fromRGB(60,30,15), Color3.fromRGB(255,180,120))
+makeBigSection("🔥  ОГОНЬ", 2814, Color3.fromRGB(150, 60, 20))
+local fireBtn       = makeButton("🔥 Огонь: ВЫКЛ", 2846, 34, Color3.fromRGB(80,30,10), Color3.fromRGB(255,140,60))
+local fireSizeBtn   = makeButton("📏 Размер огня: " .. P.FIRE_SIZE[P.fireSizeIndex].name, 2884, 30, Color3.fromRGB(60,30,15), Color3.fromRGB(255,180,120))
+local fireHeatBtn   = makeButton("🌡️ Жар огня: " .. P.FIRE_HEAT[P.fireHeatIndex].name, 2918, 30, Color3.fromRGB(60,30,15), Color3.fromRGB(255,180,120))
 
 -- ============================================================
---                   🌀 АУРА
+--              🌀 АУРА — ЭЛЕМЕНТЫ
 -- ============================================================
-makeBigSection("🌀  АУРА", 2510, Color3.fromRGB(80, 60, 130))
-local auraBtn       = makeButton("🌀 Аура: ВЫКЛ", 2542, 30, Color3.fromRGB(50,40,70), Color3.fromRGB(200,180,255))
-local auraRingBtn   = makeButton("⭕ Кольцо ауры: ВКЛ", 2576, 30, Color3.fromRGB(35,55,35), Color3.fromRGB(160,255,160))
-local auraPartBtn   = makeButton("✨ Частицы: ВЫКЛ", 2610, 30, Color3.fromRGB(35,50,55), Color3.fromRGB(180,220,255))
-local auraFigBtn    = makeButton("🔷 Фигуры: ВЫКЛ", 2644, 30, Color3.fromRGB(45,35,65), Color3.fromRGB(220,180,255))
-local auraShapeBtn  = makeButton("🔷 Форма ауры: " .. SHAPE_PRESETS[ORBIT.auraShapeIndex].name, 2678, 30, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255))
-local auraColorBtn  = makeButton("🎨 Цвет ауры: " .. P.COLORS[P.auraColorIndex].name, 2712, 30, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255))
+makeBigSection("🌀  АУРА — ЭЛЕМЕНТЫ", 2960, Color3.fromRGB(80, 60, 130))
+local auraBtn       = makeButton("🌀 Аура: ВЫКЛ", 2992, 30, Color3.fromRGB(50,40,70), Color3.fromRGB(200,180,255))
+local auraRingBtn   = makeButton("⭕ Кольцо ауры: ВКЛ", 3026, 30, Color3.fromRGB(35,55,35), Color3.fromRGB(160,255,160))
+local auraPartBtn   = makeButton("✨ Частицы: ВЫКЛ", 3060, 30, Color3.fromRGB(35,50,55), Color3.fromRGB(180,220,255))
+local auraFigBtn    = makeButton("🔷 Фигуры: ВЫКЛ", 3094, 30, Color3.fromRGB(45,35,65), Color3.fromRGB(220,180,255))
+local auraShapeBtn  = makeButton("🔷 Форма ауры: " .. SHAPE_PRESETS[ORBIT.auraShapeIndex].name, 3128, 30, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255))
+local auraColorBtn  = makeButton("🎨 Цвет ауры: " .. P.COLORS[P.auraColorIndex].name, 3162, 30, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255))
 
 -- ============================================================
---                   🛡️ ЗАЩИТА
+--              🌀 АУРА — РАЗМЕР
 -- ============================================================
-makeBigSection("🛡️  ЗАЩИТА", 2754, Color3.fromRGB(60, 100, 60))
-local protBtn       = makeButton("🛡️ Защита: ВЫКЛ", 2786, 34, Color3.fromRGB(40,70,45), Color3.fromRGB(160,255,180))
-local antiKbBtn     = makeButton("🛡️ Anti-Knockback: ВКЛ", 2824, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local antiTpBtn     = makeButton("🛡️ Anti-Teleport: ВКЛ", 2858, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local antiFrzBtn    = makeButton("🛡️ Anti-Freeze: ВКЛ", 2892, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local antiFlingBtn  = makeButton("🛡️ Anti-Fling: ВКЛ", 2926, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local autoHealBtn   = makeButton("💚 Auto-Heal: ВЫКЛ", 2960, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local antiVoidBtn   = makeButton("🛡️ Anti-Void: ВКЛ", 2994, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local lockPosBtn    = makeButton("📍 Lock Position: ВЫКЛ", 3028, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
+makeBigSection("🌀  АУРА — РАЗМЕР", 3204, Color3.fromRGB(80, 60, 130))
+local auraSizeBtn   = makeButton("📏 Размер: " .. P.AURA_SIZE[P.auraSizeIndex].name, 3236, 30, Color3.fromRGB(35,55,65), Color3.fromRGB(140,220,255))
+local auraThickBtn  = makeButton("🎚️ Толщина: " .. P.AURA_THICK[P.auraThickIndex].name, 3270, 30, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
+local auraHeightBtn = makeButton("⬆️ Высота: " .. P.AURA_HEIGHT[P.auraHeightIndex].name, 3304, 30, Color3.fromRGB(35,55,65), Color3.fromRGB(140,220,255))
+local auraScaleBtn  = makeButton("🔍 Размер фигур: " .. P.AURA_SHAPE_SCALE[P.auraShapeScaleIndex].name, 3338, 30, Color3.fromRGB(50,40,65), Color3.fromRGB(220,200,255))
 
 -- ============================================================
---                   🚩 МЕТКИ
+--              🌀 АУРА — СКОРОСТЬ
 -- ============================================================
-makeBigSection("🚩  МЕТКИ ЧИТЕРОВ", 3070, Color3.fromRGB(120, 50, 80))
-local tagNearestBtn = makeButton("🚩 Пометить ближайшего игрока", 3102, 30, Color3.fromRGB(80,30,55), Color3.fromRGB(255,150,200))
-local clearTagsBtn  = makeButton("🧹 Снять все метки", 3136, 30, Color3.fromRGB(50,35,45), Color3.fromRGB(255,180,200))
+makeBigSection("🌀  АУРА — СКОРОСТЬ", 3380, Color3.fromRGB(80, 60, 130))
+local auraSpeedBtn     = makeButton("⚡ Скорость: " .. P.AURA_SPEED[P.auraSpeedIndex].name, 3412, 30, Color3.fromRGB(55,45,20), Color3.fromRGB(255,220,100))
+local auraDirBtn       = makeButton("🔃 Направление: " .. P.AURA_DIR[P.auraDirIndex].name, 3446, 30, Color3.fromRGB(45,35,60), Color3.fromRGB(200,180,255))
+local auraSpinBtn      = makeButton("🔄 Кручение: ВКЛ", 3480, 30, Color3.fromRGB(35,55,55), Color3.fromRGB(140,255,220))
+local auraSpinAxisBtn  = makeButton("↕️ Ось: ВЕРХ/ВНИЗ", 3514, 30, Color3.fromRGB(45,55,75), Color3.fromRGB(180,220,255))
+local auraSpinSpeedBtn = makeButton("🌀 Скорость кручения: " .. P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].name, 3548, 30, Color3.fromRGB(55,35,75), Color3.fromRGB(220,180,255))
+local auraSpinResetBtn = makeButton("↩️ Сброс вращения ауры", 3582, 30, Color3.fromRGB(50,40,60), Color3.fromRGB(200,180,255))
 
 -- ============================================================
---                   ⚡ ПРОИЗВОДИТЕЛЬНОСТЬ
+--              🌀 АУРА — ТРЕЙЛЫ
 -- ============================================================
-makeBigSection("⚡  ПРОИЗВОДИТЕЛЬНОСТЬ", 3178, Color3.fromRGB(60, 80, 110))
-local perfBtn = makeButton("⚡ Качество: АВТО", 3210, 30, Color3.fromRGB(35,50,75), Color3.fromRGB(180,220,255))
+makeBigSection("🌀  АУРА — ТРЕЙЛЫ", 3624, Color3.fromRGB(80, 60, 130))
+local auraTrailBtn    = makeButton("🌠 Трейлы ауры: ВЫКЛ", 3656, 30, Color3.fromRGB(35,35,50))
+local auraTrailLenBtn = makeButton("📏 Длина: " .. P.AURA_TRAIL_LEN[P.auraTrailLengthIndex].name, 3690, 30, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
+local auraTrailWidBtn = makeButton("🎚️ Толщина: " .. P.AURA_TRAIL_WID[P.auraTrailWidthIndex].name, 3724, 30, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
 
 -- ============================================================
---                   💗 ДОПОЛНИТЕЛЬНО
+--              🛡️ ЗАЩИТА
 -- ============================================================
-makeBigSection("💗  ДОПОЛНИТЕЛЬНО", 3252, Color3.fromRGB(100, 50, 80))
-local heartSizeBtn = makeButton("💗 Размер сердца: 100%", 3284, 30, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200))
+makeBigSection("🛡️  ЗАЩИТА", 3766, Color3.fromRGB(60, 100, 60))
+local protBtn       = makeButton("🛡️ Защита: ВЫКЛ", 3798, 34, Color3.fromRGB(40,70,45), Color3.fromRGB(160,255,180))
+local antiKbBtn     = makeButton("🛡️ Anti-Knockback: ВКЛ", 3836, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
+local antiTpBtn     = makeButton("🛡️ Anti-Teleport: ВКЛ", 3870, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
+local antiFrzBtn    = makeButton("🛡️ Anti-Freeze: ВКЛ", 3904, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
+local antiFlingBtn  = makeButton("🛡️ Anti-Fling: ВКЛ", 3938, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
+local autoHealBtn   = makeButton("💚 Auto-Heal: ВЫКЛ", 3972, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
+local antiVoidBtn   = makeButton("🛡️ Anti-Void: ВКЛ", 4006, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
+local lockPosBtn    = makeButton("📍 Lock Position: ВЫКЛ", 4040, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
 
 -- ============================================================
---                   💾 СОХРАНЕНИЯ
+--              🚩 МЕТКИ
 -- ============================================================
-makeBigSection("💾  СОХРАНЕНИЯ", 3326, Color3.fromRGB(60, 60, 90))
+makeBigSection("🚩  МЕТКИ ЧИТЕРОВ", 4082, Color3.fromRGB(120, 50, 80))
+local tagNearestBtn = makeButton("🚩 Пометить ближайшего", 4114, 30, Color3.fromRGB(80,30,55), Color3.fromRGB(255,150,200))
+local clearTagsBtn  = makeButton("🧹 Снять все метки", 4148, 30, Color3.fromRGB(50,35,45), Color3.fromRGB(255,180,200))
+
+-- ============================================================
+--              ⚡ ПРОИЗВОДИТЕЛЬНОСТЬ
+-- ============================================================
+makeBigSection("⚡  ПРОИЗВОДИТЕЛЬНОСТЬ", 4190, Color3.fromRGB(60, 80, 110))
+local perfBtn = makeButton("⚡ Качество: АВТО", 4222, 30, Color3.fromRGB(35,50,75), Color3.fromRGB(180,220,255))
+
+-- ============================================================
+--              💗 ДОПОЛНИТЕЛЬНО
+-- ============================================================
+makeBigSection("💗  ДОПОЛНИТЕЛЬНО", 4264, Color3.fromRGB(100, 50, 80))
+local heartSizeBtn = makeButton("💗 Размер сердца: 100%", 4296, 30, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200))
+
+-- ============================================================
+--              💾 СОХРАНЕНИЯ
+-- ============================================================
+makeBigSection("💾  СОХРАНЕНИЯ", 4338, Color3.fromRGB(60, 60, 90))
 local saveNameInput = Instance.new("TextBox")
 saveNameInput.Size = UDim2.new(1, -20, 0, 32)
-saveNameInput.Position = UDim2.new(0, 10, 0, 3358)
+saveNameInput.Position = UDim2.new(0, 10, 0, 4370)
 saveNameInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 saveNameInput.BackgroundTransparency = 0.1
 saveNameInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -407,11 +508,11 @@ saveNameInput.ZIndex = 2
 saveNameInput.Parent = panel
 Instance.new("UICorner", saveNameInput).CornerRadius = UDim.new(0, 8)
 
-local createSaveBtn = makeButton("💾 СОЗДАТЬ СОХРАНЕНИЕ", 3396, 32, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
+local createSaveBtn = makeButton("💾 СОЗДАТЬ СОХРАНЕНИЕ", 4408, 32, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
 
 local savesContainer = Instance.new("ScrollingFrame")
 savesContainer.Size = UDim2.new(1, -20, 0, 130)
-savesContainer.Position = UDim2.new(0, 10, 0, 3434)
+savesContainer.Position = UDim2.new(0, 10, 0, 4446)
 savesContainer.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 savesContainer.BackgroundTransparency = 0.2
 savesContainer.BorderSizePixel = 0
@@ -428,21 +529,21 @@ savesLayout.Padding = UDim.new(0, 4)
 savesLayout.Parent = savesContainer
 
 -- ============================================================
---                   💾 СИСТЕМА
+--              💾 СИСТЕМА
 -- ============================================================
-makeBigSection("💾  СИСТЕМА", 3576, Color3.fromRGB(60, 60, 80))
-local saveBtn   = makeButton("💾 Сохранить в автослот", 3608, 30, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
-local loadBtn   = makeButton("📂 Загрузить из автослота", 3642, 30, Color3.fromRGB(35,50,60), Color3.fromRGB(180,220,255))
-local resetBtn  = makeButton("🔄 Сбросить всё", 3676, 30, Color3.fromRGB(50,30,30), Color3.fromRGB(255,180,180))
-local unloadBtn = makeButton("❌ ВЫГРУЗИТЬ СКРИПТ", 3710, 32, Color3.fromRGB(80,30,30), Color3.fromRGB(255,140,140))
+makeBigSection("💾  СИСТЕМА", 4588, Color3.fromRGB(60, 60, 80))
+local saveBtn   = makeButton("💾 Сохранить в автослот", 4620, 30, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
+local loadBtn   = makeButton("📂 Загрузить из автослота", 4654, 30, Color3.fromRGB(35,50,60), Color3.fromRGB(180,220,255))
+local resetBtn  = makeButton("🔄 Сбросить всё", 4688, 30, Color3.fromRGB(50,30,30), Color3.fromRGB(255,180,180))
+local unloadBtn = makeButton("❌ ВЫГРУЗИТЬ СКРИПТ", 4722, 32, Color3.fromRGB(80,30,30), Color3.fromRGB(255,140,140))
 
 -- ============================================================
---                   🎵 МУЗЫКА
+--              🎵 МУЗЫКА
 -- ============================================================
-makeBigSection("🎵  МУЗЫКА", 3754, Color3.fromRGB(80, 60, 110))
+makeBigSection("🎵  МУЗЫКА", 4766, Color3.fromRGB(80, 60, 110))
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
-musicInput.Position = UDim2.new(0, 10, 0, 3786)
+musicInput.Position = UDim2.new(0, 10, 0, 4798)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -456,16 +557,16 @@ musicInput.ZIndex = 2
 musicInput.Parent = panel
 Instance.new("UICorner", musicInput).CornerRadius = UDim.new(0, 8)
 
-local applyIdBtn = makeButton("✅ Применить ID", 3824, 30, Color3.fromRGB(55,80,55), Color3.fromRGB(180,255,180))
-local musicBtn   = makeButton("🎵 Музыка: ВЫКЛ", 3858, 30, Color3.fromRGB(50,35,60), Color3.fromRGB(220,180,255))
+local applyIdBtn = makeButton("✅ Применить ID", 4836, 30, Color3.fromRGB(55,80,55), Color3.fromRGB(180,255,180))
+local musicBtn   = makeButton("🎵 Музыка: ВЫКЛ", 4870, 30, Color3.fromRGB(50,35,60), Color3.fromRGB(220,180,255))
 
 -- ============================================================
---                   📊 СТАТИСТИКА
+--              📊 СТАТИСТИКА
 -- ============================================================
-makeBigSection("📊  СТАТИСТИКА", 3900, Color3.fromRGB(60, 60, 90))
+makeBigSection("📊  СТАТИСТИКА", 4912, Color3.fromRGB(60, 60, 90))
 local statsLabel = Instance.new("TextLabel")
-statsLabel.Size = UDim2.new(1, -20, 0, 80)
-statsLabel.Position = UDim2.new(0, 10, 0, 3932)
+statsLabel.Size = UDim2.new(1, -20, 0, 90)
+statsLabel.Position = UDim2.new(0, 10, 0, 4944)
 statsLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 statsLabel.BackgroundTransparency = 0.2
 statsLabel.BorderSizePixel = 0
@@ -479,7 +580,7 @@ statsLabel.ZIndex = 2
 statsLabel.Parent = panel
 Instance.new("UICorner", statsLabel).CornerRadius = UDim.new(0, 6)
 
-panel.CanvasSize = UDim2.new(0, 0, 0, 4030)
+panel.CanvasSize = UDim2.new(0, 0, 0, 5050)
 
 -- ==================== ОБРАБОТЧИКИ ====================
 local ringButtons = { [2]=ring2Btn, [3]=ring3Btn, [4]=ring4Btn, [5]=ring5Btn }
@@ -613,7 +714,6 @@ toggleAllRingsBtn.Activated:Connect(function()
     task.wait(0.2); rebuildPeopleList()
 end)
 
--- Автообновление списка людей
 task.spawn(function()
     while screenGui and screenGui.Parent do
         task.wait(4)
@@ -621,7 +721,6 @@ task.spawn(function()
     end
 end)
 
--- Автообновление при входе/выходе
 Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then task.wait(0.5); pcall(rebuildPeopleList) end end)
 Players.PlayerRemoving:Connect(function(p) if p ~= LocalPlayer then task.wait(0.3); pcall(rebuildPeopleList) end end)
 
@@ -661,22 +760,22 @@ local function refreshBotList()
         lbl.Size = UDim2.new(1, -60, 1, 0)
         lbl.Position = UDim2.new(0, 6, 0, 0)
         lbl.BackgroundTransparency = 1
-        lbl.Text = "🤖 #" .. data.id .. "  " .. shapeName .. "  🎨" .. huePct .. "°"
+        lbl.Text = "🤖 #" .. data.id .. " " .. shapeName .. " → К" .. (data.targetSlot or 2) .. " 🎨" .. huePct
         lbl.TextColor3 = Color3.fromHSV(data.hueBase or 0, 0.6, 1)
         lbl.Font = Enum.Font.GothamBold
-        lbl.TextSize = 10
+        lbl.TextSize = 9
         lbl.TextXAlignment = Enum.TextXAlignment.Left
         lbl.TextTruncate = Enum.TextTruncate.AtEnd
         lbl.Parent = row
 
         local delB = Instance.new("TextButton")
-        delB.Size = UDim2.new(0, 50, 0, 18)
-        delB.Position = UDim2.new(1, -54, 0, 3)
+        delB.Size = UDim2.new(0, 46, 0, 18)
+        delB.Position = UDim2.new(1, -50, 0, 3)
         delB.BackgroundColor3 = Color3.fromRGB(80, 30, 30)
         delB.TextColor3 = Color3.fromRGB(255, 150, 150)
         delB.Font = Enum.Font.GothamBold
         delB.TextSize = 9
-        delB.Text = "✖ УДАЛ"
+        delB.Text = "✖"
         delB.Parent = row
         Instance.new("UICorner", delB).CornerRadius = UDim.new(0, 4)
 
@@ -699,52 +798,36 @@ local function refreshBotList()
     end
 end
 
-local function btnFlash(btn, okText, backText, okColor, backColor)
-    btn.Text = okText
-    btn.BackgroundColor3 = okColor
-    task.wait(0.4)
-    btn.Text = backText
-    btn.BackgroundColor3 = backColor
-end
+-- ==== ОБЫЧНЫЕ БОТЫ (кольцо 1) ====
+regNearBtn.Activated:Connect(function()
+    ORBIT.createBotNear(nil, 4, 1); task.wait(0.1); refreshBotList()
+end)
+reg1Btn.Activated:Connect(function()
+    ORBIT.createBot(nil, nil, 1); task.wait(0.1); refreshBotList()
+end)
+reg5Btn.Activated:Connect(function()
+    ORBIT.createMultipleBots(5, 1); task.wait(0.5); refreshBotList()
+end)
+reg10Btn.Activated:Connect(function()
+    ORBIT.createManyBots(10, 1); task.wait(0.5); refreshBotList()
+end)
+reg25Btn.Activated:Connect(function()
+    ORBIT.createManyBots(25, 1); task.wait(1); refreshBotList()
+end)
 
-botCreateNearBtn.Activated:Connect(function()
-    if ORBIT.createBotNear then
-        ORBIT.createBotNear()
-        task.wait(0.1); refreshBotList()
-    end
-end)
-botCreate1Btn.Activated:Connect(function()
-    ORBIT.createBot()
-    task.wait(0.1); refreshBotList()
-end)
-botCreate5Btn.Activated:Connect(function()
-    ORBIT.createMultipleBots(5)
-    task.wait(0.5); refreshBotList()
-end)
-botCreate10Btn.Activated:Connect(function()
-    btnFlash(botCreate10Btn, "⏳ Создаю 10...", "💥 Создать 10 ботов",
-        Color3.fromRGB(120, 80, 60), Color3.fromRGB(75,45,100))
-    ORBIT.createManyBots(10)
-    task.wait(0.3); refreshBotList()
-end)
-botCreate25Btn.Activated:Connect(function()
-    btnFlash(botCreate25Btn, "⏳ Создаю 25...", "🌟 Создать 25 ботов",
-        Color3.fromRGB(130, 80, 60), Color3.fromRGB(85,45,110))
-    ORBIT.createManyBots(25)
-    task.wait(0.5); refreshBotList()
-end)
-botCreate50Btn.Activated:Connect(function()
-    btnFlash(botCreate50Btn, "⏳ Создаю 50...", "💫 Создать 50 ботов",
-        Color3.fromRGB(140, 80, 60), Color3.fromRGB(95,50,120))
-    ORBIT.createManyBots(50)
-    task.wait(0.8); refreshBotList()
-end)
-botCreate100Btn.Activated:Connect(function()
-    btnFlash(botCreate100Btn, "⏳ Создаю 100...", "👑 Создать 100 ботов",
-        Color3.fromRGB(150, 80, 60), Color3.fromRGB(105,55,130))
-    ORBIT.createManyBots(100)
-    task.wait(1.5); refreshBotList()
-end)
+-- ==== СПЕЦИАЛЬНЫЕ БОТЫ (кольца 2-5) ====
+sp2NearBtn.Activated:Connect(function() ORBIT.createBotNear(nil, 4, 2); task.wait(0.1); refreshBotList() end)
+sp2x5Btn.Activated:Connect(function() ORBIT.createMultipleBots(5, 2); task.wait(0.5); refreshBotList() end)
+
+sp3NearBtn.Activated:Connect(function() ORBIT.createBotNear(nil, 4, 3); task.wait(0.1); refreshBotList() end)
+sp3x5Btn.Activated:Connect(function() ORBIT.createMultipleBots(5, 3); task.wait(0.5); refreshBotList() end)
+
+sp4NearBtn.Activated:Connect(function() ORBIT.createBotNear(nil, 4, 4); task.wait(0.1); refreshBotList() end)
+sp4x5Btn.Activated:Connect(function() ORBIT.createMultipleBots(5, 4); task.wait(0.5); refreshBotList() end)
+
+sp5NearBtn.Activated:Connect(function() ORBIT.createBotNear(nil, 4, 5); task.wait(0.1); refreshBotList() end)
+sp5x5Btn.Activated:Connect(function() ORBIT.createMultipleBots(5, 5); task.wait(0.5); refreshBotList() end)
+
 botRemoveAll.Activated:Connect(function()
     ORBIT.removeAllBots()
     task.wait(0.1); refreshBotList()
@@ -769,7 +852,7 @@ task.spawn(function()
 end)
 refreshBotList()
 
--- ===== ОСТАЛЬНЫЕ =====
+-- ===== КОЛЬЦА 2-5 =====
 allRingsBtn.Activated:Connect(function()
     local anyOff = false
     for ri = 2, 5 do if not rings[ri].enabled then anyOff = true; break end end
@@ -786,6 +869,7 @@ for ri, btn in pairs(ringButtons) do
     btn.Activated:Connect(function() ORBIT.setRingEnabled(ri, not rings[ri].enabled); refreshRingButton(ri) end)
 end
 
+-- ===== ВНЕШНИЙ ВИД =====
 shapeCatBtn.Activated:Connect(function()
     P.shapeCategoryIndex = P.shapeCategoryIndex + 1
     if P.shapeCategoryIndex > #P.SHAPE_CATEGORIES then P.shapeCategoryIndex = 1 end
@@ -845,6 +929,7 @@ nameBtn.Activated:Connect(function()
     ORBIT.applyNameVisibility()
 end)
 
+-- ===== ДВИЖЕНИЕ =====
 orbitBtn.Activated:Connect(function()
     P.orbitIndex = P.orbitIndex + 1; if P.orbitIndex > #P.ORBIT then P.orbitIndex = 1 end
     orbitBtn.Text = "📏 Орбита: " .. P.ORBIT[P.orbitIndex].name
@@ -860,7 +945,7 @@ end)
 speedBtn.Activated:Connect(function()
     P.speedIndex = P.speedIndex + 1; if P.speedIndex > #P.SPEED then P.speedIndex = 1 end
     SETTINGS.SpeedMultiplier = P.SPEED[P.speedIndex].value
-    speedBtn.Text = "⚡ Множитель скорости: " .. P.SPEED[P.speedIndex].name
+    speedBtn.Text = "⚡ Множитель: " .. P.SPEED[P.speedIndex].name
 end)
 speedModeBtn.Activated:Connect(function()
     P.speedModeIndex = P.speedModeIndex + 1; if P.speedModeIndex > #P.SPEED_MODE then P.speedModeIndex = 1 end
@@ -875,8 +960,10 @@ end)
 orbitPatternBtn.Activated:Connect(function()
     P.orbitPatternIndex = P.orbitPatternIndex + 1; if P.orbitPatternIndex > #P.ORBIT_PATTERNS then P.orbitPatternIndex = 1 end
     SETTINGS.OrbitPattern = P.ORBIT_PATTERNS[P.orbitPatternIndex].name
-    orbitPatternBtn.Text = "🌀 Узор орбиты: " .. SETTINGS.OrbitPattern
+    orbitPatternBtn.Text = "🌀 Узор: " .. SETTINGS.OrbitPattern
 end)
+
+-- ===== КРУЧЕНИЕ =====
 spinBtn.Activated:Connect(function()
     ORBIT.spinResetting = not ORBIT.spinResetting
     if ORBIT.spinResetting then spinBtn.Text = "↩️ Вращение: ВОЗВРАТ"; spinBtn.BackgroundColor3 = Color3.fromRGB(60,40,40); spinBtn.TextColor3 = Color3.fromRGB(255,180,180)
@@ -893,9 +980,10 @@ end)
 spinSpeedBtn.Activated:Connect(function()
     P.spinSpeedIndex = P.spinSpeedIndex + 1; if P.spinSpeedIndex > #P.SPIN_SPEED then P.spinSpeedIndex = 1 end
     SETTINGS.SpinSpeedMultiplier = P.SPIN_SPEED[P.spinSpeedIndex].value
-    spinSpeedBtn.Text = "🌀 Скорость вращения: " .. P.SPIN_SPEED[P.spinSpeedIndex].name
+    spinSpeedBtn.Text = "🌀 Скорость: " .. P.SPIN_SPEED[P.spinSpeedIndex].name
 end)
 
+-- ===== ЭФФЕКТЫ =====
 trailBtn.Activated:Connect(function()
     SETTINGS.TrailEnabled = not SETTINGS.TrailEnabled
     trailBtn.Text = "🌠 Трейлы: " .. (SETTINGS.TrailEnabled and "ВКЛ" or "ВЫКЛ")
@@ -919,13 +1007,14 @@ waveBtn.Activated:Connect(function()
 end)
 explosionBtn.Activated:Connect(function()
     SETTINGS.ExplosionEnabled = not SETTINGS.ExplosionEnabled
-    explosionBtn.Text = "💥 Взрыв (пульс): " .. (SETTINGS.ExplosionEnabled and "ВКЛ" or "ВЫКЛ")
+    explosionBtn.Text = "💥 Взрыв: " .. (SETTINGS.ExplosionEnabled and "ВКЛ" or "ВЫКЛ")
 end)
 pulseBtn.Activated:Connect(function()
     SETTINGS.PulseEnabled = not SETTINGS.PulseEnabled
-    pulseBtn.Text = "💓 Пульсация размера: " .. (SETTINGS.PulseEnabled and "ВКЛ" or "ВЫКЛ")
+    pulseBtn.Text = "💓 Пульсация: " .. (SETTINGS.PulseEnabled and "ВКЛ" or "ВЫКЛ")
 end)
 
+-- ===== ОГОНЬ =====
 fireBtn.Activated:Connect(function()
     SETTINGS.FireEnabled = not SETTINGS.FireEnabled
     fireBtn.Text = "🔥 Огонь: " .. (SETTINGS.FireEnabled and "ВКЛ" or "ВЫКЛ")
@@ -944,6 +1033,7 @@ fireHeatBtn.Activated:Connect(function()
     if SETTINGS.FireEnabled then ORBIT.setupFire() end
 end)
 
+-- ===== АУРА =====
 auraBtn.Activated:Connect(function()
     SETTINGS.AuraEnabled = not SETTINGS.AuraEnabled
     auraBtn.Text = "🌀 Аура: " .. (SETTINGS.AuraEnabled and "ВКЛ" or "ВЫКЛ")
@@ -980,6 +1070,84 @@ auraColorBtn.Activated:Connect(function()
     if SETTINGS.AuraEnabled then ORBIT.setupAura() end
 end)
 
+-- ===== АУРА — РАЗМЕР =====
+auraSizeBtn.Activated:Connect(function()
+    P.auraSizeIndex = P.auraSizeIndex + 1; if P.auraSizeIndex > #P.AURA_SIZE then P.auraSizeIndex = 1 end
+    SETTINGS.AuraSize = P.AURA_SIZE[P.auraSizeIndex].value
+    auraSizeBtn.Text = "📏 Размер: " .. P.AURA_SIZE[P.auraSizeIndex].name
+    if SETTINGS.AuraEnabled then ORBIT.setupAura() end
+end)
+auraThickBtn.Activated:Connect(function()
+    P.auraThickIndex = P.auraThickIndex + 1; if P.auraThickIndex > #P.AURA_THICK then P.auraThickIndex = 1 end
+    SETTINGS.AuraThickness = P.AURA_THICK[P.auraThickIndex].value
+    auraThickBtn.Text = "🎚️ Толщина: " .. P.AURA_THICK[P.auraThickIndex].name
+    if SETTINGS.AuraEnabled then ORBIT.setupAura() end
+end)
+auraHeightBtn.Activated:Connect(function()
+    P.auraHeightIndex = P.auraHeightIndex + 1; if P.auraHeightIndex > #P.AURA_HEIGHT then P.auraHeightIndex = 1 end
+    SETTINGS.AuraHeight = P.AURA_HEIGHT[P.auraHeightIndex].value
+    auraHeightBtn.Text = "⬆️ Высота: " .. P.AURA_HEIGHT[P.auraHeightIndex].name
+end)
+auraScaleBtn.Activated:Connect(function()
+    P.auraShapeScaleIndex = P.auraShapeScaleIndex + 1
+    if P.auraShapeScaleIndex > #P.AURA_SHAPE_SCALE then P.auraShapeScaleIndex = 1 end
+    SETTINGS.AuraShapeScale = P.AURA_SHAPE_SCALE[P.auraShapeScaleIndex].factor
+    auraScaleBtn.Text = "🔍 Размер фигур: " .. P.AURA_SHAPE_SCALE[P.auraShapeScaleIndex].name
+    if SETTINGS.AuraEnabled then ORBIT.setupAura() end
+end)
+
+-- ===== АУРА — СКОРОСТЬ =====
+auraSpeedBtn.Activated:Connect(function()
+    P.auraSpeedIndex = P.auraSpeedIndex + 1; if P.auraSpeedIndex > #P.AURA_SPEED then P.auraSpeedIndex = 1 end
+    SETTINGS.AuraSpeedMult = P.AURA_SPEED[P.auraSpeedIndex].value
+    auraSpeedBtn.Text = "⚡ Скорость: " .. P.AURA_SPEED[P.auraSpeedIndex].name
+end)
+auraDirBtn.Activated:Connect(function()
+    P.auraDirIndex = P.auraDirIndex + 1; if P.auraDirIndex > #P.AURA_DIR then P.auraDirIndex = 1 end
+    SETTINGS.AuraDirection = P.AURA_DIR[P.auraDirIndex].value
+    auraDirBtn.Text = "🔃 Направление: " .. P.AURA_DIR[P.auraDirIndex].name
+end)
+auraSpinBtn.Activated:Connect(function()
+    SETTINGS.AuraSpinEnabled = not SETTINGS.AuraSpinEnabled
+    auraSpinBtn.Text = "🔄 Кручение: " .. (SETTINGS.AuraSpinEnabled and "ВКЛ" or "ВЫКЛ")
+end)
+auraSpinAxisBtn.Activated:Connect(function()
+    P.auraSpinAxisIndex = P.auraSpinAxisIndex + 1
+    if P.auraSpinAxisIndex > #P.AURA_SPIN_AXIS then P.auraSpinAxisIndex = 1 end
+    SETTINGS.AuraSpinAxis = P.AURA_SPIN_AXIS[P.auraSpinAxisIndex].value
+    auraSpinAxisBtn.Text = "↕️ Ось: " .. P.AURA_SPIN_AXIS[P.auraSpinAxisIndex].name
+end)
+auraSpinSpeedBtn.Activated:Connect(function()
+    P.auraSpinSpeedIndex = P.auraSpinSpeedIndex + 1
+    if P.auraSpinSpeedIndex > #P.AURA_SPIN_SPEED then P.auraSpinSpeedIndex = 1 end
+    SETTINGS.AuraSpinSpeed = P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].value
+    auraSpinSpeedBtn.Text = "🌀 Скорость кручения: " .. P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].name
+end)
+auraSpinResetBtn.Activated:Connect(function()
+    ORBIT.auraSpinAngle = 0
+    ORBIT.notify("↩️ Сброс вращения ауры", Color3.fromRGB(200,180,255))
+end)
+
+-- ===== АУРА — ТРЕЙЛЫ =====
+auraTrailBtn.Activated:Connect(function()
+    SETTINGS.AuraTrailEnabled = not SETTINGS.AuraTrailEnabled
+    auraTrailBtn.Text = "🌠 Трейлы ауры: " .. (SETTINGS.AuraTrailEnabled and "ВКЛ" or "ВЫКЛ")
+    if SETTINGS.AuraEnabled then ORBIT.setupAura() end
+end)
+auraTrailLenBtn.Activated:Connect(function()
+    P.auraTrailLengthIndex = P.auraTrailLengthIndex + 1
+    if P.auraTrailLengthIndex > #P.AURA_TRAIL_LEN then P.auraTrailLengthIndex = 1 end
+    SETTINGS.AuraTrailLength = P.AURA_TRAIL_LEN[P.auraTrailLengthIndex].value
+    auraTrailLenBtn.Text = "📏 Длина: " .. P.AURA_TRAIL_LEN[P.auraTrailLengthIndex].name
+end)
+auraTrailWidBtn.Activated:Connect(function()
+    P.auraTrailWidthIndex = P.auraTrailWidthIndex + 1
+    if P.auraTrailWidthIndex > #P.AURA_TRAIL_WID then P.auraTrailWidthIndex = 1 end
+    SETTINGS.AuraTrailWidth = P.AURA_TRAIL_WID[P.auraTrailWidthIndex].value
+    auraTrailWidBtn.Text = "🎚️ Толщина: " .. P.AURA_TRAIL_WID[P.auraTrailWidthIndex].name
+end)
+
+-- ===== ЗАЩИТА =====
 protBtn.Activated:Connect(function()
     SETTINGS.ProtEnabled = not SETTINGS.ProtEnabled
     protBtn.Text = "🛡️ Защита: " .. (SETTINGS.ProtEnabled and "ВКЛ" or "ВЫКЛ")
@@ -1015,6 +1183,7 @@ lockPosBtn.Activated:Connect(function()
     lockPosBtn.Text = "📍 Lock Position: " .. (SETTINGS.LockPosition and "ВКЛ" or "ВЫКЛ")
 end)
 
+-- ===== МЕТКИ =====
 tagNearestBtn.Activated:Connect(function()
     local closest, bestDist = nil, math.huge
     local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -1285,9 +1454,10 @@ task.spawn(function()
             local savesCount = 0
             for _ in pairs(ORBIT.SAVES) do savesCount = savesCount + 1 end
             statsLabel.Text = string.format(
-                "📊 FPS: %d\n🔷 Фигур: %d   ⏱️ %d:%02d\n🤖 Ботов: %d   🎯 Колец у игроков: %d\n👥 Игроков: %d   💾 Сохр: %d\n🌀 Узор: %s",
+                "📊 FPS: %d\n🔷 Фигур: %d   ⏱️ %d:%02d\n🤖 Ботов: %d   🎯 Колец: %d\n👥 Игроков: %d  💾 Сохр: %d\n🎮 Режим: %s",
                 statsData.lastFPS, statsData.totalShapes, m, s,
-                bots, ringTargets, players, savesCount, SETTINGS.OrbitPattern
+                bots, ringTargets, players, savesCount,
+                (ORBIT.uiMode == "shop" and "МАГАЗИН" or "ОБЫЧНЫЙ")
             )
         end
     end
@@ -1309,14 +1479,33 @@ mainBtn.InputChanged:Connect(function(input)
 end)
 mainBtn.InputEnded:Connect(function() dragging = false end)
 
+-- ===== ПЕРЕМЕННЫЕ ДЛЯ МАГАЗИНА (используются в P4 части 2/2) =====
+ORBIT.ui = ORBIT.ui or {}
+ORBIT.ui.screenGui = screenGui
+ORBIT.ui.panel = panel
+ORBIT.ui.openShopBtn = openShopBtn
+ORBIT.ui.openEditorBtn = openEditorBtn
+
 -- ===== СТАРТ =====
 ORBIT.start = function()
     if getgenv()._OrbitLoaderGui then pcall(function() getgenv()._OrbitLoaderGui:Destroy() end) end
     ORBIT.startLogic()
-    ORBIT.notify("✨ ОРБИТА v20.5 запущена!", Color3.fromRGB(200,200,255), 3)
+    ORBIT.notify("✨ ОРБИТА v20.8 запущена!", Color3.fromRGB(200,200,255), 3)
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4 v20.5 загружена", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4 v20.8 (часть 1/2) загружена", Color3.fromRGB(180,255,180), 3) end
+
+-- ============================================================
+-- СЮДА ВСТАВИТСЯ ЧАСТЬ 2/2 (магазин + редактор фигур)
+-- ============================================================
+local okP2, errP2 = pcall(function()
+    return loadstring(game:HttpGet(
+        "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/orbit_p4_shop.lua?t=" .. os.time()
+    ))()
+end)
+if not okP2 then
+    warn("[Orbit P4] Не удалось загрузить часть 2/2 (магазин): " .. tostring(errP2))
+end
 
 return true
