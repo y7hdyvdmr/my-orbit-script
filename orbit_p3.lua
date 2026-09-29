@@ -1,4 +1,4 @@
---[[ ОРБИТА v20.6 — ЧАСТЬ 3/4: ЛОГИКА + УСИЛЕННАЯ ЗАЩИТА + БОТЫ ]]
+--[[ ОРБИТА v20.7 — ЧАСТЬ 3/4: ЛОГИКА + УСИЛЕННАЯ ЗАЩИТА + БОТЫ (targetSlot) ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -229,15 +229,8 @@ end
 
 -- ==================== УСИЛЕННАЯ ЗАЩИТА ====================
 local PROT_STATE = {
-    lastSafePos = nil,
-    lastSafeCFrame = nil,
-    lastCheckTime = 0,
-    lastHealTime = 0,
-    lastHealth = 100,
-    lastKnockTime = 0,
-    lastFreezeTime = 0,
-    spawnGrace = 0,
-    watchConn = nil,
+    lastSafePos = nil, lastSafeCFrame = nil, lastCheckTime = 0, lastHealTime = 0,
+    lastHealth = 100, lastKnockTime = 0, lastFreezeTime = 0, spawnGrace = 0, watchConn = nil,
 }
 
 local ORIG_WS, ORIG_JP = 16, 50
@@ -246,7 +239,6 @@ LocalPlayer.CharacterAdded:Connect(function(c)
     if h then ORIG_WS, ORIG_JP = h.WalkSpeed, h.JumpPower end
 end)
 
--- Все классы, которые считаем атакующим мусором
 local BAD_CLASSES = {
     BodyVelocity = true, BodyForce = true, BodyAngularVelocity = true,
     BodyGyro = true, BodyPosition = true, BodyThrust = true,
@@ -302,9 +294,7 @@ end
 local function antiKnockback(char)
     if not SETTINGS.AntiKnockback then return end
     for _, child in ipairs(char:GetDescendants()) do
-        if BAD_CLASSES[child.ClassName] then
-            killObject(child)
-        end
+        if BAD_CLASSES[child.ClassName] then killObject(child) end
     end
 end
 
@@ -366,34 +356,27 @@ end
 
 local function processProtection(dt, char, hrp)
     local now = tick()
-    -- 1. Каждый кадр
     antiFling(char, hrp)
     antiAnchor(char)
-    -- 2. Раз в 0.1с
     if now - PROT_STATE.lastKnockTime >= 0.1 then
         PROT_STATE.lastKnockTime = now
         antiKnockback(char)
     end
-    -- 3. Раз в 0.25с
     if now - PROT_STATE.lastFreezeTime >= 0.25 then
         PROT_STATE.lastFreezeTime = now
         antiFreeze(char)
     end
-    -- 4. Auto-heal раз в 0.3с
     if SETTINGS.AutoHeal and now - PROT_STATE.lastHealTime >= 0.3 then
         PROT_STATE.lastHealTime = now
         autoHeal(char)
     end
-    -- 5. Anti-Void / Anti-Teleport
     local inGrace = (now - PROT_STATE.spawnGrace) < 2.0
     antiVoid(char, hrp)
     if not inGrace then
         antiTeleport(char, hrp)
         lockPosition(char, hrp)
     end
-    -- 6. Anti-Kill
     antiInstantKill(char)
-    -- 7. Обновление safe-позиции раз в 0.5с
     if now - PROT_STATE.lastCheckTime > 0.5 then
         PROT_STATE.lastCheckTime = now
         local hum = char:FindFirstChildOfClass("Humanoid")
@@ -419,25 +402,18 @@ end
 function ORBIT.enableProtection()
     if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
     if not SETTINGS.ProtEnabled then return end
-
-    PROT_STATE.lastSafePos = nil
-    PROT_STATE.lastSafeCFrame = nil
-    PROT_STATE.lastCheckTime = 0
-    PROT_STATE.lastHealTime = 0
-    PROT_STATE.lastHealth = 100
-    PROT_STATE.lastKnockTime = 0
-    PROT_STATE.lastFreezeTime = 0
-    PROT_STATE.spawnGrace = tick()
+    PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
+    PROT_STATE.lastCheckTime = 0; PROT_STATE.lastHealTime = 0
+    PROT_STATE.lastHealth = 100; PROT_STATE.lastKnockTime = 0
+    PROT_STATE.lastFreezeTime = 0; PROT_STATE.spawnGrace = tick()
 
     if LocalPlayer.Character then watchCharacter(LocalPlayer.Character) end
     LocalPlayer.CharacterAdded:Connect(function(newChar)
         PROT_STATE.spawnGrace = tick()
-        PROT_STATE.lastSafePos = nil
-        PROT_STATE.lastSafeCFrame = nil
+        PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
         task.wait(0.3)
         watchCharacter(newChar)
     end)
-
     ORBIT.protConn = RunService.Heartbeat:Connect(function(dt)
         if not SETTINGS.ProtEnabled then return end
         local char = LocalPlayer.Character
@@ -446,15 +422,13 @@ function ORBIT.enableProtection()
         if not hrp then return end
         pcall(processProtection, dt, char, hrp)
     end)
-
     ORBIT.notify("🛡 Защита ВКЛ (усиленная)", Color3.fromRGB(120, 255, 180), 2)
 end
 
 function ORBIT.disableProtection()
     if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
     if PROT_STATE.watchConn then pcall(function() PROT_STATE.watchConn:Disconnect() end); PROT_STATE.watchConn = nil end
-    PROT_STATE.lastSafePos = nil
-    PROT_STATE.lastSafeCFrame = nil
+    PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
 end
 
 Workspace.DescendantAdded:Connect(function(inst)
@@ -618,7 +592,8 @@ end
 -- ==================== КОЛЬЦА НА ДРУГИХ ИГРОКАХ ====================
 ORBIT.targetRings = ORBIT.targetRings or {}
 
-function ORBIT.buildTargetRings(player)
+function ORBIT.buildTargetRings(player, slot)
+    slot = slot or 1
     if ORBIT.targetRings[player] then
         pcall(function() ORBIT.targetRings[player].folder:Destroy() end)
         ORBIT.targetRings[player] = nil
@@ -648,7 +623,7 @@ function ORBIT.buildTargetRings(player)
             bodyParts = data.bodyParts, angleOffset = (i-1)*(360/SETTINGS.BlockCount), index = i,
         })
     end
-    ORBIT.targetRings[player] = { folder = folder, blocks = blocks, angle = 0 }
+    ORBIT.targetRings[player] = { folder = folder, blocks = blocks, angle = 0, slot = slot }
 end
 
 function ORBIT.removeTargetRings(player)
@@ -703,9 +678,7 @@ function ORBIT.getPlayerList()
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer then
             table.insert(list, {
-                player = p,
-                name = p.Name,
-                displayName = p.DisplayName,
+                player = p, name = p.Name, displayName = p.DisplayName,
                 hasRing = ORBIT.targetRings[p] ~= nil,
                 isTagged = ORBIT.taggedPlayers[p] == true,
             })
@@ -726,8 +699,8 @@ local function updateTargetRings(dt)
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not hrp then continue end
         data.angle = data.angle + ORBIT.getTargetSpeed() * dt
-        local radius = ORBIT.getTargetRadius(1)
-        local height = ORBIT.getTargetHeight(1)
+        local radius = ORBIT.getTargetRadius(data.slot or 1)
+        local height = ORBIT.getTargetHeight(data.slot or 1)
         local spinAngle = (ORBIT.spinAxisEnabled and not ORBIT.spinResetting) and (t*3) or 0
         for _, b in ipairs(data.blocks) do
             local ref = b.isModel and b.model or b.part
@@ -857,7 +830,7 @@ local function createDummyCharacter(position, useSkin)
     return model
 end
 
-function ORBIT.createBot(shapeIndex, position)
+function ORBIT.createBot(shapeIndex, position, targetSlot)
     local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     local basePos = position
     if not basePos then
@@ -905,11 +878,12 @@ function ORBIT.createBot(shapeIndex, position)
         folder = folder, blocks = blocks, angle = 0, collected = false,
         ringRadius = ringRadius, ringHeight = ringHeight, ringSpeed = ringSpeed,
         hueBase = hueBase, blockCount = blockCount,
+        targetSlot = targetSlot or 2,
     }
     return model
 end
 
-function ORBIT.createBotNear(shapeIndex, offsetStuds)
+function ORBIT.createBotNear(shapeIndex, offsetStuds, targetSlot)
     local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not myHrp then
         ORBIT.notify("❌ Нет персонажа", Color3.fromRGB(255, 120, 120), 2)
@@ -918,10 +892,10 @@ function ORBIT.createBotNear(shapeIndex, offsetStuds)
     offsetStuds = offsetStuds or 3
     local fwd = myHrp.CFrame.LookVector
     local pos = myHrp.Position + Vector3.new(fwd.X, 0, fwd.Z).Unit * offsetStuds
-    return ORBIT.createBot(shapeIndex, pos)
+    return ORBIT.createBot(shapeIndex, pos, targetSlot)
 end
 
-function ORBIT.createMultipleBots(count)
+function ORBIT.createMultipleBots(count, targetSlot)
     count = count or 5
     local indices = {}
     for i = 1, #SHAPE_PRESETS do indices[i] = i end
@@ -930,18 +904,18 @@ function ORBIT.createMultipleBots(count)
         indices[i], indices[j] = indices[j], indices[i]
     end
     for i = 1, math.min(count, #SHAPE_PRESETS) do
-        ORBIT.createBot(indices[i])
+        ORBIT.createBot(indices[i], nil, targetSlot)
         task.wait(0.08)
     end
     ORBIT.notify("🤖 Создано ботов: " .. math.min(count, #SHAPE_PRESETS), Color3.fromRGB(150, 200, 255), 2)
 end
 
-function ORBIT.createManyBots(count)
+function ORBIT.createManyBots(count, targetSlot)
     count = math.clamp(tonumber(count) or 10, 1, 200)
     local created = 0
     for i = 1, count do
         local shapeIdx = math.random(1, #SHAPE_PRESETS)
-        ORBIT.createBot(shapeIdx)
+        ORBIT.createBot(shapeIdx, nil, targetSlot)
         created = created + 1
         if i % 5 == 0 then task.wait(0.08) end
     end
@@ -967,10 +941,22 @@ local function collectBotRing(botModel, data)
     if data.collected then return end
     data.collected = true
     local shapeName = SHAPE_PRESETS[data.shapeIndex] and SHAPE_PRESETS[data.shapeIndex].name or "?"
-    local SLOT = 2
+
+    local SLOT = data.targetSlot or 2
+    SLOT = math.clamp(SLOT, 1, 5)
+
     rings[SLOT].shapeIndex = data.shapeIndex
-    ORBIT.setRingEnabled(SLOT, true)
+    if not rings[SLOT].enabled then
+        ORBIT.setRingEnabled(SLOT, true)
+    else
+        ORBIT.destroyRing(SLOT)
+        ORBIT.buildRing(SLOT)
+        ORBIT.applyColor()
+        ORBIT.applyNameVisibility()
+    end
+
     ORBIT.notify("🎁 " .. shapeName .. " → кольцо " .. SLOT, Color3.fromRGB(255, 220, 100), 3)
+
     task.spawn(function()
         for i = 1, 10 do
             for _, b in ipairs(data.blocks) do
@@ -1579,6 +1565,6 @@ function ORBIT.startLogic()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v20.6 (усиленная защита)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P3 v20.7 (targetSlot для ботов)", Color3.fromRGB(180,255,180), 3) end
 
 return true
