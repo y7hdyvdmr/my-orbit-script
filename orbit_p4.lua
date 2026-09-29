@@ -681,10 +681,9 @@ end)
 
 -- ==================== КНОПКА СЕРДЦА ====================
 local heartScaleIndex = 4
-if P.HEART_STEPS then
-    for i, v in ipairs(P.HEART_STEPS) do
-        if math.abs(v - SETTINGS.HeartScale) < 0.01 then heartScaleIndex = i; break end
-    end
+local HEART_STEPS = P.HEART_STEPS or {0.2, 0.35, 0.5, 0.65, 0.9, 1.2, 1.6, 2.2}
+for i, v in ipairs(HEART_STEPS) do
+    if math.abs(v - SETTINGS.HeartScale) < 0.01 then heartScaleIndex = i; break end
 end
 
 local function refreshHeartSizeBtn()
@@ -707,10 +706,9 @@ end
 refreshHeartSizeBtn()
 
 heartSizeBtn.Activated:Connect(function()
-    if not P.HEART_STEPS then return end
     heartScaleIndex = heartScaleIndex + 1
-    if heartScaleIndex > #P.HEART_STEPS then heartScaleIndex = 1 end
-    SETTINGS.HeartScale = P.HEART_STEPS[heartScaleIndex]
+    if heartScaleIndex > #HEART_STEPS then heartScaleIndex = 1 end
+    SETTINGS.HeartScale = HEART_STEPS[heartScaleIndex]
     refreshHeartSizeBtn()
     ORBIT.rebuildAllRings()
     ORBIT.rebuildAllTargetRings()
@@ -910,15 +908,21 @@ applyIdBtn.Activated:Connect(function()
     end
 end)
 musicBtn.Activated:Connect(function()
-    if not ORBIT.musicSound or ORBIT.musicSound.SoundId == "" then
+    local s = ORBIT.musicSound and tostring(ORBIT.musicSound.SoundId or "") or ""
+    if not ORBIT.musicSound or s == "" or s == "rbxassetid://" then
         musicBtn.Text = "❌ Вставь ID!"
         task.wait(1.2)
-        musicBtn.Text = "🎵 Музыка: ВЫКЛ"
+        musicBtn.Text = "🎵 Музыка: " .. (ORBIT.musicEnabled and "ВКЛ" or "ВЫКЛ")
         return
     end
     ORBIT.musicEnabled = not ORBIT.musicEnabled
-    if ORBIT.musicEnabled then ORBIT.musicSound:Play(); musicBtn.Text = "🎵 Музыка: ВКЛ"
-    else ORBIT.musicSound:Stop(); musicBtn.Text = "🎵 Музыка: ВЫКЛ" end
+    if ORBIT.musicEnabled then
+        ORBIT.musicSound:Play()
+        musicBtn.Text = "🎵 Музыка: ВКЛ"
+    else
+        ORBIT.musicSound:Stop()
+        musicBtn.Text = "🎵 Музыка: ВЫКЛ"
+    end
 end)
 
 saveBtn.Activated:Connect(function()
@@ -950,8 +954,20 @@ loadBtn.Activated:Connect(function()
     end
 end)
 resetBtn.Activated:Connect(function()
-    SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
-    ORBIT.SETTINGS = SETTINGS
+    for k, v in pairs(ORBIT.DEFAULT_SETTINGS) do
+        SETTINGS[k] = v
+    end
+    ORBIT.shapeIndex = 1
+    ORBIT.auraShapeIndex = 1
+    P.colorIndex = 1
+    P.auraColorIndex = 1
+    P.shapeCategoryIndex = 1
+    P.orbitPatternIndex = 1
+    SETTINGS.OrbitPattern = P.ORBIT_PATTERNS[1].name
+    ORBIT.rebuildAllRings()
+    ORBIT.rebuildAllTargetRings()
+    if ORBIT.setupAura then ORBIT.setupAura() end
+    if ORBIT.setupFire then ORBIT.setupFire() end
     ORBIT.notify("🔄 Сброс выполнен", Color3.fromRGB(255,180,180))
 end)
 unloadBtn.Activated:Connect(function()
