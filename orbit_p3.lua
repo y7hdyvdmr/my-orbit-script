@@ -1,4 +1,4 @@
---[[ ОРБИТА v21.5 — ЧАСТЬ 3/4: ЛОГИКА + ЗАЩИТА v7 + REVERSE FLING + БОТЫ ]]
+--[[ ОРБИТА v21.7 — P3: ЛОГИКА + ЗАЩИТА v7 + ESP + ФЕЙЕРВЕРК + СТАТИСТИКА ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -16,6 +16,21 @@ local statsData = ORBIT.statsData
 local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
 if not P then warn("[Orbit P3] P не передан"); return end
 if not SHAPE_PRESETS then warn("[Orbit P3] Часть 2 не загружена"); return end
+
+-- ==================== 🎁 СТАТИСТИКА СЕССИИ ====================
+ORBIT.SESSION = ORBIT.SESSION or {
+    botsCollected = 0,
+    cheatersTagged = 0,
+    dodgesMade = 0,
+    protectionsTriggered = 0,
+    startTime = tick(),
+    coinsSpent = 0,
+    coinsEarned = 0,
+}
+
+function ORBIT.addSession(field, amount)
+    ORBIT.SESSION[field] = (ORBIT.SESSION[field] or 0) + (amount or 1)
+end
 
 -- ==================== КАТЕГОРИИ ФИГУР ====================
 function ORBIT.getShapeIndicesInCategory()
@@ -227,7 +242,7 @@ local function updateFire()
     end
 end
 
--- ==================== УСИЛЕННАЯ ЗАЩИТА v7 ====================
+-- ==================== 🛡️ ЗАЩИТА v7 ====================
 local PROT_STATE = {
     lastSafePos = nil, lastSafeCFrame = nil, lastCheckTime = 0, lastHealTime = 0,
     lastHealth = 100, lastKnockTime = 0, lastFreezeTime = 0, spawnGrace = 0,
@@ -277,20 +292,21 @@ local function resetVelocity(char)
     end
 end
 
--- ==== ANTI-FLING ====
 local function antiFling(char, hrp)
     if not SETTINGS.AntiFling then return end
     pcall(function()
         if hrp.AssemblyLinearVelocity.Magnitude > 150 then
             hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            ORBIT.addSession("protectionsTriggered")
         end
         if hrp.AssemblyAngularVelocity.Magnitude > 20 then
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            ORBIT.addSession("protectionsTriggered")
         end
     end)
 end
 
--- ==== AUTO-DODGE ====
+-- AUTO-DODGE
 local DODGE = {
     Enabled = false,
     ScanRadius = 15,
@@ -359,15 +375,15 @@ local function setupAutoDodge()
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
             end)
             DODGE.LastDodge = now
-            protLog("Auto-Dodge: уклонение от " .. threat.obj.Name, Color3.fromRGB(100, 255, 200))
-            -- 🎵 Звук уворота + эмоция Санса
+            ORBIT.addSession("dodgesMade")
+            protLog("Auto-Dodge: " .. threat.obj.Name, Color3.fromRGB(100, 255, 200))
             if ORBIT.playDodge then ORBIT.playDodge() end
         end
     end)
 end
 ORBIT.setupAutoDodge = setupAutoDodge
 
--- ==== 🚨 REVERSE FLING (наказание читеров) ====
+-- REVERSE FLING
 ORBIT.REVERSE = {
     Enabled = false,
     RotateLimit = 20 * 2 * math.pi,
@@ -391,7 +407,7 @@ local function reverseFlingPlayer(player)
         )
         hrp.AssemblyLinearVelocity = Vector3.new(0, ORBIT.REVERSE.FlingForce, 0)
     end)
-    protLog("🚨 REVERSE FLING: " .. player.Name .. " отправлен за карту!", Color3.fromRGB(255, 50, 50))
+    protLog("🚨 REVERSE FLING: " .. player.Name, Color3.fromRGB(255, 50, 50))
     if ORBIT.notify then ORBIT.notify("🚨 Наказан: " .. player.Name, Color3.fromRGB(255, 80, 80), 3) end
 end
 
@@ -400,14 +416,12 @@ local function scanForFlingers()
     local now = tick()
     if now - ORBIT.REVERSE.LastCheck < ORBIT.REVERSE.CheckInterval then return end
     ORBIT.REVERSE.LastCheck = now
-
     for _, player in ipairs(Players:GetPlayers()) do
         if player == LocalPlayer then continue end
         local char = player.Character
         if not char then continue end
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not hrp then continue end
-
         local aav = hrp.AssemblyAngularVelocity
         if math.abs(aav.X) > ORBIT.REVERSE.RotateLimit or
            math.abs(aav.Y) > ORBIT.REVERSE.RotateLimit or
@@ -418,13 +432,11 @@ local function scanForFlingers()
             end
         end
     end
-
     for p, t in pairs(ORBIT.REVERSE.Detected) do
         if now - t > 5 then ORBIT.REVERSE.Detected[p] = nil end
     end
 end
 
--- ==== ANTI-FREEZE ====
 local function antiFreeze(char)
     if not SETTINGS.AntiFreeze then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -441,7 +453,6 @@ local function antiFreeze(char)
     end
 end
 
--- ==== ANTI-KNOCKBACK ====
 local function antiKnockback(char)
     if not SETTINGS.AntiKnockback then return end
     for _, child in ipairs(char:GetDescendants()) do
@@ -449,17 +460,15 @@ local function antiKnockback(char)
     end
 end
 
--- ==== ANTI-ANCHOR ====
 local function antiAnchor(char)
     if not SETTINGS.ProtEnabled then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if hrp and hrp.Anchored then
         pcall(function() hrp.Anchored = false end)
-        protLog("Anti-Anchor", Color3.fromRGB(120, 220, 255))
+        ORBIT.addSession("protectionsTriggered")
     end
 end
 
--- ==== ANTI-KILL ====
 local function antiInstantKill(char)
     if not SETTINGS.ProtEnabled then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -469,23 +478,21 @@ local function antiInstantKill(char)
         if PROT_STATE.lastSafeCFrame then
             pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame) end)
             resetVelocity(char)
-            protLog("Anti-Kill", Color3.fromRGB(255, 80, 80))
+            ORBIT.addSession("protectionsTriggered")
         end
     end
     PROT_STATE.lastHealth = hum.Health
     PROT_STATE.lastHealthCheck = now
 end
 
--- ==== ANTI-VOID ====
 local function antiVoid(char, hrp)
     if not SETTINGS.AntiVoid then return end
     if hrp.Position.Y < SETTINGS.AntiVoidY and PROT_STATE.lastSafeCFrame then
         pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame + Vector3.new(0, 5, 0)) end)
-        protLog("Anti-Void", Color3.fromRGB(120, 220, 255))
+        ORBIT.addSession("protectionsTriggered")
     end
 end
 
--- ==== ANTI-TELEPORT ====
 local function antiTeleport(char, hrp)
     if not SETTINGS.AntiTeleport then return end
     if not PROT_STATE.lastSafePos then return end
@@ -497,11 +504,10 @@ local function antiTeleport(char, hrp)
     if horizDist > 250 then
         pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame + Vector3.new(0, 2, 0)) end)
         resetVelocity(char)
-        protLog("Anti-Teleport (" .. math.floor(horizDist) .. " st)", Color3.fromRGB(255, 180, 100))
+        ORBIT.addSession("protectionsTriggered")
     end
 end
 
--- ==== AUTO-HEAL ====
 local function autoHeal(char)
     if not SETTINGS.AutoHeal then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -510,7 +516,6 @@ local function autoHeal(char)
     end
 end
 
--- ==== LOCK POSITION ====
 local function lockPosition(char, hrp)
     if not SETTINGS.LockPosition then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -520,7 +525,6 @@ local function lockPosition(char, hrp)
     end
 end
 
--- ==== ANTI-RING PARTS ====
 local function setupAntiRingParts()
     Workspace.DescendantAdded:Connect(function(obj)
         if not SETTINGS.ProtEnabled then return end
@@ -530,10 +534,7 @@ local function setupAntiRingParts()
                 task.defer(function()
                     if obj.Parent then
                         local vel = obj.AssemblyAngularVelocity
-                        if vel.Magnitude > 5 then
-                            protLog("Anti-RingParts: удалён " .. obj.Name, Color3.fromRGB(255, 80, 80))
-                            obj:Destroy()
-                        end
+                        if vel.Magnitude > 5 then obj:Destroy() end
                     end
                 end)
             end
@@ -542,7 +543,6 @@ local function setupAntiRingParts()
 end
 setupAntiRingParts()
 
--- ==== ANTI-GODMODE ====
 local function scanForGodMode()
     for _, player in ipairs(Players:GetPlayers()) do
         if player == LocalPlayer then continue end
@@ -555,20 +555,17 @@ local function scanForGodMode()
         if mh > 10000 or h > 10000 then
             if not PROT_STATE.godmodeWarned[player] then
                 PROT_STATE.godmodeWarned[player] = true
-                ORBIT.notify("⚠️ GodMode: " .. player.Name, Color3.fromRGB(255, 80, 80), 3)
-                protLog("GodMode: " .. player.Name, Color3.fromRGB(255, 60, 60))
+                if ORBIT.notify then ORBIT.notify("⚠️ GodMode: " .. player.Name, Color3.fromRGB(255, 80, 80), 3) end
                 if ORBIT.tagCheater then ORBIT.tagCheater(player, true) end
             end
         else
             if PROT_STATE.godmodeWarned[player] then
                 PROT_STATE.godmodeWarned[player] = nil
-                protLog("GodMode отключён: " .. player.Name, Color3.fromRGB(100, 255, 100))
             end
         end
     end
 end
 
--- ==== ANTI-SPEEDHACK ====
 local function detectSpeedHack(player)
     if player == LocalPlayer then return end
     local char = player.Character
@@ -580,10 +577,8 @@ local function detectSpeedHack(player)
     if last then
         local dt = now - last.time
         if dt > 0.1 and dt < 1 then
-            local dist = (hrp.Position - last.pos).Magnitude
-            local speed = dist / dt
+            local speed = (hrp.Position - last.pos).Magnitude / dt
             if speed > 150 then
-                protLog("SpeedHack: " .. player.Name .. " (" .. math.floor(speed) .. " st/s)", Color3.fromRGB(255, 100, 100))
                 if ORBIT.tagCheater then ORBIT.tagCheater(player, true) end
             end
         end
@@ -591,7 +586,6 @@ local function detectSpeedHack(player)
     PROT_STATE.lastPositions[player] = { pos = hrp.Position, time = now }
 end
 
--- ==== ЗАЩИТА СВОЕГО ПЕРСОНАЖА ====
 local function setupCharacterProtection()
     LocalPlayer.CharacterAdded:Connect(function(char)
         task.wait(0.5)
@@ -599,10 +593,7 @@ local function setupCharacterProtection()
         if not hum then return end
         local origMax = hum.MaxHealth
         hum.Changed:Connect(function(prop)
-            if prop == "MaxHealth" and hum.MaxHealth > 10000 then
-                hum.MaxHealth = origMax
-                protLog("Возврат MaxHealth", Color3.fromRGB(255, 80, 80))
-            end
+            if prop == "MaxHealth" and hum.MaxHealth > 10000 then hum.MaxHealth = origMax end
         end)
         char.ChildAdded:Connect(function(child)
             if child:IsA("ForceField") then
@@ -612,227 +603,175 @@ local function setupCharacterProtection()
     end)
 end
 
--- ==== REMOTE-СПАМ ====
-local remoteCallCounts = {}
-local REMOTE_LIMIT = 30
-local REMOTE_WINDOW = 1.0
-
-local function setupRemoteMonitor()
-    local function hook(remote)
-        if not remote:IsA("RemoteEvent") then return end
-        local oldFire = remote.FireServer
-        if not oldFire then return end
-        remote.FireServer = function(self, ...)
-            if not SETTINGS.ProtEnabled then return oldFire(self, ...) end
-            local now = tick()
-            local key = tostring(self)
-            remoteCallCounts[key] = remoteCallCounts[key] or {count = 0, time = now}
-            local d = remoteCallCounts[key]
-            if now - d.time > REMOTE_WINDOW then d.count = 0; d.time = now end
-            d.count = d.count + 1
-            if d.count > REMOTE_LIMIT then
-                protLog("Remote-спам: " .. self.Name, Color3.fromRGB(255, 60, 60))
-                return
-            end
-            return oldFire(self, ...)
-        end
-    end
-    for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-        if obj:IsA("RemoteEvent") then pcall(hook, obj) end
-    end
-end
-setupRemoteMonitor()
-
--- ==== ГЛАВНЫЙ ЦИКЛ ЗАЩИТЫ ====
-local function processProtection(dt, char, hrp)
-    local now = tick()
-    antiFling(char, hrp)
-    antiAnchor(char)
-    if now - PROT_STATE.lastKnockTime >= 0.1 then
-        PROT_STATE.lastKnockTime = now
-        antiKnockback(char)
-    end
-    if now - PROT_STATE.lastFreezeTime >= 0.25 then
-        PROT_STATE.lastFreezeTime = now
-        antiFreeze(char)
-    end
-    if SETTINGS.AutoHeal and now - PROT_STATE.lastHealTime >= 0.3 then
-        PROT_STATE.lastHealTime = now
-        autoHeal(char)
-    end
-
-    local inGrace = (now - PROT_STATE.spawnGrace) < 5.0
-    antiVoid(char, hrp)
-    if not inGrace then
-        antiTeleport(char, hrp)
-        lockPosition(char, hrp)
-    end
-    antiInstantKill(char)
-
-    if now - PROT_STATE.lastScan > 0.5 then
-        PROT_STATE.lastScan = now
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then pcall(detectSpeedHack, player) end
-        end
-        pcall(scanForGodMode)
-        pcall(scanForFlingers)
-    end
-
-    if now - PROT_STATE.lastCheckTime > 0.2 then
-        PROT_STATE.lastCheckTime = now
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum and hum.Health > 0 and hrp.Position.Y > (SETTINGS.AntiVoidY + 10) then
-            PROT_STATE.lastSafePos = hrp.Position
-            PROT_STATE.lastSafeCFrame = hrp.CFrame
-        end
-    end
-end
-
-local function watchCharacter(char)
-    if not char then return end
-    antiKnockback(char)
-    if PROT_STATE.watchConn then pcall(function() PROT_STATE.watchConn:Disconnect() end) end
-    PROT_STATE.watchConn = char.DescendantAdded:Connect(function(obj)
-        if not SETTINGS.ProtEnabled then return end
-        if BAD_CLASSES[obj.ClassName] then
-            task.defer(function() killObject(obj) end)
-        end
-    end)
-end
-
-function ORBIT.enableProtection()
-    if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
-    if not SETTINGS.ProtEnabled then return end
-    PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
-    PROT_STATE.lastCheckTime = 0; PROT_STATE.lastHealTime = 0
-    PROT_STATE.lastHealth = 100; PROT_STATE.lastKnockTime = 0
-    PROT_STATE.lastFreezeTime = 0; PROT_STATE.spawnGrace = tick()
-    PROT_STATE.lastPositions = {}; PROT_STATE.godmodeWarned = {}
-
-    if LocalPlayer.Character then watchCharacter(LocalPlayer.Character) end
-    LocalPlayer.CharacterAdded:Connect(function(newChar)
-        PROT_STATE.spawnGrace = tick()
-        PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
-        task.wait(0.3)
-        watchCharacter(newChar)
-    end)
-    setupCharacterProtection()
-    setupAutoDodge()
-    ORBIT.protConn = RunService.Heartbeat:Connect(function(dt)
-        if not SETTINGS.ProtEnabled then return end
-        local char = LocalPlayer.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        pcall(processProtection, dt, char, hrp)
-    end)
-    ORBIT.notify("🛡 Защита v7 ВКЛ", Color3.fromRGB(120, 255, 180), 3)
-    protLog("Защита v7 активна. F9 = лог.", Color3.fromRGB(100, 255, 100))
-end
-
-function ORBIT.disableProtection()
-    if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
-    if dodgeConn then dodgeConn:Disconnect(); dodgeConn = nil end
-    if PROT_STATE.watchConn then pcall(function() PROT_STATE.watchConn:Disconnect() end); PROT_STATE.watchConn = nil end
-    PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
-end
-
-Workspace.DescendantAdded:Connect(function(inst)
-    if not SETTINGS.ProtEnabled or not SETTINGS.AntiExplosion then return end
-    if inst:IsA("Explosion") then
-        task.defer(function() pcall(function() inst:Destroy() end) end)
-    end
-end)
-
--- ==================== ПРОИЗВОДИТЕЛЬНОСТЬ ====================
-local PERFORMANCE = {
-    Enabled = true, Level = "auto", CurrentLevel = "high",
-    LastCheck = 0, CheckInterval = 3.0,
-    FPS_HIGH = 50, FPS_MEDIUM = 35, FPS_LOW = 22,
-    MobileAuto = true, Snapshot = nil,
+-- ==================== 👁️ ESP ИГРОКОВ ====================
+ORBIT.ESP = {
+    Enabled = false,
+    MaxDistance = 500,
+    UpdateInterval = 0.1,
+    LastUpdate = 0,
+    Tags = {},
 }
-local function perfSnapshot()
-    PERFORMANCE.Snapshot = {
-        LightEnabled = SETTINGS.LightEnabled, TrailEnabled = SETTINGS.TrailEnabled,
-        AuraTrailEnabled = SETTINGS.AuraTrailEnabled, BlockCount = SETTINGS.BlockCount,
-    }
+
+local function makeESPTag(player)
+    local char = player.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+    local existing = head:FindFirstChild("_OrbitESP")
+    if existing then existing:Destroy() end
+
+    local isTagged = ORBIT.taggedPlayers and ORBIT.taggedPlayers[player]
+    local color = isTagged and Color3.fromRGB(255, 40, 40) or Color3.fromRGB(80, 255, 120)
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "_OrbitESP"
+    bb.Size = UDim2.new(0, 180, 0, 42)
+    bb.StudsOffset = Vector3.new(0, 3, 0)
+    bb.AlwaysOnTop = true
+    bb.LightInfluence = 0
+    bb.Adornee = head
+    bb.Parent = head
+
+    local nameLbl = Instance.new("TextLabel")
+    nameLbl.Size = UDim2.new(1, 0, 0, 20)
+    nameLbl.BackgroundTransparency = 0.3
+    nameLbl.BackgroundColor3 = isTagged and Color3.fromRGB(80, 20, 20) or Color3.fromRGB(20, 60, 30)
+    nameLbl.BorderSizePixel = 0
+    nameLbl.Text = (isTagged and "🚨 " or "👤 ") .. player.Name
+    nameLbl.TextColor3 = color
+    nameLbl.Font = Enum.Font.GothamBold
+    nameLbl.TextSize = 12
+    nameLbl.Parent = bb
+    Instance.new("UICorner", nameLbl).CornerRadius = UDim.new(0, 4)
+
+    local distLbl = Instance.new("TextLabel")
+    distLbl.Size = UDim2.new(1, 0, 0, 18)
+    distLbl.Position = UDim2.new(0, 0, 0, 21)
+    distLbl.BackgroundTransparency = 1
+    distLbl.Text = "0 st"
+    distLbl.TextColor3 = Color3.fromRGB(220, 220, 255)
+    distLbl.Font = Enum.Font.GothamBold
+    distLbl.TextSize = 10
+    distLbl.Parent = bb
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "_OrbitESPHighlight"
+    hl.FillColor = color
+    hl.OutlineColor = color
+    hl.FillTransparency = 0.6
+    hl.OutlineTransparency = 0.1
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = char
+
+    ORBIT.ESP.Tags[player] = { bb = bb, hl = hl, nameLbl = nameLbl, distLbl = distLbl }
 end
-local function perfRestore()
-    if not PERFORMANCE.Snapshot then return end
-    for k, v in pairs(PERFORMANCE.Snapshot) do SETTINGS[k] = v end
+
+local function removeESPTag(player)
+    local data = ORBIT.ESP.Tags[player]
+    if not data then return end
+    pcall(function() if data.bb then data.bb:Destroy() end end)
+    pcall(function() if data.hl then data.hl:Destroy() end end)
+    ORBIT.ESP.Tags[player] = nil
 end
-local function setLightsEnabled(on)
-    for _, ring in pairs(rings) do
-        for _, data in ipairs(ring.blocks) do
-            if data.light then data.light.Enabled = on end
-        end
-    end
-end
-local function setTrailsEnabled(on)
-    for _, ring in pairs(rings) do
-        for _, data in ipairs(ring.blocks) do
-            if data.trail then data.trail.Enabled = on end
-        end
-    end
-end
-local function setAuraTrailsEnabled(on)
-    for _, data in ipairs(ORBIT.auraBlocks or {}) do
-        if data.trail then data.trail.Enabled = on end
-    end
-end
-local function applyPerformanceLevel(level)
-    if PERFORMANCE.CurrentLevel == level then return end
-    PERFORMANCE.CurrentLevel = level
-    if level == "high" then
-        perfRestore(); setLightsEnabled(SETTINGS.LightEnabled)
-        setTrailsEnabled(SETTINGS.TrailEnabled); setAuraTrailsEnabled(SETTINGS.AuraTrailEnabled)
-    elseif level == "medium" then
-        setLightsEnabled(false); setTrailsEnabled(true); setAuraTrailsEnabled(SETTINGS.AuraTrailEnabled)
-    elseif level == "low" then
-        setLightsEnabled(false); setTrailsEnabled(false); setAuraTrailsEnabled(false)
-    elseif level == "minimal" then
-        setLightsEnabled(false); setTrailsEnabled(false); setAuraTrailsEnabled(false)
-    end
-    if ORBIT.notify then ORBIT.notify("⚡ Качество: " .. level:upper(), Color3.fromRGB(180, 220, 255), 1.5) end
-end
-function ORBIT.setPerformanceMode(mode)
-    if mode == "off" then
-        PERFORMANCE.Enabled = false; PERFORMANCE.Level = "high"; applyPerformanceLevel("high")
-    else
-        PERFORMANCE.Enabled = true; PERFORMANCE.Level = mode
-        if mode ~= "auto" then applyPerformanceLevel(mode) end
-    end
-    return PERFORMANCE.Level
-end
-function ORBIT.getPerformanceInfo()
-    return { Enabled = PERFORMANCE.Enabled, Mode = PERFORMANCE.Level,
-        Current = PERFORMANCE.CurrentLevel, FPS = ORBIT.statsData and ORBIT.statsData.lastFPS or 60 }
-end
-task.spawn(function()
-    task.wait(1.5); perfSnapshot()
-    local UIS = game:GetService("UserInputService")
-    if PERFORMANCE.MobileAuto and UIS.TouchEnabled and PERFORMANCE.Enabled and PERFORMANCE.Level == "auto" then
-        applyPerformanceLevel("medium")
-    end
-end)
-task.spawn(function()
-    while task.wait(0.5) do
-        if not ORBIT.enabled then break end
-        if PERFORMANCE.Enabled and PERFORMANCE.Level == "auto" then
-            local now = tick()
-            if now - PERFORMANCE.LastCheck > PERFORMANCE.CheckInterval then
-                PERFORMANCE.LastCheck = now
-                local fps = ORBIT.statsData and ORBIT.statsData.lastFPS or 60
-                local newLevel = PERFORMANCE.CurrentLevel
-                if fps >= PERFORMANCE.FPS_HIGH then newLevel = "high"
-                elseif fps >= PERFORMANCE.FPS_MEDIUM then newLevel = "medium"
-                elseif fps >= PERFORMANCE.FPS_LOW then newLevel = "low"
-                else newLevel = "minimal" end
-                if newLevel ~= PERFORMANCE.CurrentLevel then applyPerformanceLevel(newLevel) end
+
+local function updateESP()
+    if not ORBIT.ESP.Enabled then return end
+    local now = tick()
+    if now - ORBIT.ESP.LastUpdate < ORBIT.ESP.UpdateInterval then return end
+    ORBIT.ESP.LastUpdate = now
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+    local myPos = myHrp.Position
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if char and hrp then
+            if not ORBIT.ESP.Tags[player] then makeESPTag(player) end
+            local data = ORBIT.ESP.Tags[player]
+            if data then
+                local dist = (hrp.Position - myPos).Magnitude
+                local visible = dist <= ORBIT.ESP.MaxDistance
+                if data.bb then data.bb.Enabled = visible end
+                if data.hl then data.hl.Enabled = visible end
+                if visible and data.distLbl then data.distLbl.Text = math.floor(dist) .. " st" end
             end
+        else
+            removeESPTag(player)
         end
     end
+    for p in pairs(ORBIT.ESP.Tags) do
+        if not p.Parent or not p.Character then removeESPTag(p) end
+    end
+end
+
+function ORBIT.setESPEnabled(state)
+    ORBIT.ESP.Enabled = state
+    if not state then
+        for p in pairs(ORBIT.ESP.Tags) do removeESPTag(p) end
+    end
+    if ORBIT.notify then
+        ORBIT.notify("👁️ ESP: " .. (state and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(180, 220, 255), 2)
+    end
+end
+
+Players.PlayerAdded:Connect(function(p)
+    if p ~= LocalPlayer then
+        p.CharacterAdded:Connect(function()
+            task.wait(1)
+            if ORBIT.ESP.Enabled then makeESPTag(p) end
+        end)
+    end
 end)
+Players.PlayerRemoving:Connect(function(p) removeESPTag(p) end)
+
+-- ==================== 🎆 ФЕЙЕРВЕРК ====================
+local function spawnFireworks(position, color3)
+    if not ORBIT.fireworkFolder then
+        ORBIT.fireworkFolder = Instance.new("Folder")
+        ORBIT.fireworkFolder.Name = "OrbitFireworks"
+        ORBIT.fireworkFolder.Parent = Workspace
+    end
+    local part = Instance.new("Part")
+    part.Name = "Firework"
+    part.Size = Vector3.new(0.5, 0.5, 0.5)
+    part.Transparency = 1
+    part.Anchored = true
+    part.CanCollide = false
+    part.CFrame = CFrame.new(position)
+    part.Parent = ORBIT.fireworkFolder
+    local pe = Instance.new("ParticleEmitter")
+    pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+    pe.Rate = 0
+    pe.Lifetime = NumberRange.new(0.8, 1.5)
+    pe.Speed = NumberRange.new(15, 30)
+    pe.SpreadAngle = Vector2.new(180, 180)
+    pe.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1.2),
+        NumberSequenceKeypoint.new(1, 0),
+    })
+    pe.Color = ColorSequence.new(color3)
+    pe.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    pe.LightEmission = 1
+    pe.LightInfluence = 0
+    pe.Parent = part
+    pe:Emit(40)
+    task.delay(2, function() pcall(function() part:Destroy() end) end)
+end
+ORBIT.spawnFireworks = spawnFireworks
+
+-- ==================== ⭐ СПИСОК ЧИТЕРОВ ====================
+function ORBIT.getTaggedPlayers()
+    local list = {}
+    for p in pairs(ORBIT.taggedPlayers) do
+        if p and p.Parent then table.insert(list, p) end
+    end
+    return list
+end
 
 -- ==================== МЕТКА ЧИТЕРА ====================
 ORBIT.taggedPlayers = ORBIT.taggedPlayers or {}
@@ -866,6 +805,7 @@ local function makeTagGui(character, color)
     hl.Parent = character
     return billboard, hl
 end
+
 function ORBIT.tagCheater(player, enable)
     if not player or player == LocalPlayer then return false end
     local char = player.Character
@@ -873,6 +813,7 @@ function ORBIT.tagCheater(player, enable)
     if enable then
         ORBIT.taggedPlayers[player] = true
         makeTagGui(char, Color3.fromRGB(255, 40, 40))
+        ORBIT.addSession("cheatersTagged")
         if ORBIT.notify then ORBIT.notify("🚩 Помечен: " .. player.Name, Color3.fromRGB(255, 120, 120)) end
     else
         ORBIT.taggedPlayers[player] = nil
@@ -883,6 +824,11 @@ function ORBIT.tagCheater(player, enable)
         end
         local hl = char:FindFirstChild("_OrbitCheaterHighlight")
         if hl then hl:Destroy() end
+    end
+    if ORBIT.ESP and ORBIT.ESP.Enabled and ORBIT.ESP.Tags[player] then
+        removeESPTag(player)
+        task.wait(0.1)
+        makeESPTag(player)
     end
     return true
 end
@@ -941,20 +887,14 @@ end
 function ORBIT.addRingsToAll()
     local count = 0
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            ORBIT.buildTargetRings(player)
-            count = count + 1
-        end
+        if player ~= LocalPlayer then ORBIT.buildTargetRings(player); count = count + 1 end
     end
     ORBIT.notify("➕ Кольца навешены " .. count .. " игрокам", Color3.fromRGB(160, 255, 160), 2)
 end
 
 function ORBIT.removeRingsFromAll()
     local count = 0
-    for player in pairs(ORBIT.targetRings) do
-        ORBIT.removeTargetRings(player)
-        count = count + 1
-    end
+    for player in pairs(ORBIT.targetRings) do ORBIT.removeTargetRings(player); count = count + 1 end
     ORBIT.notify("➖ Убрано у всех (" .. count .. ")", Color3.fromRGB(255, 160, 160), 2)
 end
 
@@ -1032,7 +972,7 @@ local function updateTargetRings(dt)
     end
 end
 
--- ==================== 🤖 БОТЫ ====================
+-- ==================== БОТЫ ====================
 ORBIT.bots = {}
 ORBIT.botIdCounter = 0
 ORBIT.botSettings = {
@@ -1074,7 +1014,6 @@ end
 local function createDummyCharacter(position, useSkin)
     local groundY = findGroundY(position.X, position.Z, position.Y)
     local rootY = groundY + ORBIT.botSettings.BotYOffset
-
     if useSkin then
         local template = ORBIT.getBotAvatarTemplate()
         if template then
@@ -1092,7 +1031,6 @@ local function createDummyCharacter(position, useSkin)
             end
         end
     end
-
     local model = Instance.new("Model")
     model.Name = "OrbitBot_" .. tostring(math.random(1000, 999999))
     local root = Instance.new("Part")
@@ -1223,8 +1161,16 @@ local function collectBotRing(botModel, data)
         ORBIT.destroyRing(SLOT); ORBIT.buildRing(SLOT); ORBIT.applyColor(); ORBIT.applyNameVisibility()
     end
     ORBIT.notify("🎁 " .. shapeName .. " → кольцо " .. SLOT, Color3.fromRGB(255, 220, 100), 3)
-    -- 🎵 Звук сбора бота
+    ORBIT.addSession("botsCollected")
     if ORBIT.playBotCollect then ORBIT.playBotCollect() end
+    -- 🎆 Фейерверк
+    task.spawn(function()
+        local botRoot = data.model and data.model:FindFirstChild("HumanoidRootPart")
+        if botRoot and ORBIT.spawnFireworks then
+            local c = Color3.fromHSV(data.hueBase or 0, 0.9, 1)
+            ORBIT.spawnFireworks(botRoot.Position + Vector3.new(0, 3, 0), c)
+        end
+    end)
     task.spawn(function()
         for i = 1, 10 do
             for _, b in ipairs(data.blocks) do
@@ -1306,6 +1252,192 @@ local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
     return math.cos(t)*baseRadius, baseHeight, math.sin(t)*baseRadius
 end
 
+-- ==================== ГЛАВНЫЙ ЦИКЛ ЗАЩИТЫ ====================
+local function processProtection(dt, char, hrp)
+    local now = tick()
+    antiFling(char, hrp)
+    antiAnchor(char)
+    if now - PROT_STATE.lastKnockTime >= 0.1 then
+        PROT_STATE.lastKnockTime = now
+        antiKnockback(char)
+    end
+    if now - PROT_STATE.lastFreezeTime >= 0.25 then
+        PROT_STATE.lastFreezeTime = now
+        antiFreeze(char)
+    end
+    if SETTINGS.AutoHeal and now - PROT_STATE.lastHealTime >= 0.3 then
+        PROT_STATE.lastHealTime = now
+        autoHeal(char)
+    end
+    local inGrace = (now - PROT_STATE.spawnGrace) < 5.0
+    antiVoid(char, hrp)
+    if not inGrace then antiTeleport(char, hrp); lockPosition(char, hrp) end
+    antiInstantKill(char)
+    if now - PROT_STATE.lastScan > 0.5 then
+        PROT_STATE.lastScan = now
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then pcall(detectSpeedHack, player) end
+        end
+        pcall(scanForGodMode)
+        pcall(scanForFlingers)
+    end
+    if now - PROT_STATE.lastCheckTime > 0.2 then
+        PROT_STATE.lastCheckTime = now
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 and hrp.Position.Y > (SETTINGS.AntiVoidY + 10) then
+            PROT_STATE.lastSafePos = hrp.Position
+            PROT_STATE.lastSafeCFrame = hrp.CFrame
+        end
+    end
+    if ORBIT.ESP and ORBIT.ESP.Enabled then pcall(updateESP) end
+end
+
+local function watchCharacter(char)
+    if not char then return end
+    antiKnockback(char)
+    if PROT_STATE.watchConn then pcall(function() PROT_STATE.watchConn:Disconnect() end) end
+    PROT_STATE.watchConn = char.DescendantAdded:Connect(function(obj)
+        if not SETTINGS.ProtEnabled then return end
+        if BAD_CLASSES[obj.ClassName] then
+            task.defer(function() killObject(obj) end)
+        end
+    end)
+end
+
+function ORBIT.enableProtection()
+    if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
+    if not SETTINGS.ProtEnabled then return end
+    PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
+    PROT_STATE.lastCheckTime = 0; PROT_STATE.lastHealTime = 0
+    PROT_STATE.lastHealth = 100; PROT_STATE.lastKnockTime = 0
+    PROT_STATE.lastFreezeTime = 0; PROT_STATE.spawnGrace = tick()
+    PROT_STATE.lastPositions = {}; PROT_STATE.godmodeWarned = {}
+
+    if LocalPlayer.Character then watchCharacter(LocalPlayer.Character) end
+    LocalPlayer.CharacterAdded:Connect(function(newChar)
+        PROT_STATE.spawnGrace = tick()
+        PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
+        task.wait(0.3)
+        watchCharacter(newChar)
+    end)
+    setupCharacterProtection()
+    setupAutoDodge()
+    ORBIT.protConn = RunService.Heartbeat:Connect(function(dt)
+        if not SETTINGS.ProtEnabled then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        pcall(processProtection, dt, char, hrp)
+    end)
+    ORBIT.notify("🛡 Защита v7 ВКЛ", Color3.fromRGB(120, 255, 180), 3)
+    protLog("Защита v7 активна.", Color3.fromRGB(100, 255, 100))
+end
+
+function ORBIT.disableProtection()
+    if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
+    if dodgeConn then dodgeConn:Disconnect(); dodgeConn = nil end
+    if PROT_STATE.watchConn then pcall(function() PROT_STATE.watchConn:Disconnect() end); PROT_STATE.watchConn = nil end
+    PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
+end
+
+Workspace.DescendantAdded:Connect(function(inst)
+    if not SETTINGS.ProtEnabled or not SETTINGS.AntiExplosion then return end
+    if inst:IsA("Explosion") then
+        task.defer(function() pcall(function() inst:Destroy() end) end)
+    end
+end)
+
+-- ==================== ПРОИЗВОДИТЕЛЬНОСТЬ ====================
+local PERFORMANCE = {
+    Enabled = true, Level = "auto", CurrentLevel = "high",
+    LastCheck = 0, CheckInterval = 3.0,
+    FPS_HIGH = 50, FPS_MEDIUM = 35, FPS_LOW = 22,
+    MobileAuto = true, Snapshot = nil,
+}
+local function perfSnapshot()
+    PERFORMANCE.Snapshot = {
+        LightEnabled = SETTINGS.LightEnabled, TrailEnabled = SETTINGS.TrailEnabled,
+        AuraTrailEnabled = SETTINGS.AuraTrailEnabled, BlockCount = SETTINGS.BlockCount,
+    }
+end
+local function perfRestore()
+    if not PERFORMANCE.Snapshot then return end
+    for k, v in pairs(PERFORMANCE.Snapshot) do SETTINGS[k] = v end
+end
+local function setLightsEnabled(on)
+    for _, ring in pairs(rings) do
+        for _, data in ipairs(ring.blocks) do
+            if data.light then data.light.Enabled = on end
+        end
+    end
+end
+local function setTrailsEnabled(on)
+    for _, ring in pairs(rings) do
+        for _, data in ipairs(ring.blocks) do
+            if data.trail then data.trail.Enabled = on end
+        end
+    end
+end
+local function setAuraTrailsEnabled(on)
+    for _, data in ipairs(ORBIT.auraBlocks or {}) do
+        if data.trail then data.trail.Enabled = on end
+    end
+end
+local function applyPerformanceLevel(level)
+    if PERFORMANCE.CurrentLevel == level then return end
+    PERFORMANCE.CurrentLevel = level
+    if level == "high" then
+        perfRestore(); setLightsEnabled(SETTINGS.LightEnabled)
+        setTrailsEnabled(SETTINGS.TrailEnabled); setAuraTrailsEnabled(SETTINGS.AuraTrailEnabled)
+    elseif level == "medium" then
+        setLightsEnabled(false); setTrailsEnabled(true); setAuraTrailsEnabled(SETTINGS.AuraTrailEnabled)
+    elseif level == "low" then
+        setLightsEnabled(false); setTrailsEnabled(false); setAuraTrailsEnabled(false)
+    elseif level == "minimal" then
+        setLightsEnabled(false); setTrailsEnabled(false); setAuraTrailsEnabled(false)
+    end
+    if ORBIT.notify then ORBIT.notify("⚡ Качество: " .. level:upper(), Color3.fromRGB(180, 220, 255), 1.5) end
+end
+function ORBIT.setPerformanceMode(mode)
+    if mode == "off" then
+        PERFORMANCE.Enabled = false; PERFORMANCE.Level = "high"; applyPerformanceLevel("high")
+    else
+        PERFORMANCE.Enabled = true; PERFORMANCE.Level = mode
+        if mode ~= "auto" then applyPerformanceLevel(mode) end
+    end
+    return PERFORMANCE.Level
+end
+function ORBIT.getPerformanceInfo()
+    return { Enabled = PERFORMANCE.Enabled, Mode = PERFORMANCE.Level,
+        Current = PERFORMANCE.CurrentLevel, FPS = ORBIT.statsData and ORBIT.statsData.lastFPS or 60 }
+end
+task.spawn(function()
+    task.wait(1.5); perfSnapshot()
+    local UIS = game:GetService("UserInputService")
+    if PERFORMANCE.MobileAuto and UIS.TouchEnabled and PERFORMANCE.Enabled and PERFORMANCE.Level == "auto" then
+        applyPerformanceLevel("medium")
+    end
+end)
+task.spawn(function()
+    while task.wait(0.5) do
+        if not ORBIT.enabled then break end
+        if PERFORMANCE.Enabled and PERFORMANCE.Level == "auto" then
+            local now = tick()
+            if now - PERFORMANCE.LastCheck > PERFORMANCE.CheckInterval then
+                PERFORMANCE.LastCheck = now
+                local fps = ORBIT.statsData and ORBIT.statsData.lastFPS or 60
+                local newLevel = PERFORMANCE.CurrentLevel
+                if fps >= PERFORMANCE.FPS_HIGH then newLevel = "high"
+                elseif fps >= PERFORMANCE.FPS_MEDIUM then newLevel = "medium"
+                elseif fps >= PERFORMANCE.FPS_LOW then newLevel = "low"
+                else newLevel = "minimal" end
+                if newLevel ~= PERFORMANCE.CurrentLevel then applyPerformanceLevel(newLevel) end
+            end
+        end
+    end
+end)
+
 -- ==================== ГЛАВНЫЙ ЦИКЛ ====================
 function ORBIT.startUpdateLoop()
     if ORBIT.updateConn then return end
@@ -1328,6 +1460,7 @@ function ORBIT.startUpdateLoop()
             statsData.fpsFrames = 0; statsData.fpsLastCheck = t
         end
         statsData.sessionTime = t
+        ORBIT.SESSION.sessionTime = t
 
         updateAura(dt); updateFire(); updateBots(dt); updateTargetRings(dt)
 
@@ -1337,7 +1470,6 @@ function ORBIT.startUpdateLoop()
             if ORBIT.currentAutoShapeIndex > #SHAPE_PRESETS then ORBIT.currentAutoShapeIndex = 1 end
             ORBIT.shapeIndex = ORBIT.currentAutoShapeIndex
             ORBIT.applyShapes(); ORBIT.rebuildAllRings()
-            ORBIT.notify("🎭 Автосмена: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name, Color3.fromRGB(220,200,255))
         end
 
         for ri, ring in pairs(rings) do
@@ -1601,6 +1733,9 @@ function ORBIT.setEnabled(state)
         if ORBIT.fireFolder then ORBIT.fireFolder:Destroy(); ORBIT.fireFolder = nil end
         ORBIT.cleanupAllTargetRings()
         ORBIT.removeAllBots()
+        if ORBIT.ESP and ORBIT.ESP.Enabled then
+            ORBIT.setESPEnabled(false)
+        end
         ORBIT.notify("🔴 Скрипт выключен", Color3.fromRGB(255,100,100))
     end
 end
@@ -1687,6 +1822,7 @@ local function collectSaveData()
         useMySkin=ORBIT.botSettings.UseMySkin,
         reverseEnabled=ORBIT.REVERSE and ORBIT.REVERSE.Enabled,
         dodgeEnabled=DODGE.Enabled,
+        espEnabled=ORBIT.ESP and ORBIT.ESP.Enabled,
         soundEnabled=ORBIT.SOUNDS and ORBIT.SOUNDS.Enabled,
         soundVolume=ORBIT.SOUNDS and ORBIT.SOUNDS.Volume,
     }
@@ -1758,6 +1894,7 @@ local function applySaveData(d)
     if d.useMySkin ~= nil then ORBIT.botSettings.UseMySkin = d.useMySkin end
     if d.reverseEnabled ~= nil and ORBIT.REVERSE then ORBIT.REVERSE.Enabled = d.reverseEnabled end
     if d.dodgeEnabled ~= nil then DODGE.Enabled = d.dodgeEnabled end
+    if d.espEnabled ~= nil and ORBIT.ESP then ORBIT.ESP.Enabled = d.espEnabled end
     if d.soundEnabled ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Enabled = d.soundEnabled end
     if d.soundVolume ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Volume = d.soundVolume end
 end
@@ -1832,6 +1969,6 @@ function ORBIT.startLogic()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v21.5 (защита v7 + Reverse Fling)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P3 v21.7 (ESP + Фейерверк + Статистика)", Color3.fromRGB(180,255,180), 3) end
 
 return true
