@@ -1,7 +1,7 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v21.4 — MULTI-SAVE + SELF-PROTECTION            ║
-    ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + МУЛЬТИ-СОХРАНЕНИЯ        ║
+    ║   ОРБИТА v21.5 — MULTI-SAVE + SELF-PROTECTION + SOUNDS   ║
+    ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗВУКИ                    ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -14,7 +14,7 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v21.4"
+ORBIT.version = "v21.5"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false }
 ORBIT.started = false
 
@@ -70,7 +70,6 @@ ORBIT.DEFAULT_SETTINGS = {
     ExplosionEnabled = false, ExplosionSpeed = 0.4, ExplosionPower = 0.7,
     HeartScale = 0.65, OrbitPattern = "Круг",
 
-    -- АУРА: все три включены по умолчанию (патч 3)
     AuraEnabled = false, AuraSize = 3.5, AuraThickness = 0.15,
     AuraColor = Color3.fromRGB(150, 100, 255),
     AuraRing = true, AuraParticles = true, AuraShapes = true,
@@ -361,6 +360,58 @@ function ORBIT.setMusicId(idText)
     return true
 end
 
+-- ==================== ЗВУКИ ====================
+ORBIT.SOUNDS = {
+    Enabled = true,
+    Volume = 1.0,
+    ClickId       = "rbxassetid://12221967",
+    DodgeId       = "rbxassetid://140721035016341",
+    AfterDodgeId  = "rbxassetid://6325779988",
+    SansVoiceId   = "rbxassetid://135692693675195",
+    BotId         = "rbxassetid://12221967",
+}
+
+function ORBIT.playSound(id, volume, pitch)
+    if not ORBIT.SOUNDS.Enabled then return end
+    pcall(function()
+        local s = Instance.new("Sound")
+        s.SoundId = id
+        s.Volume = volume or ORBIT.SOUNDS.Volume
+        if pitch then s.PlaybackSpeed = pitch end
+        s.Parent = SoundService
+        s:Play()
+        task.delay(6, function() pcall(function() s:Destroy() end) end)
+    end)
+end
+
+function ORBIT.playClick()
+    ORBIT.playSound(ORBIT.SOUNDS.ClickId)
+end
+
+function ORBIT.playBotCollect()
+    ORBIT.playSound(ORBIT.SOUNDS.BotId)
+end
+
+function ORBIT.playDodge()
+    -- 1. Звук уворота
+    ORBIT.playSound(ORBIT.SOUNDS.DodgeId)
+    -- 2. После уворота (через 0.3 сек)
+    task.delay(0.3, function()
+        ORBIT.playSound(ORBIT.SOUNDS.AfterDodgeId)
+    end)
+    -- 3. Через 0.6 сек — эмоция смеха + голос Санса
+    task.delay(0.6, function()
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum:PlayEmote("Laugh")
+            end
+        end)
+        ORBIT.playSound(ORBIT.SOUNDS.SansVoiceId)
+    end)
+end
+
 -- ==================== УВЕДОМЛЕНИЯ ====================
 ORBIT.NOTIF_QUEUE = {}
 function ORBIT.notify(text, color, duration)
@@ -512,7 +563,7 @@ local subtitle = Instance.new("TextLabel")
 subtitle.Size = UDim2.new(1, 0, 0, 22)
 subtitle.Position = UDim2.new(0, 0, 0, 60)
 subtitle.BackgroundTransparency = 1
-subtitle.Text = "MULTI-SAVE + SELF-PROTECTION"
+subtitle.Text = "MULTI-SAVE + PROTECTION + SOUNDS"
 subtitle.TextColor3 = LC_ORANGE
 subtitle.Font = Enum.Font.Code
 subtitle.TextSize = 14
@@ -527,7 +578,6 @@ local function makeCorner(x, y, isRight, isBottom)
     h.BorderSizePixel = 0
     h.ZIndex = 4
     h.Parent = frame
-
     local v = Instance.new("Frame")
     v.Size = UDim2.new(0, 2, 0, 30)
     v.Position = UDim2.new(x, isRight and -2 or 0, y, isBottom and -30 or 0)
@@ -734,7 +784,7 @@ local verLabel = Instance.new("TextLabel")
 verLabel.Size = UDim2.new(0, 200, 0, 22)
 verLabel.Position = UDim2.new(1, -210, 1, -32)
 verLabel.BackgroundTransparency = 1
-verLabel.Text = ORBIT.version .. " • MULTI-SAVE"
+verLabel.Text = ORBIT.version .. " • SOUNDS"
 verLabel.TextColor3 = LC_DIM
 verLabel.Font = Enum.Font.Code
 verLabel.TextSize = 11
@@ -766,7 +816,7 @@ task.spawn(function()
     addLog("SYS", "$ executing orbit_loader.lua...")
     task.wait(0.15)
     addLog("INFO", "Loading ORBITA " .. ORBIT.version)
-    addLog("INFO", "Part 1/4: CORE + SETTINGS + MULTI-SAVE")
+    addLog("INFO", "Part 1/4: CORE + SETTINGS + SOUNDS")
     addLog("INFO", "Initializing services...")
     addLog("INFO", "Setting up shape categories...")
     addLog("INFO", "Loading saved configurations...")
@@ -784,7 +834,7 @@ task.spawn(function()
     addLog("WARN", "Parts 2-4 require download")
     addLog("OK", "Auto-save: DISABLED")
     addLog("OK", "Multi-save: ENABLED")
-    addLog("OK", "Protection: available in tab")
+    addLog("OK", "Sounds: ENABLED")
     task.wait(0.15)
     addLog("INFO", "Github URL configured:")
     addLog("INFO", "  -> orbit_p2.lua orbit_p3.lua orbit_p4.lua")
