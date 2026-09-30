@@ -1,4 +1,4 @@
---[[ ОРБИТА v21.2 — P4 часть 1/2: ПОНЯТНАЯ ГЛАВНАЯ ПАНЕЛЬ ]]
+--[[ ОРБИТА v21.3 — P4 часть 1/2: ИСПРАВЛЕННЫЙ ИНТЕРФЕЙС (UIListLayout) ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
@@ -13,10 +13,10 @@ local P        = ORBIT.P
 local rings    = ORBIT.rings
 local statsData = ORBIT.statsData
 local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
-if not P then warn("[Orbit P4] P не передан"); return end
-if not SHAPE_PRESETS then warn("[Orbit P4] Часть 2 не загружена"); return end
-if not ORBIT.startUpdateLoop then warn("[Orbit P4] Часть 3 не загружена"); return end
-if not ORBIT.createBot then warn("[Orbit P4] Боты не найдены в p3!"); return end
+if not P then return end
+if not SHAPE_PRESETS then return end
+if not ORBIT.startUpdateLoop then return end
+if not ORBIT.createBot then return end
 
 -- ==================== ОКНО ====================
 local screenGui = Instance.new("ScreenGui")
@@ -48,7 +48,7 @@ mainStroke.Thickness = 2
 
 -- Панель
 local panel = Instance.new("ScrollingFrame")
-panel.Size = UDim2.new(0, 320, 0, 720)
+panel.Size = UDim2.new(0, 360, 0, 720)
 panel.Position = UDim2.new(0, 90, 0, 5)
 panel.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
 panel.BackgroundTransparency = 0.1
@@ -65,83 +65,42 @@ local panelStroke = Instance.new("UIStroke", panel)
 panelStroke.Color = Color3.fromRGB(120, 120, 255)
 panelStroke.Thickness = 1.5
 
--- Фон-матрица
-local bgLayer = Instance.new("Frame")
-bgLayer.Size = UDim2.new(1, 0, 1, 0)
-bgLayer.BackgroundColor3 = Color3.fromRGB(0, 5, 2)
-bgLayer.BackgroundTransparency = 0.7
-bgLayer.BorderSizePixel = 0
-bgLayer.ClipsDescendants = true
-bgLayer.ZIndex = 0
-bgLayer.Parent = panel
-Instance.new("UICorner", bgLayer).CornerRadius = UDim.new(0, 14)
+-- ВНУТРЕННИЙ КОНТЕЙНЕР с UIListLayout — это ключевое изменение!
+local content = Instance.new("Frame")
+content.Name = "Content"
+content.Size = UDim2.new(1, 0, 0, 0)
+content.BackgroundTransparency = 1
+content.AutomaticSize = Enum.AutomaticSize.Y
+content.Parent = panel
 
-local MATRIX_CHARS = {"0","1","<",">","{","}","[","]","/","\\","|","+","-","*","=","#","%","&","$","@","A","E","F","Z","X","7","9","?"}
-task.spawn(function()
-    local columns = {}
-    local NUM_COLS = 12
-    for i = 1, NUM_COLS do
-        local col = Instance.new("TextLabel")
-        col.Size = UDim2.new(0, 14, 0, 300)
-        col.Position = UDim2.new((i - 0.5) / NUM_COLS, 0, -1, 0)
-        col.BackgroundTransparency = 1
-        col.TextColor3 = Color3.fromRGB(80, 255, 140)
-        col.TextTransparency = 0.8
-        col.Font = Enum.Font.Code
-        col.TextSize = 11
-        col.TextYAlignment = Enum.TextYAlignment.Top
-        col.ZIndex = 0
-        col.Parent = bgLayer
-        local str = ""
-        for j = 1, 25 do
-            str = str .. MATRIX_CHARS[math.random(1, #MATRIX_CHARS)]
-            if j < 25 then str = str .. "\n" end
-        end
-        col.Text = str
-        table.insert(columns, { label = col, speed = math.random(40, 110) / 100 })
-    end
-    while bgLayer and bgLayer.Parent do
-        for _, c in ipairs(columns) do
-            local pos = c.label.Position
-            local newY = pos.Y.Scale + 0.001 * c.speed * 55
-            if newY > 1.1 then
-                newY = -1.1 - math.random(0, 20) / 100
-                local str = ""
-                for j = 1, 25 do
-                    str = str .. MATRIX_CHARS[math.random(1, #MATRIX_CHARS)]
-                    if j < 25 then str = str .. "\n" end
-                end
-                c.label.Text = str
-                c.speed = math.random(40, 110) / 100
-            end
-            c.label.Position = UDim2.new(pos.X.Scale, pos.X.Offset, newY, pos.Y.Offset)
-        end
-        task.wait(0.06)
-    end
-end)
+local listLayout = Instance.new("UIListLayout")
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.Padding = UDim.new(0, 6)
+listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+listLayout.Parent = content
 
--- Заголовок
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 30)
-title.Position = UDim2.new(0, 0, 0, 8)
-title.BackgroundTransparency = 1
-title.Text = "✨  ОРБИТА v21.2"
-title.TextColor3 = Color3.fromRGB(230, 220, 255)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 16
-title.ZIndex = 2
-title.Parent = panel
+local padding = Instance.new("UIPadding")
+padding.PaddingTop = UDim.new(0, 10)
+padding.PaddingBottom = UDim.new(0, 10)
+padding.PaddingLeft = UDim.new(0, 8)
+padding.PaddingRight = UDim.new(0, 8)
+padding.Parent = content
+
+local orderCounter = 0
+local function nextOrder()
+    orderCounter = orderCounter + 1
+    return orderCounter
+end
 
 -- ============ ХЕЛПЕРЫ ============
--- Большая секция с иконкой, названием и подсказкой
 local function makeSection(icon, text, hint, color)
     local holder = Instance.new("Frame")
-    holder.Size = UDim2.new(1, -16, 0, hint and 44 or 32)
+    holder.Size = UDim2.new(1, 0, 0, hint and 48 or 36)
     holder.BackgroundColor3 = color or Color3.fromRGB(55, 55, 90)
     holder.BackgroundTransparency = 0.35
     holder.BorderSizePixel = 0
-    holder.ZIndex = 2
-    holder.Parent = panel
+    holder.LayoutOrder = nextOrder()
+    holder.Parent = content
     Instance.new("UICorner", holder).CornerRadius = UDim.new(0, 10)
 
     local stripe = Instance.new("Frame")
@@ -149,7 +108,6 @@ local function makeSection(icon, text, hint, color)
     stripe.Position = UDim2.new(0, 4, 0, 4)
     stripe.BackgroundColor3 = color or Color3.fromRGB(140, 140, 220)
     stripe.BorderSizePixel = 0
-    stripe.ZIndex = 3
     stripe.Parent = holder
     Instance.new("UICorner", stripe).CornerRadius = UDim.new(0, 2)
 
@@ -157,36 +115,34 @@ local function makeSection(icon, text, hint, color)
     iconLbl.Size = UDim2.new(0, 26, 1, 0)
     iconLbl.Position = UDim2.new(0, 10, 0, 0)
     iconLbl.BackgroundTransparency = 1
-    iconLbl.Text = icon
+    iconLbl.Text = icon or "•"
     iconLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
     iconLbl.Font = Enum.Font.GothamBold
     iconLbl.TextSize = 18
-    iconLbl.ZIndex = 3
     iconLbl.Parent = holder
 
     local s = Instance.new("TextLabel")
-    s.Size = UDim2.new(1, -40, 0, hint and 20 or 32)
-    s.Position = UDim2.new(0, 38, 0, hint and 2 or 0)
+    s.Size = UDim2.new(1, -42, 0, 20)
+    s.Position = UDim2.new(0, 38, 0, hint and 4 or 8)
     s.BackgroundTransparency = 1
     s.Text = text
     s.TextColor3 = Color3.fromRGB(240, 240, 255)
     s.Font = Enum.Font.GothamBold
     s.TextSize = 13
     s.TextXAlignment = Enum.TextXAlignment.Left
-    s.ZIndex = 3
     s.Parent = holder
 
     if hint then
         local h = Instance.new("TextLabel")
-        h.Size = UDim2.new(1, -40, 0, 18)
-        h.Position = UDim2.new(0, 38, 0, 22)
+        h.Size = UDim2.new(1, -42, 0, 18)
+        h.Position = UDim2.new(0, 38, 0, 24)
         h.BackgroundTransparency = 1
         h.Text = hint
         h.TextColor3 = Color3.fromRGB(180, 180, 210)
         h.Font = Enum.Font.Gotham
         h.TextSize = 10
         h.TextXAlignment = Enum.TextXAlignment.Left
-        h.ZIndex = 3
+        h.TextTruncate = Enum.TextTruncate.AtEnd
         h.Parent = holder
     end
     return holder
@@ -194,15 +150,15 @@ end
 
 local function makeButton(text, h, bgColor, textColor)
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(1, -16, 0, h or 34)
+    b.Size = UDim2.new(1, 0, 0, h or 34)
     b.BackgroundColor3 = bgColor or Color3.fromRGB(45, 45, 62)
     b.TextColor3 = textColor or Color3.fromRGB(235, 235, 255)
     b.Font = Enum.Font.GothamBold
     b.TextSize = 12
     b.Text = text
     b.AutoButtonColor = true
-    b.ZIndex = 2
-    b.Parent = panel
+    b.LayoutOrder = nextOrder()
+    b.Parent = content
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
     local stroke = Instance.new("UIStroke", b)
     stroke.Color = bgColor or Color3.fromRGB(80, 80, 120)
@@ -211,60 +167,105 @@ local function makeButton(text, h, bgColor, textColor)
     return b
 end
 
+local function makeHalfButton(text, h, bgColor, textColor, parent)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0.5, -3, 1, 0)
+    b.BackgroundColor3 = bgColor or Color3.fromRGB(45, 45, 62)
+    b.TextColor3 = textColor or Color3.fromRGB(235, 235, 255)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 11
+    b.Text = text
+    b.Parent = parent
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    local stroke = Instance.new("UIStroke", b)
+    stroke.Color = bgColor or Color3.fromRGB(80, 80, 120)
+    stroke.Thickness = 1
+    stroke.Transparency = 0.65
+    return b
+end
+
+local function makeRow() -- возвращает контейнер для 2-3 кнопок в ряд
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 34)
+    row.BackgroundTransparency = 1
+    row.LayoutOrder = nextOrder()
+    row.Parent = content
+    return row
+end
+
 -- ============================================================
---                    ОСНОВНОЕ
+--  ЗАГОЛОВОК
+-- ============================================================
+local titleLbl = Instance.new("TextLabel")
+titleLbl.Size = UDim2.new(1, 0, 0, 28)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text = "✨  ОРБИТА v21.3"
+titleLbl.TextColor3 = Color3.fromRGB(230, 220, 255)
+titleLbl.Font = Enum.Font.GothamBold
+titleLbl.TextSize = 16
+titleLbl.LayoutOrder = nextOrder()
+titleLbl.Parent = content
+
+-- ============================================================
+--  ОСНОВНОЕ
 -- ============================================================
 makeSection("⚡", "ОСНОВНОЕ", "Включение скрипта и кольца", Color3.fromRGB(60, 60, 100))
-local toggleBtn   = makeButton("🟢 Скрипт ВКЛЮЧЕН", 36, Color3.fromRGB(40,55,40), Color3.fromRGB(120, 255, 160))
+local toggleBtn = makeButton("🟢 Скрипт ВКЛЮЧЕН", 36, Color3.fromRGB(40,55,40), Color3.fromRGB(120, 255, 160))
 local allRingsBtn = makeButton("⭕ Все кольца (2-5): ВКЛ", 32, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
-local ring2Btn    = makeButton("Кольцо 2", 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
-local ring3Btn    = makeButton("Кольцо 3", 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
-local ring4Btn    = makeButton("Кольцо 4", 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
-local ring5Btn    = makeButton("Кольцо 5", 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
+local ring2Btn = makeButton("Кольцо 2", 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
+local ring3Btn = makeButton("Кольцо 3", 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
+local ring4Btn = makeButton("Кольцо 4", 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
+local ring5Btn = makeButton("Кольцо 5", 30, Color3.fromRGB(40,55,40), Color3.fromRGB(160,255,160))
 
 -- ============================================================
---                    БОТЫ
+--  БОТЫ
 -- ============================================================
-makeSection("🤖", "БОТЫ — ФАРМ КОЛЕЦ", "Подходи к боту → его фигура встанет тебе в кольцо", Color3.fromRGB(100, 70, 140))
+makeSection("🤖", "БОТЫ — ФАРМ КОЛЕЦ", "Подходи к боту → его фигура идёт в кольцо", Color3.fromRGB(100, 70, 140))
 
--- Обычные боты → в кольцо 1
 local lbl = Instance.new("TextLabel")
-lbl.Size = UDim2.new(1, -16, 0, 20)
+lbl.Size = UDim2.new(1, 0, 0, 20)
 lbl.BackgroundTransparency = 1
-lbl.Text = "  🎯 ОБЫЧНЫЕ — фигура идёт в КОЛЬЦО 1"
+lbl.Text = "  🎯 ОБЫЧНЫЕ → в КОЛЬЦО 1"
 lbl.TextColor3 = Color3.fromRGB(200, 255, 200)
 lbl.Font = Enum.Font.GothamBold
 lbl.TextSize = 11
 lbl.TextXAlignment = Enum.TextXAlignment.Left
-lbl.ZIndex = 3
-lbl.Parent = panel
+lbl.LayoutOrder = nextOrder()
+lbl.Parent = content
 
-local regNearBtn = makeButton("📍 Бот рядом (перед тобой)", 30, Color3.fromRGB(45,80,55), Color3.fromRGB(170,255,200))
-local reg1Btn    = makeButton("➕ 1 бот     🔥 5 ботов     💥 10 ботов", 30, Color3.fromRGB(55,75,45), Color3.fromRGB(200,255,180))
+local regNearBtn = makeButton("📍 Обычный бот РЯДОМ (перед тобой)", 32, Color3.fromRGB(45,80,55), Color3.fromRGB(170,255,200))
 
--- Специальные боты → кольца 2-5
+-- Ряд с 3 кнопками
+local regRow = makeRow()
+local reg1Btn = makeHalfButton("➕ 1 бот", 34, Color3.fromRGB(55,75,45), Color3.fromRGB(200,255,180), regRow)
+local reg5Btn = makeHalfButton("🔥 5 ботов", 34, Color3.fromRGB(60,80,50), Color3.fromRGB(205,255,185), regRow)
+reg1Btn.Position = UDim2.new(0, 0, 0, 0)
+reg5Btn.Position = UDim2.new(0.5, 3, 0, 0)
+
+local reg10Btn = makeButton("💥 10 обычных ботов → в кольцо 1", 30, Color3.fromRGB(65,85,55), Color3.fromRGB(210,255,190))
+
 local lbl2 = Instance.new("TextLabel")
-lbl2.Size = UDim2.new(1, -16, 0, 20)
+lbl2.Size = UDim2.new(1, 0, 0, 20)
 lbl2.BackgroundTransparency = 1
-lbl2.Text = "  🌟 СПЕЦИАЛЬНЫЕ — фигура идёт в КОЛЬЦО 2/3/4/5"
+lbl2.Text = "  🌟 СПЕЦИАЛЬНЫЕ → в КОЛЬЦА 2/3/4/5"
 lbl2.TextColor3 = Color3.fromRGB(255, 200, 255)
 lbl2.Font = Enum.Font.GothamBold
 lbl2.TextSize = 11
 lbl2.TextXAlignment = Enum.TextXAlignment.Left
-lbl2.ZIndex = 3
-lbl2.Parent = panel
+lbl2.LayoutOrder = nextOrder()
+lbl2.Parent = content
 
-local sp2Btn = makeButton("Кольцо 2 ← бот рядом   |   5 ботов", 28, Color3.fromRGB(70,55,110), Color3.fromRGB(220,200,255))
-local sp3Btn = makeButton("Кольцо 3 ← бот рядом   |   5 ботов", 28, Color3.fromRGB(85,55,110), Color3.fromRGB(225,200,255))
-local sp4Btn = makeButton("Кольцо 4 ← бот рядом   |   5 ботов", 28, Color3.fromRGB(100,55,110), Color3.fromRGB(230,200,255))
-local sp5Btn = makeButton("Кольцо 5 ← бот рядом   |   5 ботов", 28, Color3.fromRGB(115,55,110), Color3.fromRGB(235,200,255))
+local sp2Btn = makeButton("📍 Кольцо 2 ← бот рядом", 28, Color3.fromRGB(70,55,110), Color3.fromRGB(220,200,255))
+local sp3Btn = makeButton("📍 Кольцо 3 ← бот рядом", 28, Color3.fromRGB(85,55,110), Color3.fromRGB(225,200,255))
+local sp4Btn = makeButton("📍 Кольцо 4 ← бот рядом", 28, Color3.fromRGB(100,55,110), Color3.fromRGB(230,200,255))
+local sp5Btn = makeButton("📍 Кольцо 5 ← бот рядом", 28, Color3.fromRGB(115,55,110), Color3.fromRGB(235,200,255))
 
-local botRemoveAll  = makeButton("🗑 Удалить всех ботов", 30, Color3.fromRGB(80,30,30), Color3.fromRGB(255,180,180))
-local botAutoBtn    = makeButton("🎁 Автосбор: ВКЛ", 28, Color3.fromRGB(35,60,45), Color3.fromRGB(180,255,180))
-local botRadiusBtn  = makeButton("📏 Радиус сбора: " .. ORBIT.botSettings.CollectRadius .. " st", 28, Color3.fromRGB(35,50,65), Color3.fromRGB(180,220,255))
+local botRemoveAll = makeButton("🗑 Удалить всех ботов", 30, Color3.fromRGB(80,30,30), Color3.fromRGB(255,180,180))
+local botAutoBtn = makeButton("🎁 Автосбор: ВКЛ", 28, Color3.fromRGB(35,60,45), Color3.fromRGB(180,255,180))
+local botRadiusBtn = makeButton("📏 Радиус сбора: " .. ORBIT.botSettings.CollectRadius .. " st", 28, Color3.fromRGB(35,50,65), Color3.fromRGB(180,220,255))
 
 local botInfoLbl = Instance.new("TextLabel")
-botInfoLbl.Size = UDim2.new(1, -16, 0, 22)
+botInfoLbl.Size = UDim2.new(1, 0, 0, 24)
 botInfoLbl.BackgroundColor3 = Color3.fromRGB(25, 20, 40)
 botInfoLbl.BackgroundTransparency = 0.3
 botInfoLbl.BorderSizePixel = 0
@@ -272,36 +273,26 @@ botInfoLbl.Text = "🤖 Ботов: 0"
 botInfoLbl.TextColor3 = Color3.fromRGB(210, 210, 255)
 botInfoLbl.Font = Enum.Font.GothamBold
 botInfoLbl.TextSize = 11
-botInfoLbl.ZIndex = 2
-botInfoLbl.Parent = panel
+botInfoLbl.LayoutOrder = nextOrder()
+botInfoLbl.Parent = content
 Instance.new("UICorner", botInfoLbl).CornerRadius = UDim.new(0, 6)
 
 -- ============================================================
---                    СКИН БОТА
+--  СКИН БОТА
 -- ============================================================
 makeSection("👤", "СКИН БОТА", "Боты будут выглядеть как ты", Color3.fromRGB(85, 65, 130))
 local botSkinBtn = makeButton("👤 Скин как у меня: ВЫКЛ", 32, Color3.fromRGB(55,45,75), Color3.fromRGB(220,200,255))
 
 -- ============================================================
---                    ЛЮДИ
+--  ЛЮДИ
 -- ============================================================
-makeSection("👥", "ЛЮДИ И КОЛЬЦА", "Навесь кольца другим игрокам / метку читера", Color3.fromRGB(100, 50, 130))
+makeSection("👥", "ЛЮДИ И КОЛЬЦА", "Навесь кольца другим / метку читера", Color3.fromRGB(100, 50, 130))
 local addAllRingsBtn = makeButton("➕ Навесить кольца ВСЕМ игрокам", 30, Color3.fromRGB(40,70,45), Color3.fromRGB(160,255,180))
 local remAllRingsBtn = makeButton("➖ Убрать кольца У ВСЕХ", 30, Color3.fromRGB(70,40,40), Color3.fromRGB(255,160,160))
-
-local peopleListLabel = Instance.new("TextLabel")
-peopleListLabel.Size = UDim2.new(1, -16, 0, 18)
-peopleListLabel.BackgroundTransparency = 1
-peopleListLabel.Text = "  👤 Игроки на сервере:"
-peopleListLabel.TextColor3 = Color3.fromRGB(190, 190, 230)
-peopleListLabel.Font = Enum.Font.GothamBold
-peopleListLabel.TextSize = 11
-peopleListLabel.TextXAlignment = Enum.TextXAlignment.Left
-peopleListLabel.ZIndex = 3
-peopleListLabel.Parent = panel
+local refreshPeopleBtn = makeButton("🔄 Обновить список", 30, Color3.fromRGB(45,55,90), Color3.fromRGB(180,220,255))
 
 local peopleListScroll = Instance.new("ScrollingFrame")
-peopleListScroll.Size = UDim2.new(1, -16, 0, 200)
+peopleListScroll.Size = UDim2.new(1, 0, 0, 200)
 peopleListScroll.BackgroundColor3 = Color3.fromRGB(15, 12, 25)
 peopleListScroll.BackgroundTransparency = 0.2
 peopleListScroll.BorderSizePixel = 0
@@ -309,20 +300,18 @@ peopleListScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 peopleListScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 peopleListScroll.ScrollBarThickness = 3
 peopleListScroll.ScrollBarImageColor3 = Color3.fromRGB(180, 130, 255)
-peopleListScroll.ZIndex = 2
-peopleListScroll.Parent = panel
+peopleListScroll.LayoutOrder = nextOrder()
+peopleListScroll.Parent = content
 Instance.new("UICorner", peopleListScroll).CornerRadius = UDim.new(0, 8)
 local peopleListLayout = Instance.new("UIListLayout")
 peopleListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 peopleListLayout.Padding = UDim.new(0, 4)
 peopleListLayout.Parent = peopleListScroll
 
-local refreshPeopleBtn = makeButton("🔄 Обновить список", 30, Color3.fromRGB(45,55,90), Color3.fromRGB(180,220,255))
-
 -- ============================================================
---                    ВНЕШНИЙ ВИД КОЛЬЦА
+--  ВНЕШНИЙ ВИД
 -- ============================================================
-makeSection("🎨", "ВНЕШНИЙ ВИД КОЛЬЦА", "Форма, цвет, размер, свет", Color3.fromRGB(60, 100, 120))
+makeSection("🎨", "ВНЕШНИЙ ВИД КОЛЬЦА", "Форма, цвет, размер", Color3.fromRGB(60, 100, 120))
 local shapeCatBtn  = makeButton("📁 Категория: " .. P.SHAPE_CATEGORIES[P.shapeCategoryIndex].name, 30, Color3.fromRGB(60,50,80), Color3.fromRGB(220,200,255))
 local shapeBtn     = makeButton("🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name, 30)
 local shapeModeBtn = makeButton("🎭 Режим: " .. P.FORM_MODES[P.formModeIndex].name, 28, Color3.fromRGB(50,40,65), Color3.fromRGB(220,200,255))
@@ -334,11 +323,11 @@ local lightBtn     = makeButton("💡 Свет: ВКЛ", 28, Color3.fromRGB(35,5
 local nameBtn      = makeButton("🏷️ Имена блоков: ВЫКЛ", 28)
 
 -- ============================================================
---                    ОРБИТА
+--  ОРБИТА
 -- ============================================================
 makeSection("🛰️", "ОРБИТА И ДВИЖЕНИЕ", "Как кольцо вращается вокруг тебя", Color3.fromRGB(60, 100, 80))
 local orbitBtn    = makeButton("📏 Размер орбиты: " .. P.ORBIT[P.orbitIndex].name, 30)
-local spreadBtn   = makeButton("📐 Разлёт колец: " .. P.SPREAD[P.spreadIndex].name, 28, Color3.fromRGB(55,30,55), Color3.fromRGB(255,180,255))
+local spreadBtn   = makeButton("📐 Разлёт: " .. P.SPREAD[P.spreadIndex].name, 28, Color3.fromRGB(55,30,55), Color3.fromRGB(255,180,255))
 local heightBtn   = makeButton("⬆️ Высота: " .. P.HEIGHT[P.heightIndex].name, 28, Color3.fromRGB(35,55,65), Color3.fromRGB(140,220,255))
 local speedBtn    = makeButton("⚡ Скорость: " .. P.SPEED[P.speedIndex].name, 28, Color3.fromRGB(55,45,20), Color3.fromRGB(255,220,100))
 local speedModeBtn= makeButton("⚙️ Режим скорости: " .. P.SPEED_MODE[P.speedModeIndex].name, 28, Color3.fromRGB(45,50,65), Color3.fromRGB(180,220,255))
@@ -346,7 +335,7 @@ local directionBtn= makeButton("🔃 Направление: " .. P.DIRECTION[P.
 local patternBtn  = makeButton("🌀 Узор: " .. P.ORBIT_PATTERNS[P.orbitPatternIndex].name, 28, Color3.fromRGB(60,40,90), Color3.fromRGB(220,180,255))
 
 -- ============================================================
---                    КРУЧЕНИЕ
+--  КРУЧЕНИЕ
 -- ============================================================
 makeSection("🔄", "КРУЧЕНИЕ ФИГУР", "Вращение самих фигурок", Color3.fromRGB(100, 60, 80))
 local spinBtn      = makeButton("↩️ Вернуть вращение в 0", 28, Color3.fromRGB(50,40,60), Color3.fromRGB(200,180,255))
@@ -355,7 +344,7 @@ local spinDirBtn   = makeButton("↕️ Ось: ВЕРХ/ВНИЗ", 28, Color3.f
 local spinSpeedBtn = makeButton("🌀 Скорость вращения: " .. P.SPIN_SPEED[P.spinSpeedIndex].name, 28, Color3.fromRGB(55,35,75), Color3.fromRGB(220,180,255))
 
 -- ============================================================
---                    ЭФФЕКТЫ КОЛЕЦ
+--  ЭФФЕКТЫ КОЛЕЦ
 -- ============================================================
 makeSection("✨", "ЭФФЕКТЫ КОЛЕЦ", "Трейлы, волны, пульсация", Color3.fromRGB(100, 80, 60))
 local trailBtn    = makeButton("🌠 Трейлы: ВЫКЛ", 28, Color3.fromRGB(35,35,50))
@@ -366,7 +355,7 @@ local explosionBtn= makeButton("💥 Пульс размера: ВЫКЛ", 28, C
 local pulseBtn    = makeButton("💓 Пульсация: ВЫКЛ", 28, Color3.fromRGB(35,35,50))
 
 -- ============================================================
---                    ОГОНЬ
+--  ОГОНЬ
 -- ============================================================
 makeSection("🔥", "ОГОНЬ", "Классический эффект огня", Color3.fromRGB(150, 60, 20))
 local fireBtn     = makeButton("🔥 Огонь: ВЫКЛ", 32, Color3.fromRGB(80,30,10), Color3.fromRGB(255,140,60))
@@ -374,7 +363,7 @@ local fireSizeBtn = makeButton("📏 Размер огня: " .. P.FIRE_SIZE[P.f
 local fireHeatBtn = makeButton("🌡️ Жар огня: " .. P.FIRE_HEAT[P.fireHeatIndex].name, 28, Color3.fromRGB(60,30,15), Color3.fromRGB(255,180,120))
 
 -- ============================================================
---                    АУРА — ВКЛ/ЭЛЕМЕНТЫ
+--  АУРА
 -- ============================================================
 makeSection("🌀", "АУРА — ВКЛЮЧЕНИЕ", "Дополнительное кольцо-ореол", Color3.fromRGB(80, 60, 130))
 local auraBtn     = makeButton("🌀 Аура: ВЫКЛ", 32, Color3.fromRGB(50,40,70), Color3.fromRGB(200,180,255))
@@ -384,18 +373,12 @@ local auraFigBtn  = makeButton("🔷 Фигуры ауры: ВЫКЛ", 28, Color
 local auraShapeBtn= makeButton("🔷 Форма ауры: " .. SHAPE_PRESETS[ORBIT.auraShapeIndex].name, 28, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255))
 local auraColorBtn= makeButton("🎨 Цвет ауры: " .. P.COLORS[P.auraColorIndex].name, 28, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255))
 
--- ============================================================
---                    АУРА — РАЗМЕР
--- ============================================================
 makeSection("📏", "АУРА — РАЗМЕР", nil, Color3.fromRGB(80, 60, 130))
 local auraSizeBtn  = makeButton("Размер кольца: " .. P.AURA_SIZE[P.auraSizeIndex].name, 28, Color3.fromRGB(35,55,65), Color3.fromRGB(140,220,255))
-local auraThickBtn = makeButton("Толщина кольца: " .. P.AURA_THICK[P.auraThickIndex].name, 28, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
+local auraThickBtn = makeButton("Толщина: " .. P.AURA_THICK[P.auraThickIndex].name, 28, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
 local auraHeightBtn= makeButton("Высота: " .. P.AURA_HEIGHT[P.auraHeightIndex].name, 28, Color3.fromRGB(35,55,65), Color3.fromRGB(140,220,255))
 local auraScaleBtn = makeButton("Размер фигур: " .. P.AURA_SHAPE_SCALE[P.auraShapeScaleIndex].name, 28, Color3.fromRGB(50,40,65), Color3.fromRGB(220,200,255))
 
--- ============================================================
---                    АУРА — СКОРОСТЬ
--- ============================================================
 makeSection("⚡", "АУРА — СКОРОСТЬ И ВРАЩЕНИЕ", nil, Color3.fromRGB(80, 60, 130))
 local auraSpeedBtn    = makeButton("Скорость: " .. P.AURA_SPEED[P.auraSpeedIndex].name, 28, Color3.fromRGB(55,45,20), Color3.fromRGB(255,220,100))
 local auraDirBtn      = makeButton("Направление: " .. P.AURA_DIR[P.auraDirIndex].name, 28, Color3.fromRGB(45,35,60), Color3.fromRGB(200,180,255))
@@ -404,18 +387,15 @@ local auraSpinAxisBtn = makeButton("Ось: ВЕРХ/ВНИЗ", 28, Color3.fromR
 local auraSpinSpeedBtn= makeButton("Скорость кручения: " .. P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].name, 28, Color3.fromRGB(55,35,75), Color3.fromRGB(220,180,255))
 local auraSpinResetBtn= makeButton("↩️ Сброс вращения", 28, Color3.fromRGB(50,40,60), Color3.fromRGB(200,180,255))
 
--- ============================================================
---                    АУРА — ТРЕЙЛЫ
--- ============================================================
 makeSection("🌠", "АУРА — ТРЕЙЛЫ", nil, Color3.fromRGB(80, 60, 130))
 local auraTrailBtn   = makeButton("Трейлы ауры: ВЫКЛ", 28, Color3.fromRGB(35,35,50))
 local auraTrailLenBtn= makeButton("Длина: " .. P.AURA_TRAIL_LEN[P.auraTrailLengthIndex].name, 28, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
 local auraTrailWidBtn= makeButton("Толщина: " .. P.AURA_TRAIL_WID[P.auraTrailWidthIndex].name, 28, Color3.fromRGB(35,45,60), Color3.fromRGB(180,220,255))
 
 -- ============================================================
---                    ЗАЩИТА
+--  ЗАЩИТА
 -- ============================================================
-makeSection("🛡️", "ЗАЩИТА", "Anti-Fling, Anti-GodMode, Auto-Dodge (Sans)", Color3.fromRGB(60, 100, 60))
+makeSection("🛡️", "ЗАЩИТА", "Anti-Fling, Anti-GodMode, Auto-Dodge", Color3.fromRGB(60, 100, 60))
 local protBtn      = makeButton("🛡️ Защита: ВЫКЛ", 36, Color3.fromRGB(40,70,45), Color3.fromRGB(160,255,180))
 local antiKbBtn    = makeButton("Anti-Knockback: ВКЛ", 28, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
 local antiTpBtn    = makeButton("Anti-Teleport: ВКЛ", 28, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
@@ -424,66 +404,57 @@ local antiFlingBtn = makeButton("Anti-Fling/Spin: ВКЛ", 28, Color3.fromRGB(35
 local autoHealBtn  = makeButton("Auto-Heal: ВЫКЛ", 28, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
 local antiVoidBtn  = makeButton("Anti-Void: ВКЛ", 28, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
 local lockPosBtn   = makeButton("Lock Position: ВЫКЛ", 28, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-
--- Auto-Dodge (Sans)
-local dodgeBtn = makeButton("🥷 Auto-Dodge (Sans): ВКЛ", 32, Color3.fromRGB(60,80,50), Color3.fromRGB(200,255,180))
-dodgeBtn.Activated:Connect(function()
-    if ORBIT.DODGE then
-        ORBIT.DODGE.Enabled = not ORBIT.DODGE.Enabled
-        dodgeBtn.Text = "🥷 Auto-Dodge (Sans): " .. (ORBIT.DODGE.Enabled and "ВКЛ" or "ВЫКЛ")
-        dodgeBtn.BackgroundColor3 = ORBIT.DODGE.Enabled and Color3.fromRGB(60,80,50) or Color3.fromRGB(50,50,50)
-    end
-end)
+local dodgeBtn     = makeButton("🥷 Auto-Dodge (Sans): ВКЛ", 32, Color3.fromRGB(60,80,50), Color3.fromRGB(200,255,180))
 
 -- ============================================================
---                    МЕТКИ
+--  МЕТКИ
 -- ============================================================
 makeSection("🚩", "МЕТКИ ЧИТЕРОВ", "Подсветить подозрительных игроков", Color3.fromRGB(120, 50, 80))
 local tagNearestBtn = makeButton("🚩 Пометить ближайшего игрока", 30, Color3.fromRGB(80,30,55), Color3.fromRGB(255,150,200))
 local clearTagsBtn  = makeButton("🧹 Снять все метки", 28, Color3.fromRGB(50,35,45), Color3.fromRGB(255,180,200))
 
 -- ============================================================
---                    МАГАЗИН / РЕДАКТОР
+--  МАГАЗИН
 -- ============================================================
 makeSection("🛒", "МАГАЗИН И РЕДАКТОР", "Превью аватара + свои фигуры", Color3.fromRGB(110, 60, 150))
 local openShopBtn   = makeButton("🛒 Открыть МАГАЗИН", 36, Color3.fromRGB(90,50,130), Color3.fromRGB(255,210,255))
 local openEditorBtn = makeButton("🎨 Редактор своей фигуры", 32, Color3.fromRGB(70,60,110), Color3.fromRGB(220,210,255))
 
 -- ============================================================
---                    ПРОИЗВОДИТЕЛЬНОСТЬ
+--  ПРОИЗВОДИТЕЛЬНОСТЬ
 -- ============================================================
-makeSection("⚙️", "ПРОИЗВОДИТЕЛЬНОСТЬ", "Авто-снижение качества на слабых устройствах", Color3.fromRGB(60, 80, 110))
+makeSection("⚙️", "ПРОИЗВОДИТЕЛЬНОСТЬ", "Авто-снижение качества", Color3.fromRGB(60, 80, 110))
 local perfBtn = makeButton("⚡ Качество: АВТО", 30, Color3.fromRGB(35,50,75), Color3.fromRGB(180,220,255))
 
 -- ============================================================
---                    ПРОЧЕЕ
+--  ПРОЧЕЕ
 -- ============================================================
 makeSection("💗", "ПРОЧЕЕ", nil, Color3.fromRGB(100, 50, 80))
 local heartSizeBtn = makeButton("💗 Размер сердца: 100%", 30, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200))
 
 -- ============================================================
---                    СОХРАНЕНИЯ
+--  СОХРАНЕНИЯ
 -- ============================================================
-makeSection("💾", "СОХРАНЕНИЯ", "Сохрани/загрузи все настройки", Color3.fromRGB(60, 60, 90))
+makeSection("💾", "СОХРАНЕНИЯ", "Сохрани / загрузи все настройки", Color3.fromRGB(60, 60, 90))
 local saveNameInput = Instance.new("TextBox")
-saveNameInput.Size = UDim2.new(1, -16, 0, 32)
+saveNameInput.Size = UDim2.new(1, 0, 0, 34)
 saveNameInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 saveNameInput.BackgroundTransparency = 0.1
 saveNameInput.TextColor3 = Color3.fromRGB(240, 230, 255)
 saveNameInput.Font = Enum.Font.GothamBold
 saveNameInput.TextSize = 12
-saveNameInput.PlaceholderText = "Напиши имя сохранения..."
+saveNameInput.PlaceholderText = "✏️ Напиши имя сохранения..."
 saveNameInput.PlaceholderColor3 = Color3.fromRGB(140, 130, 170)
 saveNameInput.Text = ""
 saveNameInput.ClearTextOnFocus = false
-saveNameInput.ZIndex = 2
-saveNameInput.Parent = panel
+saveNameInput.LayoutOrder = nextOrder()
+saveNameInput.Parent = content
 Instance.new("UICorner", saveNameInput).CornerRadius = UDim.new(0, 8)
 
 local createSaveBtn = makeButton("💾 Сохранить под этим именем", 32, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
 
 local savesContainer = Instance.new("ScrollingFrame")
-savesContainer.Size = UDim2.new(1, -16, 0, 130)
+savesContainer.Size = UDim2.new(1, 0, 0, 130)
 savesContainer.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 savesContainer.BackgroundTransparency = 0.2
 savesContainer.BorderSizePixel = 0
@@ -491,8 +462,8 @@ savesContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
 savesContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
 savesContainer.ScrollBarThickness = 3
 savesContainer.ScrollBarImageColor3 = Color3.fromRGB(150,100,200)
-savesContainer.ZIndex = 2
-savesContainer.Parent = panel
+savesContainer.LayoutOrder = nextOrder()
+savesContainer.Parent = content
 Instance.new("UICorner", savesContainer).CornerRadius = UDim.new(0, 8)
 local savesLayout = Instance.new("UIListLayout")
 savesLayout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -500,42 +471,42 @@ savesLayout.Padding = UDim.new(0, 4)
 savesLayout.Parent = savesContainer
 
 -- ============================================================
---                    СИСТЕМА
+--  СИСТЕМА
 -- ============================================================
 makeSection("🖥️", "СИСТЕМА", nil, Color3.fromRGB(60, 60, 80))
-local saveBtn   = makeButton("💾 Сохранить (автослот)", 30, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
-local loadBtn   = makeButton("📂 Загрузить (автослот)", 30, Color3.fromRGB(35,50,60), Color3.fromRGB(180,220,255))
+local saveBtn   = makeButton("💾 Сохранить в автослот", 30, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
+local loadBtn   = makeButton("📂 Загрузить из автослота", 30, Color3.fromRGB(35,50,60), Color3.fromRGB(180,220,255))
 local resetBtn  = makeButton("🔄 Сброс настроек", 28, Color3.fromRGB(50,30,30), Color3.fromRGB(255,180,180))
 local unloadBtn = makeButton("❌ ВЫГРУЗИТЬ СКРИПТ", 30, Color3.fromRGB(80,30,30), Color3.fromRGB(255,140,140))
 
 -- ============================================================
---                    МУЗЫКА
+--  МУЗЫКА
 -- ============================================================
 makeSection("🎵", "МУЗЫКА", "Свой Sound ID (только у тебя)", Color3.fromRGB(80, 60, 110))
 local musicInput = Instance.new("TextBox")
-musicInput.Size = UDim2.new(1, -16, 0, 32)
+musicInput.Size = UDim2.new(1, 0, 0, 34)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
 musicInput.Font = Enum.Font.GothamBold
 musicInput.TextSize = 12
-musicInput.PlaceholderText = "Sound ID (например 1839246711)"
+musicInput.PlaceholderText = "Sound ID (пример: 1839246711)"
 musicInput.PlaceholderColor3 = Color3.fromRGB(140, 130, 170)
 musicInput.Text = ""
 musicInput.ClearTextOnFocus = false
-musicInput.ZIndex = 2
-musicInput.Parent = panel
+musicInput.LayoutOrder = nextOrder()
+musicInput.Parent = content
 Instance.new("UICorner", musicInput).CornerRadius = UDim.new(0, 8)
 
 local applyIdBtn = makeButton("✅ Применить ID", 28, Color3.fromRGB(55,80,55), Color3.fromRGB(180,255,180))
 local musicBtn   = makeButton("🎵 Музыка: ВЫКЛ", 28, Color3.fromRGB(50,35,60), Color3.fromRGB(220,180,255))
 
 -- ============================================================
---                    СТАТИСТИКА
+--  СТАТИСТИКА
 -- ============================================================
 makeSection("📊", "СТАТИСТИКА", nil, Color3.fromRGB(60, 60, 90))
 local statsLabel = Instance.new("TextLabel")
-statsLabel.Size = UDim2.new(1, -16, 0, 90)
+statsLabel.Size = UDim2.new(1, 0, 0, 90)
 statsLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 statsLabel.BackgroundTransparency = 0.2
 statsLabel.BorderSizePixel = 0
@@ -545,11 +516,11 @@ statsLabel.TextSize = 11
 statsLabel.TextXAlignment = Enum.TextXAlignment.Left
 statsLabel.TextYAlignment = Enum.TextYAlignment.Top
 statsLabel.Text = "FPS: --"
-statsLabel.ZIndex = 2
-statsLabel.Parent = panel
+statsLabel.LayoutOrder = nextOrder()
+statsLabel.Parent = content
 Instance.new("UICorner", statsLabel).CornerRadius = UDim.new(0, 6)
 
--- ==================== ЛОГИКА: КНОПКИ ====================
+-- ==================== ЛОГИКА КНОПОК ====================
 local ringButtons = { [2]=ring2Btn, [3]=ring3Btn, [4]=ring4Btn, [5]=ring5Btn }
 local function refreshRingButton(ri)
     local btn = ringButtons[ri]; if not btn then return end
@@ -577,7 +548,7 @@ toggleBtn.Activated:Connect(function()
     end
 end)
 
--- ===== СПИСОК ИГРОКОВ =====
+-- СПИСОК ИГРОКОВ
 local function rebuildPeopleList()
     for _, ch in ipairs(peopleListScroll:GetChildren()) do
         if ch:IsA("Frame") or ch:IsA("TextLabel") then ch:Destroy() end
@@ -585,7 +556,7 @@ local function rebuildPeopleList()
     local list = ORBIT.getPlayerList and ORBIT.getPlayerList() or {}
     if #list == 0 then
         local empty = Instance.new("TextLabel")
-        empty.Size = UDim2.new(1, -6, 0, 24)
+        empty.Size = UDim2.new(1, 0, 0, 24)
         empty.BackgroundTransparency = 1
         empty.Text = "— на сервере только ты —"
         empty.TextColor3 = Color3.fromRGB(140, 130, 170)
@@ -597,7 +568,7 @@ local function rebuildPeopleList()
     end
     for i, info in ipairs(list) do
         local row = Instance.new("Frame")
-        row.Size = UDim2.new(1, -6, 0, 52)
+        row.Size = UDim2.new(1, 0, 0, 54)
         row.BackgroundColor3 = Color3.fromRGB(28, 22, 45)
         row.BorderSizePixel = 0
         row.LayoutOrder = i
@@ -616,43 +587,38 @@ local function rebuildPeopleList()
         nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
         nameLbl.Parent = row
 
-        local btnRow = Instance.new("Frame")
-        btnRow.Size = UDim2.new(1, -8, 0, 24)
-        btnRow.Position = UDim2.new(0, 4, 0, 22)
-        btnRow.BackgroundTransparency = 1
-        btnRow.Parent = row
-
         local ringBtn = Instance.new("TextButton")
-        ringBtn.Size = UDim2.new(0.5, -2, 1, 0)
+        ringBtn.Size = UDim2.new(0.5, -5, 0, 26)
+        ringBtn.Position = UDim2.new(0, 4, 0, 24)
         if info.hasRing then
             ringBtn.Text = "➖ Убрать кольцо"
             ringBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
             ringBtn.TextColor3 = Color3.fromRGB(255, 160, 160)
         else
-            ringBtn.Text = "➕ Навесить кольцо"
+            ringBtn.Text = "➕ Кольцо"
             ringBtn.BackgroundColor3 = Color3.fromRGB(40, 70, 45)
             ringBtn.TextColor3 = Color3.fromRGB(160, 255, 180)
         end
         ringBtn.Font = Enum.Font.GothamBold
         ringBtn.TextSize = 10
-        ringBtn.Parent = btnRow
+        ringBtn.Parent = row
         Instance.new("UICorner", ringBtn).CornerRadius = UDim.new(0, 5)
 
         local tagBtn = Instance.new("TextButton")
-        tagBtn.Size = UDim2.new(0.5, -2, 1, 0)
-        tagBtn.Position = UDim2.new(0.5, 2, 0, 0)
+        tagBtn.Size = UDim2.new(0.5, -5, 0, 26)
+        tagBtn.Position = UDim2.new(0.5, 1, 0, 24)
         if info.isTagged then
             tagBtn.Text = "✅ Снять метку"
             tagBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 50)
             tagBtn.TextColor3 = Color3.fromRGB(220, 200, 220)
         else
-            tagBtn.Text = "🚩 Метка читера"
+            tagBtn.Text = "🚩 Метка"
             tagBtn.BackgroundColor3 = Color3.fromRGB(80, 30, 55)
             tagBtn.TextColor3 = Color3.fromRGB(255, 150, 200)
         end
         tagBtn.Font = Enum.Font.GothamBold
         tagBtn.TextSize = 10
-        tagBtn.Parent = btnRow
+        tagBtn.Parent = row
         Instance.new("UICorner", tagBtn).CornerRadius = UDim.new(0, 5)
 
         ringBtn.Activated:Connect(function()
@@ -692,7 +658,7 @@ end)
 Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then task.wait(0.5); pcall(rebuildPeopleList) end end)
 Players.PlayerRemoving:Connect(function(p) if p ~= LocalPlayer then task.wait(0.3); pcall(rebuildPeopleList) end end)
 
--- ===== БОТЫ =====
+-- БОТЫ
 local function refreshBotCount()
     local count = 0
     for _, data in pairs(ORBIT.bots) do
@@ -701,41 +667,15 @@ local function refreshBotCount()
     botInfoLbl.Text = "🤖 Ботов: " .. count
 end
 
-regNearBtn.Activated:Connect(function()
-    ORBIT.createBotNear(nil, 4, 1); task.wait(0.1); refreshBotCount()
-end)
-reg1Btn.Activated:Connect(function()
-    ORBIT.createBot(nil, nil, 1); task.wait(0.1); refreshBotCount()
-end)
-
-sp2Btn.Activated:Connect(function()
-    ORBIT.createMultipleBots(5, 2); task.wait(0.5); refreshBotCount()
-end)
-sp3Btn.Activated:Connect(function()
-    ORBIT.createMultipleBots(5, 3); task.wait(0.5); refreshBotCount()
-end)
-sp4Btn.Activated:Connect(function()
-    ORBIT.createMultipleBots(5, 4); task.wait(0.5); refreshBotCount()
-end)
-sp5Btn.Activated:Connect(function()
-    ORBIT.createMultipleBots(5, 5); task.wait(0.5); refreshBotCount()
-end)
-
--- Дополнительные кнопки обычных ботов (5/10)
-reg1Btn.MouseButton1Down:Connect(function()
-    -- правая часть кнопки — 5/10 ботов
-end)
-
--- Отдельные кнопки для 5 и 10 (заменим текст)
-local reg5Btn  = makeButton("🔥 5 обычных ботов → кольцо 1", 28, Color3.fromRGB(60,80,50), Color3.fromRGB(205,255,185))
-local reg10Btn = makeButton("💥 10 обычных ботов → кольцо 1", 28, Color3.fromRGB(65,85,55), Color3.fromRGB(210,255,190))
-
+regNearBtn.Activated:Connect(function() ORBIT.createBotNear(nil, 4, 1); task.wait(0.1); refreshBotCount() end)
+reg1Btn.Activated:Connect(function() ORBIT.createBot(nil, nil, 1); task.wait(0.1); refreshBotCount() end)
 reg5Btn.Activated:Connect(function() ORBIT.createMultipleBots(5, 1); task.wait(0.5); refreshBotCount() end)
 reg10Btn.Activated:Connect(function() ORBIT.createManyBots(10, 1); task.wait(0.5); refreshBotCount() end)
-
-botRemoveAll.Activated:Connect(function()
-    ORBIT.removeAllBots(); task.wait(0.1); refreshBotCount()
-end)
+sp2Btn.Activated:Connect(function() ORBIT.createMultipleBots(5, 2); task.wait(0.5); refreshBotCount() end)
+sp3Btn.Activated:Connect(function() ORBIT.createMultipleBots(5, 3); task.wait(0.5); refreshBotCount() end)
+sp4Btn.Activated:Connect(function() ORBIT.createMultipleBots(5, 4); task.wait(0.5); refreshBotCount() end)
+sp5Btn.Activated:Connect(function() ORBIT.createMultipleBots(5, 5); task.wait(0.5); refreshBotCount() end)
+botRemoveAll.Activated:Connect(function() ORBIT.removeAllBots(); task.wait(0.1); refreshBotCount() end)
 botAutoBtn.Activated:Connect(function()
     ORBIT.botSettings.AutoCollect = not ORBIT.botSettings.AutoCollect
     botAutoBtn.Text = "🎁 Автосбор: " .. (ORBIT.botSettings.AutoCollect and "ВКЛ" or "ВЫКЛ")
@@ -756,16 +696,14 @@ task.spawn(function()
 end)
 refreshBotCount()
 
--- ===== СКИН БОТА =====
 botSkinBtn.Activated:Connect(function()
     ORBIT.botSettings.UseMySkin = not ORBIT.botSettings.UseMySkin
     botSkinBtn.Text = "👤 Скин как у меня: " .. (ORBIT.botSettings.UseMySkin and "ВКЛ" or "ВЫКЛ")
     ORBIT.botAvatarTemplate = nil
-    ORBIT.notify("👤 Скин бота: " .. (ORBIT.botSettings.UseMySkin and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(200, 180, 255), 2)
 end)
 if ORBIT.botSettings.UseMySkin then botSkinBtn.Text = "👤 Скин как у меня: ВКЛ" end
 
--- ===== КОЛЬЦА =====
+-- КОЛЬЦА
 allRingsBtn.Activated:Connect(function()
     local anyOff = false
     for ri = 2, 5 do if not rings[ri].enabled then anyOff = true; break end end
@@ -778,7 +716,7 @@ for ri, btn in pairs(ringButtons) do
     btn.Activated:Connect(function() ORBIT.setRingEnabled(ri, not rings[ri].enabled); refreshRingButton(ri) end)
 end
 
--- ===== ВНЕШНИЙ ВИД =====
+-- ВНЕШНИЙ ВИД
 shapeCatBtn.Activated:Connect(function()
     P.shapeCategoryIndex = P.shapeCategoryIndex + 1
     if P.shapeCategoryIndex > #P.SHAPE_CATEGORIES then P.shapeCategoryIndex = 1 end
@@ -837,7 +775,7 @@ nameBtn.Activated:Connect(function()
     ORBIT.applyNameVisibility()
 end)
 
--- ===== ОРБИТА =====
+-- ОРБИТА
 orbitBtn.Activated:Connect(function()
     P.orbitIndex = P.orbitIndex + 1; if P.orbitIndex > #P.ORBIT then P.orbitIndex = 1 end
     orbitBtn.Text = "📏 Размер орбиты: " .. P.ORBIT[P.orbitIndex].name
@@ -871,7 +809,7 @@ patternBtn.Activated:Connect(function()
     patternBtn.Text = "🌀 Узор: " .. SETTINGS.OrbitPattern
 end)
 
--- ===== КРУЧЕНИЕ =====
+-- КРУЧЕНИЕ
 spinBtn.Activated:Connect(function()
     ORBIT.spinResetting = not ORBIT.spinResetting
     spinBtn.Text = ORBIT.spinResetting and "↩️ Вращение: ВОЗВРАТ" or "↩️ Вернуть вращение в 0"
@@ -890,7 +828,7 @@ spinSpeedBtn.Activated:Connect(function()
     spinSpeedBtn.Text = "🌀 Скорость вращения: " .. P.SPIN_SPEED[P.spinSpeedIndex].name
 end)
 
--- ===== ЭФФЕКТЫ =====
+-- ЭФФЕКТЫ
 trailBtn.Activated:Connect(function()
     SETTINGS.TrailEnabled = not SETTINGS.TrailEnabled
     trailBtn.Text = "🌠 Трейлы: " .. (SETTINGS.TrailEnabled and "ВКЛ" or "ВЫКЛ")
@@ -921,7 +859,7 @@ pulseBtn.Activated:Connect(function()
     pulseBtn.Text = "💓 Пульсация: " .. (SETTINGS.PulseEnabled and "ВКЛ" or "ВЫКЛ")
 end)
 
--- ===== ОГОНЬ =====
+-- ОГОНЬ
 fireBtn.Activated:Connect(function()
     SETTINGS.FireEnabled = not SETTINGS.FireEnabled
     fireBtn.Text = "🔥 Огонь: " .. (SETTINGS.FireEnabled and "ВКЛ" or "ВЫКЛ")
@@ -940,7 +878,7 @@ fireHeatBtn.Activated:Connect(function()
     if SETTINGS.FireEnabled then ORBIT.setupFire() end
 end)
 
--- ===== АУРА =====
+-- АУРА
 auraBtn.Activated:Connect(function()
     SETTINGS.AuraEnabled = not SETTINGS.AuraEnabled
     auraBtn.Text = "🌀 Аура: " .. (SETTINGS.AuraEnabled and "ВКЛ" or "ВЫКЛ")
@@ -986,7 +924,7 @@ end)
 auraThickBtn.Activated:Connect(function()
     P.auraThickIndex = P.auraThickIndex + 1; if P.auraThickIndex > #P.AURA_THICK then P.auraThickIndex = 1 end
     SETTINGS.AuraThickness = P.AURA_THICK[P.auraThickIndex].value
-    auraThickBtn.Text = "Толщина кольца: " .. P.AURA_THICK[P.auraThickIndex].name
+    auraThickBtn.Text = "Толщина: " .. P.AURA_THICK[P.auraThickIndex].name
     if SETTINGS.AuraEnabled then ORBIT.setupAura() end
 end)
 auraHeightBtn.Activated:Connect(function()
@@ -1049,7 +987,7 @@ auraTrailWidBtn.Activated:Connect(function()
     auraTrailWidBtn.Text = "Толщина: " .. P.AURA_TRAIL_WID[P.auraTrailWidthIndex].name
 end)
 
--- ===== ЗАЩИТА =====
+-- ЗАЩИТА
 protBtn.Activated:Connect(function()
     SETTINGS.ProtEnabled = not SETTINGS.ProtEnabled
     protBtn.Text = "🛡️ Защита: " .. (SETTINGS.ProtEnabled and "ВКЛ" or "ВЫКЛ")
@@ -1084,8 +1022,15 @@ lockPosBtn.Activated:Connect(function()
     SETTINGS.LockPosition = not SETTINGS.LockPosition
     lockPosBtn.Text = "Lock Position: " .. (SETTINGS.LockPosition and "ВКЛ" or "ВЫКЛ")
 end)
+dodgeBtn.Activated:Connect(function()
+    if ORBIT.DODGE then
+        ORBIT.DODGE.Enabled = not ORBIT.DODGE.Enabled
+        dodgeBtn.Text = "🥷 Auto-Dodge (Sans): " .. (ORBIT.DODGE.Enabled and "ВКЛ" or "ВЫКЛ")
+        dodgeBtn.BackgroundColor3 = ORBIT.DODGE.Enabled and Color3.fromRGB(60,80,50) or Color3.fromRGB(50,50,50)
+    end
+end)
 
--- ===== МЕТКИ =====
+-- МЕТКИ
 tagNearestBtn.Activated:Connect(function()
     local closest, bestDist = nil, math.huge
     local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -1109,7 +1054,7 @@ clearTagsBtn.Activated:Connect(function()
     task.wait(0.1); pcall(rebuildPeopleList)
 end)
 
--- ===== МАГАЗИН =====
+-- МАГАЗИН
 openShopBtn.Activated:Connect(function()
     if ORBIT.openShop then ORBIT.openShop() end
 end)
@@ -1117,7 +1062,7 @@ openEditorBtn.Activated:Connect(function()
     if ORBIT.openEditor then ORBIT.openEditor() end
 end)
 
--- ===== ПРОИЗВОДИТЕЛЬНОСТЬ =====
+-- ПРОИЗВОДИТЕЛЬНОСТЬ
 local PERF_MODES = {"auto", "high", "medium", "low", "minimal", "off"}
 local PERF_LABELS = {auto="АВТО", high="ВЫСОКОЕ", medium="СРЕДНЕЕ", low="НИЗКОЕ", minimal="МИНИМУМ", off="ВЫКЛ"}
 local perfIndex = 1
@@ -1135,12 +1080,11 @@ perfBtn.Activated:Connect(function()
 end)
 task.spawn(function()
     while screenGui and screenGui.Parent do
-        task.wait(1)
-        pcall(refreshPerfBtn)
+        task.wait(1); pcall(refreshPerfBtn)
     end
 end)
 
--- ===== СЕРДЦЕ =====
+-- СЕРДЦЕ
 local heartScaleIndex = 4
 local HEART_STEPS = P.HEART_STEPS or {0.2, 0.35, 0.5, 0.65, 0.9, 1.2, 1.6, 2.2}
 for i, v in ipairs(HEART_STEPS) do
@@ -1159,7 +1103,7 @@ heartSizeBtn.Activated:Connect(function()
     ORBIT.rebuildAllRings()
 end)
 
--- ===== СОХРАНЕНИЯ =====
+-- СОХРАНЕНИЯ
 local function rebuildSavesList()
     for _, child in ipairs(savesContainer:GetChildren()) do
         if child:IsA("TextButton") or child:IsA("TextLabel") or child:IsA("Frame") then child:Destroy() end
@@ -1179,7 +1123,7 @@ local function rebuildSavesList()
     end
     for i, name in ipairs(names) do
         local row = Instance.new("Frame")
-        row.Size = UDim2.new(1, 0, 0, 32)
+        row.Size = UDim2.new(1, 0, 0, 34)
         row.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
         row.BorderSizePixel = 0
         row.LayoutOrder = i
@@ -1199,7 +1143,7 @@ local function rebuildSavesList()
         nameLbl.Parent = row
 
         local loadB = Instance.new("TextButton")
-        loadB.Size = UDim2.new(0, 55, 0, 24)
+        loadB.Size = UDim2.new(0, 55, 0, 26)
         loadB.Position = UDim2.new(1, -120, 0, 4)
         loadB.BackgroundColor3 = Color3.fromRGB(40,80,50)
         loadB.TextColor3 = Color3.fromRGB(160,255,180)
@@ -1210,7 +1154,7 @@ local function rebuildSavesList()
         Instance.new("UICorner", loadB).CornerRadius = UDim.new(0, 5)
 
         local delB = Instance.new("TextButton")
-        delB.Size = UDim2.new(0, 55, 0, 24)
+        delB.Size = UDim2.new(0, 55, 0, 26)
         delB.Position = UDim2.new(1, -60, 0, 4)
         delB.BackgroundColor3 = Color3.fromRGB(80,30,30)
         delB.TextColor3 = Color3.fromRGB(255,150,150)
@@ -1227,7 +1171,6 @@ local function rebuildSavesList()
                 ORBIT.rebuildAllRings()
                 if ORBIT.setupAura then ORBIT.setupAura() end
                 if ORBIT.setupFire then ORBIT.setupFire() end
-                if SETTINGS.ProtEnabled and ORBIT.enableProtection then ORBIT.enableProtection() end
                 refreshHeartBtn()
                 botSkinBtn.Text = "👤 Скин как у меня: " .. (ORBIT.botSettings.UseMySkin and "ВКЛ" or "ВЫКЛ")
             end
@@ -1245,7 +1188,7 @@ end
 createSaveBtn.Activated:Connect(function()
     local name = saveNameInput.Text
     if not name or name == "" then
-        ORBIT.notify("✏️ Введи имя сохранения", Color3.fromRGB(255,200,100))
+        ORBIT.notify("✏️ Введи имя", Color3.fromRGB(255,200,100))
         return
     end
     local ok, err = ORBIT.saveNamed(name)
@@ -1264,7 +1207,7 @@ saveBtn.Activated:Connect(function()
     if ok then
         saveBtn.Text = "✅ Сохранено!"
         task.wait(1.5)
-        saveBtn.Text = "💾 Сохранить (автослот)"
+        saveBtn.Text = "💾 Сохранить в автослот"
     end
 end)
 loadBtn.Activated:Connect(function()
@@ -1273,7 +1216,6 @@ loadBtn.Activated:Connect(function()
         ORBIT.rebuildAllRings()
         if ORBIT.setupAura then ORBIT.setupAura() end
         if ORBIT.setupFire then ORBIT.setupFire() end
-        if SETTINGS.ProtEnabled and ORBIT.enableProtection then ORBIT.enableProtection() end
         refreshHeartBtn()
         botSkinBtn.Text = "👤 Скин как у меня: " .. (ORBIT.botSettings.UseMySkin and "ВКЛ" or "ВЫКЛ")
     end
@@ -1296,7 +1238,6 @@ unloadBtn.Activated:Connect(function()
     pcall(function() ORBIT.unload() end)
 end)
 
--- ===== МУЗЫКА =====
 applyIdBtn.Activated:Connect(function()
     local ok = ORBIT.setMusicId(musicInput.Text)
     if ok then
@@ -1329,7 +1270,7 @@ end)
 
 rebuildSavesList()
 
--- ===== СТАТИСТИКА =====
+-- СТАТИСТИКА
 task.spawn(function()
     while task.wait(0.5) do
         if statsLabel and statsLabel.Parent then
@@ -1348,7 +1289,7 @@ task.spawn(function()
     end
 end)
 
--- ===== ПЕРЕТАСКИВАНИЕ =====
+-- ПЕРЕТАСКИВАНИЕ
 local dragging, dragStart, startPos = false, nil, nil
 mainBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -1364,26 +1305,24 @@ mainBtn.InputChanged:Connect(function(input)
 end)
 mainBtn.InputEnded:Connect(function() dragging = false end)
 
--- ===== ССЫЛКИ ДЛЯ МАГАЗИНА =====
+-- ССЫЛКИ ДЛЯ МАГАЗИНА
 ORBIT.ui = ORBIT.ui or {}
 ORBIT.ui.screenGui = screenGui
 ORBIT.ui.panel = panel
 ORBIT.ui.openShopBtn = openShopBtn
 ORBIT.ui.openEditorBtn = openEditorBtn
 
--- ===== СТАРТ =====
+-- СТАРТ
 ORBIT.start = function()
     if getgenv()._OrbitLoaderGui then pcall(function() getgenv()._OrbitLoaderGui:Destroy() end) end
     ORBIT.startLogic()
-    ORBIT.notify("✨ ОРБИТА v21.2 запущена!", Color3.fromRGB(200,200,255), 3)
+    ORBIT.notify("✨ ОРБИТА v21.3 запущена!", Color3.fromRGB(200,200,255), 3)
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4 v21.2 (часть 1/2) — интерфейс готов", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4 v21.3 — интерфейс исправлен", Color3.fromRGB(180,255,180), 3) end
 
--- ============================================================
--- ПОДГРУЗКА ЧАСТИ 2/2 — МАГАЗИН
--- ============================================================
+-- ПОДГРУЗКА МАГАЗИНА
 task.spawn(function()
     local url = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/orbit_p4_shop.lua?t=" .. os.time()
     local ok, src = pcall(function() return game:HttpGet(url) end)
