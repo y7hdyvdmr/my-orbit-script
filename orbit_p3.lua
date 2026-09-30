@@ -1,4 +1,4 @@
---[[ ОРБИТА v21.4 — ЧАСТЬ 3/4: ЛОГИКА + ЗАЩИТА v6 + БОТЫ ]]
+--[[ ОРБИТА v21.5 — ЧАСТЬ 3/4: ЛОГИКА + ЗАЩИТА v7 + REVERSE FLING + БОТЫ ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -227,7 +227,7 @@ local function updateFire()
     end
 end
 
--- ==================== УСИЛЕННАЯ ЗАЩИТА v6 ====================
+-- ==================== УСИЛЕННАЯ ЗАЩИТА v7 ====================
 local PROT_STATE = {
     lastSafePos = nil, lastSafeCFrame = nil, lastCheckTime = 0, lastHealTime = 0,
     lastHealth = 100, lastKnockTime = 0, lastFreezeTime = 0, spawnGrace = 0,
@@ -277,7 +277,7 @@ local function resetVelocity(char)
     end
 end
 
--- ==== ANTI-FLING + ANTI-SPIN ====
+-- ==== ANTI-FLING ====
 local function antiFling(char, hrp)
     if not SETTINGS.AntiFling then return end
     pcall(function()
@@ -290,7 +290,7 @@ local function antiFling(char, hrp)
     end)
 end
 
--- ==== AUTO-DODGE (ВЫКЛЮЧЕН по умолчанию) ====
+-- ==== AUTO-DODGE ====
 local DODGE = {
     Enabled = false,
     ScanRadius = 15,
@@ -317,7 +317,7 @@ local function setupAutoDodge()
         local myPos = hrp.Position
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("BasePart") and obj ~= hrp and obj.Parent ~= char then
-                if not obj.Anchored then -- игнорируем якорные части (стены, платформы)
+                if not obj.Anchored then
                     local dist = (obj.Position - myPos).Magnitude
                     if dist < DODGE.ScanRadius then
                         local vel = obj.AssemblyLinearVelocity
@@ -360,10 +360,69 @@ local function setupAutoDodge()
             end)
             DODGE.LastDodge = now
             protLog("Auto-Dodge: уклонение от " .. threat.obj.Name, Color3.fromRGB(100, 255, 200))
+            -- 🎵 Звук уворота + эмоция Санса
+            if ORBIT.playDodge then ORBIT.playDodge() end
         end
     end)
 end
 ORBIT.setupAutoDodge = setupAutoDodge
+
+-- ==== 🚨 REVERSE FLING (наказание читеров) ====
+ORBIT.REVERSE = {
+    Enabled = false,
+    RotateLimit = 20 * 2 * math.pi,
+    FlingForce = 500,
+    LastCheck = 0,
+    CheckInterval = 0.3,
+    Detected = {},
+}
+
+local function reverseFlingPlayer(player)
+    if not player or player == LocalPlayer then return end
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    pcall(function()
+        hrp.AssemblyAngularVelocity = Vector3.new(
+            math.random(-1, 1) * 1000,
+            math.random(-1, 1) * 1000,
+            math.random(-1, 1) * 1000
+        )
+        hrp.AssemblyLinearVelocity = Vector3.new(0, ORBIT.REVERSE.FlingForce, 0)
+    end)
+    protLog("🚨 REVERSE FLING: " .. player.Name .. " отправлен за карту!", Color3.fromRGB(255, 50, 50))
+    if ORBIT.notify then ORBIT.notify("🚨 Наказан: " .. player.Name, Color3.fromRGB(255, 80, 80), 3) end
+end
+
+local function scanForFlingers()
+    if not ORBIT.REVERSE.Enabled then return end
+    local now = tick()
+    if now - ORBIT.REVERSE.LastCheck < ORBIT.REVERSE.CheckInterval then return end
+    ORBIT.REVERSE.LastCheck = now
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        local char = player.Character
+        if not char then continue end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+
+        local aav = hrp.AssemblyAngularVelocity
+        if math.abs(aav.X) > ORBIT.REVERSE.RotateLimit or
+           math.abs(aav.Y) > ORBIT.REVERSE.RotateLimit or
+           math.abs(aav.Z) > ORBIT.REVERSE.RotateLimit then
+            if not ORBIT.REVERSE.Detected[player] then
+                ORBIT.REVERSE.Detected[player] = now
+                reverseFlingPlayer(player)
+            end
+        end
+    end
+
+    for p, t in pairs(ORBIT.REVERSE.Detected) do
+        if now - t > 5 then ORBIT.REVERSE.Detected[p] = nil end
+    end
+end
 
 -- ==== ANTI-FREEZE ====
 local function antiFreeze(char)
@@ -426,20 +485,15 @@ local function antiVoid(char, hrp)
     end
 end
 
--- ==== ANTI-TELEPORT (не мешает ходьбе/прыжку) ====
+-- ==== ANTI-TELEPORT ====
 local function antiTeleport(char, hrp)
     if not SETTINGS.AntiTeleport then return end
     if not PROT_STATE.lastSafePos then return end
-
-    -- Не откатывать если игрок сам двигается
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum and hum.MoveDirection.Magnitude > 0.05 then return end
-
-    -- Считаем только горизонтальное расстояние
     local dx = hrp.Position.X - PROT_STATE.lastSafePos.X
     local dz = hrp.Position.Z - PROT_STATE.lastSafePos.Z
     local horizDist = math.sqrt(dx*dx + dz*dz)
-
     if horizDist > 250 then
         pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame + Vector3.new(0, 2, 0)) end)
         resetVelocity(char)
@@ -459,7 +513,6 @@ end
 -- ==== LOCK POSITION ====
 local function lockPosition(char, hrp)
     if not SETTINGS.LockPosition then return end
-    -- Не блокировать если игрок двигается
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum and hum.MoveDirection.Magnitude > 0.05 then return end
     if PROT_STATE.lastSafeCFrame then
@@ -590,7 +643,7 @@ local function setupRemoteMonitor()
 end
 setupRemoteMonitor()
 
--- ==== ГЛАВНЫЙ ЦИКЛ ====
+-- ==== ГЛАВНЫЙ ЦИКЛ ЗАЩИТЫ ====
 local function processProtection(dt, char, hrp)
     local now = tick()
     antiFling(char, hrp)
@@ -608,7 +661,6 @@ local function processProtection(dt, char, hrp)
         autoHeal(char)
     end
 
-    -- Grace 5 сек после респавна
     local inGrace = (now - PROT_STATE.spawnGrace) < 5.0
     antiVoid(char, hrp)
     if not inGrace then
@@ -623,9 +675,9 @@ local function processProtection(dt, char, hrp)
             if player ~= LocalPlayer then pcall(detectSpeedHack, player) end
         end
         pcall(scanForGodMode)
+        pcall(scanForFlingers)
     end
 
-    -- Safe-позиция обновляется каждые 0.2с
     if now - PROT_STATE.lastCheckTime > 0.2 then
         PROT_STATE.lastCheckTime = now
         local hum = char:FindFirstChildOfClass("Humanoid")
@@ -674,8 +726,8 @@ function ORBIT.enableProtection()
         if not hrp then return end
         pcall(processProtection, dt, char, hrp)
     end)
-    ORBIT.notify("🛡 Защита v6 ВКЛ", Color3.fromRGB(120, 255, 180), 3)
-    protLog("Защита v6 активна. F9 = лог.", Color3.fromRGB(100, 255, 100))
+    ORBIT.notify("🛡 Защита v7 ВКЛ", Color3.fromRGB(120, 255, 180), 3)
+    protLog("Защита v7 активна. F9 = лог.", Color3.fromRGB(100, 255, 100))
 end
 
 function ORBIT.disableProtection()
@@ -1171,6 +1223,8 @@ local function collectBotRing(botModel, data)
         ORBIT.destroyRing(SLOT); ORBIT.buildRing(SLOT); ORBIT.applyColor(); ORBIT.applyNameVisibility()
     end
     ORBIT.notify("🎁 " .. shapeName .. " → кольцо " .. SLOT, Color3.fromRGB(255, 220, 100), 3)
+    -- 🎵 Звук сбора бота
+    if ORBIT.playBotCollect then ORBIT.playBotCollect() end
     task.spawn(function()
         for i = 1, 10 do
             for _, b in ipairs(data.blocks) do
@@ -1631,6 +1685,10 @@ local function collectSaveData()
         autoHeal=SETTINGS.AutoHeal, antiVoid=SETTINGS.AntiVoid, antiFling=SETTINGS.AntiFling,
         antiExplosion=SETTINGS.AntiExplosion, lockPosition=SETTINGS.LockPosition,
         useMySkin=ORBIT.botSettings.UseMySkin,
+        reverseEnabled=ORBIT.REVERSE and ORBIT.REVERSE.Enabled,
+        dodgeEnabled=DODGE.Enabled,
+        soundEnabled=ORBIT.SOUNDS and ORBIT.SOUNDS.Enabled,
+        soundVolume=ORBIT.SOUNDS and ORBIT.SOUNDS.Volume,
     }
 end
 
@@ -1698,6 +1756,10 @@ local function applySaveData(d)
     if d.antiExplosion ~= nil then SETTINGS.AntiExplosion = d.antiExplosion end
     if d.lockPosition ~= nil then SETTINGS.LockPosition = d.lockPosition end
     if d.useMySkin ~= nil then ORBIT.botSettings.UseMySkin = d.useMySkin end
+    if d.reverseEnabled ~= nil and ORBIT.REVERSE then ORBIT.REVERSE.Enabled = d.reverseEnabled end
+    if d.dodgeEnabled ~= nil then DODGE.Enabled = d.dodgeEnabled end
+    if d.soundEnabled ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Enabled = d.soundEnabled end
+    if d.soundVolume ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Volume = d.soundVolume end
 end
 
 function ORBIT.saveSettings()
@@ -1770,6 +1832,6 @@ function ORBIT.startLogic()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v21.4 (защита v6)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P3 v21.5 (защита v7 + Reverse Fling)", Color3.fromRGB(180,255,180), 3) end
 
 return true
