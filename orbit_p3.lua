@@ -1,4 +1,4 @@
---[[ ОРБИТА v21.9 — P3: ЛОГИКА + ЗАЩИТА v9 (SMART FLOOR) + ESP + БОТЫ ]]
+--[[ ОРБИТА v21.10 — P3: ЛОГИКА + ЗАЩИТА v9 + SMART FLOOR + ФИКС ПРЫЖКОВ ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -235,7 +235,7 @@ local function updateFire()
 end
 
 -- ============================================================
---   🛡️ ЗАЩИТА v9 — SMART FLOOR + ДРУЖЕЛЮБНАЯ К ПРЫЖКАМ
+--   🛡️ ЗАЩИТА v9.1 — SMART FLOOR + ФИКС ПРЫЖКОВ
 -- ============================================================
 local PROT_STATE = {
     lastSafePos = nil, lastSafeCFrame = nil, lastCheckTime = 0, lastHealTime = 0,
@@ -251,6 +251,7 @@ local PROT_CFG = {
     FLING_VEL_THRESHOLD = 150, FLING_SPIN_THRESHOLD = 50,
     VOID_TIMER_THRESHOLD = 0.5,
     FLOOR_RAY_LENGTH = 500, FLOOR_RAY_SIDE = 100,
+    GROUND_CHECK_LENGTH = 6,
 }
 
 local ORIG_WS, ORIG_JP = 16, 50
@@ -268,7 +269,7 @@ local BAD_CLASSES = {
 
 local function protLog(text, color)
     if not PROT_STATE.logEnabled then return end
-    print("[OrbitProt v9] " .. text)
+    print("[OrbitProt v9.1] " .. text)
 end
 local function killObject(obj)
     if not obj or not obj.Parent then return end
@@ -285,6 +286,17 @@ local function resetVelocity(char)
         end
     end
 end
+
+-- 🆕 Проверка "стоим ли на земле" — чтобы не мешать прыжкам
+local function isGrounded(hrp)
+    if not hrp then return false end
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = {LocalPlayer.Character, Workspace.CurrentCamera}
+    local ray = Workspace:Raycast(hrp.Position, Vector3.new(0, -PROT_CFG.GROUND_CHECK_LENGTH, 0), rayParams)
+    return ray ~= nil
+end
+ORBIT.isGrounded = isGrounded
 
 -- 🧠 SMART FLOOR
 local function getSafeFloorPosition()
@@ -348,7 +360,7 @@ local function antiFling(char, hrp)
         if pSpin > PROT_CFG.FLING_SPIN_THRESHOLD*3 and pVel > PROT_CFG.FLING_VEL_THRESHOLD*2 then
             if not PROT_STATE.godmodeWarned[plr] then
                 PROT_STATE.godmodeWarned[plr] = true
-                warn("[Orbit v9] FLING detected: " .. plr.Name)
+                warn("[Orbit v9.1] FLING detected: " .. plr.Name)
                 if ORBIT.notify then ORBIT.notify("🚨 Fling: " .. plr.Name, Color3.fromRGB(255, 120, 120), 2) end
             end
         end
@@ -403,8 +415,16 @@ local function antiInstantKill(char)
     PROT_STATE.lastHealthCheck = now
 end
 
+-- 🆕 ANTI-VOID с фиксом: пропускаем прыжок/полёт
 local function antiVoid(char, hrp)
     if not SETTINGS.AntiVoid then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        local state = hum:GetState()
+        if state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall then
+            return
+        end
+    end
     local now = tick()
     if hrp.Position.Y < SETTINGS.AntiVoidY then
         PROT_STATE.voidTimer = PROT_STATE.voidTimer + (now - (PROT_STATE.lastFloorCheck or now))
@@ -416,7 +436,7 @@ local function antiVoid(char, hrp)
                     char:PivotTo(CFrame.new(safePos))
                     resetVelocity(char)
                 end)
-                warn("[Orbit v9] Smart Floor: возврат")
+                warn("[Orbit v9.1] Smart Floor: возврат")
                 ORBIT.addSession("protectionsTriggered")
             end
             PROT_STATE.voidTimer = 0
@@ -426,9 +446,11 @@ local function antiVoid(char, hrp)
     end
 end
 
+-- 🆕 ANTI-TELEPORT с проверкой пола (не тянет при прыжке)
 local function antiTeleport(char, hrp)
     if not SETTINGS.AntiTeleport then return end
     if not PROT_STATE.lastSafePos then return end
+    if not isGrounded(hrp) then return end -- 🆕 пропуск в воздухе
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum and hum.MoveDirection.Magnitude > 0.05 then return end
     local dx = hrp.Position.X - PROT_STATE.lastSafePos.X
@@ -449,11 +471,15 @@ local function autoHeal(char)
     end
 end
 
+-- 🆕 LOCKPOSITION с проверкой пола (не тянет при прыжке)
 local function lockPosition(char, hrp)
     if not SETTINGS.LockPosition then return end
+    if not isGrounded(hrp) then return end -- 🆕 пропуск в воздухе
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum and hum.MoveDirection.Magnitude > 0.05 then return end
-    if PROT_STATE.lastSafeCFrame then pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame) end) end
+    if PROT_STATE.lastSafeCFrame then
+        pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame) end)
+    end
 end
 
 local function setupAntiRingParts()
@@ -484,7 +510,7 @@ local function scanForGodMode()
         if hum.MaxHealth > 10000 or hum.Health > 10000 then
             if not PROT_STATE.godmodeWarned[player] then
                 PROT_STATE.godmodeWarned[player] = true
-                warn("[Orbit v9] GodMode: " .. player.Name)
+                warn("[Orbit v9.1] GodMode: " .. player.Name)
                 if ORBIT.notify then ORBIT.notify("⚠️ GodMode: " .. player.Name, Color3.fromRGB(255, 80, 80), 3) end
                 if ORBIT.tagCheater then ORBIT.tagCheater(player, true) end
             end
@@ -666,7 +692,8 @@ local function processProtection(dt, char, hrp)
     end
     local inGrace = (now - PROT_STATE.spawnGrace) < 5.0
     antiVoid(char, hrp)
-    if not inGrace then
+    -- 🆕 Только если на земле
+    if not inGrace and isGrounded(hrp) then
         antiTeleport(char, hrp)
         lockPosition(char, hrp)
     end
@@ -682,7 +709,7 @@ local function processProtection(dt, char, hrp)
     if now - PROT_STATE.lastCheckTime > 0.2 then
         PROT_STATE.lastCheckTime = now
         local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum and hum.Health > 0 and hrp.Position.Y > (SETTINGS.AntiVoidY + 10) then
+        if hum and hum.Health > 0 and hrp.Position.Y > (SETTINGS.AntiVoidY + 10) and isGrounded(hrp) then
             PROT_STATE.lastSafePos = hrp.Position
             PROT_STATE.lastSafeCFrame = hrp.CFrame
         end
@@ -717,8 +744,8 @@ function ORBIT.enableProtection()
         if not hrp then return end
         pcall(processProtection, dt, char, hrp)
     end)
-    ORBIT.notify("🛡 Защита v9 ВКЛ (Smart Floor)", Color3.fromRGB(120, 255, 180), 3)
-    protLog("Защита v9 активна.")
+    ORBIT.notify("🛡 Защита v9.1 ВКЛ (Smart Floor + Fix Jump)", Color3.fromRGB(120, 255, 180), 3)
+    protLog("Защита v9.1 активна.")
 end
 
 function ORBIT.disableProtection()
@@ -802,6 +829,7 @@ local function removeESPTag(player)
     pcall(function() if data.hl then data.hl:Destroy() end end)
     ORBIT.ESP.Tags[player] = nil
 end
+ORBIT.removeESPTag = removeESPTag
 
 local function updateESP()
     if not ORBIT.ESP.Enabled then return end
@@ -910,9 +938,8 @@ function ORBIT.tagCheater(player, enable)
             name = player.Name, time = os.time(), reason = "manual",
         }
         ORBIT.addSession("cheatersTagged")
-        warn("[Orbit v9] Помечен: " .. player.Name .. " (невидимо)")
+        warn("[Orbit v9.1] Помечен: " .. player.Name .. " (невидимо)")
         if ORBIT.notify then ORBIT.notify("🚩 Помечен: " .. player.Name, Color3.fromRGB(255, 120, 120)) end
-        -- Обновляем ESP если включён
         if ORBIT.ESP and ORBIT.ESP.Enabled and ORBIT.ESP.Tags[player] then
             removeESPTag(player)
             task.wait(0.1)
@@ -1075,7 +1102,6 @@ ORBIT.botSettings = ORBIT.botSettings or {
 }
 ORBIT.botAvatarTemplate = nil
 
--- 🆕 Фикс анимаций: удаляем Animator/AnimationController из шаблона
 function ORBIT.getBotAvatarTemplate()
     if ORBIT.botAvatarTemplate then return ORBIT.botAvatarTemplate end
     local ok, template = pcall(function()
@@ -1974,6 +2000,6 @@ function ORBIT.startLogic()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v21.9 (Smart Floor + Metka nevidimaya)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P3 v21.10 (Fix Jump + Smart Floor)", Color3.fromRGB(180,255,180), 3) end
 
 return true
