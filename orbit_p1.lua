@@ -1,6 +1,6 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v20.1 — MULTI-SAVE + SELF-PROTECTION            ║
+    ║   ОРБИТА v21.4 — MULTI-SAVE + SELF-PROTECTION            ║
     ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + МУЛЬТИ-СОХРАНЕНИЯ        ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
@@ -14,7 +14,7 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v20.1"
+ORBIT.version = "v21.4"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false }
 ORBIT.started = false
 
@@ -35,8 +35,8 @@ ORBIT.TweenService = TweenService
 ORBIT.HttpService = HttpService
 ORBIT.LocalPlayer = LocalPlayer
 ORBIT.PlayerGui = PlayerGui
-ORBIT.SAVE_FILE = "orbit_v20_settings.json"
-ORBIT.SAVES_FILE = "orbit_v20_saves.json"
+ORBIT.SAVE_FILE = "orbit_v21_settings.json"
+ORBIT.SAVES_FILE = "orbit_v21_saves.json"
 ORBIT.HAS_FS = (writefile and readfile and isfile and type(writefile) == "function")
 
 local function getSafeParent()
@@ -69,14 +69,17 @@ ORBIT.DEFAULT_SETTINGS = {
     WaveEnabled = false, WaveSpeed = 3.0, WaveLength = 2.0, WaveAmplitude = 2.5,
     ExplosionEnabled = false, ExplosionSpeed = 0.4, ExplosionPower = 0.7,
     HeartScale = 0.65, OrbitPattern = "Круг",
+
+    -- АУРА: все три включены по умолчанию (патч 3)
     AuraEnabled = false, AuraSize = 3.5, AuraThickness = 0.15,
     AuraColor = Color3.fromRGB(150, 100, 255),
-    AuraRing = true, AuraParticles = false, AuraShapes = false,
+    AuraRing = true, AuraParticles = true, AuraShapes = true,
     AuraSpeedMult = 1.0, AuraDirection = 1,
     AuraHeight = 0.5, AuraShapeScale = 1.0,
     AuraTrailEnabled = false, AuraTrailLength = 0.5, AuraTrailWidth = 0.8,
     AuraSpinEnabled = true, AuraSpinAxis = "Y", AuraSpinSpeed = 60,
     AuraPulseEnabled = false,
+
     FireEnabled = false, FireColor = Color3.fromRGB(255, 120, 0),
     FireSize = 6, FireHeat = 8,
     AutoSaveEnabled = false,
