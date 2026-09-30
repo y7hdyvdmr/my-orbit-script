@@ -1,6 +1,6 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v21.5 — MULTI-SAVE + SELF-PROTECTION + SOUNDS   ║
+    ║   ОРБИТА v21.6 — MULTI-SAVE + SELF-PROTECTION + SOUNDS   ║
     ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗВУКИ                    ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
@@ -14,7 +14,7 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v21.5"
+ORBIT.version = "v21.6"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false }
 ORBIT.started = false
 
@@ -24,6 +24,7 @@ local Workspace    = game:GetService("Workspace")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local HttpService  = game:GetService("HttpService")
+local LogService   = game:GetService("LogService")
 local LocalPlayer  = Players.LocalPlayer
 local PlayerGui    = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -33,27 +34,61 @@ ORBIT.Workspace = Workspace
 ORBIT.SoundService = SoundService
 ORBIT.TweenService = TweenService
 ORBIT.HttpService = HttpService
+ORBIT.LogService = LogService
 ORBIT.LocalPlayer = LocalPlayer
 ORBIT.PlayerGui = PlayerGui
 ORBIT.SAVE_FILE = "orbit_v21_settings.json"
 ORBIT.SAVES_FILE = "orbit_v21_saves.json"
 ORBIT.HAS_FS = (writefile and readfile and isfile and type(writefile) == "function")
 
+-- ==================== БЕЗОПАСНЫЙ PROTECT GUI ====================
 local function getSafeParent()
-    if rawget(GENV, "gethui") then
-        local ok, hui = pcall(GENV.gethui)
+    local gethuiFn = rawget(GENV, "gethui")
+    if type(gethuiFn) == "function" then
+        local ok, hui = pcall(gethuiFn)
         if ok and hui then return hui end
     end
     local ok, cg = pcall(function() return game:GetService("CoreGui") end)
     if ok and cg then return cg end
     return PlayerGui
 end
+
 local function protectGui(gui)
-    if syn and syn.protect_gui then pcall(syn.protect_gui, gui)
-    elseif rawget(GENV, "protect_gui") then pcall(GENV.protect_gui, gui) end
+    if not gui then return end
+    local synTbl = rawget(GENV, "syn")
+    if type(synTbl) == "table" and type(synTbl.protect_gui) == "function" then
+        pcall(synTbl.protect_gui, gui); return
+    end
+    local protectFn = rawget(GENV, "protect_gui")
+    if type(protectFn) == "function" then
+        pcall(protectFn, gui); return
+    end
+    pcall(function()
+        if syn and syn.protect_gui then syn.protect_gui(gui) end
+    end)
 end
+
 ORBIT.getSafeParent = getSafeParent
 ORBIT.protectGui = protectGui
+
+-- ==================== ФИЛЬТР СПАМА АНИМАЦИЙ В F9 ====================
+local function isAnimError(msg)
+    if type(msg) ~= "string" then return false end
+    return msg:find("Animation failed to load", 1, true)
+        or msg:find("Failed to load animation", 1, true)
+        or msg:find("animation with sanitized ID", 1, true)
+end
+ORBIT.animErrorCount = 0
+pcall(function()
+    LogService.MessageOut:Connect(function(msg, msgType)
+        if msgType == Enum.MessageType.MessageError and isAnimError(msg) then
+            ORBIT.animErrorCount = (ORBIT.animErrorCount or 0) + 1
+            if ORBIT.animErrorCount % 50 == 0 then
+                pcall(function() LogService:ClearOutput() end)
+            end
+        end
+    end)
+end)
 
 -- ==================== НАСТРОЙКИ ====================
 ORBIT.DEFAULT_SETTINGS = {
@@ -99,6 +134,10 @@ ORBIT.DEFAULT_SETTINGS = {
     AntiFling = true,
     SavePosOnEnable = false,
     LockPosition = false,
+    -- 🆕 v21.6 — Smart Floor
+    SmartFloor = true,
+    SmartFloorY = -50,
+    DisableFallDamage = true,
 }
 ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
 
@@ -384,29 +423,16 @@ function ORBIT.playSound(id, volume, pitch)
     end)
 end
 
-function ORBIT.playClick()
-    ORBIT.playSound(ORBIT.SOUNDS.ClickId)
-end
-
-function ORBIT.playBotCollect()
-    ORBIT.playSound(ORBIT.SOUNDS.BotId)
-end
-
+function ORBIT.playClick() ORBIT.playSound(ORBIT.SOUNDS.ClickId) end
+function ORBIT.playBotCollect() ORBIT.playSound(ORBIT.SOUNDS.BotId) end
 function ORBIT.playDodge()
-    -- 1. Звук уворота
     ORBIT.playSound(ORBIT.SOUNDS.DodgeId)
-    -- 2. После уворота (через 0.3 сек)
-    task.delay(0.3, function()
-        ORBIT.playSound(ORBIT.SOUNDS.AfterDodgeId)
-    end)
-    -- 3. Через 0.6 сек — эмоция смеха + голос Санса
+    task.delay(0.3, function() ORBIT.playSound(ORBIT.SOUNDS.AfterDodgeId) end)
     task.delay(0.6, function()
         pcall(function()
             local char = LocalPlayer.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum:PlayEmote("Laugh")
-            end
+            if hum then hum:PlayEmote("Laugh") end
         end)
         ORBIT.playSound(ORBIT.SOUNDS.SansVoiceId)
     end)
@@ -452,32 +478,23 @@ function ORBIT.makeRod(parent, a, b, thickness, depth, color)
     return part
 end
 
-function ORBIT.getCurrentShapeSize()
-    return ORBIT.SETTINGS.BaseShapeSize * P.SHAPE_SIZE[P.shapeSizeIndex].factor
-end
-function ORBIT.getTargetRadius(ri)
-    return P.ORBIT[P.orbitIndex].radius + ORBIT.rings[ri].radiusOffset * ORBIT.RING_STEP * P.SPREAD[P.spreadIndex].mult
-end
+function ORBIT.getCurrentShapeSize() return ORBIT.SETTINGS.BaseShapeSize * P.SHAPE_SIZE[P.shapeSizeIndex].factor end
+function ORBIT.getTargetRadius(ri) return P.ORBIT[P.orbitIndex].radius + ORBIT.rings[ri].radiusOffset * ORBIT.RING_STEP * P.SPREAD[P.spreadIndex].mult end
 function ORBIT.getHeightOffset() return P.HEIGHT[P.heightIndex].offset end
-function ORBIT.getTargetHeight(ri)
-    return P.ORBIT[P.orbitIndex].height + ORBIT.rings[ri].heightOffset * P.SPREAD[P.spreadIndex].mult + ORBIT.getHeightOffset()
-end
+function ORBIT.getTargetHeight(ri) return P.ORBIT[P.orbitIndex].height + ORBIT.rings[ri].heightOffset * P.SPREAD[P.spreadIndex].mult + ORBIT.getHeightOffset() end
 function ORBIT.getTargetSpeed() return ORBIT.SETTINGS.OrbitSpeed * ORBIT.SETTINGS.SpeedMultiplier end
 function ORBIT.getTargetSpin() return ORBIT.SETTINGS.SpinSpeed * ORBIT.SETTINGS.SpeedMultiplier * ORBIT.SETTINGS.SpinSpeedMultiplier end
 
--- ==================== ЗАГРУЗКА СПИСКА СОХРАНЕНИЙ ====================
+-- ==================== СОХРАНЕНИЯ ====================
 function ORBIT.loadSavesList()
     if not ORBIT.HAS_FS then return end
     pcall(function()
         if isfile(ORBIT.SAVES_FILE) then
             local txt = readfile(ORBIT.SAVES_FILE)
-            if txt and #txt > 0 then
-                ORBIT.SAVES = HttpService:JSONDecode(txt) or {}
-            end
+            if txt and #txt > 0 then ORBIT.SAVES = HttpService:JSONDecode(txt) or {} end
         end
     end)
 end
-
 function ORBIT.saveSavesList()
     if not ORBIT.HAS_FS then return false end
     return pcall(function()
@@ -498,12 +515,10 @@ ORBIT.unload = function()
     if ORBIT.musicSound then pcall(function() ORBIT.musicSound:Destroy() end); ORBIT.musicSound = nil end
     if GENV._OrbitLoaderGui then pcall(function() GENV._OrbitLoaderGui:Destroy() end) end
     if GENV._OrbitMainGui then pcall(function() GENV._OrbitMainGui:Destroy() end) end
-    if GENV._OrbitNotifGui then pcall(function() GENV._OrbitNotifGui:Destroy() end) end
     shared.ORBIT = nil
     rawset(_G, "ORBIT", nil)
     if GENV then GENV.ORBIT = nil end
 end
-
 ORBIT.start = function()
     ORBIT.notify("⏳ Не все части загружены", Color3.fromRGB(255,200,100), 3)
 end
@@ -818,26 +833,19 @@ task.spawn(function()
     addLog("INFO", "Loading ORBITA " .. ORBIT.version)
     addLog("INFO", "Part 1/4: CORE + SETTINGS + SOUNDS")
     addLog("INFO", "Initializing services...")
-    addLog("INFO", "Setting up shape categories...")
-    addLog("INFO", "Loading saved configurations...")
     ORBIT.loadSavesList()
     local saveCount = 0
     for _ in pairs(ORBIT.SAVES) do saveCount = saveCount + 1 end
     addLog("OK", "Found " .. saveCount .. " save(s) in storage")
     addLog("INFO", "Setting up protection module...")
-    addLog("INFO", "Building loader GUI (500x620)...")
     task.wait(0.25)
     addLog("WAIT", "Part 2/4: SHAPES — loading figures...")
     addLog("WAIT", "Part 3/4: LOGIC + PROTECTION...")
     addLog("WAIT", "Part 4/4: INTERFACE — tabbed UI...")
     task.wait(0.15)
-    addLog("WARN", "Parts 2-4 require download")
     addLog("OK", "Auto-save: DISABLED")
     addLog("OK", "Multi-save: ENABLED")
     addLog("OK", "Sounds: ENABLED")
-    task.wait(0.15)
-    addLog("INFO", "Github URL configured:")
-    addLog("INFO", "  -> orbit_p2.lua orbit_p3.lua orbit_p4.lua")
 end)
 
 local loading = {}
@@ -863,7 +871,6 @@ local function loadPart(part)
             btn.Text = part.title .. "\n" .. part.sub
             return
         end
-
         local fn, err = loadstring(src)
         if not fn then
             btn.Text = "❌ ERROR"
@@ -873,7 +880,6 @@ local function loadPart(part)
             btn.Text = part.title .. "\n" .. part.sub
             return
         end
-
         local runOk, runErr = pcall(fn)
         if not runOk then
             btn.Text = "❌ ERROR"
@@ -883,7 +889,6 @@ local function loadPart(part)
             btn.Text = part.title .. "\n" .. part.sub
             return
         end
-
         ORBIT.loaded["p" .. part.num] = true
         btn.Text = "✓ " .. part.title
         btn.TextColor3 = LC_GREEN
