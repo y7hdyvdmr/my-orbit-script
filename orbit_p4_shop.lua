@@ -1,4 +1,4 @@
---[[ ОРБИТА v20.8 — P4 часть 2/2: МАГАЗИН + РЕДАКТОР ФИГУР ]]
+--[[ ОРБИТА v21.2 — P4 часть 2/2: ПОНЯТНЫЙ МАГАЗИН + РЕДАКТОР ФИГУР ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Shop] ORBIT не найден!"); return end
@@ -21,9 +21,9 @@ local screenGui = ORBIT.ui.screenGui
 --              ХРАНИЛИЩЕ СВОИХ ФИГУР + МОНЕТЫ
 -- ============================================================
 ORBIT.CUSTOM_SHAPES = ORBIT.CUSTOM_SHAPES or {}
-ORBIT.CUSTOM_FILE = "orbit_v20_custom_shapes.json"
+ORBIT.CUSTOM_FILE = "orbit_v21_custom_shapes.json"
 ORBIT.COINS = ORBIT.COINS or 0
-ORBIT.COINS_FILE = "orbit_v20_coins.json"
+ORBIT.COINS_FILE = "orbit_v21_coins.json"
 
 local function loadCustomShapes()
     if not ORBIT.HAS_FS then return end
@@ -56,11 +56,9 @@ end
 
 loadCustomShapes()
 
--- Регистрируем свои фигуры в SHAPE_PRESETS как отдельные пресеты
+-- Регистрируем свои фигуры как отдельные пресеты
 local function registerCustomShape(shape)
-    -- shape = { name = "...", pixels = { "1111", "1001", ... } }  -- 16x16 сетка строк "0"/"1"
     local name = shape.name or ("СВОЯ_" .. (#ORBIT.CUSTOM_SHAPES))
-    -- проверяем что уже нет
     for _, sp in ipairs(SHAPE_PRESETS) do
         if sp.name == name then return end
     end
@@ -95,7 +93,7 @@ for _, shape in ipairs(ORBIT.CUSTOM_SHAPES) do
 end
 
 -- ============================================================
---              ПРЕВЬЮ АВАТАРА В VIEWPORTFRAME
+--              ПРЕВЬЮ АВАТАРА
 -- ============================================================
 local function createAvatarPreview(parent, size)
     local vp = Instance.new("ViewportFrame")
@@ -116,7 +114,6 @@ local function createAvatarPreview(parent, size)
     cam.Parent = vp
     vp.CurrentCamera = cam
 
-    -- Модель — либо аватар игрока, либо dummy
     local avatar
     local ok = pcall(function()
         local desc = Players:GetHumanoidDescriptionFromUserId(LocalPlayer.UserId)
@@ -148,17 +145,15 @@ local function createAvatarPreview(parent, size)
     pcall(function() avatar:PivotTo(CFrame.new(0, 0, 0)) end)
     avatar.Parent = world
 
-    -- Камера смотрит на аватара спереди
     cam.CFrame = CFrame.new(Vector3.new(0, 1.5, -8), Vector3.new(0, 1.5, 0))
 
     return vp, world, cam, avatar
 end
 
 -- ============================================================
---              ДЕМО-КОЛЬЦО В VIEWPORT
+--              ПОСТРОИТЬ ДЕМО-КОЛЬЦО
 -- ============================================================
 local function buildDemoRing(world, shapeIndex, color3, sizeMult, blockCount)
-    -- Удаляем старое
     local old = world:FindFirstChild("_DemoRing")
     if old then old:Destroy() end
 
@@ -196,7 +191,7 @@ local function buildDemoRing(world, shapeIndex, color3, sizeMult, blockCount)
 end
 
 -- ============================================================
---              МАГАЗИН / КАСТОМАЙЗЕР (ОКНО)
+--              МАГАЗИН (ПОНЯТНЫЙ)
 -- ============================================================
 local shopOpen = false
 local shopGui
@@ -209,7 +204,6 @@ local shopState = {
     trail = SETTINGS.TrailEnabled,
     light = SETTINGS.LightEnabled,
     pulse = SETTINGS.PulseEnabled,
-    patternIndex = P.orbitPatternIndex,
 }
 
 local function openShop()
@@ -218,47 +212,60 @@ local function openShop()
 
     shopGui = Instance.new("Frame")
     shopGui.Name = "_OrbitShop"
-    shopGui.Size = UDim2.new(0, 520, 0, 440)
-    shopGui.Position = UDim2.new(0.5, -260, 0.5, -220)
+    shopGui.Size = UDim2.new(0, 560, 0, 480)
+    shopGui.Position = UDim2.new(0.5, -280, 0.5, -240)
     shopGui.BackgroundColor3 = Color3.fromRGB(22, 16, 35)
     shopGui.BackgroundTransparency = 0.05
     shopGui.BorderSizePixel = 0
     shopGui.ZIndex = 10
     shopGui.Parent = screenGui
-    Instance.new("UICorner", shopGui).CornerRadius = UDim.new(0, 14)
+    Instance.new("UICorner", shopGui).CornerRadius = UDim.new(0, 16)
     local str = Instance.new("UIStroke", shopGui)
-    str.Color = Color3.fromRGB(160, 130, 255)
+    str.Color = Color3.fromRGB(180, 140, 255)
     str.Thickness = 2
 
-    -- Заголовок
+    -- ===== ЗАГОЛОВОК =====
     local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -80, 0, 34)
-    title.Position = UDim2.new(0, 12, 0, 6)
+    title.Size = UDim2.new(1, -100, 0, 30)
+    title.Position = UDim2.new(0, 16, 0, 10)
     title.BackgroundTransparency = 1
     title.Text = "🛒  МАГАЗИН ОРБИТЫ"
     title.TextColor3 = Color3.fromRGB(240, 220, 255)
     title.Font = Enum.Font.GothamBold
-    title.TextSize = 16
+    title.TextSize = 18
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.ZIndex = 11
     title.Parent = shopGui
 
+    local subTitle = Instance.new("TextLabel")
+    subTitle.Size = UDim2.new(1, -100, 0, 18)
+    subTitle.Position = UDim2.new(0, 16, 0, 38)
+    subTitle.BackgroundTransparency = 1
+    subTitle.Text = "Настрой кольцо справа → увидишь результат слева → жми ОПРЕДЕЛИТЬ"
+    subTitle.TextColor3 = Color3.fromRGB(180, 160, 220)
+    subTitle.Font = Enum.Font.Gotham
+    subTitle.TextSize = 11
+    subTitle.TextXAlignment = Enum.TextXAlignment.Left
+    subTitle.ZIndex = 11
+    subTitle.Parent = shopGui
+
+    -- Монеты
     local coinsLbl = Instance.new("TextLabel")
-    coinsLbl.Size = UDim2.new(0, 120, 0, 24)
-    coinsLbl.Position = UDim2.new(1, -190, 0, 10)
+    coinsLbl.Size = UDim2.new(0, 130, 0, 28)
+    coinsLbl.Position = UDim2.new(1, -170, 0, 12)
     coinsLbl.BackgroundColor3 = Color3.fromRGB(60, 40, 80)
     coinsLbl.BorderSizePixel = 0
-    coinsLbl.Text = "💰 " .. (ORBIT.COINS or 0)
+    coinsLbl.Text = "💰 Монет: " .. (ORBIT.COINS or 0)
     coinsLbl.TextColor3 = Color3.fromRGB(255, 220, 120)
     coinsLbl.Font = Enum.Font.GothamBold
     coinsLbl.TextSize = 12
     coinsLbl.ZIndex = 11
     coinsLbl.Parent = shopGui
-    Instance.new("UICorner", coinsLbl).CornerRadius = UDim.new(0, 6)
+    Instance.new("UICorner", coinsLbl).CornerRadius = UDim.new(0, 8)
 
     local closeBtn = Instance.new("TextButton")
     closeBtn.Size = UDim2.new(0, 30, 0, 30)
-    closeBtn.Position = UDim2.new(1, -40, 0, 8)
+    closeBtn.Position = UDim2.new(1, -40, 0, 10)
     closeBtn.BackgroundColor3 = Color3.fromRGB(80, 30, 30)
     closeBtn.TextColor3 = Color3.fromRGB(255, 160, 160)
     closeBtn.Font = Enum.Font.GothamBold
@@ -268,149 +275,196 @@ local function openShop()
     closeBtn.Parent = shopGui
     Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
 
-    -- Превью аватара
-    local previewBg = Instance.new("Frame")
-    previewBg.Size = UDim2.new(0, 230, 0, 300)
-    previewBg.Position = UDim2.new(0, 15, 0, 50)
-    previewBg.BackgroundColor3 = Color3.fromRGB(15, 10, 30)
-    previewBg.BorderSizePixel = 0
-    previewBg.ZIndex = 11
-    previewBg.Parent = shopGui
-    Instance.new("UICorner", previewBg).CornerRadius = UDim.new(0, 10)
+    -- ===== ЛЕВАЯ ЧАСТЬ: ПРЕВЬЮ =====
+    local previewFrame = Instance.new("Frame")
+    previewFrame.Size = UDim2.new(0, 260, 0, 340)
+    previewFrame.Position = UDim2.new(0, 16, 0, 66)
+    previewFrame.BackgroundColor3 = Color3.fromRGB(15, 10, 30)
+    previewFrame.BorderSizePixel = 0
+    previewFrame.ZIndex = 11
+    previewFrame.Parent = shopGui
+    Instance.new("UICorner", previewFrame).CornerRadius = UDim.new(0, 10)
 
-    local vp, world, cam, avatar = createAvatarPreview(previewBg, UDim2.new(1, 0, 1, 0))
+    local vp, world, cam, avatar = createAvatarPreview(previewFrame, UDim2.new(1, 0, 1, 0))
     vp.ZIndex = 12
 
-    -- Правая панель
+    -- Подпись превью
+    local prevLabel = Instance.new("TextLabel")
+    prevLabel.Size = UDim2.new(1, -16, 0, 22)
+    prevLabel.Position = UDim2.new(0, 16, 0, 410)
+    prevLabel.BackgroundTransparency = 1
+    prevLabel.Text = "👤 Это ты. Кольцо крутится вокруг тебя."
+    prevLabel.TextColor3 = Color3.fromRGB(180, 180, 220)
+    prevLabel.Font = Enum.Font.Gotham
+    prevLabel.TextSize = 10
+    prevLabel.ZIndex = 11
+    prevLabel.Parent = shopGui
+
+    -- ===== ПРАВАЯ ЧАСТЬ: НАСТРОЙКИ =====
+    local settingsLabel = Instance.new("TextLabel")
+    settingsLabel.Size = UDim2.new(0, 260, 0, 22)
+    settingsLabel.Position = UDim2.new(0, 288, 0, 66)
+    settingsLabel.BackgroundTransparency = 1
+    settingsLabel.Text = "🎨  НАСТРОЙКИ КОЛЬЦА"
+    settingsLabel.TextColor3 = Color3.fromRGB(240, 220, 255)
+    settingsLabel.Font = Enum.Font.GothamBold
+    settingsLabel.TextSize = 12
+    settingsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    settingsLabel.ZIndex = 11
+    settingsLabel.Parent = shopGui
+
+    -- Скролл-панель
     local rightPanel = Instance.new("ScrollingFrame")
-    rightPanel.Size = UDim2.new(0, 255, 0, 300)
-    rightPanel.Position = UDim2.new(0, 252, 0, 50)
+    rightPanel.Size = UDim2.new(0, 260, 0, 380)
+    rightPanel.Position = UDim2.new(0, 288, 0, 92)
     rightPanel.BackgroundColor3 = Color3.fromRGB(18, 14, 30)
     rightPanel.BorderSizePixel = 0
-    rightPanel.CanvasSize = UDim2.new(0, 0, 0, 600)
-    rightPanel.ScrollBarThickness = 3
+    rightPanel.CanvasSize = UDim2.new(0, 0, 0, 700)
+    rightPanel.ScrollBarThickness = 4
     rightPanel.ScrollBarImageColor3 = Color3.fromRGB(160, 130, 255)
     rightPanel.ZIndex = 11
     rightPanel.Parent = shopGui
     Instance.new("UICorner", rightPanel).CornerRadius = UDim.new(0, 10)
 
-    local ry = 6
-    local function shopRow(label)
+    local ry = 8
+
+    -- Заголовок строки с настройкой
+    local function shopRow(label, hintText)
+        -- Подпись
         local lbl = Instance.new("TextLabel")
-        lbl.Size = UDim2.new(1, -10, 0, 18)
-        lbl.Position = UDim2.new(0, 5, 0, ry)
+        lbl.Size = UDim2.new(1, -12, 0, 18)
+        lbl.Position = UDim2.new(0, 6, 0, ry)
         lbl.BackgroundTransparency = 1
         lbl.Text = label
-        lbl.TextColor3 = Color3.fromRGB(200, 200, 230)
+        lbl.TextColor3 = Color3.fromRGB(220, 220, 250)
         lbl.Font = Enum.Font.GothamBold
-        lbl.TextSize = 10
+        lbl.TextSize = 11
         lbl.TextXAlignment = Enum.TextXAlignment.Left
         lbl.ZIndex = 12
         lbl.Parent = rightPanel
-        ry = ry + 20
+        ry = ry + 18
 
+        if hintText then
+            local hint = Instance.new("TextLabel")
+            hint.Size = UDim2.new(1, -12, 0, 14)
+            hint.Position = UDim2.new(0, 6, 0, ry)
+            hint.BackgroundTransparency = 1
+            hint.Text = hintText
+            hint.TextColor3 = Color3.fromRGB(150, 145, 180)
+            hint.Font = Enum.Font.Gotham
+            hint.TextSize = 9
+            hint.TextXAlignment = Enum.TextXAlignment.Left
+            hint.ZIndex = 12
+            hint.Parent = rightPanel
+            ry = ry + 14
+        end
+
+        -- Строка с кнопками ◀ ▶ и значением
         local holder = Instance.new("Frame")
-        holder.Size = UDim2.new(1, -10, 0, 30)
-        holder.Position = UDim2.new(0, 5, 0, ry)
+        holder.Size = UDim2.new(1, -12, 0, 34)
+        holder.Position = UDim2.new(0, 6, 0, ry)
         holder.BackgroundTransparency = 1
         holder.ZIndex = 12
         holder.Parent = rightPanel
 
         local leftBtn = Instance.new("TextButton")
-        leftBtn.Size = UDim2.new(0, 30, 1, 0)
+        leftBtn.Size = UDim2.new(0, 34, 1, 0)
         leftBtn.Position = UDim2.new(0, 0, 0, 0)
         leftBtn.BackgroundColor3 = Color3.fromRGB(60, 50, 90)
         leftBtn.TextColor3 = Color3.fromRGB(220, 210, 255)
         leftBtn.Font = Enum.Font.GothamBold
-        leftBtn.TextSize = 14
+        leftBtn.TextSize = 16
         leftBtn.Text = "◀"
         leftBtn.ZIndex = 13
         leftBtn.Parent = holder
-        Instance.new("UICorner", leftBtn).CornerRadius = UDim.new(0, 6)
+        Instance.new("UICorner", leftBtn).CornerRadius = UDim.new(0, 8)
 
         local valLbl = Instance.new("TextLabel")
-        valLbl.Size = UDim2.new(1, -70, 1, 0)
-        valLbl.Position = UDim2.new(0, 33, 0, 0)
+        valLbl.Size = UDim2.new(1, -80, 1, 0)
+        valLbl.Position = UDim2.new(0, 38, 0, 0)
         valLbl.BackgroundColor3 = Color3.fromRGB(35, 28, 50)
         valLbl.BorderSizePixel = 0
         valLbl.Text = "—"
         valLbl.TextColor3 = Color3.fromRGB(240, 230, 255)
         valLbl.Font = Enum.Font.GothamBold
-        valLbl.TextSize = 11
+        valLbl.TextSize = 12
         valLbl.ZIndex = 13
         valLbl.Parent = holder
-        Instance.new("UICorner", valLbl).CornerRadius = UDim.new(0, 6)
+        Instance.new("UICorner", valLbl).CornerRadius = UDim.new(0, 8)
 
         local rightBtn = Instance.new("TextButton")
-        rightBtn.Size = UDim2.new(0, 30, 1, 0)
-        rightBtn.Position = UDim2.new(1, -30, 0, 0)
+        rightBtn.Size = UDim2.new(0, 34, 1, 0)
+        rightBtn.Position = UDim2.new(1, -34, 0, 0)
         rightBtn.BackgroundColor3 = Color3.fromRGB(60, 50, 90)
         rightBtn.TextColor3 = Color3.fromRGB(220, 210, 255)
         rightBtn.Font = Enum.Font.GothamBold
-        rightBtn.TextSize = 14
+        rightBtn.TextSize = 16
         rightBtn.Text = "▶"
         rightBtn.ZIndex = 13
         rightBtn.Parent = holder
-        Instance.new("UICorner", rightBtn).CornerRadius = UDim.new(0, 6)
+        Instance.new("UICorner", rightBtn).CornerRadius = UDim.new(0, 8)
 
-        ry = ry + 34
+        ry = ry + 40
 
         return leftBtn, valLbl, rightBtn
     end
 
-    -- ===== ФИГУРА =====
-    local shapeL, shapeV, shapeR = shopRow("🔷 ФИГУРА")
-    local function updateShape()
-        shapeV.Text = SHAPE_PRESETS[shopState.shapeIndex].name
+    local demoFolder, demoBlocks = nil, {}
+
+    local function refreshDemo()
+        if demoFolder then demoFolder:Destroy() end
+        local col = P.COLORS[shopState.colorIndex]
+        local c3 = col.c or Color3.fromRGB(0, 180, 255)
+        if col.rainbow then c3 = Color3.fromHSV((tick()*0.2) % 1, 0.9, 1) end
+        local sizeMult = P.SHAPE_SIZE[shopState.sizeIndex].factor
+        demoFolder, demoBlocks = buildDemoRing(world, shopState.shapeIndex, c3, sizeMult, 8)
     end
-    shapeL.Activated:Connect(function()
+
+    -- 1. ФИГУРА
+    local sL, sV, sR = shopRow("🔷 ФИГУРА", "Какая фигурка будет в кольце")
+    local function updateShape() sV.Text = SHAPE_PRESETS[shopState.shapeIndex].name end
+    sL.Activated:Connect(function()
         shopState.shapeIndex = shopState.shapeIndex - 1
         if shopState.shapeIndex < 1 then shopState.shapeIndex = #SHAPE_PRESETS end
-        updateShape(); rebuildDemo()
+        updateShape(); refreshDemo()
     end)
-    shapeR.Activated:Connect(function()
+    sR.Activated:Connect(function()
         shopState.shapeIndex = shopState.shapeIndex + 1
         if shopState.shapeIndex > #SHAPE_PRESETS then shopState.shapeIndex = 1 end
-        updateShape(); rebuildDemo()
+        updateShape(); refreshDemo()
     end)
 
-    -- ===== ЦВЕТ =====
-    local colL, colV, colR = shopRow("🎨 ЦВЕТ")
-    local function updateColor()
-        colV.Text = P.COLORS[shopState.colorIndex].name
-    end
-    colL.Activated:Connect(function()
+    -- 2. ЦВЕТ
+    local cL, cV, cR = shopRow("🎨 ЦВЕТ", "Один цвет на всю фигуру или радуга")
+    local function updateColor() cV.Text = P.COLORS[shopState.colorIndex].name end
+    cL.Activated:Connect(function()
         shopState.colorIndex = shopState.colorIndex - 1
         if shopState.colorIndex < 1 then shopState.colorIndex = #P.COLORS end
-        updateColor(); rebuildDemo()
+        updateColor(); refreshDemo()
     end)
-    colR.Activated:Connect(function()
+    cR.Activated:Connect(function()
         shopState.colorIndex = shopState.colorIndex + 1
         if shopState.colorIndex > #P.COLORS then shopState.colorIndex = 1 end
-        updateColor(); rebuildDemo()
+        updateColor(); refreshDemo()
     end)
 
-    -- ===== РАЗМЕР =====
-    local szL, szV, szR = shopRow("🔍 РАЗМЕР")
-    local function updateSize()
-        szV.Text = P.SHAPE_SIZE[shopState.sizeIndex].name
-    end
-    szL.Activated:Connect(function()
+    -- 3. РАЗМЕР
+    local zL, zV, zR = shopRow("🔍 РАЗМЕР ФИГУРЫ", "Насколько крупные фигурки")
+    local function updateSize() zV.Text = P.SHAPE_SIZE[shopState.sizeIndex].name end
+    zL.Activated:Connect(function()
         shopState.sizeIndex = shopState.sizeIndex - 1
         if shopState.sizeIndex < 1 then shopState.sizeIndex = #P.SHAPE_SIZE end
-        updateSize(); rebuildDemo()
+        updateSize(); refreshDemo()
     end)
-    szR.Activated:Connect(function()
+    zR.Activated:Connect(function()
         shopState.sizeIndex = shopState.sizeIndex + 1
         if shopState.sizeIndex > #P.SHAPE_SIZE then shopState.sizeIndex = 1 end
-        updateSize(); rebuildDemo()
+        updateSize(); refreshDemo()
     end)
 
-    -- ===== СКОРОСТЬ =====
-    local spL, spV, spR = shopRow("⚡ СКОРОСТЬ")
-    local function updateSpeed()
-        spV.Text = P.SPEED[shopState.speedIndex].name
-    end
+    -- 4. СКОРОСТЬ
+    local spL, spV, spR = shopRow("⚡ СКОРОСТЬ ВРАЩЕНИЯ", "Как быстро кольцо крутится")
+    local function updateSpeed() spV.Text = P.SPEED[shopState.speedIndex].name end
     spL.Activated:Connect(function()
         shopState.speedIndex = shopState.speedIndex - 1
         if shopState.speedIndex < 1 then shopState.speedIndex = #P.SPEED end
@@ -422,11 +476,39 @@ local function openShop()
         updateSpeed()
     end)
 
-    -- ===== ЭФФЕКТЫ (кнопки-тумблеры) =====
-    local function shopToggle(text, getter, setter)
+    -- 5. ЭФФЕКТЫ (тумблеры)
+    local effectsLabel = Instance.new("TextLabel")
+    effectsLabel.Size = UDim2.new(1, -12, 0, 18)
+    effectsLabel.Position = UDim2.new(0, 6, 0, ry)
+    effectsLabel.BackgroundTransparency = 1
+    effectsLabel.Text = "✨ ЭФФЕКТЫ"
+    effectsLabel.TextColor3 = Color3.fromRGB(220, 220, 250)
+    effectsLabel.Font = Enum.Font.GothamBold
+    effectsLabel.TextSize = 11
+    effectsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    effectsLabel.ZIndex = 12
+    effectsLabel.Parent = rightPanel
+    ry = ry + 22
+
+    local function shopToggle(text, hint, getter, setter)
+        if hint then
+            local hintLbl = Instance.new("TextLabel")
+            hintLbl.Size = UDim2.new(1, -12, 0, 14)
+            hintLbl.Position = UDim2.new(0, 6, 0, ry)
+            hintLbl.BackgroundTransparency = 1
+            hintLbl.Text = hint
+            hintLbl.TextColor3 = Color3.fromRGB(150, 145, 180)
+            hintLbl.Font = Enum.Font.Gotham
+            hintLbl.TextSize = 9
+            hintLbl.TextXAlignment = Enum.TextXAlignment.Left
+            hintLbl.ZIndex = 12
+            hintLbl.Parent = rightPanel
+            ry = ry + 14
+        end
+
         local b = Instance.new("TextButton")
-        b.Size = UDim2.new(1, -10, 0, 28)
-        b.Position = UDim2.new(0, 5, 0, ry)
+        b.Size = UDim2.new(1, -12, 0, 30)
+        b.Position = UDim2.new(0, 6, 0, ry)
         b.BackgroundColor3 = getter() and Color3.fromRGB(40,70,50) or Color3.fromRGB(45,38,55)
         b.TextColor3 = getter() and Color3.fromRGB(160,255,180) or Color3.fromRGB(220,200,220)
         b.Font = Enum.Font.GothamBold
@@ -434,45 +516,31 @@ local function openShop()
         b.Text = text .. ": " .. (getter() and "ВКЛ" or "ВЫКЛ")
         b.ZIndex = 12
         b.Parent = rightPanel
-        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
         b.Activated:Connect(function()
             setter(not getter())
             b.BackgroundColor3 = getter() and Color3.fromRGB(40,70,50) or Color3.fromRGB(45,38,55)
             b.TextColor3 = getter() and Color3.fromRGB(160,255,180) or Color3.fromRGB(220,200,220)
             b.Text = text .. ": " .. (getter() and "ВКЛ" or "ВЫКЛ")
         end)
-        ry = ry + 32
+        ry = ry + 34
     end
 
-    shopToggle("🌠 Трейлы", function() return shopState.trail end, function(v) shopState.trail = v end)
-    shopToggle("💡 Свет", function() return shopState.light end, function(v) shopState.light = v end)
-    shopToggle("💓 Пульсация", function() shopState.pulse = not shopState.pulse end, function(v) shopState.pulse = v end)
+    shopToggle("🌠 Трейлы", "Оставляют след за фигурками", function() return shopState.trail end, function(v) shopState.trail = v end)
+    shopToggle("💡 Свет", "Фигурки светятся в темноте", function() return shopState.light end, function(v) shopState.light = v end)
+    shopToggle("💓 Пульсация", "Фигурки дышат (увеличиваются)", function() return shopState.pulse end, function(v) shopState.pulse = v end)
 
     rightPanel.CanvasSize = UDim2.new(0, 0, 0, ry + 20)
 
-    -- ===== ДЕМО-КОЛЬЦО (крутится) =====
-    local demoFolder, demoBlocks = nil, {}
-
-    function rebuildDemo()
-        -- пересоздаём
-        if demoFolder then demoFolder:Destroy() end
-        local col = P.COLORS[shopState.colorIndex]
-        local c3 = col.c or Color3.fromRGB(0, 180, 255)
-        if col.rainbow then c3 = Color3.fromHSV((tick()*0.2) % 1, 0.9, 1) end
-        local sizeMult = P.SHAPE_SIZE[shopState.sizeIndex].factor
-        demoFolder, demoBlocks = buildDemoRing(world, shopState.shapeIndex, c3, sizeMult, 8)
-    end
-
-    rebuildDemo()
-
-    -- Анимация вращения
+    -- Анимация превью
     local animConn = RunService.Heartbeat:Connect(function(dt)
         if not shopOpen or not shopGui or not shopGui.Parent then
             if animConn then animConn:Disconnect() end
             return
         end
         local t = tick()
-        -- Автовращение аватара
+
+        -- Аватар крутится
         if avatar then
             pcall(function()
                 local rootPart = avatar.PrimaryPart or avatar:FindFirstChild("HumanoidRootPart") or avatar:FindFirstChild("Torso")
@@ -482,7 +550,8 @@ local function openShop()
                 end
             end)
         end
-        -- Крутим демо-кольцо
+
+        -- Демо-кольцо крутится
         local col = P.COLORS[shopState.colorIndex]
         local c3 = col.c or Color3.fromRGB(0, 180, 255)
         if col.rainbow then c3 = Color3.fromHSV((t*0.2) % 1, 0.9, 1) end
@@ -506,25 +575,25 @@ local function openShop()
 
     -- ===== КНОПКИ ВНИЗУ =====
     local cancelBtn = Instance.new("TextButton")
-    cancelBtn.Size = UDim2.new(0, 220, 0, 40)
-    cancelBtn.Position = UDim2.new(0, 15, 1, -52)
+    cancelBtn.Size = UDim2.new(0, 260, 0, 42)
+    cancelBtn.Position = UDim2.new(0, 16, 1, -54)
     cancelBtn.BackgroundColor3 = Color3.fromRGB(60, 35, 45)
     cancelBtn.TextColor3 = Color3.fromRGB(255, 180, 190)
     cancelBtn.Font = Enum.Font.GothamBold
     cancelBtn.TextSize = 13
-    cancelBtn.Text = "❌ ОТМЕНА"
+    cancelBtn.Text = "❌ ОТМЕНА (не применять)"
     cancelBtn.ZIndex = 11
     cancelBtn.Parent = shopGui
     Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 10)
 
     local applyBtn = Instance.new("TextButton")
-    applyBtn.Size = UDim2.new(0, 260, 0, 40)
-    applyBtn.Position = UDim2.new(0, 245, 1, -52)
+    applyBtn.Size = UDim2.new(0, 260, 0, 42)
+    applyBtn.Position = UDim2.new(0, 288, 1, -54)
     applyBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 55)
     applyBtn.TextColor3 = Color3.fromRGB(180, 255, 200)
     applyBtn.Font = Enum.Font.GothamBold
     applyBtn.TextSize = 13
-    applyBtn.Text = "✅ ОПРЕДЕЛИТЬ (применить)"
+    applyBtn.Text = "✅ ОПРЕДЕЛИТЬ → применить к кольцу 1"
     applyBtn.ZIndex = 11
     applyBtn.Parent = shopGui
     Instance.new("UICorner", applyBtn).CornerRadius = UDim.new(0, 10)
@@ -539,7 +608,7 @@ local function openShop()
     cancelBtn.Activated:Connect(closeShop)
 
     applyBtn.Activated:Connect(function()
-        -- Применяем к кольцу 1
+        -- Применяем ко КОЛЬЦУ 1
         ORBIT.shapeIndex = shopState.shapeIndex
         P.colorIndex = shopState.colorIndex
         P.shapeSizeIndex = shopState.sizeIndex
@@ -548,18 +617,18 @@ local function openShop()
         SETTINGS.LightEnabled = shopState.light
         SETTINGS.PulseEnabled = shopState.pulse
 
-        -- Обновляем фигуру кольца 1
         rings[1].shapeIndex = shopState.shapeIndex
         ORBIT.destroyRing(1)
         ORBIT.buildRing(1)
         ORBIT.applyColor()
         ORBIT.applyNameVisibility()
 
-        ORBIT.notify("✅ Магазин применён → кольцо 1", Color3.fromRGB(180,255,180), 3)
+        ORBIT.notify("✅ Применено к КОЛЬЦУ 1!", Color3.fromRGB(180,255,180), 3)
         closeShop()
     end)
 
     updateShape(); updateColor(); updateSize(); updateSpeed()
+    refreshDemo()
 end
 
 -- ============================================================
@@ -570,7 +639,6 @@ local editorGui
 
 local GRID = 16
 local editorGrid = {}
-local brushState = {}
 
 local function resetGrid()
     editorGrid = {}
@@ -589,33 +657,46 @@ local function openEditor()
 
     editorGui = Instance.new("Frame")
     editorGui.Name = "_OrbitEditor"
-    editorGui.Size = UDim2.new(0, 480, 0, 520)
-    editorGui.Position = UDim2.new(0.5, -240, 0.5, -260)
+    editorGui.Size = UDim2.new(0, 520, 0, 600)
+    editorGui.Position = UDim2.new(0.5, -260, 0.5, -300)
     editorGui.BackgroundColor3 = Color3.fromRGB(22, 16, 35)
     editorGui.BackgroundTransparency = 0.05
     editorGui.BorderSizePixel = 0
     editorGui.ZIndex = 20
     editorGui.Parent = screenGui
-    Instance.new("UICorner", editorGui).CornerRadius = UDim.new(0, 14)
+    Instance.new("UICorner", editorGui).CornerRadius = UDim.new(0, 16)
     local str = Instance.new("UIStroke", editorGui)
     str.Color = Color3.fromRGB(180, 130, 255)
     str.Thickness = 2
 
+    -- Заголовок
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, -60, 0, 30)
-    title.Position = UDim2.new(0, 12, 0, 6)
+    title.Position = UDim2.new(0, 16, 0, 10)
     title.BackgroundTransparency = 1
     title.Text = "🎨  РЕДАКТОР СВОЕЙ ФИГУРЫ"
     title.TextColor3 = Color3.fromRGB(230, 200, 255)
     title.Font = Enum.Font.GothamBold
-    title.TextSize = 15
+    title.TextSize = 16
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.ZIndex = 21
     title.Parent = editorGui
 
+    local subTitle = editorGui and Instance.new("TextLabel")
+    subTitle.Size = UDim2.new(1, -60, 0, 18)
+    subTitle.Position = UDim2.new(0, 16, 0, 38)
+    subTitle.BackgroundTransparency = 1
+    subTitle.Text = "Клик по клетке → закрасить. Симметрия → зеркалит левую половину."
+    subTitle.TextColor3 = Color3.fromRGB(180, 160, 220)
+    subTitle.Font = Enum.Font.Gotham
+    subTitle.TextSize = 11
+    subTitle.TextXAlignment = Enum.TextXAlignment.Left
+    subTitle.ZIndex = 21
+    subTitle.Parent = editorGui
+
     local closeBtn = Instance.new("TextButton")
     closeBtn.Size = UDim2.new(0, 30, 0, 30)
-    closeBtn.Position = UDim2.new(1, -40, 0, 8)
+    closeBtn.Position = UDim2.new(1, -40, 0, 10)
     closeBtn.BackgroundColor3 = Color3.fromRGB(80, 30, 30)
     closeBtn.TextColor3 = Color3.fromRGB(255, 160, 160)
     closeBtn.Font = Enum.Font.GothamBold
@@ -627,8 +708,8 @@ local function openEditor()
 
     -- Сетка
     local gridHolder = Instance.new("Frame")
-    gridHolder.Size = UDim2.new(0, 320, 0, 320)
-    gridHolder.Position = UDim2.new(0, 80, 0, 50)
+    gridHolder.Size = UDim2.new(0, 340, 0, 340)
+    gridHolder.Position = UDim2.new(0.5, -170, 0, 70)
     gridHolder.BackgroundColor3 = Color3.fromRGB(10, 8, 18)
     gridHolder.BorderSizePixel = 0
     gridHolder.ZIndex = 21
@@ -636,7 +717,7 @@ local function openEditor()
     Instance.new("UICorner", gridHolder).CornerRadius = UDim.new(0, 8)
 
     local grid = Instance.new("UIGridLayout")
-    grid.CellSize = UDim2.new(0, 20, 0, 20)
+    grid.CellSize = UDim2.new(0, 21, 0, 21)
     grid.CellPadding = UDim2.new(0, 0, 0, 0)
     grid.SortOrder = Enum.SortOrder.LayoutOrder
     grid.Parent = gridHolder
@@ -645,7 +726,7 @@ local function openEditor()
     for r = 1, GRID do
         for c = 1, GRID do
             local btn = Instance.new("TextButton")
-            btn.Size = UDim2.new(0, 20, 0, 20)
+            btn.Size = UDim2.new(0, 21, 0, 21)
             btn.BackgroundColor3 = Color3.fromRGB(30, 25, 45)
             btn.BorderSizePixel = 1
             btn.Text = ""
@@ -661,7 +742,6 @@ local function openEditor()
             end
 
             btn.MouseButton1Down:Connect(toggle)
-            btn.MouseButton1Up:Connect(function() end)
             btn.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.Touch then toggle() end
             end)
@@ -675,32 +755,39 @@ local function openEditor()
         end
     end
 
-    -- Кнопки слева
-    local function sideBtn(text, y, bg, fg, onClick)
+    -- Кнопки-инструменты
+    local toolsRow = Instance.new("Frame")
+    toolsRow.Size = UDim2.new(1, -32, 0, 40)
+    toolsRow.Position = UDim2.new(0, 16, 0, 420)
+    toolsRow.BackgroundTransparency = 1
+    toolsRow.ZIndex = 21
+    toolsRow.Parent = editorGui
+
+    local function toolBtn(text, xPos, bg, fg, onClick)
         local b = Instance.new("TextButton")
-        b.Size = UDim2.new(0, 65, 0, 34)
-        b.Position = UDim2.new(0, 8, 0, y)
+        b.Size = UDim2.new(0.24, -4, 1, 0)
+        b.Position = UDim2.new(xPos, 0, 0, 0)
         b.BackgroundColor3 = bg
         b.TextColor3 = fg
         b.Font = Enum.Font.GothamBold
         b.TextSize = 10
         b.Text = text
-        b.ZIndex = 21
-        b.Parent = editorGui
-        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        b.ZIndex = 22
+        b.Parent = toolsRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
         b.Activated:Connect(onClick)
         return b
     end
 
-    sideBtn("🗑\nОЧИСТ", 60, Color3.fromRGB(70, 35, 40), Color3.fromRGB(255, 180, 180), function()
+    toolBtn("🗑 ОЧИСТИТЬ", 0, Color3.fromRGB(70, 35, 40), Color3.fromRGB(255, 180, 180), function()
         for r = 1, GRID do for c = 1, GRID do editorGrid[r][c] = false end end
         refreshGrid()
     end)
-    sideBtn("🔄\nИНВЕРТ", 100, Color3.fromRGB(50, 50, 80), Color3.fromRGB(200, 200, 255), function()
+    toolBtn("🔄 ИНВЕРТ", 0.25, Color3.fromRGB(50, 50, 80), Color3.fromRGB(200, 200, 255), function()
         for r = 1, GRID do for c = 1, GRID do editorGrid[r][c] = not editorGrid[r][c] end end
         refreshGrid()
     end)
-    sideBtn("↔\nСИММ", 140, Color3.fromRGB(60, 50, 90), Color3.fromRGB(220, 200, 255), function()
+    toolBtn("↔ СИММЕТРИЯ", 0.5, Color3.fromRGB(60, 50, 90), Color3.fromRGB(220, 200, 255), function()
         for r = 1, GRID do
             for c = 1, math.floor(GRID/2) do
                 editorGrid[r][GRID - c + 1] = editorGrid[r][c]
@@ -708,8 +795,7 @@ local function openEditor()
         end
         refreshGrid()
     end)
-    sideBtn("⬆\nСЕРЕД", 180, Color3.fromRGB(50, 60, 80), Color3.fromRGB(180, 220, 255), function()
-        -- Залить центральную область
+    toolBtn("⬆ ЦЕНТР", 0.75, Color3.fromRGB(50, 60, 80), Color3.fromRGB(180, 220, 255), function()
         for r = 4, 12 do
             for c = 4, 12 do
                 editorGrid[r][c] = true
@@ -718,15 +804,15 @@ local function openEditor()
         refreshGrid()
     end)
 
-    -- Поле имени
+    -- Имя
     local nameInput = Instance.new("TextBox")
-    nameInput.Size = UDim2.new(0, 300, 0, 32)
-    nameInput.Position = UDim2.new(0, 80, 0, 385)
+    nameInput.Size = UDim2.new(1, -32, 0, 36)
+    nameInput.Position = UDim2.new(0, 16, 0, 470)
     nameInput.BackgroundColor3 = Color3.fromRGB(35, 30, 50)
     nameInput.TextColor3 = Color3.fromRGB(230, 220, 255)
     nameInput.Font = Enum.Font.GothamBold
     nameInput.TextSize = 12
-    nameInput.PlaceholderText = "Имя фигуры..."
+    nameInput.PlaceholderText = "✏️ Напиши имя фигуры..."
     nameInput.PlaceholderColor3 = Color3.fromRGB(140, 130, 170)
     nameInput.Text = ""
     nameInput.ClearTextOnFocus = false
@@ -734,27 +820,27 @@ local function openEditor()
     nameInput.Parent = editorGui
     Instance.new("UICorner", nameInput).CornerRadius = UDim.new(0, 8)
 
-    -- Кнопки внизу
+    -- Внизу кнопки
     local saveBtn = Instance.new("TextButton")
-    saveBtn.Size = UDim2.new(0, 230, 0, 40)
-    saveBtn.Position = UDim2.new(0, 8, 1, -52)
+    saveBtn.Size = UDim2.new(0.48, -20, 0, 44)
+    saveBtn.Position = UDim2.new(0, 16, 1, -54)
     saveBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 55)
     saveBtn.TextColor3 = Color3.fromRGB(180, 255, 200)
     saveBtn.Font = Enum.Font.GothamBold
     saveBtn.TextSize = 12
-    saveBtn.Text = "💾 СОХРАНИТЬ + ПРИМЕНИТЬ"
+    saveBtn.Text = "💾 СОХРАНИТЬ И ПРИМЕНИТЬ"
     saveBtn.ZIndex = 21
     saveBtn.Parent = editorGui
     Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 10)
 
     local sellBtn = Instance.new("TextButton")
-    sellBtn.Size = UDim2.new(0, 230, 0, 40)
-    sellBtn.Position = UDim2.new(1, -238, 1, -52)
+    sellBtn.Size = UDim2.new(0.48, -20, 0, 44)
+    sellBtn.Position = UDim2.new(0.5, 4, 1, -54)
     sellBtn.BackgroundColor3 = Color3.fromRGB(90, 70, 30)
     sellBtn.TextColor3 = Color3.fromRGB(255, 220, 120)
     sellBtn.Font = Enum.Font.GothamBold
     sellBtn.TextSize = 12
-    sellBtn.Text = "💰 ПРОДАТЬ МАГАЗИНУ (+50)"
+    sellBtn.Text = "💰 ПРОДАТЬ МАГАЗИНУ (+50 монет)"
     sellBtn.ZIndex = 21
     sellBtn.Parent = editorGui
     Instance.new("UICorner", sellBtn).CornerRadius = UDim.new(0, 10)
@@ -789,7 +875,6 @@ local function openEditor()
 
         ORBIT.notify("🎨 Фигура '" .. name .. "' сохранена!", Color3.fromRGB(180,255,220), 3)
 
-        -- Сразу применяем как текущую
         for i, sp in ipairs(SHAPE_PRESETS) do
             if sp.name == name then
                 ORBIT.shapeIndex = i
@@ -806,10 +891,9 @@ local function openEditor()
     sellBtn.Activated:Connect(function()
         local name = nameInput.Text
         if not name or name == "" then name = "ПРОДАННАЯ" end
-        local shape = { name = name .. "_" .. tick() % 1000, pixels = gridToStrings() }
         ORBIT.COINS = (ORBIT.COINS or 0) + 50
         saveCustomShapes()
-        ORBIT.notify("💰 Продано! +50 монет (всего " .. ORBIT.COINS .. ")", Color3.fromRGB(255,220,120), 3)
+        ORBIT.notify("💰 Продано! +50 монет (всего: " .. ORBIT.COINS .. ")", Color3.fromRGB(255,220,120), 3)
         closeEditor()
     end)
 end
@@ -818,24 +902,18 @@ end
 --              ПРИВЯЗКА КНОПОК
 -- ============================================================
 if ORBIT.ui.openShopBtn then
-    ORBIT.ui.openShopBtn.Activated:Connect(function()
-        if ORBIT.uiMode == "shop" or true then
-            openShop()
-        end
-    end)
+    ORBIT.ui.openShopBtn.Activated:Connect(function() openShop() end)
 end
 
 if ORBIT.ui.openEditorBtn then
-    ORBIT.ui.openEditorBtn.Activated:Connect(function()
-        openEditor()
-    end)
+    ORBIT.ui.openEditorBtn.Activated:Connect(function() openEditor() end)
 end
 
 ORBIT.openShop = openShop
 ORBIT.openEditor = openEditor
 
 if ORBIT.notify then
-    ORBIT.notify("🛒 Магазин и редактор готовы!", Color3.fromRGB(220,200,255), 3)
+    ORBIT.notify("🛒 Магазин готов — жми кнопку в панели!", Color3.fromRGB(220,200,255), 3)
 end
 
 return true
