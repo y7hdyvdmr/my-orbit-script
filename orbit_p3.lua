@@ -1,4 +1,4 @@
---[[ ОРБИТА v21.0 — ЧАСТЬ 3/4: ЛОГИКА + МАКСИМАЛЬНАЯ ЗАЩИТА v4 + БОТЫ ]]
+--[[ ОРБИТА v21.1 — ЧАСТЬ 3/4: ЛОГИКА + МАКС. ЗАЩИТА v5 + AUTO-DODGE + БОТЫ ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -227,7 +227,7 @@ local function updateFire()
     end
 end
 
--- ==================== УСИЛЕННАЯ ЗАЩИТА v4 ====================
+-- ==================== МАКСИМАЛЬНАЯ ЗАЩИТА v5 ====================
 local PROT_STATE = {
     lastSafePos = nil, lastSafeCFrame = nil, lastCheckTime = 0, lastHealTime = 0,
     lastHealth = 100, lastKnockTime = 0, lastFreezeTime = 0, spawnGrace = 0,
@@ -277,18 +277,94 @@ local function resetVelocity(char)
     end
 end
 
--- ==== ANTI-FLING ====
+-- ==== ANTI-FLING + ANTI-SPIN (УСИЛЕННЫЙ) ====
 local function antiFling(char, hrp)
     if not SETTINGS.AntiFling then return end
     pcall(function()
-        if hrp.AssemblyAngularVelocity.Magnitude > 25 then
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        end
-        if hrp.AssemblyLinearVelocity.Magnitude > 300 then
+        -- Сброс линейной скорости (Knockback)
+        if hrp.AssemblyLinearVelocity.Magnitude > 150 then
             hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        end
+        -- Сброс угловой скорости (Spin) — ловит даже слабое вращение
+        if hrp.AssemblyAngularVelocity.Magnitude > 20 then
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
         end
     end)
 end
+
+-- ==== AUTO-DODGE (уклонение в стиле Санса) ====
+local DODGE = {
+    Enabled = true,
+    ScanRadius = 18,
+    SpeedThreshold = 40,
+    DodgeDist = 14,
+    Cooldown = 0.4,
+    LastDodge = 0,
+}
+ORBIT.DODGE = DODGE
+
+local dodgeConn = nil
+
+local function setupAutoDodge()
+    if dodgeConn then dodgeConn:Disconnect(); dodgeConn = nil end
+    dodgeConn = RunService.Heartbeat:Connect(function(dt)
+        if not SETTINGS.ProtEnabled or not DODGE.Enabled then return end
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local now = tick()
+        if now - DODGE.LastDodge < DODGE.Cooldown then return end
+
+        -- Сканируем угрозы
+        local threats = {}
+        local myPos = hrp.Position
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and obj ~= hrp and obj.Parent ~= char then
+                local dist = (obj.Position - myPos).Magnitude
+                if dist < DODGE.ScanRadius then
+                    local vel = obj.AssemblyLinearVelocity
+                    if vel.Magnitude > DODGE.SpeedThreshold then
+                        local toMe = (myPos - obj.Position)
+                        if toMe.Magnitude > 0.1 then
+                            local dot = vel.Unit:Dot(toMe.Unit)
+                            if dot > 0.5 then
+                                table.insert(threats, { obj = obj, dist = dist, vel = vel })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if #threats > 0 then
+            table.sort(threats, function(a, b) return a.dist < b.dist end)
+            local threat = threats[1]
+            local threatDir = (threat.obj.Position - myPos).Unit
+            local rightDir = threatDir:Cross(Vector3.new(0, 1, 0)).Unit
+
+            local rayParams = RaycastParams.new()
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+            local rayRight = Workspace:Raycast(myPos, rightDir * DODGE.DodgeDist, rayParams)
+            local dodgeDir = rayRight and -rightDir or rightDir
+
+            local targetPos = myPos + dodgeDir * DODGE.DodgeDist
+            local rayDown = Workspace:Raycast(targetPos + Vector3.new(0, 5, 0), Vector3.new(0, -10, 0), rayParams)
+            if rayDown then
+                targetPos = rayDown.Position + Vector3.new(0, 3, 0)
+            end
+
+            pcall(function()
+                char:PivotTo(CFrame.new(targetPos))
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end)
+            DODGE.LastDodge = now
+            protLog("Auto-Dodge: уклонение от " .. threat.obj.Name, Color3.fromRGB(100, 255, 200))
+        end
+    end)
+end
+ORBIT.setupAutoDodge = setupAutoDodge
 
 -- ==== ANTI-FREEZE ====
 local function antiFreeze(char)
@@ -351,7 +427,7 @@ local function antiVoid(char, hrp)
     end
 end
 
--- ==== ANTI-TELEPORT (порог 100) ====
+-- ==== ANTI-TELEPORT ====
 local function antiTeleport(char, hrp)
     if not SETTINGS.AntiTeleport then return end
     if not PROT_STATE.lastSafePos then return end
@@ -385,7 +461,7 @@ local function setupAntiRingParts()
         if not SETTINGS.ProtEnabled then return end
         if obj:IsA("BasePart") then
             local parent = obj.Parent
-            if parent and (parent.Name:lower():find("ring") or parent.Name:lower():find("part") or parent.Name:lower():find("fling")) then
+            if parent and (parent.Name:lower():find("ring") or parent.Name:lower():find("fling")) then
                 task.defer(function()
                     if obj.Parent then
                         local vel = obj.AssemblyAngularVelocity
@@ -401,7 +477,7 @@ local function setupAntiRingParts()
 end
 setupAntiRingParts()
 
--- ==== ANTI-GODMODE SCANNER ====
+-- ==== ANTI-GODMODE ====
 local function scanForGodMode()
     for _, player in ipairs(Players:GetPlayers()) do
         if player == LocalPlayer then continue end
@@ -427,7 +503,7 @@ local function scanForGodMode()
     end
 end
 
--- ==== ANTI-SPEEDHACK / AUTOFARM SCANNER ====
+-- ==== ANTI-SPEEDHACK ====
 local function detectSpeedHack(player)
     if player == LocalPlayer then return end
     local char = player.Character
@@ -577,6 +653,7 @@ function ORBIT.enableProtection()
         watchCharacter(newChar)
     end)
     setupCharacterProtection()
+    setupAutoDodge()
     ORBIT.protConn = RunService.Heartbeat:Connect(function(dt)
         if not SETTINGS.ProtEnabled then return end
         local char = LocalPlayer.Character
@@ -585,12 +662,13 @@ function ORBIT.enableProtection()
         if not hrp then return end
         pcall(processProtection, dt, char, hrp)
     end)
-    ORBIT.notify("🛡 Защита v4 ВКЛ", Color3.fromRGB(120, 255, 180), 3)
-    protLog("Защита v4 активна. F9 = лог.", Color3.fromRGB(100, 255, 100))
+    ORBIT.notify("🛡 Защита v5 ВКЛ (Anti-Spin + Dodge)", Color3.fromRGB(120, 255, 180), 3)
+    protLog("Защита v5 активна. Auto-Dodge: " .. (DODGE.Enabled and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(100, 255, 100))
 end
 
 function ORBIT.disableProtection()
     if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
+    if dodgeConn then dodgeConn:Disconnect(); dodgeConn = nil end
     if PROT_STATE.watchConn then pcall(function() PROT_STATE.watchConn:Disconnect() end); PROT_STATE.watchConn = nil end
     PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
 end
@@ -1729,6 +1807,6 @@ function ORBIT.startLogic()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v21.0 (максимальная защита v4)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P3 v21.1 (защита v5 + Auto-Dodge)", Color3.fromRGB(180,255,180), 3) end
 
 return true
