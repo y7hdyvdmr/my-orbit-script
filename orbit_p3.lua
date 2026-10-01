@@ -1,4 +1,7 @@
---[[ ОРБИТА v22.4 — P3: ЛОГИКА + ЗАЩИТА v10.4 (ТОЛЬКО 2 ТРИГГЕРА) ]]
+--[[ ОРБИТА v22.7 — P3: ЛОГИКА (без защиты)
+     Защита вынесена в orbit_anticheat.lua
+     Здесь: кольца, аура, огонь, ESP, боты, фейерверк, метки
+]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -17,13 +20,7 @@ local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
 if not P then warn("[Orbit P3] P не передан"); return end
 if not SHAPE_PRESETS then warn("[Orbit P3] Часть 2 не загружена"); return end
 
--- 🆕 v22.4: принудительные настройки
-SETTINGS.AntiVoidY = 0
-SETTINGS.SmartFloorY = 0
-SETTINGS.LockPosition = false
-SETTINGS.AntiTeleport = false
-
--- ==================== СТАТИСТИКА СЕССИИ ====================
+-- ==================== СТАТИСТИКА ====================
 ORBIT.SESSION = ORBIT.SESSION or {
     botsCollected = 0, cheatersTagged = 0, dodgesMade = 0,
     protectionsTriggered = 0, startTime = tick(), coinsSpent = 0, coinsEarned = 0,
@@ -121,6 +118,7 @@ function ORBIT.setupAura()
             if not data.isModel then
                 refPart.Material = SETTINGS.Material
                 refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+                refPart.CanQuery = false; refPart.CanTouch = false
                 refPart.Transparency = SETTINGS.Transparency
                 refPart.Color = getAuraColor(i, count)
             end
@@ -241,713 +239,8 @@ local function updateFire()
 end
 
 -- ============================================================
---   🛡️ ЗАЩИТА v10.4 — ТОЛЬКО 2 ТРИГГЕРА, ДРУЖЕЛЮБНАЯ К ПРЫЖКАМ
+--       👁️ ESP ИГРОКОВ
 -- ============================================================
-local PROT_STATE = {
-    lastSafePos = nil, lastSafeCFrame = nil, lastCheckTime = 0, lastHealTime = 0,
-    lastHealth = 100, lastKnockTime = 0, lastFreezeTime = 0, spawnGrace = 0,
-    watchConn = nil, logEnabled = true, lastHealthCheck = 0, lastScan = 0,
-    lastPositions = {}, godmodeWarned = {},
-    voidTimer = 0, lastFloorCheck = 0,
-    lastHRP = nil, dropkickWarned = {},
-    cframeJumpCounter = 0, blockedFlingCount = 0,
-    groundTimer = 0,
-}
-ORBIT.PROT_STATE = PROT_STATE
-
-local PROT_CFG = {
-    MAX_WALKSPEED = 60,
-    MAX_JUMPPOWER = 100,
-    FLING_VEL_THRESHOLD = 1000,
-    FLING_SPIN_THRESHOLD = 500,
-    FLING_INSTANT_THRESHOLD = 100000,
-    TELEPORT_DETECT_DIST = 30,
-    VOID_TIMER_THRESHOLD = 0.15,
-    FLOOR_RAY_LENGTH = 500,
-    FLOOR_RAY_SIDE = 100,
-    GROUND_CHECK_LENGTH = 4,
-    GROUND_MIN_TIME = 1.0,
-}
-
-local ORIG_WS, ORIG_JP = 16, 50
-LocalPlayer.CharacterAdded:Connect(function(c)
-    local h = c:WaitForChild("Humanoid", 5)
-    if h then ORIG_WS, ORIG_JP = h.WalkSpeed, h.JumpPower end
-end)
-
-local BAD_CLASSES = {
-    BodyVelocity = true, BodyForce = true, BodyAngularVelocity = true,
-    BodyGyro = true, BodyPosition = true, BodyThrust = true,
-    LinearVelocity = true, AngularVelocity = true, VectorForce = true,
-    Torque = true, AlignPosition = true, AlignOrientation = true,
-}
-
-local function protLog(text)
-    if not PROT_STATE.logEnabled then return end
-    print("[OrbitProt v10.4] " .. text)
-end
-local function killObject(obj)
-    if not obj or not obj.Parent then return end
-    pcall(function() obj:Destroy() end)
-end
-local function resetVelocity(char)
-    if not char then return end
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
-            pcall(function()
-                p.AssemblyLinearVelocity = Vector3.zero
-                p.AssemblyAngularVelocity = Vector3.zero
-            end)
-        end
-    end
-end
-
-local function isGrounded(hrp)
-    if not hrp then return false end
-    local char = hrp.Parent
-    if not char then return false end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then return false end
-
-    local vy = math.abs(hrp.AssemblyLinearVelocity.Y)
-    if vy > 0.5 then return false end
-
-    local state = hum:GetState()
-    if state ~= Enum.HumanoidStateType.Running
-       and state ~= Enum.HumanoidStateType.RunningNoPhysics
-       and state ~= Enum.HumanoidStateType.Seated
-       and state ~= Enum.HumanoidStateType.PlatformStanding
-       and state ~= Enum.HumanoidStateType.Climbing then
-        return false
-    end
-
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.FilterDescendantsInstances = {char}
-    local ray = Workspace:Raycast(hrp.Position, Vector3.new(0, -4, 0), rayParams)
-    return ray ~= nil
-end
-ORBIT.isGrounded = isGrounded
-
-local function isAirborne(hrp)
-    if not hrp then return false end
-    local char = hrp.Parent
-    if not char then return false end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then return false end
-    local state = hum:GetState()
-    return state == Enum.HumanoidStateType.Jumping
-        or state == Enum.HumanoidStateType.Freefall
-        or state == Enum.HumanoidStateType.Flying
-end
-ORBIT.isAirborne = isAirborne
-
-local function getSafeFloorPosition()
-    local char = LocalPlayer.Character
-    if not char then return nil end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil end
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-
-    local origin = hrp.Position + Vector3.new(0, 20, 0)
-    local ray = Workspace:Raycast(origin, Vector3.new(0, -PROT_CFG.FLOOR_RAY_LENGTH, 0), rayParams)
-    if ray then return ray.Position + Vector3.new(0, 4, 0) end
-
-    local dirs = {
-        Vector3.new(0, -PROT_CFG.FLOOR_RAY_SIDE, 30),
-        Vector3.new(0, -PROT_CFG.FLOOR_RAY_SIDE, -30),
-        Vector3.new(30, -PROT_CFG.FLOOR_RAY_SIDE, 0),
-        Vector3.new(-30, -PROT_CFG.FLOOR_RAY_SIDE, 0),
-        Vector3.new(20, -PROT_CFG.FLOOR_RAY_SIDE, 20),
-        Vector3.new(-20, -PROT_CFG.FLOOR_RAY_SIDE, -20),
-    }
-    for _, dir in ipairs(dirs) do
-        local sideRay = Workspace:Raycast(origin, dir, rayParams)
-        if sideRay then return sideRay.Position + Vector3.new(0, 4, 0) end
-    end
-
-    if PROT_STATE.lastSafeCFrame then
-        local p = PROT_STATE.lastSafeCFrame.Position
-        return Vector3.new(p.X, math.max(p.Y, 10), p.Z)
-    end
-    return Vector3.new(0, 50, 0)
-end
-ORBIT.getSafeFloorPosition = getSafeFloorPosition
-
-local function disableFallDamage(char)
-    if not SETTINGS.DisableFallDamage then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-    pcall(function()
-        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-        hum:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
-    end)
-end
-
--- ============================================================
---   🔥 ANTI-DROPKICK
--- ============================================================
-local function antiDropKick(char, hrp, now)
-    if not SETTINGS.ProtEnabled then return end
-
-    local curCF = hrp.CFrame
-    if PROT_STATE.lastHRP then
-        local dist = (curCF.Position - PROT_STATE.lastHRP.Position).Magnitude
-        if dist > PROT_CFG.TELEPORT_DETECT_DIST and not isAirborne(hrp) then
-            PROT_STATE.cframeJumpCounter = PROT_STATE.cframeJumpCounter + 1
-            if PROT_STATE.cframeJumpCounter >= 2 then
-                if PROT_STATE.lastSafeCFrame then
-                    pcall(function()
-                        char:PivotTo(PROT_STATE.lastSafeCFrame)
-                        resetVelocity(char)
-                    end)
-                    ORBIT.addSession("protectionsTriggered")
-                    PROT_STATE.blockedFlingCount = PROT_STATE.blockedFlingCount + 1
-                    warn("[Orbit v10.4] Anti-DropKick: телепорт откачен")
-                end
-                PROT_STATE.cframeJumpCounter = 0
-            end
-        else
-            PROT_STATE.cframeJumpCounter = 0
-        end
-    end
-    PROT_STATE.lastHRP = curCF
-
-    if hrp.Anchored and not isAirborne(hrp) then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum and hum.MoveDirection.Magnitude > 0.05 then
-            pcall(function() hrp.Anchored = false end)
-            ORBIT.addSession("protectionsTriggered")
-        end
-    end
-
-    for _, child in ipairs(char:GetDescendants()) do
-        if BAD_CLASSES[child.ClassName] then killObject(child) end
-    end
-end
-
--- ============================================================
---   🔥 ANTI-FLING
--- ============================================================
-local function antiFling(char, hrp)
-    if not SETTINGS.AntiFling then return end
-    if isAirborne(hrp) then return end
-
-    pcall(function()
-        local vel = hrp.AssemblyLinearVelocity.Magnitude
-        local spin = hrp.AssemblyAngularVelocity.Magnitude
-
-        if vel > PROT_CFG.FLING_INSTANT_THRESHOLD or spin > PROT_CFG.FLING_INSTANT_THRESHOLD then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            if PROT_STATE.lastSafeCFrame then
-                pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame) end)
-            end
-            ORBIT.addSession("protectionsTriggered")
-            PROT_STATE.blockedFlingCount = PROT_STATE.blockedFlingCount + 1
-            warn("[Orbit v10.4] INSTANT FLING блокирован")
-            return
-        end
-
-        if vel > PROT_CFG.FLING_VEL_THRESHOLD and spin > PROT_CFG.FLING_SPIN_THRESHOLD then
-            task.wait(0.1)
-            local vel2 = hrp.AssemblyLinearVelocity.Magnitude
-            local spin2 = hrp.AssemblyAngularVelocity.Magnitude
-            if vel2 > PROT_CFG.FLING_VEL_THRESHOLD and spin2 > PROT_CFG.FLING_SPIN_THRESHOLD then
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-                ORBIT.addSession("protectionsTriggered")
-                PROT_STATE.blockedFlingCount = PROT_STATE.blockedFlingCount + 1
-            end
-        end
-    end)
-
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr == LocalPlayer then continue end
-        local pChar = plr.Character
-        if not pChar then continue end
-        local pHrp = pChar:FindFirstChild("HumanoidRootPart")
-        if not pHrp then continue end
-        local pSpin = pHrp.AssemblyAngularVelocity.Magnitude
-        local pVel = pHrp.AssemblyLinearVelocity.Magnitude
-        if pSpin > PROT_CFG.FLING_SPIN_THRESHOLD*5 or pVel > PROT_CFG.FLING_VEL_THRESHOLD*5 then
-            if not PROT_STATE.dropkickWarned[plr] then
-                PROT_STATE.dropkickWarned[plr] = tick()
-                if ORBIT.notify then
-                    ORBIT.notify("🚨 Fling: " .. plr.Name, Color3.fromRGB(255, 120, 120), 2)
-                end
-                if ORBIT.tagCheater then ORBIT.tagCheater(plr, true) end
-            end
-        end
-    end
-    local now2 = tick()
-    for p, t in pairs(PROT_STATE.dropkickWarned) do
-        if now2 - t > 5 then PROT_STATE.dropkickWarned[p] = nil end
-    end
-end
-
--- ============================================================
---   ❄️ ANTI-FREEZE
--- ============================================================
-local function antiFreeze(char)
-    if not SETTINGS.AntiFreeze then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        pcall(function()
-            if hum.WalkSpeed < 1 then hum.WalkSpeed = ORIG_WS end
-            if hum.JumpPower < 1 then hum.JumpPower = ORIG_JP end
-            local animator = hum:FindFirstChildOfClass("Animator")
-            if animator then
-                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                    local name = track.Animation and track.Animation.Name or ""
-                    if name:lower():find("laugh") then track:Stop(0) end
-                end
-            end
-        end)
-    end
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") and p.Anchored and p.Name ~= "HumanoidRootPart" then
-            pcall(function() p.Anchored = false end)
-        end
-    end
-end
-
--- ============================================================
---   🛡️ ANTI-KNOCKBACK / ANTI-ANCHOR
--- ============================================================
-local function antiKnockback(char)
-    if not SETTINGS.AntiKnockback then return end
-    for _, child in ipairs(char:GetDescendants()) do
-        if BAD_CLASSES[child.ClassName] then killObject(child) end
-    end
-end
-
-local function antiAnchor(char)
-    if not SETTINGS.ProtEnabled then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if hrp and hrp.Anchored then
-        pcall(function() hrp.Anchored = false end)
-        ORBIT.addSession("protectionsTriggered")
-    end
-end
-
--- ============================================================
---   💀 ANTI-INSTANT-KILL
--- ============================================================
-local function antiInstantKill(char)
-    if not SETTINGS.ProtEnabled then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    local now = tick()
-    local hpDrop = (PROT_STATE.lastHealth or 100) - hum.Health
-    if isGrounded(hrp)
-        and PROT_STATE.lastHealth > 50
-        and hum.Health < 10
-        and hpDrop > 40
-        and (now - (PROT_STATE.lastHealthCheck or 0)) < 0.15 then
-        if PROT_STATE.lastSafeCFrame then
-            pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame) end)
-            resetVelocity(char)
-            ORBIT.addSession("protectionsTriggered")
-        end
-    end
-    PROT_STATE.lastHealth = hum.Health
-    PROT_STATE.lastHealthCheck = now
-end
-
--- ============================================================
---   🌌 ANTI-VOID v10.4 — ТОЛЬКО 2 ТРИГГЕРА
--- ============================================================
-local function antiVoid(char, hrp)
-    if not SETTINGS.AntiVoid then return end
-
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-    local state = hum:GetState()
-    local vy = hrp.AssemblyLinearVelocity.Y
-    local y = hrp.Position.Y
-
-    -- 🆕 Пропускаем если летим вверх или слабо вниз
-    if vy > -10 then
-        PROT_STATE.voidTimer = 0
-        return
-    end
-
-    -- 🆕 Пропускаем приземление
-    if state == Enum.HumanoidStateType.Landed
-       or state == Enum.HumanoidStateType.GettingUp then
-        PROT_STATE.voidTimer = 0
-        return
-    end
-
-    local now = tick()
-
-    -- 🆕 ТОЛЬКО 2 ТРИГГЕРА
-    local tooLow = y < (SETTINGS.AntiVoidY or 0)
-    local fastFall = vy < -80
-
-    if tooLow or fastFall then
-        PROT_STATE.voidTimer = PROT_STATE.voidTimer + (now - (PROT_STATE.lastFloorCheck or now))
-        PROT_STATE.lastFloorCheck = now
-
-        if PROT_STATE.voidTimer > PROT_CFG.VOID_TIMER_THRESHOLD then
-            local safePos = getSafeFloorPosition()
-            if safePos and safePos.Y > y + 5 then
-                pcall(function()
-                    char:PivotTo(CFrame.new(safePos))
-                    resetVelocity(char)
-                end)
-                warn("[Orbit v10.4] Smart Floor: спас с Y=" .. math.floor(y) .. " (vy=" .. math.floor(vy) .. ")")
-                if ORBIT.notify then
-                    ORBIT.notify("🛡 Smart Floor спас!", Color3.fromRGB(120, 255, 180), 2)
-                end
-                ORBIT.addSession("protectionsTriggered")
-            end
-            PROT_STATE.voidTimer = 0
-        end
-    else
-        PROT_STATE.voidTimer = 0
-    end
-end
-
--- ============================================================
---   💚 AUTO-HEAL
--- ============================================================
-local function autoHeal(char)
-    if not SETTINGS.AutoHeal then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum and hum.Health < hum.MaxHealth and hum.Health > 0 then
-        pcall(function() hum.Health = math.min(hum.MaxHealth, hum.Health + SETTINGS.AutoHealValue) end)
-    end
-end
-
--- ============================================================
---    ANTI-RINGPARTS
--- ============================================================
-local function setupAntiRingParts()
-    Workspace.DescendantAdded:Connect(function(obj)
-        if not SETTINGS.ProtEnabled then return end
-        if obj:IsA("BasePart") then
-            local parent = obj.Parent
-            if parent and (parent.Name:lower():find("ring") or parent.Name:lower():find("fling")) then
-                task.defer(function()
-                    if obj.Parent then
-                        local vel = obj.AssemblyAngularVelocity
-                        if vel.Magnitude > 5 then obj:Destroy() end
-                    end
-                end)
-            end
-        end
-    end)
-end
-setupAntiRingParts()
-
--- ============================================================
---   👁️ GODMODE + SPEEDHACK
--- ============================================================
-local function scanForGodMode()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer then continue end
-        local char = player.Character
-        if not char then continue end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum then continue end
-        if hum.MaxHealth > 10000 or hum.Health > 10000 then
-            if not PROT_STATE.godmodeWarned[player] then
-                PROT_STATE.godmodeWarned[player] = true
-                if ORBIT.notify then ORBIT.notify("⚠️ GodMode: " .. player.Name, Color3.fromRGB(255, 80, 80), 3) end
-                if ORBIT.tagCheater then ORBIT.tagCheater(player, true) end
-            end
-        else
-            if PROT_STATE.godmodeWarned[player] then PROT_STATE.godmodeWarned[player] = nil end
-        end
-    end
-end
-
-local function detectSpeedHack(player)
-    if player == LocalPlayer then return end
-    local char = player.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    local now = tick()
-    local last = PROT_STATE.lastPositions[player]
-    if last then
-        local dt = now - last.time
-        if dt > 0.1 and dt < 1 then
-            local speed = (hrp.Position - last.pos).Magnitude / dt
-            if speed > 150 then
-                if ORBIT.tagCheater then ORBIT.tagCheater(player, true) end
-            end
-        end
-    end
-    PROT_STATE.lastPositions[player] = { pos = hrp.Position, time = now }
-end
-
--- ============================================================
---    AUTO-DODGE
--- ============================================================
-local DODGE = { Enabled = false, ScanRadius = 15, SpeedThreshold = 60, DodgeDist = 12, Cooldown = 0.6, LastDodge = 0 }
-ORBIT.DODGE = DODGE
-local dodgeConn = nil
-
-local function setupAutoDodge()
-    if dodgeConn then dodgeConn:Disconnect(); dodgeConn = nil end
-    dodgeConn = RunService.Heartbeat:Connect(function(dt)
-        if not SETTINGS.ProtEnabled or not DODGE.Enabled then return end
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        if isAirborne(hrp) then return end
-        local now = tick()
-        if now - DODGE.LastDodge < DODGE.Cooldown then return end
-
-        local threats = {}
-        local myPos = hrp.Position
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("BasePart") and obj ~= hrp and obj.Parent ~= char and not obj.Anchored then
-                local dist = (obj.Position - myPos).Magnitude
-                if dist < DODGE.ScanRadius then
-                    local vel = obj.AssemblyLinearVelocity
-                    if vel.Magnitude > DODGE.SpeedThreshold then
-                        local toMe = (myPos - obj.Position)
-                        if toMe.Magnitude > 0.1 and vel.Unit:Dot(toMe.Unit) > 0.7 then
-                            table.insert(threats, { obj = obj, dist = dist })
-                        end
-                    end
-                end
-            end
-        end
-
-        if #threats > 0 then
-            table.sort(threats, function(a, b) return a.dist < b.dist end)
-            local threat = threats[1]
-            local threatDir = (threat.obj.Position - myPos).Unit
-            local rightDir = threatDir:Cross(Vector3.new(0, 1, 0)).Unit
-            local rayParams = RaycastParams.new()
-            rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-            local rayRight = Workspace:Raycast(myPos, rightDir * DODGE.DodgeDist, rayParams)
-            local dodgeDir = rayRight and -rightDir or rightDir
-            local targetPos = myPos + dodgeDir * DODGE.DodgeDist
-            local rayDown = Workspace:Raycast(targetPos + Vector3.new(0, 5, 0), Vector3.new(0, -10, 0), rayParams)
-            if rayDown then targetPos = rayDown.Position + Vector3.new(0, 3, 0) end
-            pcall(function()
-                char:PivotTo(CFrame.new(targetPos))
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-            end)
-            DODGE.LastDodge = now
-            ORBIT.addSession("dodgesMade")
-            protLog("Auto-Dodge")
-            -- 🆕 Возвращаем звук уворота
-            if ORBIT.playDodge then ORBIT.playDodge() end
-        end
-    end)
-end
-ORBIT.setupAutoDodge = setupAutoDodge
-
--- ============================================================
---   🚨 REVERSE FLING
--- ============================================================
-ORBIT.REVERSE = ORBIT.REVERSE or {
-    Enabled = false, RotateLimit = 20 * 2 * math.pi, FlingForce = 500,
-    LastCheck = 0, CheckInterval = 0.3, Detected = {},
-}
-
-local function reverseFlingPlayer(player)
-    if not player or player == LocalPlayer then return end
-    local char = player.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    pcall(function()
-        hrp.AssemblyAngularVelocity = Vector3.new(
-            math.random(-1, 1) * 1000, math.random(-1, 1) * 1000, math.random(-1, 1) * 1000)
-        hrp.AssemblyLinearVelocity = Vector3.new(0, ORBIT.REVERSE.FlingForce, 0)
-    end)
-end
-
-local function scanForFlingers()
-    if not ORBIT.REVERSE.Enabled then return end
-    local now = tick()
-    if now - ORBIT.REVERSE.LastCheck < ORBIT.REVERSE.CheckInterval then return end
-    ORBIT.REVERSE.LastCheck = now
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer then continue end
-        local char = player.Character
-        if not char then continue end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then continue end
-        local aav = hrp.AssemblyAngularVelocity
-        if math.abs(aav.X) > ORBIT.REVERSE.RotateLimit or
-           math.abs(aav.Y) > ORBIT.REVERSE.RotateLimit or
-           math.abs(aav.Z) > ORBIT.REVERSE.RotateLimit then
-            if not ORBIT.REVERSE.Detected[player] then
-                ORBIT.REVERSE.Detected[player] = now
-                reverseFlingPlayer(player)
-            end
-        end
-    end
-    for p, t in pairs(ORBIT.REVERSE.Detected) do
-        if now - t > 5 then ORBIT.REVERSE.Detected[p] = nil end
-    end
-end
-
--- ============================================================
---   🛡️ ЗАЩИТА ХАРАКТЕРА
--- ============================================================
-local function setupCharacterProtection()
-    LocalPlayer.CharacterAdded:Connect(function(char)
-        task.wait(0.5)
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
-        disableFallDamage(char)
-        local origMax = hum.MaxHealth
-        hum.Changed:Connect(function(prop)
-            if prop == "MaxHealth" and hum.MaxHealth > 10000 then hum.MaxHealth = origMax end
-        end)
-        char.ChildAdded:Connect(function(child)
-            if child:IsA("ForceField") then
-                task.defer(function() pcall(function() child:Destroy() end) end)
-            end
-        end)
-    end)
-end
-
-local function watchCharacter(char)
-    if not char then return end
-    antiKnockback(char)
-    disableFallDamage(char)
-    if PROT_STATE.watchConn then pcall(function() PROT_STATE.watchConn:Disconnect() end) end
-    PROT_STATE.watchConn = char.DescendantAdded:Connect(function(obj)
-        if not SETTINGS.ProtEnabled then return end
-        if BAD_CLASSES[obj.ClassName] then
-            task.defer(function() killObject(obj) end)
-        end
-    end)
-end
-
--- ============================================================
---   ⚙️ ОСНОВНОЙ ЦИКЛ ЗАЩИТЫ
--- ============================================================
-local function processProtection(dt, char, hrp)
-    local now = tick()
-    local airborne = isAirborne(hrp)
-
-    if isGrounded(hrp) then
-        PROT_STATE.groundTimer = PROT_STATE.groundTimer + dt
-    else
-        PROT_STATE.groundTimer = 0
-    end
-
-    antiDropKick(char, hrp, now)
-    antiFling(char, hrp)
-    antiAnchor(char)
-
-    if now - PROT_STATE.lastKnockTime >= 0.1 then
-        PROT_STATE.lastKnockTime = now
-        antiKnockback(char)
-    end
-    if now - PROT_STATE.lastFreezeTime >= 0.25 then
-        PROT_STATE.lastFreezeTime = now
-        antiFreeze(char)
-    end
-
-    if SETTINGS.AutoHeal and now - PROT_STATE.lastHealTime >= 0.3 then
-        PROT_STATE.lastHealTime = now
-        autoHeal(char)
-    end
-
-    antiVoid(char, hrp)
-    antiInstantKill(char)
-
-    if now - PROT_STATE.lastScan > 0.5 then
-        PROT_STATE.lastScan = now
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then pcall(detectSpeedHack, player) end
-        end
-        pcall(scanForGodMode)
-        pcall(scanForFlingers)
-    end
-
-    if now - PROT_STATE.lastCheckTime > 0.2 then
-        PROT_STATE.lastCheckTime = now
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        local vy = math.abs(hrp.AssemblyLinearVelocity.Y)
-        if hum and hum.Health > 0
-            and hrp.Position.Y > (SETTINGS.AntiVoidY + 10)
-            and not airborne
-            and vy < 1.0 then
-            PROT_STATE.lastSafePos = hrp.Position
-            local lookVector = hrp.CFrame.LookVector
-            local yaw = math.atan2(-lookVector.X, -lookVector.Z)
-            PROT_STATE.lastSafeCFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, yaw, 0)
-        end
-    end
-
-    if ORBIT.ESP and ORBIT.ESP.Enabled then pcall(updateESP) end
-end
-
-function ORBIT.enableProtection()
-    if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
-    if not SETTINGS.ProtEnabled then return end
-
-    PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
-    PROT_STATE.lastCheckTime = 0; PROT_STATE.lastHealTime = 0
-    PROT_STATE.lastHealth = 100; PROT_STATE.lastKnockTime = 0
-    PROT_STATE.lastFreezeTime = 0; PROT_STATE.spawnGrace = tick()
-    PROT_STATE.lastPositions = {}; PROT_STATE.godmodeWarned = {}
-    PROT_STATE.voidTimer = 0; PROT_STATE.lastFloorCheck = 0
-    PROT_STATE.lastHRP = nil; PROT_STATE.cframeJumpCounter = 0
-    PROT_STATE.dropkickWarned = {}; PROT_STATE.blockedFlingCount = 0
-    PROT_STATE.groundTimer = 0
-
-    if LocalPlayer.Character then watchCharacter(LocalPlayer.Character) end
-    LocalPlayer.CharacterAdded:Connect(function(newChar)
-        PROT_STATE.spawnGrace = tick()
-        PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
-        PROT_STATE.lastHRP = nil; PROT_STATE.cframeJumpCounter = 0
-        PROT_STATE.groundTimer = 0
-        task.wait(0.3)
-        watchCharacter(newChar)
-    end)
-
-    setupCharacterProtection()
-    setupAutoDodge()
-
-    ORBIT.protConn = RunService.Heartbeat:Connect(function(dt)
-        if not SETTINGS.ProtEnabled then return end
-        local char = LocalPlayer.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        pcall(processProtection, dt, char, hrp)
-    end)
-
-    ORBIT.notify("🛡 Защита v10.4 ВКЛ", Color3.fromRGB(120, 255, 180), 3)
-    protLog("Защита v10.4 активна. 2 триггера, AntiVoidY=0.")
-end
-
-function ORBIT.disableProtection()
-    if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
-    if dodgeConn then dodgeConn:Disconnect(); dodgeConn = nil end
-    if PROT_STATE.watchConn then pcall(function() PROT_STATE.watchConn:Disconnect() end); PROT_STATE.watchConn = nil end
-    PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
-end
-
-Workspace.DescendantAdded:Connect(function(inst)
-    if not SETTINGS.ProtEnabled or not SETTINGS.AntiExplosion then return end
-    if inst:IsA("Explosion") then
-        task.defer(function() pcall(function() inst:Destroy() end) end)
-    end
-end)
-
--- ==================== ESP ИГРОКОВ ====================
 ORBIT.ESP = ORBIT.ESP or {
     Enabled = false, MaxDistance = 500, UpdateInterval = 0.1,
     LastUpdate = 0, Tags = {},
@@ -1103,7 +396,7 @@ local function spawnFireworks(position, color3)
 end
 ORBIT.spawnFireworks = spawnFireworks
 
--- ==================== МЕТКА ЧИТЕРА (НЕВИДИМАЯ) ====================
+-- ==================== МЕТКА ЧИТЕРА ====================
 ORBIT.taggedPlayers = ORBIT.taggedPlayers or {}
 if not getgenv().ORBIT_CHEATERS then getgenv().ORBIT_CHEATERS = {} end
 
@@ -1123,16 +416,14 @@ function ORBIT.tagCheater(player, enable)
             name = player.Name, time = os.time(), reason = "manual",
         }
         ORBIT.addSession("cheatersTagged")
-        warn("[Orbit v10.4] Помечен: " .. player.Name)
+        warn("[Orbit v22.7] Помечен: " .. player.Name)
         if ORBIT.notify then ORBIT.notify("🚩 Помечен: " .. player.Name, Color3.fromRGB(255, 120, 120)) end
         if ORBIT.ESP and ORBIT.ESP.Enabled and ORBIT.ESP.Tags[player] then
             removeESPTag(player); task.wait(0.1); makeESPTag(player)
         end
     else
         ORBIT.taggedPlayers[player] = nil
-        if getgenv().ORBIT_CHEATERS then
-            getgenv().ORBIT_CHEATERS[player.UserId] = nil
-        end
+        if getgenv().ORBIT_CHEATERS then getgenv().ORBIT_CHEATERS[player.UserId] = nil end
         if ORBIT.ESP and ORBIT.ESP.Enabled and ORBIT.ESP.Tags[player] then
             removeESPTag(player); task.wait(0.1); makeESPTag(player)
         end
@@ -1172,6 +463,7 @@ function ORBIT.buildTargetRings(player, slot)
         if not data.isModel then
             refPart.Material = SETTINGS.Material
             refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+            refPart.CanQuery = false; refPart.CanTouch = false
             refPart.Transparency = SETTINGS.Transparency
             refPart.Color = SETTINGS.FixedColor
         end
@@ -1274,7 +566,9 @@ local function updateTargetRings(dt)
     end
 end
 
--- ==================== БОТЫ ====================
+-- ============================================================
+--       🤖 БОТЫ (с патчами Клода: лимит 40, парение)
+-- ============================================================
 ORBIT.bots = {}
 ORBIT.botIdCounter = 0
 ORBIT.botSettings = ORBIT.botSettings or {
@@ -1282,6 +576,21 @@ ORBIT.botSettings = ORBIT.botSettings or {
     BotRingBlockCount = 6, BotSpeed = 60, UseMySkin = false, BotYOffset = 1.5,
 }
 ORBIT.botAvatarTemplate = nil
+
+local MAX_BOTS = 40
+local LIGHT_SHAPES = {
+    ["БЛОК"]=true, ["ШАР"]=true, ["ЦИЛИНДР"]=true, ["КЛИН"]=true, ["СЕРДЦЕ"]=true,
+    ["ЗВЕЗДА"]=true, ["ТРЕУГОЛЬНИК"]=true, ["РОМБ"]=true, ["КРЕСТ"]=true,
+    ["КОСТЬ"]=true, ["ПИРАМИДА"]=true,
+}
+local function pickBotShape()
+    local heavyAllowed = ORBIT.getBotCount() < 10
+    for _ = 1, 20 do
+        local idx = math.random(1, #SHAPE_PRESETS)
+        if heavyAllowed or LIGHT_SHAPES[SHAPE_PRESETS[idx].name] then return idx end
+    end
+    return 1
+end
 
 function ORBIT.getBotAvatarTemplate()
     if ORBIT.botAvatarTemplate then return ORBIT.botAvatarTemplate end
@@ -1320,7 +629,7 @@ end
 
 local function createDummyCharacter(position, useSkin)
     local groundY = findGroundY(position.X, position.Z, position.Y)
-    local rootY = groundY + ORBIT.botSettings.BotYOffset
+    local rootY = groundY + 1.5
     if useSkin then
         local template = ORBIT.getBotAvatarTemplate()
         if template then
@@ -1330,7 +639,10 @@ local function createDummyCharacter(position, useSkin)
                 for _, part in ipairs(model:GetDescendants()) do
                     if part:IsA("BasePart") then part.Anchored = true; part.CanCollide = false end
                 end
-                pcall(function() model:PivotTo(CFrame.new(Vector3.new(position.X, rootY, position.Z))) end)
+                local h0 = model:FindFirstChildOfClass("Humanoid")
+                local r0 = model:FindFirstChild("HumanoidRootPart")
+                local lift = (h0 and r0) and (h0.HipHeight + r0.Size.Y / 2) or 3
+                pcall(function() model:PivotTo(CFrame.new(position.X, groundY + lift, position.Z)) end)
                 local hum = model:FindFirstChildOfClass("Humanoid")
                 if hum then hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end
                 model.Parent = Workspace
@@ -1356,12 +668,15 @@ local function createDummyCharacter(position, useSkin)
     head.Color = Color3.fromRGB(255, 200, 100); head.Material = Enum.Material.Neon
     head.CFrame = root.CFrame * CFrame.new(0, 2, 0)
     head.Parent = model
-    local hum = Instance.new("Humanoid"); hum.Parent = model
+    local hum = Instance.new("Humanoid")
+    hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+    hum.Parent = model
     model.Parent = Workspace
     return model
 end
 
 function ORBIT.createBot(shapeIndex, position, targetSlot)
+    if ORBIT.getBotCount() >= MAX_BOTS then return nil end
     local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     local basePos = position
     if not basePos then
@@ -1371,7 +686,7 @@ function ORBIT.createBot(shapeIndex, position, targetSlot)
             basePos = myHrp.Position + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
         else basePos = Vector3.new(0, 5, 0) end
     end
-    shapeIndex = shapeIndex or math.random(1, #SHAPE_PRESETS)
+    shapeIndex = shapeIndex or pickBotShape()
     local model = createDummyCharacter(basePos, ORBIT.botSettings.UseMySkin)
     local folder = Instance.new("Folder")
     folder.Name = "BotRing_" .. tostring(math.random(1, 999999))
@@ -1390,6 +705,7 @@ function ORBIT.createBot(shapeIndex, position, targetSlot)
         if not data.isModel then
             refPart.Material = Enum.Material.Neon
             refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+            refPart.CanQuery = false; refPart.CanTouch = false
             refPart.Transparency = 0.1
             refPart.Color = Color3.fromHSV(hueBase, 0.85, 1)
         end
@@ -1434,10 +750,14 @@ function ORBIT.createMultipleBots(count, targetSlot)
 end
 
 function ORBIT.createManyBots(count, targetSlot)
-    count = math.clamp(tonumber(count) or 10, 1, 200)
+    count = math.clamp(tonumber(count) or 10, 1, MAX_BOTS)
     for i = 1, count do
-        local shapeIdx = math.random(1, #SHAPE_PRESETS)
-        ORBIT.createBot(shapeIdx, nil, targetSlot)
+        if not ORBIT.createBot(nil, nil, targetSlot) then
+            if ORBIT.notify then
+                ORBIT.notify("🤖 Лимит ботов: " .. MAX_BOTS, Color3.fromRGB(255, 200, 120), 2)
+            end
+            break
+        end
         if i % 5 == 0 then task.wait(0.08) end
     end
 end
@@ -1490,41 +810,60 @@ local function collectBotRing(botModel, data)
 end
 
 local function updateBots(dt)
-    if not LocalPlayer.Character then return end
-    local myHrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local myChar = LocalPlayer.Character
+    local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
     if not myHrp then return end
-    local t = tick() - ORBIT.startTime
+    local now = tick()
+    local t = now - ORBIT.startTime
+
     for botModel, data in pairs(ORBIT.bots) do
         if data.collected then continue end
         if not data.model or not data.model.Parent then ORBIT.bots[botModel] = nil; continue end
         local botRoot = data.model:FindFirstChild("HumanoidRootPart")
         if not botRoot then continue end
-        data.angle = data.angle + (data.ringSpeed or 60) * dt
-        local radius = data.ringRadius or 4
-        local height = data.ringHeight or 2
-        local count = #data.blocks
-        for _, b in ipairs(data.blocks) do
-            if not b.part or not b.part.Parent then continue end
-            local angle = math.rad(data.angle + b.angleOffset)
-            local pos = botRoot.Position + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
-            local cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
-            if b.isModel and b.model then b.model:PivotTo(cf) else b.part.CFrame = cf end
-            local c = Color3.fromHSV((data.hueBase + t * 0.15 + b.index / count) % 1, 0.85, 1)
-            if b.bodyParts then
-                for _, p in ipairs(b.bodyParts) do
-                    if not p:GetAttribute("NoRecolor") then p.Color = c end
+
+        data.baseCF = data.baseCF or data.model:GetPivot()
+        local dist = (botRoot.Position - myHrp.Position).Magnitude
+
+        if dist < 250 then
+            data.model:PivotTo(
+                data.baseCF
+                * CFrame.new(0, 0.4 + math.sin(t * 2 + data.id) * 0.3, 0)
+                * CFrame.Angles(0, t * 1.2 + data.id, 0)
+            )
+
+            data.angle = data.angle + (data.ringSpeed or 60) * dt
+            local radius = data.ringRadius or 4
+            local height = data.ringHeight or 2
+            local count = #data.blocks
+            local doColor = (now - (data.lastColor or 0)) > 0.1
+            if doColor then data.lastColor = now end
+
+            for _, b in ipairs(data.blocks) do
+                if not b.part or not b.part.Parent then continue end
+                local angle = math.rad(data.angle + b.angleOffset)
+                local pos = botRoot.Position + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
+                local cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
+                if b.isModel and b.model then b.model:PivotTo(cf) else b.part.CFrame = cf end
+
+                if doColor then
+                    local c = Color3.fromHSV((data.hueBase + t * 0.15 + b.index / count) % 1, 0.85, 1)
+                    if b.bodyParts then
+                        for _, p in ipairs(b.bodyParts) do
+                            if not p:GetAttribute("NoRecolor") then p.Color = c end
+                        end
+                    elseif b.part then
+                        b.part.Color = c
+                    end
                 end
-            elseif b.part then b.part.Color = c end
+            end
         end
-        local head = data.model:FindFirstChild("Head")
-        if head and not ORBIT.botSettings.UseMySkin then
-            head.CFrame = CFrame.new(head.Position) * CFrame.Angles(0, t * 2, 0)
-        end
+
         if ORBIT.botSettings.AutoCollect then
             local dx = myHrp.Position.X - botRoot.Position.X
             local dz = myHrp.Position.Z - botRoot.Position.Z
-            local dist = math.sqrt(dx*dx + dz*dz)
-            if dist < ORBIT.botSettings.CollectRadius then collectBotRing(botModel, data) end
+            local dist2 = math.sqrt(dx*dx + dz*dz)
+            if dist2 < ORBIT.botSettings.CollectRadius then collectBotRing(botModel, data) end
         end
     end
 end
@@ -1535,7 +874,9 @@ function ORBIT.getBotCount()
     return n
 end
 
--- ==================== ПАТТЕРНЫ ====================
+-- ============================================================
+--       ПАТТЕРНЫ / КОЛЬЦА
+-- ============================================================
 local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
     local pattern = SETTINGS.OrbitPattern
     local t = baseAngle
@@ -1558,7 +899,233 @@ local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
     return math.cos(t)*baseRadius, baseHeight, math.sin(t)*baseRadius
 end
 
--- ==================== ПРОИЗВОДИТЕЛЬНОСТЬ ====================
+function ORBIT.applyTrailSettings(trail)
+    if not trail then return end
+    trail.Lifetime = SETTINGS.TrailLength
+    trail.WidthScale = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, SETTINGS.TrailWidth), NumberSequenceKeypoint.new(1, 0),
+    })
+end
+
+function ORBIT.refreshAllTrails()
+    for _, ring in pairs(rings) do
+        for _, data in ipairs(ring.blocks) do
+            if data.trail then ORBIT.applyTrailSettings(data.trail) end
+        end
+    end
+end
+
+function ORBIT.countActiveLights()
+    local count = 0
+    for _, ring in pairs(rings) do
+        for _, data in ipairs(ring.blocks) do
+            if data.light and data.light.Parent then count = count + 1 end
+        end
+    end
+    ORBIT.activeLightCount = count
+end
+
+function ORBIT.buildRing(ri)
+    local ring = rings[ri]
+    if not ring then return end
+    if ring.folder then ring.folder:Destroy(); ring.folder = nil end
+    ring.blocks = {}
+    local folder = Instance.new("Folder")
+    folder.Name = "OrbitRing_" .. ri .. "_" .. tostring(math.random(1, 999999))
+    folder.Parent = Workspace
+    ring.folder = folder
+    local shape = SHAPE_PRESETS[ring.shapeIndex] or SHAPE_PRESETS[1]
+    local size = ORBIT.getCurrentShapeSize()
+    for i = 1, SETTINGS.BlockCount do
+        local blockName = "R" .. ri .. "_S" .. i
+        local data = shape.create(size, blockName, i)
+        local refPart = data.part
+        local visualSize = data.visualSize or size
+        if not data.isModel then
+            refPart.Material = SETTINGS.Material
+            refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+            refPart.CanQuery = false; refPart.CanTouch = false
+            refPart.Transparency = SETTINGS.Transparency
+            refPart.Color = SETTINGS.FixedColor
+        end
+        refPart.CanQuery = false
+        refPart.CanTouch = false
+        if data.isModel then
+            for _, bp in ipairs(data.bodyParts or {}) do
+                bp.Transparency = SETTINGS.Transparency
+                bp.CanQuery = false
+                bp.CanTouch = false
+            end
+        end
+        if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
+        local light = nil
+        if SETTINGS.LightEnabled and ORBIT.activeLightCount < SETTINGS.LightLimit then
+            light = Instance.new("PointLight")
+            light.Name = blockName .. "_Light"
+            light.Color = SETTINGS.FixedColor
+            light.Range = SETTINGS.LightRange
+            light.Brightness = 1
+            light.Parent = refPart
+            ORBIT.activeLightCount = ORBIT.activeLightCount + 1
+        end
+        local trail = nil
+        if SETTINGS.TrailEnabled then
+            local span = visualSize*0.35
+            local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span,0,0); a0.Parent = refPart
+            local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span,0,0); a1.Parent = refPart
+            trail = Instance.new("Trail")
+            trail.Attachment0 = a0; trail.Attachment1 = a1
+            trail.Color = ColorSequence.new(SETTINGS.FixedColor)
+            trail.Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
+            })
+            ORBIT.applyTrailSettings(trail)
+            trail.Parent = refPart
+        end
+        local nameGui = Instance.new("BillboardGui")
+        nameGui.Size = UDim2.new(0, 140, 0, 30)
+        nameGui.StudsOffset = Vector3.new(0, visualSize*0.9 + 1, 0)
+        nameGui.AlwaysOnTop = true; nameGui.LightInfluence = 0
+        nameGui.Adornee = refPart
+        nameGui.Enabled = SETTINGS.ShowBlockNames
+        nameGui.Parent = refPart
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, 0, 1, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = blockName
+        nameLabel.TextScaled = true
+        nameLabel.TextColor3 = SETTINGS.NameColor
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextStrokeTransparency = 0.3
+        nameLabel.Parent = nameGui
+        table.insert(ring.blocks, {
+            part = refPart, model = data.model, isModel = data.isModel or false,
+            bodyParts = data.bodyParts, light = light, trail = trail, lastTrailUpdate = 0,
+            nameGui = nameGui, nameLabel = nameLabel, visualSize = visualSize,
+            angleOffset = (i-1)*(360/SETTINGS.BlockCount) + ring.angleShift,
+        })
+    end
+    statsData.totalShapes = statsData.totalShapes + #ring.blocks
+end
+
+function ORBIT.destroyRing(ri)
+    local ring = rings[ri]
+    if not ring then return end
+    if ring.folder then ring.folder:Destroy(); ring.folder = nil end
+    ring.blocks = {}
+end
+function ORBIT.applyColorToBlock(data, c)
+    if data.light then data.light.Color = c end
+    if data.bodyParts then
+        for _, p in ipairs(data.bodyParts) do
+            if not p:GetAttribute("NoRecolor") then p.Color = c end
+        end
+    elseif data.part then data.part.Color = c end
+    if data.trail then data.trail.Color = ColorSequence.new(c) end
+end
+function ORBIT.applyColor()
+    local p = P.COLORS[P.colorIndex]
+    if p.rainbow then SETTINGS.Rainbow = true
+    else
+        SETTINGS.Rainbow = false
+        SETTINGS.FixedColor = p.c
+        for _, ring in pairs(rings) do
+            for _, data in ipairs(ring.blocks) do
+                ORBIT.applyColorToBlock(data, SETTINGS.FixedColor)
+            end
+        end
+    end
+end
+function ORBIT.applyNameVisibility()
+    for _, ring in pairs(rings) do
+        for _, data in ipairs(ring.blocks) do
+            if data.nameGui then data.nameGui.Enabled = SETTINGS.ShowBlockNames end
+        end
+    end
+end
+function ORBIT.rebuildAllRings()
+    if not ORBIT.enabled then return end
+    statsData.totalShapes = 0
+    for ri, ring in pairs(rings) do
+        if ring.enabled then ORBIT.destroyRing(ri) end
+    end
+    ORBIT.countActiveLights()
+    for ri, ring in pairs(rings) do
+        if ring.enabled then ORBIT.buildRing(ri) end
+    end
+    ORBIT.applyColor()
+    ORBIT.applyNameVisibility()
+end
+
+function ORBIT.setEnabled(state)
+    ORBIT.enabled = state
+    if state then
+        ORBIT.countActiveLights()
+        for ri, ring in pairs(rings) do
+            if ring.enabled then ORBIT.buildRing(ri) end
+        end
+        ORBIT.applyColor(); ORBIT.applyNameVisibility()
+        ORBIT.startUpdateLoop()
+        ORBIT.notify("🟢 Скрипт включён", Color3.fromRGB(100,255,150))
+    else
+        ORBIT.stopUpdateLoop()
+        for ri in pairs(rings) do ORBIT.destroyRing(ri) end
+        ORBIT.activeLightCount = 0
+        if ORBIT.auraFolder then ORBIT.auraFolder:Destroy(); ORBIT.auraFolder = nil end
+        if ORBIT.fireFolder then ORBIT.fireFolder:Destroy(); ORBIT.fireFolder = nil end
+        ORBIT.cleanupAllTargetRings()
+        ORBIT.removeAllBots()
+        if ORBIT.ESP and ORBIT.ESP.Enabled then ORBIT.setESPEnabled(false) end
+        ORBIT.notify("🔴 Скрипт выключен", Color3.fromRGB(255,100,100))
+    end
+end
+
+function ORBIT.setRingEnabled(ri, state)
+    local ring = rings[ri]
+    if not ring then return end
+    ring.enabled = state
+    if not ORBIT.enabled then return end
+    if state then ORBIT.countActiveLights(); ORBIT.buildRing(ri); ORBIT.applyColor(); ORBIT.applyNameVisibility()
+    else ORBIT.destroyRing(ri); ORBIT.countActiveLights() end
+end
+
+function ORBIT.applyDirectionPreset()
+    local preset = P.DIRECTION[P.directionIndex]
+    for ri = 1, 5 do rings[ri].direction = preset.dirs[ri] end
+end
+function ORBIT.applySpeedModePreset()
+    local preset = P.SPEED_MODE[P.speedModeIndex]
+    for ri = 1, 5 do rings[ri].speedMult = preset.mults[ri] end
+end
+function ORBIT.applyShapes()
+    if P.formModeIndex == 1 then
+        for ri = 1, 5 do rings[ri].shapeIndex = ORBIT.shapeIndex end
+    else
+        for ri = 1, 5 do rings[ri].shapeIndex = ((ORBIT.shapeIndex+ri-2) % #SHAPE_PRESETS) + 1 end
+    end
+end
+
+function ORBIT.setupRespawnHook()
+    LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if ORBIT.enabled then
+            for ri, ring in pairs(rings) do
+                if ring.enabled then ORBIT.destroyRing(ri) end
+            end
+            ORBIT.countActiveLights()
+            for ri, ring in pairs(rings) do
+                if ring.enabled then ORBIT.buildRing(ri) end
+            end
+            ORBIT.applyColor(); ORBIT.applyNameVisibility()
+            ORBIT.setupAura()
+            ORBIT.setupFire()
+        end
+    end)
+end
+
+-- ============================================================
+--       ПРОИЗВОДИТЕЛЬНОСТЬ
+-- ============================================================
 local PERFORMANCE = {
     Enabled = true, Level = "auto", CurrentLevel = "high",
     LastCheck = 0, CheckInterval = 3.0,
@@ -1607,6 +1174,7 @@ local function applyPerformanceLevel(level)
     elseif level == "minimal" then
         setLightsEnabled(false); setTrailsEnabled(false); setAuraTrailsEnabled(false)
     end
+    if ORBIT.notify then ORBIT.notify("⚡ Качество: " .. level:upper(), Color3.fromRGB(180, 220, 255), 1.5) end
 end
 function ORBIT.setPerformanceMode(mode)
     if mode == "off" then
@@ -1761,223 +1329,6 @@ function ORBIT.stopUpdateLoop()
     if ORBIT.updateConn then ORBIT.updateConn:Disconnect(); ORBIT.updateConn = nil end
 end
 
--- ==================== УТИЛИТЫ ====================
-function ORBIT.countActiveLights()
-    local count = 0
-    for _, ring in pairs(rings) do
-        for _, data in ipairs(ring.blocks) do
-            if data.light and data.light.Parent then count = count + 1 end
-        end
-    end
-    ORBIT.activeLightCount = count
-end
-function ORBIT.applyTrailSettings(trail)
-    if not trail then return end
-    trail.Lifetime = SETTINGS.TrailLength
-    trail.WidthScale = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, SETTINGS.TrailWidth), NumberSequenceKeypoint.new(1, 0),
-    })
-end
-function ORBIT.refreshAllTrails()
-    for _, ring in pairs(rings) do
-        for _, data in ipairs(ring.blocks) do
-            if data.trail then ORBIT.applyTrailSettings(data.trail) end
-        end
-    end
-end
-function ORBIT.applyDirectionPreset()
-    local preset = P.DIRECTION[P.directionIndex]
-    for ri = 1, 5 do rings[ri].direction = preset.dirs[ri] end
-end
-function ORBIT.applySpeedModePreset()
-    local preset = P.SPEED_MODE[P.speedModeIndex]
-    for ri = 1, 5 do rings[ri].speedMult = preset.mults[ri] end
-end
-function ORBIT.applyShapes()
-    if P.formModeIndex == 1 then
-        for ri = 1, 5 do rings[ri].shapeIndex = ORBIT.shapeIndex end
-    else
-        for ri = 1, 5 do rings[ri].shapeIndex = ((ORBIT.shapeIndex+ri-2) % #SHAPE_PRESETS) + 1 end
-    end
-end
-
-function ORBIT.buildRing(ri)
-    local ring = rings[ri]
-    if not ring then return end
-    if ring.folder then ring.folder:Destroy(); ring.folder = nil end
-    ring.blocks = {}
-    local folder = Instance.new("Folder")
-    folder.Name = "OrbitRing_" .. ri .. "_" .. tostring(math.random(1, 999999))
-    folder.Parent = Workspace
-    ring.folder = folder
-    local shape = SHAPE_PRESETS[ring.shapeIndex] or SHAPE_PRESETS[1]
-    local size = ORBIT.getCurrentShapeSize()
-    for i = 1, SETTINGS.BlockCount do
-        local blockName = "R" .. ri .. "_S" .. i
-        local data = shape.create(size, blockName, i)
-        local refPart = data.part
-        local visualSize = data.visualSize or size
-        if not data.isModel then
-            refPart.Material = SETTINGS.Material
-            refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
-            refPart.Transparency = SETTINGS.Transparency
-            refPart.Color = SETTINGS.FixedColor
-        end
-        if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
-        local light = nil
-        if SETTINGS.LightEnabled and ORBIT.activeLightCount < SETTINGS.LightLimit then
-            light = Instance.new("PointLight")
-            light.Name = blockName .. "_Light"
-            light.Color = SETTINGS.FixedColor
-            light.Range = SETTINGS.LightRange
-            light.Brightness = 1
-            light.Parent = refPart
-            ORBIT.activeLightCount = ORBIT.activeLightCount + 1
-        end
-        local trail = nil
-        if SETTINGS.TrailEnabled then
-            local span = visualSize*0.35
-            local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span,0,0); a0.Parent = refPart
-            local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span,0,0); a1.Parent = refPart
-            trail = Instance.new("Trail")
-            trail.Attachment0 = a0; trail.Attachment1 = a1
-            trail.Color = ColorSequence.new(SETTINGS.FixedColor)
-            trail.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
-            })
-            ORBIT.applyTrailSettings(trail)
-            trail.Parent = refPart
-        end
-        local nameGui = Instance.new("BillboardGui")
-        nameGui.Size = UDim2.new(0, 140, 0, 30)
-        nameGui.StudsOffset = Vector3.new(0, visualSize*0.9 + 1, 0)
-        nameGui.AlwaysOnTop = true; nameGui.LightInfluence = 0
-        nameGui.Adornee = refPart
-        nameGui.Enabled = SETTINGS.ShowBlockNames
-        nameGui.Parent = refPart
-        local nameLabel = Instance.new("TextLabel")
-        nameLabel.Size = UDim2.new(1, 0, 1, 0)
-        nameLabel.BackgroundTransparency = 1
-        nameLabel.Text = blockName
-        nameLabel.TextScaled = true
-        nameLabel.TextColor3 = SETTINGS.NameColor
-        nameLabel.Font = Enum.Font.GothamBold
-        nameLabel.TextStrokeTransparency = 0.3
-        nameLabel.Parent = nameGui
-        table.insert(ring.blocks, {
-            part = refPart, model = data.model, isModel = data.isModel or false,
-            bodyParts = data.bodyParts, light = light, trail = trail, lastTrailUpdate = 0,
-            nameGui = nameGui, nameLabel = nameLabel, visualSize = visualSize,
-            angleOffset = (i-1)*(360/SETTINGS.BlockCount) + ring.angleShift,
-        })
-    end
-    statsData.totalShapes = statsData.totalShapes + #ring.blocks
-end
-
-function ORBIT.destroyRing(ri)
-    local ring = rings[ri]
-    if not ring then return end
-    if ring.folder then ring.folder:Destroy(); ring.folder = nil end
-    ring.blocks = {}
-end
-function ORBIT.applyColorToBlock(data, c)
-    if data.light then data.light.Color = c end
-    if data.bodyParts then
-        for _, p in ipairs(data.bodyParts) do
-            if not p:GetAttribute("NoRecolor") then p.Color = c end
-        end
-    elseif data.part then data.part.Color = c end
-    if data.trail then data.trail.Color = ColorSequence.new(c) end
-end
-function ORBIT.applyColor()
-    local p = P.COLORS[P.colorIndex]
-    if p.rainbow then SETTINGS.Rainbow = true
-    else
-        SETTINGS.Rainbow = false
-        SETTINGS.FixedColor = p.c
-        for _, ring in pairs(rings) do
-            for _, data in ipairs(ring.blocks) do
-                ORBIT.applyColorToBlock(data, SETTINGS.FixedColor)
-            end
-        end
-    end
-end
-function ORBIT.applyNameVisibility()
-    for _, ring in pairs(rings) do
-        for _, data in ipairs(ring.blocks) do
-            if data.nameGui then data.nameGui.Enabled = SETTINGS.ShowBlockNames end
-        end
-    end
-end
-function ORBIT.rebuildAllRings()
-    if not ORBIT.enabled then return end
-    statsData.totalShapes = 0
-    for ri, ring in pairs(rings) do
-        if ring.enabled then ORBIT.destroyRing(ri) end
-    end
-    ORBIT.countActiveLights()
-    for ri, ring in pairs(rings) do
-        if ring.enabled then ORBIT.buildRing(ri) end
-    end
-    ORBIT.applyColor()
-    ORBIT.applyNameVisibility()
-end
-
-function ORBIT.setEnabled(state)
-    ORBIT.enabled = state
-    if state then
-        ORBIT.countActiveLights()
-        for ri, ring in pairs(rings) do
-            if ring.enabled then ORBIT.buildRing(ri) end
-        end
-        ORBIT.applyColor(); ORBIT.applyNameVisibility()
-        ORBIT.startUpdateLoop()
-        ORBIT.notify("🟢 Скрипт включён", Color3.fromRGB(100,255,150))
-    else
-        ORBIT.stopUpdateLoop()
-        if ORBIT.protConn then ORBIT.disableProtection() end
-        for ri in pairs(rings) do ORBIT.destroyRing(ri) end
-        ORBIT.activeLightCount = 0
-        if ORBIT.auraFolder then ORBIT.auraFolder:Destroy(); ORBIT.auraFolder = nil end
-        if ORBIT.fireFolder then ORBIT.fireFolder:Destroy(); ORBIT.fireFolder = nil end
-        ORBIT.cleanupAllTargetRings()
-        ORBIT.removeAllBots()
-        if ORBIT.ESP and ORBIT.ESP.Enabled then ORBIT.setESPEnabled(false) end
-        ORBIT.notify("🔴 Скрипт выключен", Color3.fromRGB(255,100,100))
-    end
-end
-
-function ORBIT.setRingEnabled(ri, state)
-    local ring = rings[ri]
-    if not ring then return end
-    ring.enabled = state
-    if not ORBIT.enabled then return end
-    if state then ORBIT.countActiveLights(); ORBIT.buildRing(ri); ORBIT.applyColor(); ORBIT.applyNameVisibility()
-    else ORBIT.destroyRing(ri); ORBIT.countActiveLights() end
-end
-
-function ORBIT.setupRespawnHook()
-    LocalPlayer.CharacterAdded:Connect(function()
-        task.wait(0.5)
-        if ORBIT.enabled then
-            for ri, ring in pairs(rings) do
-                if ring.enabled then ORBIT.destroyRing(ri) end
-            end
-            ORBIT.countActiveLights()
-            for ri, ring in pairs(rings) do
-                if ring.enabled then ORBIT.buildRing(ri) end
-            end
-            ORBIT.applyColor(); ORBIT.applyNameVisibility()
-            ORBIT.setupAura()
-            ORBIT.setupFire()
-            if SETTINGS.ProtEnabled then
-                PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
-                PROT_STATE.groundTimer = 0
-            end
-        end
-    end)
-end
-
 -- ==================== СОХРАНЕНИЯ ====================
 local SAVED_DATA = nil
 local function enc(v)
@@ -2023,14 +1374,7 @@ local function collectSaveData()
         spinResetting=ORBIT.spinResetting, spinAxisEnabled=ORBIT.spinAxisEnabled, spinAxisDir=ORBIT.spinAxisDir,
         spinSpeedIndex=P.spinSpeedIndex, heartScale=SETTINGS.HeartScale,
         musicEnabled=ORBIT.musicEnabled, musicId=ORBIT.savedMusicId,
-        protEnabled=SETTINGS.ProtEnabled, antiKnockback=SETTINGS.AntiKnockback,
-        antiTeleport=SETTINGS.AntiTeleport, antiFreeze=SETTINGS.AntiFreeze,
-        autoHeal=SETTINGS.AutoHeal, antiVoid=SETTINGS.AntiVoid, antiFling=SETTINGS.AntiFling,
-        antiExplosion=SETTINGS.AntiExplosion, lockPosition=SETTINGS.LockPosition,
-        disableFallDamage=SETTINGS.DisableFallDamage,
         useMySkin=ORBIT.botSettings.UseMySkin,
-        reverseEnabled=ORBIT.REVERSE and ORBIT.REVERSE.Enabled,
-        dodgeEnabled=DODGE.Enabled,
         espEnabled=ORBIT.ESP and ORBIT.ESP.Enabled,
         soundEnabled=ORBIT.SOUNDS and ORBIT.SOUNDS.Enabled,
         soundVolume=ORBIT.SOUNDS and ORBIT.SOUNDS.Volume,
@@ -2091,19 +1435,7 @@ local function applySaveData(d)
     if d.explosionEnabled ~= nil then SETTINGS.ExplosionEnabled = d.explosionEnabled end
     if d.musicEnabled ~= nil then ORBIT.musicEnabled = d.musicEnabled end
     if d.musicId then ORBIT.savedMusicId = d.musicId; ORBIT.setMusicId(d.musicId) end
-    if d.protEnabled ~= nil then SETTINGS.ProtEnabled = d.protEnabled end
-    if d.antiKnockback ~= nil then SETTINGS.AntiKnockback = d.antiKnockback end
-    if d.antiTeleport ~= nil then SETTINGS.AntiTeleport = d.antiTeleport end
-    if d.antiFreeze ~= nil then SETTINGS.AntiFreeze = d.antiFreeze end
-    if d.autoHeal ~= nil then SETTINGS.AutoHeal = d.autoHeal end
-    if d.antiVoid ~= nil then SETTINGS.AntiVoid = d.antiVoid end
-    if d.antiFling ~= nil then SETTINGS.AntiFling = d.antiFling end
-    if d.antiExplosion ~= nil then SETTINGS.AntiExplosion = d.antiExplosion end
-    if d.lockPosition ~= nil then SETTINGS.LockPosition = d.lockPosition end
-    if d.disableFallDamage ~= nil then SETTINGS.DisableFallDamage = d.disableFallDamage end
     if d.useMySkin ~= nil then ORBIT.botSettings.UseMySkin = d.useMySkin end
-    if d.reverseEnabled ~= nil and ORBIT.REVERSE then ORBIT.REVERSE.Enabled = d.reverseEnabled end
-    if d.dodgeEnabled ~= nil then DODGE.Enabled = d.dodgeEnabled end
     if d.espEnabled ~= nil and ORBIT.ESP then ORBIT.ESP.Enabled = d.espEnabled end
     if d.soundEnabled ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Enabled = d.soundEnabled end
     if d.soundVolume ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Volume = d.soundVolume end
@@ -2175,10 +1507,13 @@ function ORBIT.startLogic()
     ORBIT.setEnabled(true)
     ORBIT.setupAura()
     ORBIT.setupFire()
-    if SETTINGS.ProtEnabled then ORBIT.enableProtection() end
+    -- 🆕 Защита теперь отдельно (orbit_anticheat.lua)
+    if ORBIT.enableProtection then
+        pcall(ORBIT.enableProtection)
+    end
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v22.4 (ТОЛЬКО 2 ТРИГГЕРА)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P3 v22.7 (логика без защиты)", Color3.fromRGB(180,255,180), 3) end
 
 return true
