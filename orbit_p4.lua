@@ -1,4 +1,10 @@
---[[ ОРБИТА v21.8 — P4: UI + ESP + СТАТИСТИКА + МИНИ-ИГРА ]]
+--[[ ОРБИТА v22.7 — P4: UI + патчи Клода
+     - Перетаскивание через UserInputService (не обрывается)
+     - Панель под размер экрана телефона
+     - Анимация открытия/закрытия
+     - UI.toggle() и UI.fitToScreen()
+     - Клавиша L — открыть панель
+]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
@@ -122,7 +128,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 30)
 title.Position = UDim2.new(0, 0, 0, 6)
 title.BackgroundTransparency = 1
-title.Text = "✨  ОРБИТА v21.8"
+title.Text = "✨  ОРБИТА v22.7"
 title.TextColor3 = Color3.fromRGB(220, 210, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 15
@@ -366,44 +372,35 @@ local auraFigBtn    = makeButton("🔷 Фигуры: ВКЛ", 3002, 30, Color3.f
 local auraShapeBtn  = makeButton("🔷 Форма: " .. SHAPE_PRESETS[ORBIT.auraShapeIndex].name, 3036, 30, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255))
 local auraColorBtn  = makeButton("🎨 Цвет: " .. P.COLORS[P.auraColorIndex].name, 3070, 30, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255))
 
--- ============ ЗАЩИТА ============
+-- ============ ЗАЩИТА (инфо) ============
 makeBigSection("🛡️  ЗАЩИТА", 3112, Color3.fromRGB(60, 100, 60))
-local protBtn       = makeButton("🛡️ Защита: ВЫКЛ", 3144, 34, Color3.fromRGB(40,70,45), Color3.fromRGB(160,255,180))
-local antiKbBtn     = makeButton("🛡️ Anti-Knockback: ВКЛ", 3182, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local antiTpBtn     = makeButton("🛡️ Anti-Teleport: ВКЛ", 3216, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local antiFrzBtn    = makeButton("🛡️ Anti-Freeze: ВКЛ", 3250, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local antiFlingBtn  = makeButton("🛡️ Anti-Fling: ВКЛ", 3284, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local autoHealBtn   = makeButton("💚 Auto-Heal: ВЫКЛ", 3318, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local antiVoidBtn   = makeButton("🛡️ Anti-Void: ВКЛ", 3352, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local lockPosBtn    = makeButton("📍 Lock Position: ВЫКЛ", 3386, 30, Color3.fromRGB(35,50,35), Color3.fromRGB(160,255,160))
-local dodgeBtn      = makeButton("🥷 Auto-Dodge: ВЫКЛ", 3420, 32, Color3.fromRGB(50,50,50), Color3.fromRGB(200,200,200))
-local reverseBtn    = makeButton("🚨 Reverse Fling: ВЫКЛ", 3456, 30, Color3.fromRGB(60,30,30), Color3.fromRGB(255,150,150))
+local protInfoBtn = makeButton("🛡️ Защита — в скрипте orbit_anticheat.lua", 3144, 36, Color3.fromRGB(40,70,45), Color3.fromRGB(160,255,180))
 
 -- ============ ЗВУКИ ============
-makeBigSection("🔊  ЗВУКИ", 3496, Color3.fromRGB(70, 80, 110))
-local soundToggleBtn = makeButton("🔊 Звуки: ВКЛ", 3528, 30, Color3.fromRGB(35,60,45), Color3.fromRGB(180,255,180))
-local soundVolumeBtn = makeButton("🎵 Громкость: 100%", 3562, 30, Color3.fromRGB(45,55,75), Color3.fromRGB(180,220,255))
-local soundTestBtn   = makeButton("🔍 Проверка звуков и эмоций", 3596, 32, Color3.fromRGB(50,60,90), Color3.fromRGB(200,220,255))
+makeBigSection("🔊  ЗВУКИ", 3190, Color3.fromRGB(70, 80, 110))
+local soundToggleBtn = makeButton("🔊 Звуки: ВКЛ", 3222, 30, Color3.fromRGB(35,60,45), Color3.fromRGB(180,255,180))
+local soundVolumeBtn = makeButton("🎵 Громкость: 100%", 3256, 30, Color3.fromRGB(45,55,75), Color3.fromRGB(180,220,255))
+local soundTestBtn   = makeButton("🔍 Проверка звуков", 3290, 32, Color3.fromRGB(50,60,90), Color3.fromRGB(200,220,255))
 
 -- ============ МАГАЗИН / ИГРА ============
-makeBigSection("🛒  МАГАЗИН / РЕДАКТОР / ИГРА", 3642, Color3.fromRGB(110, 60, 150))
-local openShopBtn    = makeButton("🛒 Открыть МАГАЗИН", 3674, 34, Color3.fromRGB(90,50,130), Color3.fromRGB(255,210,255))
-local openEditorBtn  = makeButton("🎨 Редактор своей фигуры", 3712, 32, Color3.fromRGB(70,60,110), Color3.fromRGB(220,210,255))
-local openGameBtn    = makeButton("🎮 МИНИ-ИГРА: «Ловля звёзд»", 3750, 34, Color3.fromRGB(130,80,180), Color3.fromRGB(255,230,255))
+makeBigSection("🛒  МАГАЗИН / РЕДАКТОР / ИГРА", 3336, Color3.fromRGB(110, 60, 150))
+local openShopBtn    = makeButton("🛒 Открыть МАГАЗИН", 3368, 34, Color3.fromRGB(90,50,130), Color3.fromRGB(255,210,255))
+local openEditorBtn  = makeButton("🎨 Редактор своей фигуры", 3406, 32, Color3.fromRGB(70,60,110), Color3.fromRGB(220,210,255))
+local openGameBtn    = makeButton("🎮 МИНИ-ИГРА: «Ловля звёзд»", 3444, 34, Color3.fromRGB(130,80,180), Color3.fromRGB(255,230,255))
 
 -- ============ ПРОИЗВОДИТЕЛЬНОСТЬ ============
-makeBigSection("⚡  ПРОИЗВОДИТЕЛЬНОСТЬ", 3796, Color3.fromRGB(60, 80, 110))
-local perfBtn = makeButton("⚡ Качество: АВТО", 3828, 30, Color3.fromRGB(35,50,75), Color3.fromRGB(180,220,255))
+makeBigSection("⚡  ПРОИЗВОДИТЕЛЬНОСТЬ", 3490, Color3.fromRGB(60, 80, 110))
+local perfBtn = makeButton("⚡ Качество: АВТО", 3522, 30, Color3.fromRGB(35,50,75), Color3.fromRGB(180,220,255))
 
 -- ============ ДОПОЛНИТЕЛЬНО ============
-makeBigSection("💗  ДОПОЛНИТЕЛЬНО", 3868, Color3.fromRGB(100, 50, 80))
-local heartSizeBtn = makeButton("💗 Размер сердца: 100%", 3900, 30, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200))
+makeBigSection("💗  ДОПОЛНИТЕЛЬНО", 3562, Color3.fromRGB(100, 50, 80))
+local heartSizeBtn = makeButton("💗 Размер сердца: 100%", 3594, 30, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200))
 
 -- ============ СОХРАНЕНИЯ ============
-makeBigSection("💾  СОХРАНЕНИЯ", 3940, Color3.fromRGB(60, 60, 90))
+makeBigSection("💾  СОХРАНЕНИЯ", 3634, Color3.fromRGB(60, 60, 90))
 local saveNameInput = Instance.new("TextBox")
 saveNameInput.Size = UDim2.new(1, -20, 0, 32)
-saveNameInput.Position = UDim2.new(0, 10, 0, 3972)
+saveNameInput.Position = UDim2.new(0, 10, 0, 3666)
 saveNameInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 saveNameInput.BackgroundTransparency = 0.1
 saveNameInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -417,11 +414,11 @@ saveNameInput.ZIndex = 2
 saveNameInput.Parent = panel
 Instance.new("UICorner", saveNameInput).CornerRadius = UDim.new(0, 8)
 
-local createSaveBtn = makeButton("💾 СОЗДАТЬ СОХРАНЕНИЕ", 4010, 32, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
+local createSaveBtn = makeButton("💾 СОЗДАТЬ СОХРАНЕНИЕ", 3704, 32, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
 
 local savesContainer = Instance.new("ScrollingFrame")
 savesContainer.Size = UDim2.new(1, -20, 0, 130)
-savesContainer.Position = UDim2.new(0, 10, 0, 4048)
+savesContainer.Position = UDim2.new(0, 10, 0, 3742)
 savesContainer.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 savesContainer.BackgroundTransparency = 0.2
 savesContainer.BorderSizePixel = 0
@@ -438,17 +435,17 @@ savesLayout.Padding = UDim.new(0, 4)
 savesLayout.Parent = savesContainer
 
 -- ============ СИСТЕМА ============
-makeBigSection("💾  СИСТЕМА", 4190, Color3.fromRGB(60, 60, 80))
-local saveBtn   = makeButton("💾 Сохранить в автослот", 4222, 30, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
-local loadBtn   = makeButton("📂 Загрузить из автослота", 4256, 30, Color3.fromRGB(35,50,60), Color3.fromRGB(180,220,255))
-local resetBtn  = makeButton("🔄 Сбросить всё", 4290, 30, Color3.fromRGB(50,30,30), Color3.fromRGB(255,180,180))
-local unloadBtn = makeButton("❌ ВЫГРУЗИТЬ СКРИПТ", 4324, 32, Color3.fromRGB(80,30,30), Color3.fromRGB(255,140,140))
+makeBigSection("💾  СИСТЕМА", 3884, Color3.fromRGB(60, 60, 80))
+local saveBtn   = makeButton("💾 Сохранить в автослот", 3916, 30, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180))
+local loadBtn   = makeButton("📂 Загрузить из автослота", 3950, 30, Color3.fromRGB(35,50,60), Color3.fromRGB(180,220,255))
+local resetBtn  = makeButton("🔄 Сбросить всё", 3984, 30, Color3.fromRGB(50,30,30), Color3.fromRGB(255,180,180))
+local unloadBtn = makeButton("❌ ВЫГРУЗИТЬ СКРИПТ", 4018, 32, Color3.fromRGB(80,30,30), Color3.fromRGB(255,140,140))
 
 -- ============ МУЗЫКА ============
-makeBigSection("🎵  МУЗЫКА", 4368, Color3.fromRGB(80, 60, 110))
+makeBigSection("🎵  МУЗЫКА", 4062, Color3.fromRGB(80, 60, 110))
 local musicInput = Instance.new("TextBox")
 musicInput.Size = UDim2.new(1, -20, 0, 32)
-musicInput.Position = UDim2.new(0, 10, 0, 4400)
+musicInput.Position = UDim2.new(0, 10, 0, 4094)
 musicInput.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
 musicInput.BackgroundTransparency = 0.1
 musicInput.TextColor3 = Color3.fromRGB(240, 230, 255)
@@ -462,14 +459,14 @@ musicInput.ZIndex = 2
 musicInput.Parent = panel
 Instance.new("UICorner", musicInput).CornerRadius = UDim.new(0, 8)
 
-local applyIdBtn = makeButton("✅ Применить ID", 4438, 30, Color3.fromRGB(55,80,55), Color3.fromRGB(180,255,180))
-local musicBtn   = makeButton("🎵 Музыка: ВЫКЛ", 4472, 30, Color3.fromRGB(50,35,60), Color3.fromRGB(220,180,255))
+local applyIdBtn = makeButton("✅ Применить ID", 4132, 30, Color3.fromRGB(55,80,55), Color3.fromRGB(180,255,180))
+local musicBtn   = makeButton("🎵 Музыка: ВЫКЛ", 4166, 30, Color3.fromRGB(50,35,60), Color3.fromRGB(220,180,255))
 
 -- ============ СТАТИСТИКА ============
-makeBigSection("📈  ОБЩАЯ СТАТИСТИКА", 4514, Color3.fromRGB(60, 60, 90))
+makeBigSection("📈  ОБЩАЯ СТАТИСТИКА", 4208, Color3.fromRGB(60, 60, 90))
 local statsLabel = Instance.new("TextLabel")
 statsLabel.Size = UDim2.new(1, -20, 0, 100)
-statsLabel.Position = UDim2.new(0, 10, 0, 4546)
+statsLabel.Position = UDim2.new(0, 10, 0, 4240)
 statsLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 statsLabel.BackgroundTransparency = 0.2
 statsLabel.BorderSizePixel = 0
@@ -483,9 +480,43 @@ statsLabel.ZIndex = 2
 statsLabel.Parent = panel
 Instance.new("UICorner", statsLabel).CornerRadius = UDim.new(0, 6)
 
-panel.CanvasSize = UDim2.new(0, 0, 0, 4664)
+panel.CanvasSize = UDim2.new(0, 0, 0, 4360)
 
--- ==================== ОБРАБОТЧИКИ ====================
+-- ============================================================
+--              ОТКРЫТИЕ/ЗАКРЫТИЕ ПАНЕЛИ
+-- ============================================================
+local panelOpen = false
+local dragMoved = false
+local panelScale = Instance.new("UIScale")
+panelScale.Parent = panel
+
+local function setPanel(open)
+    panelOpen = open
+    if open then
+        local abs = screenGui.AbsoluteSize
+        panel.Size = UDim2.fromOffset(300, math.clamp(abs.Y - 40, 200, 700))
+        panel.Position = UDim2.fromOffset(
+            math.clamp(mainBtn.Position.X.Offset + 70, 0, math.max(0, abs.X - 310)), 20)
+        panelScale.Scale = 0.85
+        panel.Visible = true
+        TweenService:Create(panelScale, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+    else
+        TweenService:Create(panelScale, TweenInfo.new(0.12), { Scale = 0.85 }):Play()
+        task.delay(0.13, function()
+            if not panelOpen then panel.Visible = false end
+        end)
+    end
+end
+
+mainBtn.Activated:Connect(function()
+    if dragMoved then dragMoved = false; return end
+    setPanel(not panelOpen)
+    if ORBIT.playClick then ORBIT.playClick() end
+end)
+
+-- ============================================================
+--              ОБРАБОТЧИКИ
+-- ============================================================
 local ringButtons = { [2]=ring2Btn, [3]=ring3Btn, [4]=ring4Btn, [5]=ring5Btn }
 local function refreshRingButton(ri)
     local btn = ringButtons[ri]; if not btn then return end
@@ -498,12 +529,13 @@ local function refreshRingButton(ri)
     end
 end
 
-mainBtn.Activated:Connect(function() panel.Visible = not panel.Visible end)
-
 toggleBtn.Activated:Connect(function()
     ORBIT.setEnabled(not ORBIT.enabled)
-    if ORBIT.enabled then toggleBtn.Text = "🟢 ВКЛЮЧЕНО"; toggleBtn.TextColor3 = Color3.fromRGB(0,255,120); toggleBtn.BackgroundColor3 = Color3.fromRGB(40,50,40)
-    else toggleBtn.Text = "🔴 ВЫКЛЮЧЕНО"; toggleBtn.TextColor3 = Color3.fromRGB(255,80,80); toggleBtn.BackgroundColor3 = Color3.fromRGB(50,35,40) end
+    if ORBIT.enabled then
+        toggleBtn.Text = "🟢 ВКЛЮЧЕНО"; toggleBtn.TextColor3 = Color3.fromRGB(0,255,120); toggleBtn.BackgroundColor3 = Color3.fromRGB(40,50,40)
+    else
+        toggleBtn.Text = "🔴 ВЫКЛЮЧЕНО"; toggleBtn.TextColor3 = Color3.fromRGB(255,80,80); toggleBtn.BackgroundColor3 = Color3.fromRGB(50,35,40)
+    end
 end)
 
 task.spawn(function()
@@ -516,8 +548,7 @@ task.spawn(function()
             sessionLabel.Text = string.format(
                 "🎁 Ботов собрано: %d\n🚩 Читеров помечено: %d\n🥷 Уворотов: %d\n🛡️ Защит сработало: %d\n⏱️ Сессия: %d:%02d",
                 s.botsCollected or 0, s.cheatersTagged or 0, s.dodgesMade or 0,
-                s.protectionsTriggered or 0, mins, secs
-            )
+                s.protectionsTriggered or 0, mins, secs)
         end
     end
 end)
@@ -942,9 +973,7 @@ auraBtn.Activated:Connect(function()
     if SETTINGS.AuraEnabled then
         if not SETTINGS.AuraRing and not SETTINGS.AuraParticles and not SETTINGS.AuraShapes then
             SETTINGS.AuraRing = true; SETTINGS.AuraParticles = true; SETTINGS.AuraShapes = true
-            auraRingBtn.Text = "⭕ Кольцо: ВКЛ"
-            auraPartBtn.Text = "✨ Частицы: ВКЛ"
-            auraFigBtn.Text = "🔷 Фигуры: ВКЛ"
+            auraRingBtn.Text = "⭕ Кольцо: ВКЛ"; auraPartBtn.Text = "✨ Частицы: ВКЛ"; auraFigBtn.Text = "🔷 Фигуры: ВКЛ"
         end
         ORBIT.setupAura()
     else
@@ -981,32 +1010,10 @@ auraColorBtn.Activated:Connect(function()
     if SETTINGS.AuraEnabled then ORBIT.setupAura() end
 end)
 
-protBtn.Activated:Connect(function()
-    SETTINGS.ProtEnabled = not SETTINGS.ProtEnabled
-    protBtn.Text = "🛡️ Защита: " .. (SETTINGS.ProtEnabled and "ВКЛ" or "ВЫКЛ")
-    if SETTINGS.ProtEnabled then ORBIT.enableProtection()
-    else ORBIT.disableProtection() end
-end)
-antiKbBtn.Activated:Connect(function() SETTINGS.AntiKnockback = not SETTINGS.AntiKnockback; antiKbBtn.Text = "🛡️ Anti-Knockback: " .. (SETTINGS.AntiKnockback and "ВКЛ" or "ВЫКЛ") end)
-antiTpBtn.Activated:Connect(function() SETTINGS.AntiTeleport = not SETTINGS.AntiTeleport; antiTpBtn.Text = "🛡️ Anti-Teleport: " .. (SETTINGS.AntiTeleport and "ВКЛ" or "ВЫКЛ") end)
-antiFrzBtn.Activated:Connect(function() SETTINGS.AntiFreeze = not SETTINGS.AntiFreeze; antiFrzBtn.Text = "🛡️ Anti-Freeze: " .. (SETTINGS.AntiFreeze and "ВКЛ" or "ВЫКЛ") end)
-antiFlingBtn.Activated:Connect(function() SETTINGS.AntiFling = not SETTINGS.AntiFling; antiFlingBtn.Text = "🛡️ Anti-Fling: " .. (SETTINGS.AntiFling and "ВКЛ" or "ВЫКЛ") end)
-autoHealBtn.Activated:Connect(function() SETTINGS.AutoHeal = not SETTINGS.AutoHeal; autoHealBtn.Text = "💚 Auto-Heal: " .. (SETTINGS.AutoHeal and "ВКЛ" or "ВЫКЛ") end)
-antiVoidBtn.Activated:Connect(function() SETTINGS.AntiVoid = not SETTINGS.AntiVoid; antiVoidBtn.Text = "🛡️ Anti-Void: " .. (SETTINGS.AntiVoid and "ВКЛ" or "ВЫКЛ") end)
-lockPosBtn.Activated:Connect(function() SETTINGS.LockPosition = not SETTINGS.LockPosition; lockPosBtn.Text = "📍 Lock Position: " .. (SETTINGS.LockPosition and "ВКЛ" or "ВЫКЛ") end)
-dodgeBtn.Activated:Connect(function()
-    if ORBIT.DODGE then
-        ORBIT.DODGE.Enabled = not ORBIT.DODGE.Enabled
-        dodgeBtn.Text = "🥷 Auto-Dodge: " .. (ORBIT.DODGE.Enabled and "ВКЛ" or "ВЫКЛ")
-        dodgeBtn.BackgroundColor3 = ORBIT.DODGE.Enabled and Color3.fromRGB(60,80,50) or Color3.fromRGB(50,50,50)
-    end
-end)
-reverseBtn.Activated:Connect(function()
-    if ORBIT.REVERSE then
-        ORBIT.REVERSE.Enabled = not ORBIT.REVERSE.Enabled
-        reverseBtn.Text = "🚨 Reverse Fling: " .. (ORBIT.REVERSE.Enabled and "ВКЛ" or "ВЫКЛ")
-        reverseBtn.BackgroundColor3 = ORBIT.REVERSE.Enabled and Color3.fromRGB(100,30,30) or Color3.fromRGB(60,30,30)
-    end
+-- ЗАЩИТА (инфо-кнопка)
+protInfoBtn.Activated:Connect(function()
+    ORBIT.notify("🛡 Защита теперь в orbit_anticheat.lua", Color3.fromRGB(160, 255, 180), 3)
+    ORBIT.notify("Запускается отдельно или через p1", Color3.fromRGB(180, 220, 255), 3)
 end)
 
 -- ЗВУКИ
@@ -1030,46 +1037,13 @@ end)
 soundTestBtn.Activated:Connect(function()
     soundTestBtn.Text = "⏳ Проверяю..."
     task.wait(0.1)
-    local report = {"═══════════════════════", "🔍 РЕЗУЛЬТАТ", "═══════════════════════", "", "🔊 ЗВУКИ:"}
-    for _, entry in ipairs({
-        {name="Клик", id=ORBIT.SOUNDS.ClickId},
-        {name="Уворот", id=ORBIT.SOUNDS.DodgeId},
-        {name="После уворота", id=ORBIT.SOUNDS.AfterDodgeId},
-        {name="Голос Санса", id=ORBIT.SOUNDS.SansVoiceId},
-        {name="Сбор бота", id=ORBIT.SOUNDS.BotId},
-    }) do
-        local loaded, duration = false, 0
-        pcall(function()
-            local s = Instance.new("Sound")
-            s.SoundId = entry.id; s.Parent = SoundService; s.Volume = 0; s:Play()
-            task.wait(0.35); loaded = s.IsLoaded; duration = s.TimeLength
-            s:Stop(); s:Destroy()
-        end)
-        if loaded and duration > 0 then
-            table.insert(report, "  ✅ " .. entry.name .. " (" .. string.format("%.1f", duration) .. "с)")
-        else
-            table.insert(report, "  ❌ " .. entry.name)
-        end
-    end
-    table.insert(report, ""); table.insert(report, "🎭 ЭМОЦИИ:")
-    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-    if hum then
-        local working, failed = {}, {}
-        for _, n in ipairs({"Laugh","Wave","Point","Dance","Cheer"}) do
-            pcall(function() hum:PlayEmote(n) end); task.wait(0.15)
-            local playing = false
-            for _, a in ipairs(hum:GetPlayingAnimationTracks()) do
-                if a.Animation and string.lower(a.Animation.Name):find(string.lower(n),1,true) then playing = true; break end
-            end
-            if playing then table.insert(working, n) else table.insert(failed, n) end
-        end
-        if #working > 0 then table.insert(report, "  ✅ " .. table.concat(working, ", ")) end
-        if #failed > 0 then table.insert(report, "  ❌ " .. table.concat(failed, ", ")) end
-    end
-    print("\n" .. table.concat(report, "\n") .. "\n")
-    ORBIT.notify("🔍 Результат в F9!", Color3.fromRGB(180,220,255), 4)
+    if ORBIT.playClick then ORBIT.playClick() end
+    task.wait(0.4)
+    if ORBIT.playDodge then ORBIT.playDodge() end
+    task.wait(1.2)
     soundTestBtn.Text = "✅ Готово"
-    task.wait(2.5); soundTestBtn.Text = "🔍 Проверка звуков и эмоций"
+    task.wait(2)
+    soundTestBtn.Text = "🔍 Проверка звуков"
 end)
 
 -- МЕТКИ
@@ -1275,36 +1249,89 @@ task.spawn(function()
     end
 end)
 
--- ПЕРЕТАСКИВАНИЕ
+-- ============================================================
+--       ПЕРЕТАСКИВАНИЕ
+-- ============================================================
+local UserInputService = game:GetService("UserInputService")
 local dragging, dragStart, startPos = false, nil, nil
-mainBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true; dragStart = input.Position; startPos = mainBtn.Position
-    end
-end)
-mainBtn.InputChanged:Connect(function(input)
-    if not dragging then return end
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
-        local d = input.Position - dragStart
-        mainBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-    end
-end)
-mainBtn.InputEnded:Connect(function() dragging = false end)
 
+mainBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+       or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragMoved = false
+        dragStart = input.Position
+        startPos = mainBtn.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType == Enum.UserInputType.Touch
+       or input.UserInputType == Enum.UserInputType.MouseMovement then
+        local d = input.Position - dragStart
+        if d.Magnitude > 6 then dragMoved = true end
+        if dragMoved then
+            local abs = screenGui.AbsoluteSize
+            mainBtn.Position = UDim2.fromOffset(
+                math.clamp(startPos.X.Offset + d.X, 0, math.max(0, abs.X - 56)),
+                math.clamp(startPos.Y.Offset + d.Y, 0, math.max(0, abs.Y - 56))
+            )
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+       or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+-- ============================================================
+--       API + ФИТ
+-- ============================================================
 ORBIT.ui = ORBIT.ui or {}
 ORBIT.ui.screenGui = screenGui
 ORBIT.ui.panel = panel
 ORBIT.ui.openShopBtn = openShopBtn
 ORBIT.ui.openEditorBtn = openEditorBtn
 
+ORBIT.ui.open = function() setPanel(true) end
+ORBIT.ui.close = function() setPanel(false) end
+ORBIT.ui.toggle = function() setPanel(not panelOpen) end
+
+ORBIT.ui.fitToScreen = function(frame, w, h)
+    frame.AnchorPoint = Vector2.new(0.5, 0.5)
+    frame.Position = UDim2.fromScale(0.5, 0.5)
+    local sc = frame:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", frame)
+    local abs = screenGui.AbsoluteSize
+    sc.Scale = math.min(1, (abs.X - 20) / w, (abs.Y - 20) / h)
+end
+
+-- ============================================================
+--       ГОРЯЧАЯ КЛАВИША L
+-- ============================================================
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.L then
+        if ORBIT.ui and ORBIT.ui.toggle then
+            ORBIT.ui.toggle()
+        end
+    end
+end)
+
+-- ============================================================
+--       СТАРТ
+-- ============================================================
 ORBIT.start = function()
     if getgenv()._OrbitLoaderGui then pcall(function() getgenv()._OrbitLoaderGui:Destroy() end) end
     ORBIT.startLogic()
-    ORBIT.notify("✨ ОРБИТА v21.8 запущена!", Color3.fromRGB(200,200,255), 3)
+    ORBIT.notify("✨ ОРБИТА v22.7 запущена!", Color3.fromRGB(200,200,255), 3)
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4 v21.8 загружена", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4 v22.7 (патчи Клода)", Color3.fromRGB(180,255,180), 3) end
 
 -- ПОДГРУЗКА МАГАЗИНА
 task.spawn(function()
