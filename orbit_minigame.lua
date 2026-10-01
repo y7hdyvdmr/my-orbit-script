@@ -1,4 +1,8 @@
---[[ ОРБИТА — МИНИ-ИГРА «ЛОВЛЯ ЗВЁЗД» v2.1
+--[[ ОРБИТА v22.7 — МИНИ-ИГРА «ЛОВЛЯ ЗВЁЗД» v2.2
+     - Фикс math.random с дробными числами (краш «no integer representation»)
+     - Убран task.wait внутри Heartbeat
+     - UI.fitToScreen для мобилки
+     - Награда осталась КЛИЕНТСКОЙ (Delta не имеет сервера)
      25 слотов = 5 колец × 5 волн. Авто-стоп через 30 сек.
 ]]
 
@@ -10,29 +14,40 @@ local Players      = ORBIT.Players
 local RunService   = ORBIT.RunService
 local TweenService = ORBIT.TweenService
 local LocalPlayer  = ORBIT.LocalPlayer
-local SETTINGS     = ORBIT.SETTINGS
-local P            = ORBIT.P
-local rings        = ORBIT.rings
-local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
-local screenGui    = ORBIT.ui.screenGui
 
--- Список доступных фигур
+local SETTINGS      = ORBIT.SETTINGS
+local P             = ORBIT.P
+local rings         = ORBIT.rings
+local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
+local screenGui     = ORBIT.ui.screenGui
+
+-- ============================================================
+--         СПИСОК ДОСТУПНЫХ ФИГУР
+-- ============================================================
 local AVAILABLE_SHAPES = {}
 for k in pairs(SHAPE_PRESETS) do
-    if type(k) == "number" then table.insert(AVAILABLE_SHAPES, k) end
+    if type(k) == "number" then
+        table.insert(AVAILABLE_SHAPES, k)
+    end
 end
 table.sort(AVAILABLE_SHAPES)
 local SHAPE_COUNT = #AVAILABLE_SHAPES
 warn("[Orbit MiniGame] Доступно фигур: " .. SHAPE_COUNT)
 
+-- ============================================================
+--              НАСТРОЙКИ
+-- ============================================================
 local GAME = {
-    TargetCount  = 10,
-    TimeLimit    = 20,
-    StarLifetime = 1.4,
-    StarMinSize  = 40,
-    StarMaxSize  = 70,
+    TargetCount   = 10,
+    TimeLimit     = 20,
+    StarLifetime  = 1.4,
+    StarMinSize   = 40,
+    StarMaxSize   = 70,
 }
 
+-- ============================================================
+--              НАГРАДА (5 колец × 5 волн = 25 слотов)
+-- ============================================================
 local REWARD = {
     SwapInterval = 2.0,
     WavesPerLoop = 5,
@@ -69,15 +84,15 @@ local function applyRewardStep()
 end
 
 local function startRewardAnimation()
-    SETTINGS.Rainbow = true
-    SETTINGS.LightEnabled = true
-    SETTINGS.TrailEnabled = true
-    SETTINGS.PulseEnabled = true
-    SETTINGS.WaveEnabled = true
+    SETTINGS.Rainbow         = true
+    SETTINGS.LightEnabled    = true
+    SETTINGS.TrailEnabled    = true
+    SETTINGS.PulseEnabled    = true
+    SETTINGS.WaveEnabled     = true
     SETTINGS.GradientEnabled = true
-    SETTINGS.AutoShapeSwap = false
-    SETTINGS.Transparency = 0.05
-    SETTINGS.LightLimit = 40
+    SETTINGS.AutoShapeSwap   = false
+    SETTINGS.Transparency    = 0.05
+    SETTINGS.LightLimit      = 40
 
     P.colorIndex = 1
     P.orbitIndex = 4
@@ -88,10 +103,10 @@ local function startRewardAnimation()
     for ri = 1, 5 do
         rings[ri].radiusOffset = (ri - 1) * 0.8
         rings[ri].heightOffset = (ri - 3) * 0.6
-        rings[ri].direction = (ri % 2 == 0) and -1 or 1
-        rings[ri].speedMult = 0.8 + (ri - 1) * 0.15
-        rings[ri].angleShift = (ri - 1) * (360 / 5)
-        rings[ri].colorShift = (ri - 1) * 0.2
+        rings[ri].direction    = (ri % 2 == 0) and -1 or 1
+        rings[ri].speedMult    = 0.8 + (ri - 1) * 0.15
+        rings[ri].angleShift   = (ri - 1) * (360 / 5)
+        rings[ri].colorShift   = (ri - 1) * 0.2
     end
 
     REWARD.Wave = 1
@@ -129,30 +144,48 @@ task.spawn(function()
     end
 end)
 
+-- ============================================================
+--              ВЫДАЧА НАГРАДЫ
+-- ============================================================
 local function giveReward()
     startRewardAnimation()
     ORBIT.COINS = (ORBIT.COINS or 0) + 500
+
     if ORBIT.HAS_FS then
         pcall(function()
             writefile(ORBIT.COINS_FILE or "orbit_v21_coins.json", tostring(ORBIT.COINS))
         end)
     end
-    pcall(function() ORBIT.saveSettings() end)
+    pcall(function() if ORBIT.saveSettings then ORBIT.saveSettings() end end)
     ORBIT.notify("💰 +500 монет", Color3.fromRGB(255, 220, 120), 4)
+    if ORBIT.playWin then pcall(ORBIT.playWin) end
+    return true
 end
 
+-- ============================================================
+--              СОСТОЯНИЕ ИГРЫ
+-- ============================================================
 local MINIGAME = {
-    Open = false, Playing = false, Caught = 0,
-    TimeLeft = GAME.TimeLimit, Stars = {}, Conn = nil,
+    Open     = false,
+    Playing  = false,
+    Caught   = 0,
+    TimeLeft = GAME.TimeLimit,
+    Stars    = {},
+    Conn     = nil,
 }
+
 local minigameGui
 
+-- ============================================================
+--              СПАВН ЗВЁЗД (фикс math.random)
+-- ============================================================
 local function spawnStar()
     if not minigameGui or not MINIGAME.Playing then return end
     local field = minigameGui:FindFirstChild("_PlayField", true)
     if not field then return end
 
     local starSize = math.random(GAME.StarMinSize, GAME.StarMaxSize)
+
     local btn = Instance.new("TextButton")
     btn.Name = "_Star"
     btn.Size = UDim2.new(0, starSize, 0, starSize)
@@ -165,24 +198,24 @@ local function spawnStar()
     btn.ZIndex = 15
 
     local fieldSize = field.AbsoluteSize
-    if fieldSize.X < 100 or fieldSize.Y < 100 then
-        task.wait(0.1)
-        fieldSize = field.AbsoluteSize
-    end
 
-    local margin = starSize * 0.5
-    local maxX = math.max(1, fieldSize.X - starSize - margin)
-    local maxY = math.max(1, fieldSize.Y - starSize - margin)
+    -- 🆕 ФИКС: floor() — math.random не принимает дробные числа
+    local margin = math.floor(starSize * 0.5)
+    local maxX = math.max(margin + 1, math.floor(fieldSize.X - starSize - margin))
+    local maxY = math.max(margin + 1, math.floor(fieldSize.Y - starSize - margin))
     local x = math.random(margin, maxX)
     local y = math.random(margin, maxY)
+
     btn.Position = UDim2.new(0, x, 0, y)
     btn.Parent = field
     btn.TextTransparency = 1
     TweenService:Create(btn, TweenInfo.new(0.15), {TextTransparency = 0}):Play()
 
     local data = {
-        frame = btn, born = tick(),
-        duration = GAME.StarLifetime + math.random() * 0.6, caught = false,
+        frame = btn,
+        born = tick(),
+        duration = GAME.StarLifetime + math.random() * 0.6,
+        caught = false,
     }
     table.insert(MINIGAME.Stars, data)
 
@@ -200,19 +233,22 @@ local function spawnStar()
         }):Play()
 
         if ORBIT.playClick then ORBIT.playClick() end
+
         local progressLbl = minigameGui and minigameGui:FindFirstChild("_ProgressLbl", true)
         if progressLbl then
             progressLbl.Text = "⭐ " .. MINIGAME.Caught .. " / " .. GAME.TargetCount
         end
+
         task.delay(0.3, function() pcall(function() btn:Destroy() end) end)
 
         if MINIGAME.Caught >= GAME.TargetCount then
             MINIGAME.Playing = false
             if ORBIT.playDodge then ORBIT.playDodge() end
             task.wait(0.5)
-            giveReward()
+            local rewarded = giveReward()
+
             local winBanner = minigameGui and minigameGui:FindFirstChild("_WinBanner", true)
-            if winBanner then
+            if winBanner and rewarded then
                 winBanner.Visible = true
                 winBanner.Text = "🏆 ПОБЕДА! 🏆\n25 ФИГУР + 500 МОНЕТ"
                 winBanner.TextColor3 = Color3.fromRGB(255, 215, 0)
@@ -226,16 +262,23 @@ local function spawnStar()
     end)
 end
 
+-- ============================================================
+--              ЦИКЛ ИГРЫ
+-- ============================================================
 local function startGameLoop()
     if MINIGAME.Conn then MINIGAME.Conn:Disconnect() end
     MINIGAME.Conn = RunService.Heartbeat:Connect(function(dt)
         if not MINIGAME.Playing then return end
+
         MINIGAME.TimeLeft = MINIGAME.TimeLeft - dt
         local timerLbl = minigameGui and minigameGui:FindFirstChild("_TimerLbl", true)
         if timerLbl then
             timerLbl.Text = "⏱️ " .. string.format("%.1f", math.max(0, MINIGAME.TimeLeft)) .. "с"
-            timerLbl.TextColor3 = MINIGAME.TimeLeft <= 5 and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(255, 220, 120)
+            timerLbl.TextColor3 = MINIGAME.TimeLeft <= 5
+                and Color3.fromRGB(255, 80, 80)
+                or Color3.fromRGB(255, 220, 120)
         end
+
         if MINIGAME.TimeLeft <= 0 then
             MINIGAME.Playing = false
             local winBanner = minigameGui and minigameGui:FindFirstChild("_WinBanner", true)
@@ -246,6 +289,7 @@ local function startGameLoop()
             end
             return
         end
+
         local now = tick()
         local activeStars = 0
         for i = #MINIGAME.Stars, 1, -1 do
@@ -253,6 +297,7 @@ local function startGameLoop()
             if not s.frame or not s.frame.Parent then
                 table.remove(MINIGAME.Stars, i)
             elseif s.caught then
+                -- уже поймана
             elseif now - s.born > s.duration then
                 pcall(function() s.frame:Destroy() end)
                 table.remove(MINIGAME.Stars, i)
@@ -260,10 +305,16 @@ local function startGameLoop()
                 activeStars = activeStars + 1
             end
         end
-        if activeStars < 3 and math.random() < dt * 2.5 then spawnStar() end
+
+        if activeStars < 3 and math.random() < dt * 2.5 then
+            spawnStar()
+        end
     end)
 end
 
+-- ============================================================
+--              UI МИНИ-ИГРЫ
+-- ============================================================
 local function closeMiniGame()
     MINIGAME.Open = false
     MINIGAME.Playing = false
@@ -295,6 +346,10 @@ local function openMiniGame()
     local str = Instance.new("UIStroke", minigameGui)
     str.Color = Color3.fromRGB(200, 150, 255)
     str.Thickness = 2
+
+    if ORBIT.ui.fitToScreen then
+        ORBIT.ui.fitToScreen(minigameGui, 500, 490)
+    end
 
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, -60, 0, 32)
@@ -414,18 +469,23 @@ local function openMiniGame()
         MINIGAME.Playing = true
         MINIGAME.Caught = 0
         MINIGAME.TimeLeft = GAME.TimeLimit
+
         for _, s in ipairs(MINIGAME.Stars) do
             pcall(function() if s.frame then s.frame:Destroy() end end)
         end
         MINIGAME.Stars = {}
+
         winBanner.Visible = false
         progressLbl.Text = "⭐ 0 / " .. GAME.TargetCount
         timerLbl.Text = "⏱️ " .. GAME.TimeLimit .. ".0с"
         timerLbl.TextColor3 = Color3.fromRGB(255, 220, 120)
+
         startBtn.Text = "🎯 ИГРА ИДЁТ..."
         startBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
         startBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+
         startGameLoop()
+
         task.delay(GAME.TimeLimit + 1, function()
             if startBtn and startBtn.Parent then
                 startBtn.Text = "▶  ИГРАТЬ СНОВА"
@@ -447,13 +507,18 @@ local function openMiniGame()
     tip.Parent = minigameGui
 end
 
+-- ============================================================
+--              ЭКСПОРТ API
+-- ============================================================
 ORBIT.openMiniGame = openMiniGame
 ORBIT.closeMiniGame = closeMiniGame
 ORBIT.stopRewardAnimation = stopRewardAnimation
 ORBIT.startRewardAnimation = startRewardAnimation
 
 if ORBIT.notify then
-    ORBIT.notify("🎮 Мини-игра v2.1 загружена!", Color3.fromRGB(220, 200, 255), 3)
+    ORBIT.notify("🎮 Мини-игра v2.2 загружена", Color3.fromRGB(220, 200, 255), 3)
 end
+
+warn("[Orbit MiniGame] Загружена ✅")
 
 return true
