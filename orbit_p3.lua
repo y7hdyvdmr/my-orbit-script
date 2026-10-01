@@ -1,4 +1,4 @@
---[[ ОРБИТА v21.10 — P3: ЛОГИКА + ЗАЩИТА v9 + SMART FLOOR + ФИКС ПРЫЖКОВ ]]
+--[[ ОРБИТА v22.0 — P3: ЛОГИКА + ЗАЩИТА v10 (ANTI-DROPKICK) + ESP + БОТЫ ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -235,7 +235,8 @@ local function updateFire()
 end
 
 -- ============================================================
---   🛡️ ЗАЩИТА v9.1 — SMART FLOOR + ФИКС ПРЫЖКОВ
+--   🛡️ ЗАЩИТА v10 — ANTI-DROPKICK + ANTI-FLING + SMART FLOOR
+--   Все проверки пропускают прыжки, ловят только реальные атаки
 -- ============================================================
 local PROT_STATE = {
     lastSafePos = nil, lastSafeCFrame = nil, lastCheckTime = 0, lastHealTime = 0,
@@ -243,14 +244,21 @@ local PROT_STATE = {
     watchConn = nil, logEnabled = true, lastHealthCheck = 0, lastScan = 0,
     lastPositions = {}, godmodeWarned = {},
     voidTimer = 0, lastFloorCheck = 0,
+    lastHRP = nil, lastVel = nil, dropkickWarned = {},
+    cframeJumpCounter = 0, blockedFlingCount = 0,
 }
 ORBIT.PROT_STATE = PROT_STATE
 
 local PROT_CFG = {
-    MAX_WALKSPEED = 60, MAX_JUMPPOWER = 100,
-    FLING_VEL_THRESHOLD = 150, FLING_SPIN_THRESHOLD = 50,
+    MAX_WALKSPEED = 60,
+    MAX_JUMPPOWER = 100,
+    FLING_VEL_THRESHOLD = 1000,
+    FLING_SPIN_THRESHOLD = 500,
+    FLING_INSTANT_THRESHOLD = 100000,
+    TELEPORT_DETECT_DIST = 30,
     VOID_TIMER_THRESHOLD = 0.5,
-    FLOOR_RAY_LENGTH = 500, FLOOR_RAY_SIDE = 100,
+    FLOOR_RAY_LENGTH = 500,
+    FLOOR_RAY_SIDE = 100,
     GROUND_CHECK_LENGTH = 6,
 }
 
@@ -267,9 +275,9 @@ local BAD_CLASSES = {
     Torque = true, AlignPosition = true, AlignOrientation = true,
 }
 
-local function protLog(text, color)
+local function protLog(text)
     if not PROT_STATE.logEnabled then return end
-    print("[OrbitProt v9.1] " .. text)
+    print("[OrbitProt v10] " .. text)
 end
 local function killObject(obj)
     if not obj or not obj.Parent then return end
@@ -287,16 +295,39 @@ local function resetVelocity(char)
     end
 end
 
--- 🆕 Проверка "стоим ли на земле" — чтобы не мешать прыжкам
+-- 🆕 Проверка состояния: стоим ли на земле
 local function isGrounded(hrp)
     if not hrp then return false end
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.FilterDescendantsInstances = {LocalPlayer.Character, Workspace.CurrentCamera}
-    local ray = Workspace:Raycast(hrp.Position, Vector3.new(0, -PROT_CFG.GROUND_CHECK_LENGTH, 0), rayParams)
-    return ray ~= nil
+    local char = hrp.Parent
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    local vy = math.abs(hrp.AssemblyLinearVelocity.Y)
+    if vy > 2 then return false end
+    local state = hum:GetState()
+    return state == Enum.HumanoidStateType.Running
+        or state == Enum.HumanoidStateType.RunningNoPhysics
+        or state == Enum.HumanoidStateType.Landed
+        or state == Enum.HumanoidStateType.Seated
+        or state == Enum.HumanoidStateType.PlatformStanding
+        or state == Enum.HumanoidStateType.Climbing
+        or state == Enum.HumanoidStateType.GettingUp
 end
 ORBIT.isGrounded = isGrounded
+
+-- 🆕 В воздухе ли мы (прыжок/падение)
+local function isAirborne(hrp)
+    if not hrp then return false end
+    local char = hrp.Parent
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    local state = hum:GetState()
+    return state == Enum.HumanoidStateType.Jumping
+        or state == Enum.HumanoidStateType.Freefall
+        or state == Enum.HumanoidStateType.Flying
+end
+ORBIT.isAirborne = isAirborne
 
 -- 🧠 SMART FLOOR
 local function getSafeFloorPosition()
@@ -307,9 +338,11 @@ local function getSafeFloorPosition()
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
     rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+
     local origin = hrp.Position
     local ray = Workspace:Raycast(origin, Vector3.new(0, -PROT_CFG.FLOOR_RAY_LENGTH, 0), rayParams)
     if ray then return ray.Position + Vector3.new(0, 4, 0) end
+
     local dirs = {
         Vector3.new(0, -PROT_CFG.FLOOR_RAY_SIDE, 25),
         Vector3.new(0, -PROT_CFG.FLOOR_RAY_SIDE, -25),
@@ -320,6 +353,7 @@ local function getSafeFloorPosition()
         local sideRay = Workspace:Raycast(origin, dir, rayParams)
         if sideRay then return sideRay.Position + Vector3.new(0, 4, 0) end
     end
+
     if PROT_STATE.lastSafeCFrame then
         local p = PROT_STATE.lastSafeCFrame.Position
         return Vector3.new(p.X, math.max(p.Y, 5), p.Z)
@@ -338,17 +372,86 @@ local function disableFallDamage(char)
     end)
 end
 
+-- ============================================================
+--   🔥 ANTI-DROPKICK
+-- ============================================================
+local function antiDropKick(char, hrp, now)
+    if not SETTINGS.ProtEnabled then return end
+
+    local curCF = hrp.CFrame
+    if PROT_STATE.lastHRP then
+        local dist = (curCF.Position - PROT_STATE.lastHRP.Position).Magnitude
+        if dist > PROT_CFG.TELEPORT_DETECT_DIST and not isAirborne(hrp) then
+            PROT_STATE.cframeJumpCounter = PROT_STATE.cframeJumpCounter + 1
+            if PROT_STATE.cframeJumpCounter >= 2 then
+                if PROT_STATE.lastSafeCFrame then
+                    pcall(function()
+                        char:PivotTo(PROT_STATE.lastSafeCFrame)
+                        resetVelocity(char)
+                    end)
+                    ORBIT.addSession("protectionsTriggered")
+                    PROT_STATE.blockedFlingCount = PROT_STATE.blockedFlingCount + 1
+                    warn("[Orbit v10] Anti-DropKick: телепорт " .. math.floor(dist) .. " studs откачен")
+                end
+                PROT_STATE.cframeJumpCounter = 0
+            end
+        else
+            PROT_STATE.cframeJumpCounter = 0
+        end
+    end
+    PROT_STATE.lastHRP = curCF
+
+    if hrp.Anchored and not isAirborne(hrp) then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.MoveDirection.Magnitude > 0.05 then
+            pcall(function() hrp.Anchored = false end)
+            ORBIT.addSession("protectionsTriggered")
+            warn("[Orbit v10] Anti-Anchor: разякорен")
+        end
+    end
+
+    for _, child in ipairs(char:GetDescendants()) do
+        if BAD_CLASSES[child.ClassName] then killObject(child) end
+    end
+end
+
+-- ============================================================
+--   🔥 ANTI-FLING
+-- ============================================================
 local function antiFling(char, hrp)
     if not SETTINGS.AntiFling then return end
+    if isAirborne(hrp) then return end
+
     pcall(function()
         local vel = hrp.AssemblyLinearVelocity.Magnitude
         local spin = hrp.AssemblyAngularVelocity.Magnitude
-        if vel > PROT_CFG.FLING_VEL_THRESHOLD and spin > PROT_CFG.FLING_SPIN_THRESHOLD then
+
+        if vel > PROT_CFG.FLING_INSTANT_THRESHOLD or spin > PROT_CFG.FLING_INSTANT_THRESHOLD then
             hrp.AssemblyLinearVelocity = Vector3.zero
             hrp.AssemblyAngularVelocity = Vector3.zero
+            if PROT_STATE.lastSafeCFrame then
+                pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame) end)
+            end
             ORBIT.addSession("protectionsTriggered")
+            PROT_STATE.blockedFlingCount = PROT_STATE.blockedFlingCount + 1
+            warn("[Orbit v10] INSTANT FLING блокирован")
+            return
+        end
+
+        if vel > PROT_CFG.FLING_VEL_THRESHOLD and spin > PROT_CFG.FLING_SPIN_THRESHOLD then
+            task.wait(0.1)
+            local vel2 = hrp.AssemblyLinearVelocity.Magnitude
+            local spin2 = hrp.AssemblyAngularVelocity.Magnitude
+            if vel2 > PROT_CFG.FLING_VEL_THRESHOLD and spin2 > PROT_CFG.FLING_SPIN_THRESHOLD then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+                ORBIT.addSession("protectionsTriggered")
+                PROT_STATE.blockedFlingCount = PROT_STATE.blockedFlingCount + 1
+                warn("[Orbit v10] FLING подтверждён и блокирован")
+            end
         end
     end)
+
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == LocalPlayer then continue end
         local pChar = plr.Character
@@ -357,16 +460,26 @@ local function antiFling(char, hrp)
         if not pHrp then continue end
         local pSpin = pHrp.AssemblyAngularVelocity.Magnitude
         local pVel = pHrp.AssemblyLinearVelocity.Magnitude
-        if pSpin > PROT_CFG.FLING_SPIN_THRESHOLD*3 and pVel > PROT_CFG.FLING_VEL_THRESHOLD*2 then
-            if not PROT_STATE.godmodeWarned[plr] then
-                PROT_STATE.godmodeWarned[plr] = true
-                warn("[Orbit v9.1] FLING detected: " .. plr.Name)
-                if ORBIT.notify then ORBIT.notify("🚨 Fling: " .. plr.Name, Color3.fromRGB(255, 120, 120), 2) end
+        if pSpin > PROT_CFG.FLING_SPIN_THRESHOLD*5 or pVel > PROT_CFG.FLING_VEL_THRESHOLD*5 then
+            if not PROT_STATE.dropkickWarned[plr] then
+                PROT_STATE.dropkickWarned[plr] = tick()
+                warn("[Orbit v10] FLING у " .. plr.Name)
+                if ORBIT.notify then
+                    ORBIT.notify("🚨 Fling: " .. plr.Name, Color3.fromRGB(255, 120, 120), 2)
+                end
+                if ORBIT.tagCheater then ORBIT.tagCheater(plr, true) end
             end
         end
     end
+    local now2 = tick()
+    for p, t in pairs(PROT_STATE.dropkickWarned) do
+        if now2 - t > 5 then PROT_STATE.dropkickWarned[p] = nil end
+    end
 end
 
+-- ============================================================
+--   ❄️ ANTI-FREEZE
+-- ============================================================
 local function antiFreeze(char)
     if not SETTINGS.AntiFreeze then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -383,6 +496,9 @@ local function antiFreeze(char)
     end
 end
 
+-- ============================================================
+--   🛡️ ANTI-KNOCKBACK / ANTI-ANCHOR
+-- ============================================================
 local function antiKnockback(char)
     if not SETTINGS.AntiKnockback then return end
     for _, child in ipairs(char:GetDescendants()) do
@@ -399,12 +515,20 @@ local function antiAnchor(char)
     end
 end
 
+-- ============================================================
+--   💀 ANTI-INSTANT-KILL
+-- ============================================================
 local function antiInstantKill(char)
     if not SETTINGS.ProtEnabled then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hum then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
     local now = tick()
-    if PROT_STATE.lastHealth > 50 and hum.Health < 10 and (now - (PROT_STATE.lastHealthCheck or 0)) < 0.15 then
+    if isGrounded(hrp)
+        and PROT_STATE.lastHealth > 50
+        and hum.Health < 10
+        and (now - (PROT_STATE.lastHealthCheck or 0)) < 0.15 then
         if PROT_STATE.lastSafeCFrame then
             pcall(function() char:PivotTo(PROT_STATE.lastSafeCFrame) end)
             resetVelocity(char)
@@ -415,15 +539,14 @@ local function antiInstantKill(char)
     PROT_STATE.lastHealthCheck = now
 end
 
--- 🆕 ANTI-VOID с фиксом: пропускаем прыжок/полёт
+-- ============================================================
+--   🌌 ANTI-VOID
+-- ============================================================
 local function antiVoid(char, hrp)
     if not SETTINGS.AntiVoid then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        local state = hum:GetState()
-        if state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall then
-            return
-        end
+    if isAirborne(hrp) then
+        PROT_STATE.voidTimer = 0
+        return
     end
     local now = tick()
     if hrp.Position.Y < SETTINGS.AntiVoidY then
@@ -436,7 +559,6 @@ local function antiVoid(char, hrp)
                     char:PivotTo(CFrame.new(safePos))
                     resetVelocity(char)
                 end)
-                warn("[Orbit v9.1] Smart Floor: возврат")
                 ORBIT.addSession("protectionsTriggered")
             end
             PROT_STATE.voidTimer = 0
@@ -446,11 +568,13 @@ local function antiVoid(char, hrp)
     end
 end
 
--- 🆕 ANTI-TELEPORT с проверкой пола (не тянет при прыжке)
+-- ============================================================
+--   🚀 ANTI-TELEPORT
+-- ============================================================
 local function antiTeleport(char, hrp)
     if not SETTINGS.AntiTeleport then return end
     if not PROT_STATE.lastSafePos then return end
-    if not isGrounded(hrp) then return end -- 🆕 пропуск в воздухе
+    if not isGrounded(hrp) then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum and hum.MoveDirection.Magnitude > 0.05 then return end
     local dx = hrp.Position.X - PROT_STATE.lastSafePos.X
@@ -463,6 +587,9 @@ local function antiTeleport(char, hrp)
     end
 end
 
+-- ============================================================
+--   💚 AUTO-HEAL
+-- ============================================================
 local function autoHeal(char)
     if not SETTINGS.AutoHeal then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -471,10 +598,12 @@ local function autoHeal(char)
     end
 end
 
--- 🆕 LOCKPOSITION с проверкой пола (не тянет при прыжке)
+-- ============================================================
+--   📍 LOCK POSITION
+-- ============================================================
 local function lockPosition(char, hrp)
     if not SETTINGS.LockPosition then return end
-    if not isGrounded(hrp) then return end -- 🆕 пропуск в воздухе
+    if not isGrounded(hrp) then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum and hum.MoveDirection.Magnitude > 0.05 then return end
     if PROT_STATE.lastSafeCFrame then
@@ -482,6 +611,9 @@ local function lockPosition(char, hrp)
     end
 end
 
+-- ============================================================
+--   🪤 ANTI-RINGPARTS
+-- ============================================================
 local function setupAntiRingParts()
     Workspace.DescendantAdded:Connect(function(obj)
         if not SETTINGS.ProtEnabled then return end
@@ -500,6 +632,9 @@ local function setupAntiRingParts()
 end
 setupAntiRingParts()
 
+-- ============================================================
+--   👁️ GODMODE + SPEEDHACK детект
+-- ============================================================
 local function scanForGodMode()
     for _, player in ipairs(Players:GetPlayers()) do
         if player == LocalPlayer then continue end
@@ -510,7 +645,7 @@ local function scanForGodMode()
         if hum.MaxHealth > 10000 or hum.Health > 10000 then
             if not PROT_STATE.godmodeWarned[player] then
                 PROT_STATE.godmodeWarned[player] = true
-                warn("[Orbit v9.1] GodMode: " .. player.Name)
+                warn("[Orbit v10] GodMode: " .. player.Name)
                 if ORBIT.notify then ORBIT.notify("⚠️ GodMode: " .. player.Name, Color3.fromRGB(255, 80, 80), 3) end
                 if ORBIT.tagCheater then ORBIT.tagCheater(player, true) end
             end
@@ -540,7 +675,9 @@ local function detectSpeedHack(player)
     PROT_STATE.lastPositions[player] = { pos = hrp.Position, time = now }
 end
 
--- AUTO-DODGE
+-- ============================================================
+--   🥷 AUTO-DODGE
+-- ============================================================
 local DODGE = { Enabled = false, ScanRadius = 15, SpeedThreshold = 60, DodgeDist = 12, Cooldown = 0.6, LastDodge = 0 }
 ORBIT.DODGE = DODGE
 local dodgeConn = nil
@@ -552,8 +689,10 @@ local function setupAutoDodge()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
+        if isAirborne(hrp) then return end
         local now = tick()
         if now - DODGE.LastDodge < DODGE.Cooldown then return end
+
         local threats = {}
         local myPos = hrp.Position
         for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -570,6 +709,7 @@ local function setupAutoDodge()
                 end
             end
         end
+
         if #threats > 0 then
             table.sort(threats, function(a, b) return a.dist < b.dist end)
             local threat = threats[1]
@@ -590,14 +730,16 @@ local function setupAutoDodge()
             end)
             DODGE.LastDodge = now
             ORBIT.addSession("dodgesMade")
-            protLog("Auto-Dodge: " .. threat.obj.Name)
+            protLog("Auto-Dodge")
             if ORBIT.playDodge then ORBIT.playDodge() end
         end
     end)
 end
 ORBIT.setupAutoDodge = setupAutoDodge
 
--- REVERSE FLING
+-- ============================================================
+--   🚨 REVERSE FLING
+-- ============================================================
 ORBIT.REVERSE = ORBIT.REVERSE or {
     Enabled = false, RotateLimit = 20 * 2 * math.pi, FlingForce = 500,
     LastCheck = 0, CheckInterval = 0.3, Detected = {},
@@ -643,6 +785,9 @@ local function scanForFlingers()
     end
 end
 
+-- ============================================================
+--   🛡️ ЗАЩИТА ХАРАКТЕРА
+-- ============================================================
 local function setupCharacterProtection()
     LocalPlayer.CharacterAdded:Connect(function(char)
         task.wait(0.5)
@@ -674,10 +819,17 @@ local function watchCharacter(char)
     end)
 end
 
+-- ============================================================
+--   ⚙️ ОСНОВНОЙ ЦИКЛ ЗАЩИТЫ
+-- ============================================================
 local function processProtection(dt, char, hrp)
     local now = tick()
+    local airborne = isAirborne(hrp)
+
+    antiDropKick(char, hrp, now)
     antiFling(char, hrp)
     antiAnchor(char)
+
     if now - PROT_STATE.lastKnockTime >= 0.1 then
         PROT_STATE.lastKnockTime = now
         antiKnockback(char)
@@ -686,18 +838,22 @@ local function processProtection(dt, char, hrp)
         PROT_STATE.lastFreezeTime = now
         antiFreeze(char)
     end
+
     if SETTINGS.AutoHeal and now - PROT_STATE.lastHealTime >= 0.3 then
         PROT_STATE.lastHealTime = now
         autoHeal(char)
     end
-    local inGrace = (now - PROT_STATE.spawnGrace) < 5.0
+
     antiVoid(char, hrp)
-    -- 🆕 Только если на земле
-    if not inGrace and isGrounded(hrp) then
+
+    local inGrace = (now - PROT_STATE.spawnGrace) < 5.0
+    if not inGrace and not airborne then
         antiTeleport(char, hrp)
         lockPosition(char, hrp)
     end
+
     antiInstantKill(char)
+
     if now - PROT_STATE.lastScan > 0.5 then
         PROT_STATE.lastScan = now
         for _, player in ipairs(Players:GetPlayers()) do
@@ -706,36 +862,50 @@ local function processProtection(dt, char, hrp)
         pcall(scanForGodMode)
         pcall(scanForFlingers)
     end
+
     if now - PROT_STATE.lastCheckTime > 0.2 then
         PROT_STATE.lastCheckTime = now
         local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum and hum.Health > 0 and hrp.Position.Y > (SETTINGS.AntiVoidY + 10) and isGrounded(hrp) then
+        local vy = math.abs(hrp.AssemblyLinearVelocity.Y)
+        if hum and hum.Health > 0
+            and hrp.Position.Y > (SETTINGS.AntiVoidY + 10)
+            and not airborne
+            and vy < 1.5 then
             PROT_STATE.lastSafePos = hrp.Position
-            PROT_STATE.lastSafeCFrame = hrp.CFrame
+            local lookVector = hrp.CFrame.LookVector
+            local yaw = math.atan2(-lookVector.X, -lookVector.Z)
+            PROT_STATE.lastSafeCFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, yaw, 0)
         end
     end
+
     if ORBIT.ESP and ORBIT.ESP.Enabled then pcall(updateESP) end
 end
 
 function ORBIT.enableProtection()
     if ORBIT.protConn then ORBIT.protConn:Disconnect(); ORBIT.protConn = nil end
     if not SETTINGS.ProtEnabled then return end
+
     PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
     PROT_STATE.lastCheckTime = 0; PROT_STATE.lastHealTime = 0
     PROT_STATE.lastHealth = 100; PROT_STATE.lastKnockTime = 0
     PROT_STATE.lastFreezeTime = 0; PROT_STATE.spawnGrace = tick()
     PROT_STATE.lastPositions = {}; PROT_STATE.godmodeWarned = {}
     PROT_STATE.voidTimer = 0; PROT_STATE.lastFloorCheck = 0
+    PROT_STATE.lastHRP = nil; PROT_STATE.cframeJumpCounter = 0
+    PROT_STATE.dropkickWarned = {}; PROT_STATE.blockedFlingCount = 0
 
     if LocalPlayer.Character then watchCharacter(LocalPlayer.Character) end
     LocalPlayer.CharacterAdded:Connect(function(newChar)
         PROT_STATE.spawnGrace = tick()
         PROT_STATE.lastSafePos = nil; PROT_STATE.lastSafeCFrame = nil
+        PROT_STATE.lastHRP = nil; PROT_STATE.cframeJumpCounter = 0
         task.wait(0.3)
         watchCharacter(newChar)
     end)
+
     setupCharacterProtection()
     setupAutoDodge()
+
     ORBIT.protConn = RunService.Heartbeat:Connect(function(dt)
         if not SETTINGS.ProtEnabled then return end
         local char = LocalPlayer.Character
@@ -744,8 +914,9 @@ function ORBIT.enableProtection()
         if not hrp then return end
         pcall(processProtection, dt, char, hrp)
     end)
-    ORBIT.notify("🛡 Защита v9.1 ВКЛ (Smart Floor + Fix Jump)", Color3.fromRGB(120, 255, 180), 3)
-    protLog("Защита v9.1 активна.")
+
+    ORBIT.notify("🛡 Защита v10 ВКЛ (Anti-DropKick)", Color3.fromRGB(120, 255, 180), 3)
+    protLog("Защита v10 активна. Anti-DropKick: ВКЛ")
 end
 
 function ORBIT.disableProtection()
@@ -938,12 +1109,10 @@ function ORBIT.tagCheater(player, enable)
             name = player.Name, time = os.time(), reason = "manual",
         }
         ORBIT.addSession("cheatersTagged")
-        warn("[Orbit v9.1] Помечен: " .. player.Name .. " (невидимо)")
+        warn("[Orbit v10] Помечен: " .. player.Name .. " (невидимо)")
         if ORBIT.notify then ORBIT.notify("🚩 Помечен: " .. player.Name, Color3.fromRGB(255, 120, 120)) end
         if ORBIT.ESP and ORBIT.ESP.Enabled and ORBIT.ESP.Tags[player] then
-            removeESPTag(player)
-            task.wait(0.1)
-            makeESPTag(player)
+            removeESPTag(player); task.wait(0.1); makeESPTag(player)
         end
     else
         ORBIT.taggedPlayers[player] = nil
@@ -951,9 +1120,7 @@ function ORBIT.tagCheater(player, enable)
             getgenv().ORBIT_CHEATERS[player.UserId] = nil
         end
         if ORBIT.ESP and ORBIT.ESP.Enabled and ORBIT.ESP.Tags[player] then
-            removeESPTag(player)
-            task.wait(0.1)
-            makeESPTag(player)
+            removeESPTag(player); task.wait(0.1); makeESPTag(player)
         end
     end
     return true
@@ -1762,9 +1929,7 @@ function ORBIT.setEnabled(state)
         if ORBIT.fireFolder then ORBIT.fireFolder:Destroy(); ORBIT.fireFolder = nil end
         ORBIT.cleanupAllTargetRings()
         ORBIT.removeAllBots()
-        if ORBIT.ESP and ORBIT.ESP.Enabled then
-            ORBIT.setESPEnabled(false)
-        end
+        if ORBIT.ESP and ORBIT.ESP.Enabled then ORBIT.setESPEnabled(false) end
         ORBIT.notify("🔴 Скрипт выключен", Color3.fromRGB(255,100,100))
     end
 end
@@ -2000,6 +2165,6 @@ function ORBIT.startLogic()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v21.10 (Fix Jump + Smart Floor)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P3 v22.0 (Anti-DropKick v10)", Color3.fromRGB(180,255,180), 3) end
 
 return true
