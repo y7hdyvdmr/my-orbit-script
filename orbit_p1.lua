@@ -1,7 +1,7 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v21.6 — MULTI-SAVE + SELF-PROTECTION + SOUNDS   ║
-    ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗВУКИ                    ║
+    ║   ОРБИТА v22.7 — MULTI-SAVE + SOUNDS + ANTICHEAT HOOK    ║
+    ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗВУКИ + ЗАГРУЗЧИК         ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -14,7 +14,7 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v21.6"
+ORBIT.version = "v22.7"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false }
 ORBIT.started = false
 
@@ -71,7 +71,7 @@ end
 ORBIT.getSafeParent = getSafeParent
 ORBIT.protectGui = protectGui
 
--- ==================== ФИЛЬТР СПАМА АНИМАЦИЙ В F9 ====================
+-- ==================== АНТИСПАМ АНИМАЦИЙ ====================
 local function isAnimError(msg)
     if type(msg) ~= "string" then return false end
     return msg:find("Animation failed to load", 1, true)
@@ -83,7 +83,7 @@ pcall(function()
     LogService.MessageOut:Connect(function(msg, msgType)
         if msgType == Enum.MessageType.MessageError and isAnimError(msg) then
             ORBIT.animErrorCount = (ORBIT.animErrorCount or 0) + 1
-            if ORBIT.animErrorCount % 50 == 0 then
+            if ORBIT.animErrorCount % 10 == 0 then
                 pcall(function() LogService:ClearOutput() end)
             end
         end
@@ -122,6 +122,7 @@ ORBIT.DEFAULT_SETTINGS = {
     GradientEnabled = false, GradientSpeed = 0.5,
     AutoShapeSwap = false, AutoShapeSwapInterval = 15,
 
+    -- Защита (используется orbit_anticheat.lua если запущен отдельно)
     ProtEnabled = false,
     AntiKnockback = true,
     AntiTeleport = true,
@@ -129,15 +130,25 @@ ORBIT.DEFAULT_SETTINGS = {
     AutoHeal = false,
     AutoHealValue = 100,
     AntiVoid = true,
-    AntiVoidY = -50,
+    AntiVoidY = 5,
     AntiExplosion = true,
     AntiFling = true,
     SavePosOnEnable = false,
     LockPosition = false,
-    -- 🆕 v21.6 — Smart Floor
     SmartFloor = true,
-    SmartFloorY = -50,
+    SmartFloorY = 5,
     DisableFallDamage = true,
+    DodgeEnabled = false,
+    ReverseFlingEnabled = false,
+
+    -- ESP
+    ESPEnabled = false,
+    ESPMaxDistance = 500,
+
+    -- Боты
+    UseMySkin = false,
+    AutoCollect = true,
+    CollectRadius = 12,
 }
 ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
 
@@ -204,9 +215,6 @@ P.SHAPE_CATEGORIES = {
 }
 P.shapeCategoryIndex = 1
 
-P.AURA_TYPES = { {name="Кольцо"},{name="Частицы"},{name="Фигуры"},{name="Оба"},{name="Всё"} }
-P.auraTypeIndex = 1
-
 P.COLORS = {
     {name="РАДУГА",rainbow=true},
     {name="КРАСНЫЙ",c=Color3.fromRGB(255,50,50)},
@@ -223,11 +231,6 @@ P.COLORS = {
     {name="НЕОН-ЖЁЛТЫЙ",c=Color3.fromRGB(255,255,0)},
     {name="НЕОН-ОРАНЖ",c=Color3.fromRGB(255,120,0)},
     {name="НЕОН-ФИОЛЕТ",c=Color3.fromRGB(200,0,255)},
-    {name="ПАСТЕЛЬ-РОЗА",c=Color3.fromRGB(255,180,200)},
-    {name="ПАСТЕЛЬ-ГОЛУБ",c=Color3.fromRGB(180,220,255)},
-    {name="ПАСТЕЛЬ-ЛИМОН",c=Color3.fromRGB(255,250,180)},
-    {name="ПАСТЕЛЬ-МЯТА",c=Color3.fromRGB(180,255,220)},
-    {name="ПАСТЕЛЬ-СИРЕН",c=Color3.fromRGB(210,180,255)},
     {name="ЗОЛОТОЙ",c=Color3.fromRGB(255,200,40)},
     {name="СЕРЕБРЯНЫЙ",c=Color3.fromRGB(220,220,230)},
     {name="БРОНЗОВЫЙ",c=Color3.fromRGB(205,127,50)},
@@ -399,15 +402,15 @@ function ORBIT.setMusicId(idText)
     return true
 end
 
--- ==================== ЗВУКИ ====================
+-- ==================== ЗВУКИ (заглушки, заменяются из orbit_sfx.lua) ====================
 ORBIT.SOUNDS = {
     Enabled = true,
     Volume = 1.0,
-    ClickId       = "rbxassetid://12221967",
-    DodgeId       = "rbxassetid://140721035016341",
-    AfterDodgeId  = "rbxassetid://6325779988",
-    SansVoiceId   = "rbxassetid://135692693675195",
-    BotId         = "rbxassetid://12221967",
+    ClickId       = "rbxasset://sounds/button.wav",
+    DodgeId       = "rbxasset://sounds/snap.mp3",
+    AfterDodgeId  = "rbxasset://sounds/electronicpingshort.wav",
+    SansVoiceId   = "rbxasset://sounds/electronicpingshort.wav",
+    BotId         = "rbxasset://sounds/electronicpingshort.wav",
 }
 
 function ORBIT.playSound(id, volume, pitch)
@@ -428,14 +431,6 @@ function ORBIT.playBotCollect() ORBIT.playSound(ORBIT.SOUNDS.BotId) end
 function ORBIT.playDodge()
     ORBIT.playSound(ORBIT.SOUNDS.DodgeId)
     task.delay(0.3, function() ORBIT.playSound(ORBIT.SOUNDS.AfterDodgeId) end)
-    task.delay(0.6, function()
-        pcall(function()
-            local char = LocalPlayer.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if hum then hum:PlayEmote("Laugh") end
-        end)
-        ORBIT.playSound(ORBIT.SOUNDS.SansVoiceId)
-    end)
 end
 
 -- ==================== УВЕДОМЛЕНИЯ ====================
@@ -578,7 +573,7 @@ local subtitle = Instance.new("TextLabel")
 subtitle.Size = UDim2.new(1, 0, 0, 22)
 subtitle.Position = UDim2.new(0, 0, 0, 60)
 subtitle.BackgroundTransparency = 1
-subtitle.Text = "MULTI-SAVE + PROTECTION + SOUNDS"
+subtitle.Text = "MULTI-SAVE + SOUNDS + ANTICHEAT"
 subtitle.TextColor3 = LC_ORANGE
 subtitle.Font = Enum.Font.Code
 subtitle.TextSize = 14
@@ -929,6 +924,42 @@ task.spawn(function()
     end
 end)
 
-ORBIT.notify("✨ ОРБИТА " .. ORBIT.version .. ": загружаю части 2-4...", Color3.fromRGB(200, 200, 255), 4)
+-- 🆕 Подгрузка Anti-Cheat (отдельный скрипт)
+task.spawn(function()
+    task.wait(0.9)
+    local url = BASE_URL .. "orbit_anticheat.lua?t=" .. os.time()
+    local ok, src = pcall(function() return game:HttpGet(url) end)
+    if ok and type(src) == "string" and #src > 100 then
+        local fn, err = loadstring(src)
+        if fn then
+            local runOk, runErr = pcall(fn)
+            if not runOk then warn("[Orbit AntiCheat] Runtime error: " .. tostring(runErr)) end
+        else
+            warn("[Orbit AntiCheat] Compile error: " .. tostring(err))
+        end
+    else
+        warn("[Orbit AntiCheat] Не удалось загрузить (это ок, если запускаешь отдельно)")
+    end
+end)
+
+-- 🆕 Подгрузка SFX (звуки клиента)
+task.spawn(function()
+    task.wait(1.0)
+    local url = BASE_URL .. "orbit_sfx.lua?t=" .. os.time()
+    local ok, src = pcall(function() return game:HttpGet(url) end)
+    if ok and type(src) == "string" and #src > 100 then
+        local fn, err = loadstring(src)
+        if fn then
+            local runOk, runErr = pcall(fn)
+            if not runOk then warn("[Orbit SFX] Runtime error: " .. tostring(runErr)) end
+        else
+            warn("[Orbit SFX] Compile error: " .. tostring(err))
+        end
+    else
+        warn("[Orbit SFX] Не удалось загрузить orbit_sfx.lua")
+    end
+end)
+
+ORBIT.notify("✨ ОРБИТА " .. ORBIT.version .. ": загружаю части 2-4 + Sfx + AntiCheat...", Color3.fromRGB(200, 200, 255), 4)
 
 return ORBIT
