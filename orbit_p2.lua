@@ -1,4 +1,4 @@
---[[ ОРБИТА v15.3 — ЧАСТЬ 2/4: ФИГУРЫ (24 шт.) ]]
+--[[ ОРБИТА v22.7 — ЧАСТЬ 2/4: ФИГУРЫ (24 шт.) ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -8,6 +8,9 @@ local newModelShell = ORBIT.newModelShell
 local makeRod       = ORBIT.makeRod
 local SETTINGS      = ORBIT.SETTINGS
 
+-- ============================================================
+--                  ХЕЛПЕРЫ ФИГУР
+-- ============================================================
 local function create3DStar(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local R, r = size*0.85, size*0.85*0.382
@@ -571,6 +574,9 @@ local function create3DBlasterPlaceholder(size, color, name)
     return model, root, bodies
 end
 
+-- ============================================================
+--              РЕГИСТРАЦИЯ 24 ФИГУР
+-- ============================================================
 ORBIT.SHAPE_PRESETS = {
     { name = "БЛОК", create = function(size, name)
         local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Block; p.Size = Vector3.new(size,size,size)
