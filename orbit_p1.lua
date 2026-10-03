@@ -7,6 +7,7 @@
     ║   🆕 Выбор платформы (Телефон / ПК)                       ║
     ║   🆕 Последовательная загрузка (без гонки)                ║
     ║   🆕 Чистый unload (боты, кольца, ESP, extras)            ║
+    ║   🆕 Подгрузка 3D-редактора                               ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -20,7 +21,7 @@ rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
 ORBIT.version = "v23.1"
-ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, sfx = false, ac = false, extras = false }
+ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, sfx = false, ac = false, extras = false, editor3d = false }
 ORBIT.started = false
 ORBIT.PLATFORM = nil
 
@@ -855,10 +856,10 @@ local function stopPulse()
     coverIcon.TextSize = 34
 end
 
-setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "3 части + античит + звуки + extras", LC_GREEN)
+setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "3 части + античит + звуки + extras + 3D", LC_GREEN)
 
 -- ============================================================
---       КАРТОЧКИ ЧАСТЕЙ (с иконками фигур)
+--       КАРТОЧКИ ЧАСТЕЙ
 -- ============================================================
 local BASE_URL = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
 local PARTS = {
@@ -883,7 +884,6 @@ for i, part in ipairs(PARTS) do
     cStroke.Thickness = 1
     cStroke.Transparency = 0.6
 
-    -- Иконка фигуры
     local iconFrame = Instance.new("Frame")
     iconFrame.Size = UDim2.new(0, 26, 0, 26)
     iconFrame.Position = UDim2.new(0, 3, 0.5, -13)
@@ -903,7 +903,6 @@ for i, part in ipairs(PARTS) do
     iconLbl.ZIndex = 5
     iconLbl.Parent = iconFrame
 
-    -- Название
     local nameLbl = Instance.new("TextLabel")
     nameLbl.Size = UDim2.new(1, -100, 1, 0)
     nameLbl.Position = UDim2.new(0, 36, 0, 0)
@@ -916,7 +915,6 @@ for i, part in ipairs(PARTS) do
     nameLbl.ZIndex = 5
     nameLbl.Parent = card
 
-    -- Статус-иконка
     local statusLbl = Instance.new("TextLabel")
     statusLbl.Size = UDim2.new(0, 32, 1, 0)
     statusLbl.Position = UDim2.new(1, -36, 0, 0)
@@ -928,14 +926,12 @@ for i, part in ipairs(PARTS) do
     statusLbl.ZIndex = 5
     statusLbl.Parent = card
 
-    -- Кнопка поверх (для ручной загрузки)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 1, 0)
     btn.BackgroundTransparency = 1
     btn.Text = ""
     btn.ZIndex = 6
     btn.Parent = card
-    btn.Activated:Connect(function() loadPart(part) end)
 
     partCards[part.num] = {
         card = card, iconLbl = iconLbl, nameLbl = nameLbl,
@@ -998,7 +994,7 @@ progText.ZIndex = 5
 progText.Parent = progHolder
 
 -- ============================================================
---       ТЕРМИНАЛ (логи)
+--       ТЕРМИНАЛ
 -- ============================================================
 local term = Instance.new("Frame")
 term.Size = UDim2.new(1, -32, 0, 190)
@@ -1159,7 +1155,6 @@ local function loadPart(part, onDone)
     loading[part.num] = true
     setPartStatus(part.num, "loading")
 
-    -- Обложка
     setCover(part.icon, "ЗАГРУЗКА: " .. part.sub, part.file .. " — скачивание...", part.color)
     startPulse()
 
@@ -1204,7 +1199,6 @@ local function loadPart(part, onDone)
             return
         end
 
-        -- Проверка
         local verified = true
         if part.num == 2 and (not ORBIT.SHAPE_PRESETS or #ORBIT.SHAPE_PRESETS < 3) then
             verified = false
@@ -1234,7 +1228,6 @@ local function loadPart(part, onDone)
         ORBIT.notify("✅ " .. part.sub .. " загружено", Color3.fromRGB(160, 255, 180), 2)
         refreshStatus()
 
-        -- Обложка кратко "готово", но следующая часть перепишет
         setCover("✅", "ГОТОВО: " .. part.sub, "переход к следующему этапу...", LC_GREEN)
 
         if onDone then onDone(true) end
@@ -1271,7 +1264,7 @@ local function autoLoadAll()
 end
 
 -- ============================================================
---       ДОП. ЭТАПЫ (античит, sfx, extras) — показываются в обложке
+--       ДОП. ЭТАПЫ (античит, sfx, extras, 3D-редактор)
 -- ============================================================
 task.spawn(function()
     task.wait(3.2)
@@ -1341,6 +1334,30 @@ task.spawn(function()
         stopPulse()
     end
 
+    task.wait(0.5)
+    -- 🆕 3D-Редактор
+    if not ORBIT.loaded.editor3d then
+        setCover("🔮", "ЗАГРУЗКА: 3D-РЕДАКТОР", "orbit_editor3d.lua...", Color3.fromRGB(200, 150, 255))
+        startPulse()
+        local url = BASE_URL .. "orbit_editor3d.lua?t=" .. os.time()
+        local ok, src = pcall(function() return game:HttpGet(url) end)
+        if ok and type(src) == "string" and #src > 100 then
+            local fn = loadstring(src)
+            if fn then
+                local runOk, runErr = pcall(fn)
+                if runOk then
+                    ORBIT.loaded.editor3d = true
+                    addLog("OK", "🔮 3D-Редактор загружен")
+                else
+                    addLog("ERR", "3D Editor error: " .. tostring(runErr):sub(1, 40))
+                end
+            end
+        else
+            addLog("WARN", "3D-Редактор не скачался")
+        end
+        stopPulse()
+    end
+
     task.wait(0.4)
     setCover("✅", "ВСЁ ГОТОВО", "нажми ЗАПУСТИТЬ ОРБИТУ", LC_GREEN)
 end)
@@ -1371,7 +1388,6 @@ local function selectPlatform(platform)
     ORBIT.PLATFORM = platform
     ORBIT.applyPlatformDefaults()
 
-    -- Плавно убрать экран выбора
     TweenService:Create(platformScreen, TweenInfo.new(0.25), {BackgroundTransparency = 1}):Play()
     for _, ch in ipairs(platformScreen:GetChildren()) do
         if ch:IsA("TextLabel") or ch:IsA("TextButton") then
@@ -1394,7 +1410,7 @@ local function selectPlatform(platform)
     addLog("OK", "BlockCount: " .. ORBIT.SETTINGS.BlockCount)
     addLog("OK", "Sounds: ENABLED")
 
-    setCover("✨", "СТАРТ ЗАГРУЗКИ", "части 2 → 3 → 4 → защиты → extras", LC_GREEN)
+    setCover("✨", "СТАРТ ЗАГРУЗКИ", "части 2 → 3 → 4 → защиты → extras → 3D", LC_GREEN)
 
     task.spawn(autoLoadAll)
 end
