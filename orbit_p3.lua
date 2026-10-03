@@ -1,6 +1,10 @@
---[[ ОРБИТА v22.7 — P3: ЛОГИКА (без защиты)
-     Защита вынесена в orbit_anticheat.lua
-     Здесь: кольца, аура, огонь, ESP, боты, фейерверк, метки
+--[[ ОРБИТА v23.0 — P3: ЛОГИКА
+     🆕 Аура: узоры (хаос, восьмёрка и др.) + трейлы с настройкой
+     🆕 Полное копирование на чужих: 5 колец + аура + трейлы + эффекты
+     🆕 Кольца на ботах (ShowPlayerRing)
+     🆕 Мгновенный cleanup при смерти
+     🆕 FPS-данные для верхней панели
+     🐛 Исправлены баги
 ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
@@ -20,7 +24,7 @@ local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
 if not P then warn("[Orbit P3] P не передан"); return end
 if not SHAPE_PRESETS then warn("[Orbit P3] Часть 2 не загружена"); return end
 
--- ==================== СТАТИСТИКА ====================
+-- ==================== СЕССИЯ (гарантированно есть) ====================
 ORBIT.SESSION = ORBIT.SESSION or {
     botsCollected = 0, cheatersTagged = 0, dodgesMade = 0,
     protectionsTriggered = 0, startTime = tick(), coinsSpent = 0, coinsEarned = 0,
@@ -46,6 +50,33 @@ function ORBIT.getShapeIndicesInCategory()
     return list
 end
 
+-- ==================== ПАТТЕРНЫ (общие для колец и ауры) ====================
+local function applyPattern(pattern, angle, radius, height, seed)
+    seed = seed or 0
+    if pattern == "Круг" then
+        return math.cos(angle)*radius, height, math.sin(angle)*radius
+    elseif pattern == "Спираль" then
+        local sf = (math.sin(angle*0.3)+1)*0.5
+        local r = radius*(0.4+0.6*sf)
+        return math.cos(angle)*r, height + math.sin(angle*0.5)*3, math.sin(angle)*r
+    elseif pattern == "Волна" then
+        return math.cos(angle)*radius, height + math.sin(angle*2)*4, math.sin(angle)*radius
+    elseif pattern == "Восьмёрка" then
+        return math.sin(angle)*radius, height, math.sin(angle*2)*radius*0.5
+    elseif pattern == "Зигзаг" then
+        local seg = math.floor(angle/(math.pi/3))
+        local dir = (seg%2==0) and 1 or -1
+        return math.cos(angle)*radius, height + dir*2, math.sin(angle)*radius
+    elseif pattern == "Лиссажу" then
+        return math.sin(3*angle)*radius, height, math.sin(2*angle + math.pi/2)*radius
+    elseif pattern == "Хаос" then
+        local r = radius*(0.7 + math.sin(angle*7.3+seed)*0.3)
+        return math.cos(angle)*r, height + math.sin(angle*5.1+seed*2)*3, math.sin(angle)*r
+    end
+    return math.cos(angle)*radius, height, math.sin(angle)*radius
+end
+ORBIT.applyPattern = applyPattern
+
 -- ==================== АУРА ====================
 local function getAuraColor(i, total)
     local p = P.COLORS[P.auraColorIndex]
@@ -70,6 +101,7 @@ function ORBIT.setupAura()
         ring.Name = "AuraRing"; ring.Shape = Enum.PartType.Cylinder
         ring.Size = Vector3.new(SETTINGS.AuraThickness, SETTINGS.AuraSize*2, SETTINGS.AuraSize*2)
         ring.Anchored = true; ring.CanCollide = false; ring.CastShadow = false
+        ring.CanQuery = false; ring.CanTouch = false
         ring.Material = Enum.Material.Neon; ring.Color = getAuraColor(1, 1); ring.Transparency = 0.3
         ring.Parent = ORBIT.auraFolder
         table.insert(ORBIT.auraParts, ring)
@@ -79,6 +111,7 @@ function ORBIT.setupAura()
         local emitter = Instance.new("Part")
         emitter.Name = "AuraEmitter"; emitter.Size = Vector3.new(0.1,0.1,0.1); emitter.Transparency = 1
         emitter.Anchored = true; emitter.CanCollide = false; emitter.CastShadow = false
+        emitter.CanQuery = false; emitter.CanTouch = false
         emitter.Parent = ORBIT.auraFolder
         local col = getAuraColor(1, 1)
         for _, cfg in ipairs({
@@ -178,10 +211,13 @@ local function updateAura(dt)
         end
         local radius = SETTINGS.AuraSize
         local height = SETTINGS.AuraHeight
+        local pattern = SETTINGS.AuraPattern or "Круг"
+        local t = tick() - ORBIT.startTime
         for _, data in ipairs(ORBIT.auraBlocks) do
             if not data.part.Parent then continue end
             local angle = math.rad(ORBIT.auraAngle + (data.index-1)*(360/data.total))
-            local pos = hrp.Position + Vector3.new(math.cos(angle)*radius, height, math.sin(angle)*radius)
+            local px, py, pz = applyPattern(pattern, angle, radius, height, data.index)
+            local pos = hrp.Position + Vector3.new(px, py, pz)
             local cf
             if SETTINGS.AuraSpinEnabled then
                 if SETTINGS.AuraSpinAxis == "Y" then
@@ -192,7 +228,29 @@ local function updateAura(dt)
             else
                 cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
             end
-            if data.isModel and data.model then data.model:PivotTo(cf) else data.part.CFrame = cf end
+
+            -- 🆕 Пульсация ауры
+            local pulseScale = 1.0
+            if SETTINGS.AuraPulseEnabled then
+                pulseScale = 1.0 + math.sin(t * 4 + data.index) * 0.15
+            end
+
+            if data.isModel and data.model then
+                data.model:PivotTo(cf)
+                local tgt = pulseScale
+                local cur = data.model:GetAttribute("Scale") or 1
+                if math.abs(cur - tgt) > 0.005 then
+                    pcall(function() data.model:ScaleTo(tgt) end)
+                    data.model:SetAttribute("Scale", tgt)
+                end
+            else
+                data.part.CFrame = cf
+                if math.abs(pulseScale - 1.0) > 0.001 then
+                    local baseSz = getAuraShapeSize() * pulseScale
+                    data.part.Size = Vector3.new(baseSz, baseSz, baseSz)
+                end
+            end
+
             local col = getAuraColor(data.index, data.total)
             if data.bodyParts then
                 for _, p in ipairs(data.bodyParts) do
@@ -219,6 +277,7 @@ function ORBIT.setupFire()
     local part = Instance.new("Part")
     part.Name = "FirePart"; part.Size = Vector3.new(1, 1, 1); part.Transparency = 1
     part.Anchored = true; part.CanCollide = false; part.CastShadow = false
+    part.CanQuery = false; part.CanTouch = false
     part.CFrame = hrp.CFrame; part.Parent = ORBIT.fireFolder
     local fire = Instance.new("Fire")
     fire.Heat = SETTINGS.FireHeat; fire.Size = SETTINGS.FireSize
@@ -352,16 +411,6 @@ function ORBIT.setESPEnabled(state)
     end
 end
 
-Players.PlayerAdded:Connect(function(p)
-    if p ~= LocalPlayer then
-        p.CharacterAdded:Connect(function()
-            task.wait(1)
-            if ORBIT.ESP.Enabled then makeESPTag(p) end
-        end)
-    end
-end)
-Players.PlayerRemoving:Connect(function(p) removeESPTag(p) end)
-
 -- ==================== ФЕЙЕРВЕРК ====================
 local function spawnFireworks(position, color3)
     if not ORBIT.fireworkFolder then
@@ -372,6 +421,7 @@ local function spawnFireworks(position, color3)
     local part = Instance.new("Part")
     part.Name = "Firework"; part.Size = Vector3.new(0.5, 0.5, 0.5)
     part.Transparency = 1; part.Anchored = true; part.CanCollide = false
+    part.CanQuery = false; part.CanTouch = false
     part.CFrame = CFrame.new(position); part.Parent = ORBIT.fireworkFolder
     local pe = Instance.new("ParticleEmitter")
     pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
@@ -416,7 +466,7 @@ function ORBIT.tagCheater(player, enable)
             name = player.Name, time = os.time(), reason = "manual",
         }
         ORBIT.addSession("cheatersTagged")
-        warn("[Orbit v22.7] Помечен: " .. player.Name)
+        warn("[Orbit v23.0] Помечен: " .. player.Name)
         if ORBIT.notify then ORBIT.notify("🚩 Помечен: " .. player.Name, Color3.fromRGB(255, 120, 120)) end
         if ORBIT.ESP and ORBIT.ESP.Enabled and ORBIT.ESP.Tags[player] then
             removeESPTag(player); task.wait(0.1); makeESPTag(player)
@@ -438,11 +488,31 @@ function ORBIT.clearAllTags()
     for p in pairs(ORBIT.taggedPlayers) do ORBIT.tagCheater(p, false) end
 end
 
--- ==================== КОЛЬЦА НА ДРУГИХ ====================
+-- ============================================================
+--  🆕 ПОЛНОЕ КОПИРОВАНИЕ НА ЧУЖИХ (все 5 колец + аура + эффекты)
+-- ============================================================
 ORBIT.targetRings = ORBIT.targetRings or {}
 
+-- Вспомогательная: создать трейл на part
+local function attachTrail(refPart, span, color, length, width)
+    local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span,0,0); a0.Parent = refPart
+    local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span,0,0); a1.Parent = refPart
+    local trail = Instance.new("Trail")
+    trail.Attachment0 = a0; trail.Attachment1 = a1
+    trail.Color = ColorSequence.new(color)
+    trail.Lifetime = length
+    trail.WidthScale = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, width), NumberSequenceKeypoint.new(1, 0),
+    })
+    trail.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
+    })
+    trail.Parent = refPart
+    return trail
+end
+
 function ORBIT.buildTargetRings(player, slot)
-    slot = slot or 1
+    -- slot оставлен для совместимости, но теперь копируем ВСЁ
     if ORBIT.targetRings[player] then
         pcall(function() ORBIT.targetRings[player].folder:Destroy() end)
         ORBIT.targetRings[player] = nil
@@ -451,29 +521,146 @@ function ORBIT.buildTargetRings(player, slot)
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    local folder = Instance.new("Folder")
-    folder.Name = "TargetRing_" .. tostring(math.random(1, 999999))
-    folder.Parent = Workspace
-    local shape = SHAPE_PRESETS[ORBIT.shapeIndex] or SHAPE_PRESETS[1]
-    local size = ORBIT.getCurrentShapeSize()
-    local blocks = {}
-    for i = 1, SETTINGS.BlockCount do
-        local data = shape.create(size, "T_" .. i, i)
-        local refPart = data.part
-        if not data.isModel then
-            refPart.Material = SETTINGS.Material
-            refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
-            refPart.CanQuery = false; refPart.CanTouch = false
-            refPart.Transparency = SETTINGS.Transparency
-            refPart.Color = SETTINGS.FixedColor
+
+    local rootFolder = Instance.new("Folder")
+    rootFolder.Name = "TargetFull_" .. tostring(math.random(1, 999999))
+    rootFolder.Parent = Workspace
+
+    -- Все активные кольца
+    local ringData = {}
+    for ri = 1, 5 do
+        if rings[ri].enabled then
+            local shape = SHAPE_PRESETS[rings[ri].shapeIndex] or SHAPE_PRESETS[1]
+            local size = ORBIT.getCurrentShapeSize()
+            local ringFolder = Instance.new("Folder")
+            ringFolder.Name = "Ring_" .. ri
+            ringFolder.Parent = rootFolder
+            local blocks = {}
+            for i = 1, SETTINGS.BlockCount do
+                local data = shape.create(size, "TR_" .. ri .. "_" .. i, i)
+                local refPart = data.part
+                local visualSize = data.visualSize or size
+                if not data.isModel then
+                    refPart.Material = SETTINGS.Material
+                    refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+                    refPart.CanQuery = false; refPart.CanTouch = false
+                    refPart.Transparency = SETTINGS.Transparency
+                    refPart.Color = SETTINGS.FixedColor
+                end
+                if data.bodyParts then
+                    for _, bp in ipairs(data.bodyParts) do
+                        pcall(function()
+                            bp.Transparency = SETTINGS.Transparency
+                            bp.CanQuery = false; bp.CanTouch = false
+                        end)
+                    end
+                end
+                if data.isModel then data.model.Parent = ringFolder else refPart.Parent = ringFolder end
+                local trail = nil
+                if SETTINGS.TrailEnabled then
+                    trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
+                        SETTINGS.TrailLength, SETTINGS.TrailWidth)
+                end
+                table.insert(blocks, {
+                    part = refPart, model = data.model, isModel = data.isModel or false,
+                    bodyParts = data.bodyParts, trail = trail,
+                    angleOffset = (i-1)*(360/SETTINGS.BlockCount) + rings[ri].angleShift,
+                    index = i,
+                })
+            end
+            table.insert(ringData, {
+                ri = ri, folder = ringFolder, blocks = blocks, angle = 0,
+            })
         end
-        if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
-        table.insert(blocks, {
-            part = refPart, model = data.model, isModel = data.isModel or false,
-            bodyParts = data.bodyParts, angleOffset = (i-1)*(360/SETTINGS.BlockCount), index = i,
-        })
     end
-    ORBIT.targetRings[player] = { folder = folder, blocks = blocks, angle = 0, slot = slot }
+
+    -- Аура
+    local auraData = nil
+    if SETTINGS.AuraEnabled then
+        local auraFolder = Instance.new("Folder")
+        auraFolder.Name = "Aura"
+        auraFolder.Parent = rootFolder
+        local auraRing = nil
+        if SETTINGS.AuraRing then
+            auraRing = Instance.new("Part")
+            auraRing.Name = "AuraRing"
+            auraRing.Shape = Enum.PartType.Cylinder
+            auraRing.Size = Vector3.new(SETTINGS.AuraThickness, SETTINGS.AuraSize*2, SETTINGS.AuraSize*2)
+            auraRing.Anchored = true; auraRing.CanCollide = false; auraRing.CastShadow = false
+            auraRing.CanQuery = false; auraRing.CanTouch = false
+            auraRing.Material = Enum.Material.Neon
+            auraRing.Color = SETTINGS.AuraColor
+            auraRing.Transparency = 0.3
+            auraRing.Parent = auraFolder
+        end
+        local auraEmitter = nil
+        if SETTINGS.AuraParticles then
+            auraEmitter = Instance.new("Part")
+            auraEmitter.Name = "AuraEmitter"
+            auraEmitter.Size = Vector3.new(0.1,0.1,0.1); auraEmitter.Transparency = 1
+            auraEmitter.Anchored = true; auraEmitter.CanCollide = false; auraEmitter.CastShadow = false
+            auraEmitter.CanQuery = false; auraEmitter.CanTouch = false
+            auraEmitter.Parent = auraFolder
+            for _, cfg in ipairs({
+                { rate=100, life={1.0,2.0}, spd={3,6}, spread=Vector2.new(180,180), size={0.4,0.7,0.2} },
+                { rate=70,  life={0.6,1.2}, spd={5,9}, spread=Vector2.new(20,20),   size={0.5,0.5,0.5} },
+            }) do
+                local pe = Instance.new("ParticleEmitter")
+                pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+                pe.Rate = cfg.rate
+                pe.Lifetime = NumberRange.new(cfg.life[1], cfg.life[2])
+                pe.Speed = NumberRange.new(cfg.spd[1], cfg.spd[2])
+                pe.SpreadAngle = cfg.spread
+                pe.Size = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, cfg.size[1]),
+                    NumberSequenceKeypoint.new(0.5, cfg.size[2]),
+                    NumberSequenceKeypoint.new(1, cfg.size[3]),
+                })
+                pe.Color = ColorSequence.new(SETTINGS.AuraColor)
+                pe.Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 0.1),
+                    NumberSequenceKeypoint.new(1, 1),
+                })
+                pe.Parent = auraEmitter
+            end
+        end
+        local auraBlocks = {}
+        if SETTINGS.AuraShapes then
+            local shape = SHAPE_PRESETS[ORBIT.auraShapeIndex] or SHAPE_PRESETS[1]
+            local size = ORBIT.getCurrentShapeSize() * SETTINGS.AuraShapeScale
+            local count = math.max(4, math.floor(SETTINGS.BlockCount * 0.75))
+            for i = 1, count do
+                local data = shape.create(size, "TA_" .. i)
+                local refPart = data.part
+                if not data.isModel then
+                    refPart.Material = SETTINGS.Material
+                    refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+                    refPart.CanQuery = false; refPart.CanTouch = false
+                    refPart.Transparency = SETTINGS.Transparency
+                    refPart.Color = SETTINGS.AuraColor
+                end
+                if data.isModel then data.model.Parent = auraFolder else refPart.Parent = auraFolder end
+                local trail = nil
+                if SETTINGS.AuraTrailEnabled then
+                    local span = (data.visualSize or size) * 0.35
+                    trail = attachTrail(refPart, span, SETTINGS.AuraColor,
+                        SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth)
+                end
+                table.insert(auraBlocks, {
+                    part = refPart, model = data.model, isModel = data.isModel or false,
+                    bodyParts = data.bodyParts, index = i, total = count, trail = trail,
+                })
+            end
+        end
+        auraData = {
+            folder = auraFolder, ring = auraRing, emitter = auraEmitter,
+            blocks = auraBlocks, angle = 0, spinAngle = 0,
+        }
+    end
+
+    ORBIT.targetRings[player] = {
+        folder = rootFolder, rings = ringData, aura = auraData,
+    }
 end
 
 function ORBIT.removeTargetRings(player)
@@ -488,7 +675,7 @@ function ORBIT.addRingsToAll()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then ORBIT.buildTargetRings(player); count = count + 1 end
     end
-    ORBIT.notify("➕ Кольца навешены " .. count .. " игрокам", Color3.fromRGB(160, 255, 160), 2)
+    ORBIT.notify("➕ Полное копирование на " .. count .. " игроков", Color3.fromRGB(160, 255, 160), 2)
 end
 function ORBIT.removeRingsFromAll()
     local count = 0
@@ -506,7 +693,7 @@ function ORBIT.toggleTargetRings(player)
         ORBIT.notify("➖ Убрано у " .. player.Name, Color3.fromRGB(255,150,150))
     else
         ORBIT.buildTargetRings(player)
-        ORBIT.notify("➕ Кольцо у " .. player.Name, Color3.fromRGB(200,150,255))
+        ORBIT.notify("➕ Полное кольцо у " .. player.Name, Color3.fromRGB(200,150,255))
     end
 end
 function ORBIT.cleanupAllTargetRings()
@@ -527,53 +714,118 @@ function ORBIT.getPlayerList()
     return list
 end
 
+-- 🆕 Обновление всего на чужих
 local function updateTargetRings(dt)
     local t = tick() - ORBIT.startTime
     local baseCol = SETTINGS.FixedColor
     if P.COLORS[P.colorIndex] and not P.COLORS[P.colorIndex].rainbow then
         baseCol = P.COLORS[P.colorIndex].c or baseCol
     end
+    local now = tick()
+
     for player, data in pairs(ORBIT.targetRings) do
         local char = player.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not hrp then continue end
-        data.angle = data.angle + ORBIT.getTargetSpeed() * dt
-        local radius = ORBIT.getTargetRadius(data.slot or 1)
-        local height = ORBIT.getTargetHeight(data.slot or 1)
-        local spinAngle = (ORBIT.spinAxisEnabled and not ORBIT.spinResetting) and (t*3) or 0
-        for _, b in ipairs(data.blocks) do
-            local ref = b.isModel and b.model or b.part
-            if not ref or not ref.Parent then continue end
-            local angle = math.rad(data.angle + b.angleOffset)
-            local px, pz = math.cos(angle)*radius, math.sin(angle)*radius
-            local targetCF
-            if ORBIT.spinAxisDir == "X" then
-                targetCF = CFrame.new(hrp.Position + Vector3.new(px, height, pz)) * CFrame.Angles(math.rad(spinAngle), math.rad(spinAngle)*0.7, 0)
-            else
-                targetCF = CFrame.new(hrp.Position + Vector3.new(px, height, pz)) * CFrame.Angles(0, math.rad(spinAngle), 0)
-            end
-            if b.isModel and b.model then b.model:PivotTo(targetCF) else b.part.CFrame = targetCF end
-            local col = baseCol
-            if SETTINGS.Rainbow then
-                col = Color3.fromHSV((t*SETTINGS.RainbowSpeed*SETTINGS.SpeedMultiplier + b.index/SETTINGS.BlockCount) % 1, 0.9, 1)
-            end
-            if b.bodyParts then
-                for _, p in ipairs(b.bodyParts) do
-                    if not p:GetAttribute("NoRecolor") then p.Color = col end
+
+        -- Кольца
+        for _, rd in ipairs(data.rings) do
+            local ring = rings[rd.ri]
+            if not ring then continue end
+            rd.angle = rd.angle + ORBIT.getTargetSpeed() * ring.speedMult * ring.direction * dt
+            local radius = ORBIT.getTargetRadius(rd.ri)
+            local height = ORBIT.getTargetHeight(rd.ri)
+            local spinAngle = (ORBIT.spinAxisEnabled and not ORBIT.spinResetting) and (t*3) or 0
+            local pattern = SETTINGS.OrbitPattern
+            for _, b in ipairs(rd.blocks) do
+                local ref = b.isModel and b.model or b.part
+                if not ref or not ref.Parent then continue end
+                local angle = math.rad(rd.angle + b.angleOffset)
+                local px, py, pz = applyPattern(pattern, angle, radius, height, rd.ri)
+                local targetCF
+                if ORBIT.spinAxisDir == "X" then
+                    targetCF = CFrame.new(hrp.Position + Vector3.new(px, py, pz)) * CFrame.Angles(math.rad(spinAngle), math.rad(spinAngle)*0.7, 0)
+                else
+                    targetCF = CFrame.new(hrp.Position + Vector3.new(px, py, pz)) * CFrame.Angles(0, math.rad(spinAngle), 0)
                 end
-            elseif b.part then b.part.Color = col end
+                if b.isModel and b.model then b.model:PivotTo(targetCF) else b.part.CFrame = targetCF end
+                -- 🆕 Одинаковый цвет как у меня
+                local col = baseCol
+                if SETTINGS.Rainbow then
+                    col = Color3.fromHSV((t*SETTINGS.RainbowSpeed*SETTINGS.SpeedMultiplier + b.index/SETTINGS.BlockCount + ring.colorShift) % 1, 0.9, 1)
+                elseif SETTINGS.GradientEnabled then
+                    col = Color3.fromHSV((t*SETTINGS.GradientSpeed + b.index/SETTINGS.BlockCount) % 1, 0.85, 1)
+                end
+                if b.bodyParts then
+                    for _, p in ipairs(b.bodyParts) do
+                        if not p:GetAttribute("NoRecolor") then p.Color = col end
+                    end
+                elseif b.part then b.part.Color = col end
+                if b.trail and (now - (b.lastTrailUpdate or 0)) > 0.1 then
+                    b.trail.Color = ColorSequence.new(col)
+                    b.lastTrailUpdate = now
+                end
+            end
+        end
+
+        -- Аура
+        if data.aura then
+            local aura = data.aura
+            local auraSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7
+                * SETTINGS.AuraSpeedMult * SETTINGS.AuraDirection
+            aura.angle = aura.angle + auraSpeed * dt
+            if SETTINGS.AuraSpinEnabled then
+                aura.spinAngle = aura.spinAngle + SETTINGS.AuraSpinSpeed * SETTINGS.SpeedMultiplier * dt
+            end
+            if aura.ring then
+                aura.ring.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 2.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
+                aura.ring.Color = SETTINGS.AuraColor
+            end
+            if aura.emitter then
+                aura.emitter.CFrame = hrp.CFrame
+            end
+            local radius = SETTINGS.AuraSize
+            local height = SETTINGS.AuraHeight
+            local pattern = SETTINGS.AuraPattern or "Круг"
+            for _, b in ipairs(aura.blocks) do
+                if not b.part.Parent then continue end
+                local angle = math.rad(aura.angle + (b.index-1)*(360/b.total))
+                local px, py, pz = applyPattern(pattern, angle, radius, height, b.index)
+                local pos = hrp.Position + Vector3.new(px, py, pz)
+                local cf
+                if SETTINGS.AuraSpinEnabled then
+                    if SETTINGS.AuraSpinAxis == "Y" then
+                        cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, math.rad(aura.spinAngle), 0)
+                    else
+                        cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(math.rad(aura.spinAngle), 0, 0)
+                    end
+                else
+                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
+                end
+                if b.isModel and b.model then b.model:PivotTo(cf) else b.part.CFrame = cf end
+                local col = SETTINGS.AuraColor
+                if P.COLORS[P.auraColorIndex].rainbow then
+                    col = Color3.fromHSV((t*0.2 + b.index/b.total) % 1, 0.9, 1)
+                end
+                if b.bodyParts then
+                    for _, p in ipairs(b.bodyParts) do
+                        if not p:GetAttribute("NoRecolor") then p.Color = col end
+                    end
+                elseif b.part then b.part.Color = col end
+            end
         end
     end
 end
 
 -- ============================================================
---       🤖 БОТЫ (с патчами Клода: лимит 40, парение)
+--       🤖 БОТЫ
 -- ============================================================
 ORBIT.bots = {}
 ORBIT.botIdCounter = 0
 ORBIT.botSettings = ORBIT.botSettings or {
     CollectRadius = 12, AutoCollect = true, BotRingRadius = 4, BotRingHeight = 2,
     BotRingBlockCount = 6, BotSpeed = 60, UseMySkin = false, BotYOffset = 1.5,
+    ShowPlayerRing = false,  -- 🆕 Кольцо как у игрока
 }
 ORBIT.botAvatarTemplate = nil
 
@@ -637,7 +889,10 @@ local function createDummyCharacter(position, useSkin)
             if ok and model then
                 model.Name = "OrbitBot_" .. tostring(math.random(1000, 999999))
                 for _, part in ipairs(model:GetDescendants()) do
-                    if part:IsA("BasePart") then part.Anchored = true; part.CanCollide = false end
+                    if part:IsA("BasePart") then
+                        part.Anchored = true; part.CanCollide = false
+                        part.CanQuery = false; part.CanTouch = false
+                    end
                 end
                 local h0 = model:FindFirstChildOfClass("Humanoid")
                 local r0 = model:FindFirstChild("HumanoidRootPart")
@@ -655,16 +910,19 @@ local function createDummyCharacter(position, useSkin)
     local root = Instance.new("Part")
     root.Name = "HumanoidRootPart"; root.Size = Vector3.new(2, 2, 1); root.Transparency = 1
     root.Anchored = true; root.CanCollide = false
+    root.CanQuery = false; root.CanTouch = false
     root.CFrame = CFrame.new(Vector3.new(position.X, rootY, position.Z))
     root.Parent = model; model.PrimaryPart = root
     local torso = Instance.new("Part")
     torso.Name = "Torso"; torso.Size = Vector3.new(2, 2, 1)
     torso.Anchored = true; torso.CanCollide = false
+    torso.CanQuery = false; torso.CanTouch = false
     torso.Color = Color3.fromRGB(100, 150, 255); torso.Material = Enum.Material.Neon
     torso.CFrame = root.CFrame; torso.Parent = model
     local head = Instance.new("Part")
     head.Name = "Head"; head.Size = Vector3.new(1.5, 1.5, 1.5); head.Shape = Enum.PartType.Ball
     head.Anchored = true; head.CanCollide = false
+    head.CanQuery = false; head.CanTouch = false
     head.Color = Color3.fromRGB(255, 200, 100); head.Material = Enum.Material.Neon
     head.CFrame = root.CFrame * CFrame.new(0, 2, 0)
     head.Parent = model
@@ -673,6 +931,53 @@ local function createDummyCharacter(position, useSkin)
     hum.Parent = model
     model.Parent = Workspace
     return model
+end
+
+-- 🆕 Создание кольца "как у игрока" на боте
+local function buildBotPlayerRings(botRoot, botId)
+    if not ORBIT.botSettings.ShowPlayerRing then return nil end
+    local folder = Instance.new("Folder")
+    folder.Name = "BotPlayerRing_" .. botId
+    folder.Parent = Workspace
+    local ringData = {}
+    for ri = 1, 5 do
+        if rings[ri].enabled then
+            local shape = SHAPE_PRESETS[rings[ri].shapeIndex] or SHAPE_PRESETS[1]
+            local size = ORBIT.getCurrentShapeSize()
+            local ringFolder = Instance.new("Folder")
+            ringFolder.Name = "Ring_" .. ri
+            ringFolder.Parent = folder
+            local blocks = {}
+            for i = 1, SETTINGS.BlockCount do
+                local data = shape.create(size, "BR_" .. ri .. "_" .. i, i)
+                local refPart = data.part
+                local visualSize = data.visualSize or size
+                if not data.isModel then
+                    refPart.Material = SETTINGS.Material
+                    refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+                    refPart.CanQuery = false; refPart.CanTouch = false
+                    refPart.Transparency = SETTINGS.Transparency
+                    refPart.Color = SETTINGS.FixedColor
+                end
+                if data.isModel then data.model.Parent = ringFolder else refPart.Parent = ringFolder end
+                local trail = nil
+                if SETTINGS.TrailEnabled then
+                    trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
+                        SETTINGS.TrailLength, SETTINGS.TrailWidth)
+                end
+                table.insert(blocks, {
+                    part = refPart, model = data.model, isModel = data.isModel or false,
+                    bodyParts = data.bodyParts, trail = trail,
+                    angleOffset = (i-1)*(360/SETTINGS.BlockCount) + rings[ri].angleShift,
+                    index = i,
+                })
+            end
+            table.insert(ringData, {
+                ri = ri, folder = ringFolder, blocks = blocks, angle = 0,
+            })
+        end
+    end
+    return { folder = folder, rings = ringData }
 end
 
 function ORBIT.createBot(shapeIndex, position, targetSlot)
@@ -718,11 +1023,20 @@ function ORBIT.createBot(shapeIndex, position, targetSlot)
     end
     local botId = ORBIT.botIdCounter + 1
     ORBIT.botIdCounter = botId
+
+    -- 🆕 Кольцо как у игрока (если включено)
+    local playerRingsData = nil
+    local botRoot = model:FindFirstChild("HumanoidRootPart")
+    if botRoot and ORBIT.botSettings.ShowPlayerRing then
+        playerRingsData = buildBotPlayerRings(botRoot, botId)
+    end
+
     ORBIT.bots[model] = {
         id = botId, model = model, shapeIndex = shapeIndex,
         folder = folder, blocks = blocks, angle = 0, collected = false,
         ringRadius = ringRadius, ringHeight = ringHeight, ringSpeed = ringSpeed,
         hueBase = hueBase, blockCount = blockCount, targetSlot = targetSlot or 2,
+        playerRings = playerRingsData,
     }
     return model
 end
@@ -767,6 +1081,7 @@ function ORBIT.removeBot(botModel)
     if not data then return end
     pcall(function()
         if data.folder then data.folder:Destroy() end
+        if data.playerRings and data.playerRings.folder then data.playerRings.folder:Destroy() end
         if data.model then data.model:Destroy() end
     end)
     ORBIT.bots[botModel] = nil
@@ -800,7 +1115,7 @@ local function collectBotRing(botModel, data)
     task.spawn(function()
         for i = 1, 10 do
             for _, b in ipairs(data.blocks) do
-                if b.isModel and b.model then b.model:ScaleTo(1 - i*0.09)
+                if b.isModel and b.model then pcall(function() b.model:ScaleTo(1 - i*0.09) end)
                 elseif b.part then b.part.Transparency = b.part.Transparency + 0.09 end
             end
             task.wait(0.03)
@@ -832,6 +1147,7 @@ local function updateBots(dt)
                 * CFrame.Angles(0, t * 1.2 + data.id, 0)
             )
 
+            -- Оригинальные кольца бота (маленькие цветные)
             data.angle = data.angle + (data.ringSpeed or 60) * dt
             local radius = data.ringRadius or 4
             local height = data.ringHeight or 2
@@ -857,6 +1173,45 @@ local function updateBots(dt)
                     end
                 end
             end
+
+            -- 🆕 Кольца "как у игрока"
+            if data.playerRings then
+                for _, rd in ipairs(data.playerRings.rings) do
+                    local ring = rings[rd.ri]
+                    if not ring then continue end
+                    rd.angle = rd.angle + ORBIT.getTargetSpeed() * ring.speedMult * ring.direction * dt
+                    local rRadius = ORBIT.getTargetRadius(rd.ri)
+                    local rHeight = ORBIT.getTargetHeight(rd.ri)
+                    local spinAngle = (ORBIT.spinAxisEnabled and not ORBIT.spinResetting) and (t*3) or 0
+                    local pattern = SETTINGS.OrbitPattern
+                    for _, b in ipairs(rd.blocks) do
+                        local ref = b.isModel and b.model or b.part
+                        if not ref or not ref.Parent then continue end
+                        local angle = math.rad(rd.angle + b.angleOffset)
+                        local px, py, pz = applyPattern(pattern, angle, rRadius, rHeight, rd.ri)
+                        local targetCF
+                        if ORBIT.spinAxisDir == "X" then
+                            targetCF = CFrame.new(botRoot.Position + Vector3.new(px, py, pz)) * CFrame.Angles(math.rad(spinAngle), math.rad(spinAngle)*0.7, 0)
+                        else
+                            targetCF = CFrame.new(botRoot.Position + Vector3.new(px, py, pz)) * CFrame.Angles(0, math.rad(spinAngle), 0)
+                        end
+                        if b.isModel and b.model then b.model:PivotTo(targetCF) else b.part.CFrame = targetCF end
+                        local col = SETTINGS.FixedColor
+                        if SETTINGS.Rainbow then
+                            col = Color3.fromHSV((t*SETTINGS.RainbowSpeed*SETTINGS.SpeedMultiplier + b.index/SETTINGS.BlockCount + ring.colorShift) % 1, 0.9, 1)
+                        end
+                        if b.bodyParts then
+                            for _, p in ipairs(b.bodyParts) do
+                                if not p:GetAttribute("NoRecolor") then p.Color = col end
+                            end
+                        elseif b.part then b.part.Color = col end
+                        if b.trail and (now - (b.lastTrailUpdate or 0)) > 0.1 then
+                            b.trail.Color = ColorSequence.new(col)
+                            b.lastTrailUpdate = now
+                        end
+                    end
+                end
+            end
         end
 
         if ORBIT.botSettings.AutoCollect then
@@ -875,30 +1230,8 @@ function ORBIT.getBotCount()
 end
 
 -- ============================================================
---       ПАТТЕРНЫ / КОЛЬЦА
+--       КОЛЬЦА (главные)
 -- ============================================================
-local function applyOrbitPattern(ri, baseAngle, baseRadius, baseHeight)
-    local pattern = SETTINGS.OrbitPattern
-    local t = baseAngle
-    if pattern == "Круг" then return math.cos(t)*baseRadius, baseHeight, math.sin(t)*baseRadius
-    elseif pattern == "Спираль" then
-        local sf = (math.sin(t*0.3)+1)*0.5
-        local r = baseRadius*(0.4+0.6*sf)
-        return math.cos(t)*r, baseHeight + math.sin(t*0.5)*3, math.sin(t)*r
-    elseif pattern == "Волна" then return math.cos(t)*baseRadius, baseHeight + math.sin(t*2)*4, math.sin(t)*baseRadius
-    elseif pattern == "Восьмёрка" then return math.sin(t)*baseRadius, baseHeight, math.sin(t*2)*baseRadius*0.5
-    elseif pattern == "Зигзаг" then
-        local seg = math.floor(t/(math.pi/3))
-        local dir = (seg%2==0) and 1 or -1
-        return math.cos(t)*baseRadius, baseHeight + dir*2, math.sin(t)*baseRadius
-    elseif pattern == "Лиссажу" then return math.sin(3*t)*baseRadius, baseHeight, math.sin(2*t + math.pi/2)*baseRadius
-    elseif pattern == "Хаос" then
-        local r = baseRadius*(0.7 + math.sin(t*7.3+ri)*0.3)
-        return math.cos(t)*r, baseHeight + math.sin(t*5.1+ri*2)*3, math.sin(t)*r
-    end
-    return math.cos(t)*baseRadius, baseHeight, math.sin(t)*baseRadius
-end
-
 function ORBIT.applyTrailSettings(trail)
     if not trail then return end
     trail.Lifetime = SETTINGS.TrailLength
@@ -911,6 +1244,15 @@ function ORBIT.refreshAllTrails()
     for _, ring in pairs(rings) do
         for _, data in ipairs(ring.blocks) do
             if data.trail then ORBIT.applyTrailSettings(data.trail) end
+        end
+    end
+    for _, data in ipairs(ORBIT.auraBlocks or {}) do
+        if data.trail then
+            data.trail.Lifetime = SETTINGS.AuraTrailLength
+            data.trail.WidthScale = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, SETTINGS.AuraTrailWidth),
+                NumberSequenceKeypoint.new(1, 0),
+            })
         end
     end
 end
@@ -948,13 +1290,12 @@ function ORBIT.buildRing(ri)
             refPart.Transparency = SETTINGS.Transparency
             refPart.Color = SETTINGS.FixedColor
         end
-        refPart.CanQuery = false
-        refPart.CanTouch = false
-        if data.isModel then
-            for _, bp in ipairs(data.bodyParts or {}) do
-                bp.Transparency = SETTINGS.Transparency
-                bp.CanQuery = false
-                bp.CanTouch = false
+        if data.bodyParts then
+            for _, bp in ipairs(data.bodyParts) do
+                pcall(function()
+                    bp.Transparency = SETTINGS.Transparency
+                    bp.CanQuery = false; bp.CanTouch = false
+                end)
             end
         end
         if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
@@ -970,17 +1311,8 @@ function ORBIT.buildRing(ri)
         end
         local trail = nil
         if SETTINGS.TrailEnabled then
-            local span = visualSize*0.35
-            local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span,0,0); a0.Parent = refPart
-            local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span,0,0); a1.Parent = refPart
-            trail = Instance.new("Trail")
-            trail.Attachment0 = a0; trail.Attachment1 = a1
-            trail.Color = ColorSequence.new(SETTINGS.FixedColor)
-            trail.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
-            })
-            ORBIT.applyTrailSettings(trail)
-            trail.Parent = refPart
+            trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
+                SETTINGS.TrailLength, SETTINGS.TrailWidth)
         end
         local nameGui = Instance.new("BillboardGui")
         nameGui.Size = UDim2.new(0, 140, 0, 30)
@@ -1105,8 +1437,41 @@ function ORBIT.applyShapes()
     end
 end
 
+-- ============================================================
+--       🆕 МГНОВЕННЫЙ CLEANUP ПРИ СМЕРТИ + РЕСПАВН
+-- ============================================================
+local function cleanupOnDeath()
+    for ri in pairs(rings) do
+        pcall(ORBIT.destroyRing, ri)
+    end
+    if ORBIT.auraFolder then pcall(function() ORBIT.auraFolder:Destroy() end); ORBIT.auraFolder = nil end
+    if ORBIT.fireFolder then pcall(function() ORBIT.fireFolder:Destroy() end); ORBIT.fireFolder = nil end
+    ORBIT.activeLightCount = 0
+    -- Небольшая задержка не нужна — сразу удаляем
+    warn("[Orbit] 💀 Смерть — все элементы убраны мгновенно")
+end
+
 function ORBIT.setupRespawnHook()
-    LocalPlayer.CharacterAdded:Connect(function()
+    -- Следим за текущим персонажем
+    local function hookCurrentChar(char)
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.Died:Connect(function() cleanupOnDeath() end)
+        else
+            -- Humanoid может появиться чуть позже
+            char.ChildAdded:Connect(function(child)
+                if child:IsA("Humanoid") then
+                    child.Died:Connect(function() cleanupOnDeath() end)
+                end
+            end)
+        end
+    end
+
+    if LocalPlayer.Character then hookCurrentChar(LocalPlayer.Character) end
+
+    LocalPlayer.CharacterAdded:Connect(function(newChar)
+        hookCurrentChar(newChar)
         task.wait(0.5)
         if ORBIT.enabled then
             for ri, ring in pairs(rings) do
@@ -1191,8 +1556,7 @@ function ORBIT.getPerformanceInfo()
 end
 task.spawn(function()
     task.wait(1.5); perfSnapshot()
-    local UIS = game:GetService("UserInputService")
-    if PERFORMANCE.MobileAuto and UIS.TouchEnabled and PERFORMANCE.Enabled and PERFORMANCE.Level == "auto" then
+    if PERFORMANCE.MobileAuto and ORBIT.PLATFORM == "mobile" and PERFORMANCE.Enabled and PERFORMANCE.Level == "auto" then
         applyPerformanceLevel("medium")
     end
 end)
@@ -1240,6 +1604,7 @@ function ORBIT.startUpdateLoop()
         ORBIT.SESSION.sessionTime = t
 
         updateAura(dt); updateFire(); updateBots(dt); updateTargetRings(dt)
+        pcall(updateESP)
 
         if SETTINGS.AutoShapeSwap and (tick() - ORBIT.lastAutoSwap) > SETTINGS.AutoShapeSwapInterval then
             ORBIT.lastAutoSwap = tick()
@@ -1279,6 +1644,7 @@ function ORBIT.startUpdateLoop()
             local orbitAngle = ORBIT.currentOrbitAngle[ri]
             local spinAngle = ORBIT.currentSpinAngle[ri]
             local bobPhase = ORBIT.currentBobPhase[ri]
+            local pattern = SETTINGS.OrbitPattern
             for i, data in ipairs(ring.blocks) do
                 if not data.part.Parent then continue end
                 local angle = math.rad(orbitAngle + data.angleOffset)
@@ -1288,7 +1654,7 @@ function ORBIT.startUpdateLoop()
                 else
                     yBob = math.sin(bobPhase + i + ri*0.5) * SETTINGS.BobAmplitude
                 end
-                local px, py, pz = applyOrbitPattern(ri, angle, radius, height + yBob)
+                local px, py, pz = applyPattern(pattern, angle, radius, height + yBob, ri)
                 local offset = Vector3.new(px, py, pz)
                 local targetCF
                 if ORBIT.spinAxisDir == "X" then
@@ -1366,7 +1732,12 @@ local function collectSaveData()
         auraThickIndex=P.auraThickIndex, auraHeightIndex=P.auraHeightIndex,
         auraShapeScaleIndex=P.auraShapeScaleIndex,
         auraTrailEnabled=SETTINGS.AuraTrailEnabled,
+        auraTrailLengthIndex=P.auraTrailLengthIndex,
+        auraTrailWidthIndex=P.auraTrailWidthIndex,
+        auraPatternIndex=P.auraPatternIndex,
         auraSpinEnabled=SETTINGS.AuraSpinEnabled, auraSpinAxis=SETTINGS.AuraSpinAxis,
+        auraSpinSpeedIndex=P.auraSpinSpeedIndex, auraPulseEnabled=SETTINGS.AuraPulseEnabled,
+        auraSpeedIndex=P.auraSpeedIndex, auraDirIndex=P.auraDirIndex,
         fireEnabled=SETTINGS.FireEnabled, fireSizeIndex=P.fireSizeIndex, fireHeatIndex=P.fireHeatIndex,
         rainbowSpeed=SETTINGS.RainbowSpeed,
         autoShapeSwap=SETTINGS.AutoShapeSwap, autoShapeSwapInterval=SETTINGS.AutoShapeSwapInterval,
@@ -1375,6 +1746,7 @@ local function collectSaveData()
         spinSpeedIndex=P.spinSpeedIndex, heartScale=SETTINGS.HeartScale,
         musicEnabled=ORBIT.musicEnabled, musicId=ORBIT.savedMusicId,
         useMySkin=ORBIT.botSettings.UseMySkin,
+        showPlayerRing=ORBIT.botSettings.ShowPlayerRing,
         espEnabled=ORBIT.ESP and ORBIT.ESP.Enabled,
         soundEnabled=ORBIT.SOUNDS and ORBIT.SOUNDS.Enabled,
         soundVolume=ORBIT.SOUNDS and ORBIT.SOUNDS.Volume,
@@ -1384,12 +1756,12 @@ end
 local function applySaveData(d)
     if not d then return end
     if d.spreadIndex then P.spreadIndex = d.spreadIndex end
-    if d.speedIndex then P.speedIndex = d.speedIndex end
+    if d.speedIndex then P.speedIndex = d.speedIndex; SETTINGS.SpeedMultiplier = P.SPEED[P.speedIndex].value end
     if d.orbitIndex then P.orbitIndex = d.orbitIndex end
     if d.shapeSizeIndex then P.shapeSizeIndex = d.shapeSizeIndex end
     if d.colorIndex then P.colorIndex = d.colorIndex end
-    if d.trailLengthIndex then P.trailLengthIndex = d.trailLengthIndex end
-    if d.trailWidthIndex then P.trailWidthIndex = d.trailWidthIndex end
+    if d.trailLengthIndex then P.trailLengthIndex = d.trailLengthIndex; SETTINGS.TrailLength = P.TRAIL_LEN[P.trailLengthIndex].value end
+    if d.trailWidthIndex then P.trailWidthIndex = d.trailWidthIndex; SETTINGS.TrailWidth = P.TRAIL_WID[P.trailWidthIndex].value end
     if d.directionIndex then P.directionIndex = d.directionIndex end
     if d.speedModeIndex then P.speedModeIndex = d.speedModeIndex end
     if d.heightIndex then P.heightIndex = d.heightIndex end
@@ -1410,8 +1782,15 @@ local function applySaveData(d)
     if d.auraHeightIndex then P.auraHeightIndex = d.auraHeightIndex; SETTINGS.AuraHeight = P.AURA_HEIGHT[P.auraHeightIndex].value end
     if d.auraShapeScaleIndex then P.auraShapeScaleIndex = d.auraShapeScaleIndex; SETTINGS.AuraShapeScale = P.AURA_SHAPE_SCALE[P.auraShapeScaleIndex].factor end
     if d.auraTrailEnabled ~= nil then SETTINGS.AuraTrailEnabled = d.auraTrailEnabled end
+    if d.auraTrailLengthIndex then P.auraTrailLengthIndex = d.auraTrailLengthIndex; SETTINGS.AuraTrailLength = P.AURA_TRAIL_LEN[P.auraTrailLengthIndex].value end
+    if d.auraTrailWidthIndex then P.auraTrailWidthIndex = d.auraTrailWidthIndex; SETTINGS.AuraTrailWidth = P.AURA_TRAIL_WID[P.auraTrailWidthIndex].value end
+    if d.auraPatternIndex then P.auraPatternIndex = d.auraPatternIndex; SETTINGS.AuraPattern = P.AURA_PATTERNS[P.auraPatternIndex].name end
     if d.auraSpinEnabled ~= nil then SETTINGS.AuraSpinEnabled = d.auraSpinEnabled end
     if d.auraSpinAxis then SETTINGS.AuraSpinAxis = d.auraSpinAxis end
+    if d.auraSpinSpeedIndex then P.auraSpinSpeedIndex = d.auraSpinSpeedIndex; SETTINGS.AuraSpinSpeed = P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].value end
+    if d.auraPulseEnabled ~= nil then SETTINGS.AuraPulseEnabled = d.auraPulseEnabled end
+    if d.auraSpeedIndex then P.auraSpeedIndex = d.auraSpeedIndex; SETTINGS.AuraSpeedMult = P.AURA_SPEED[P.auraSpeedIndex].value end
+    if d.auraDirIndex then P.auraDirIndex = d.auraDirIndex; SETTINGS.AuraDirection = P.AURA_DIR[P.auraDirIndex].value end
     if d.fireEnabled ~= nil then SETTINGS.FireEnabled = d.fireEnabled end
     if d.fireSizeIndex then P.fireSizeIndex = d.fireSizeIndex; SETTINGS.FireSize = P.FIRE_SIZE[P.fireSizeIndex].value end
     if d.fireHeatIndex then P.fireHeatIndex = d.fireHeatIndex; SETTINGS.FireHeat = P.FIRE_HEAT[P.fireHeatIndex].value end
@@ -1436,6 +1815,7 @@ local function applySaveData(d)
     if d.musicEnabled ~= nil then ORBIT.musicEnabled = d.musicEnabled end
     if d.musicId then ORBIT.savedMusicId = d.musicId; ORBIT.setMusicId(d.musicId) end
     if d.useMySkin ~= nil then ORBIT.botSettings.UseMySkin = d.useMySkin end
+    if d.showPlayerRing ~= nil then ORBIT.botSettings.ShowPlayerRing = d.showPlayerRing end
     if d.espEnabled ~= nil and ORBIT.ESP then ORBIT.ESP.Enabled = d.espEnabled end
     if d.soundEnabled ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Enabled = d.soundEnabled end
     if d.soundVolume ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Volume = d.soundVolume end
@@ -1507,13 +1887,12 @@ function ORBIT.startLogic()
     ORBIT.setEnabled(true)
     ORBIT.setupAura()
     ORBIT.setupFire()
-    -- 🆕 Защита теперь отдельно (orbit_anticheat.lua)
     if ORBIT.enableProtection then
         pcall(ORBIT.enableProtection)
     end
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v22.7 (логика без защиты)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P3 v23.0 (логика + аура + копирование)", Color3.fromRGB(180,255,180), 3) end
 
 return true
