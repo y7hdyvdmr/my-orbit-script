@@ -1,7 +1,10 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v22.7 — MULTI-SAVE + SOUNDS + ANTICHEAT HOOK    ║
+    ║   ОРБИТА v23.0 — MULTI-SAVE + SOUNDS + ANTICHEAT HOOK    ║
     ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗВУКИ + ЗАГРУЗЧИК         ║
+    ║   🆕 Выбор платформы (Телефон / ПК)                       ║
+    ║   🆕 Последовательная загрузка частей (без гонки)         ║
+    ║   🆕 Чистый unload (боты, кольца, ESP, фейерверк)         ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -14,9 +17,10 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v22.7"
+ORBIT.version = "v23.0"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false }
 ORBIT.started = false
+ORBIT.PLATFORM = nil  -- определится после выбора в загрузчике
 
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
@@ -25,6 +29,7 @@ local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local HttpService  = game:GetService("HttpService")
 local LogService   = game:GetService("LogService")
+local UIS          = game:GetService("UserInputService")
 local LocalPlayer  = Players.LocalPlayer
 local PlayerGui    = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -35,6 +40,7 @@ ORBIT.SoundService = SoundService
 ORBIT.TweenService = TweenService
 ORBIT.HttpService = HttpService
 ORBIT.LogService = LogService
+ORBIT.UIS = UIS
 ORBIT.LocalPlayer = LocalPlayer
 ORBIT.PlayerGui = PlayerGui
 ORBIT.SAVE_FILE = "orbit_v21_settings.json"
@@ -113,6 +119,7 @@ ORBIT.DEFAULT_SETTINGS = {
     AuraTrailEnabled = false, AuraTrailLength = 0.5, AuraTrailWidth = 0.8,
     AuraSpinEnabled = true, AuraSpinAxis = "Y", AuraSpinSpeed = 60,
     AuraPulseEnabled = false,
+    AuraPattern = "Круг",
 
     FireEnabled = false, FireColor = Color3.fromRGB(255, 120, 0),
     FireSize = 6, FireHeat = 8,
@@ -122,33 +129,17 @@ ORBIT.DEFAULT_SETTINGS = {
     GradientEnabled = false, GradientSpeed = 0.5,
     AutoShapeSwap = false, AutoShapeSwapInterval = 15,
 
-    -- Защита (используется orbit_anticheat.lua если запущен отдельно)
     ProtEnabled = false,
-    AntiKnockback = true,
-    AntiTeleport = true,
-    AntiFreeze = true,
-    AutoHeal = false,
-    AutoHealValue = 100,
-    AntiVoid = true,
-    AntiVoidY = 5,
-    AntiExplosion = true,
-    AntiFling = true,
-    SavePosOnEnable = false,
-    LockPosition = false,
-    SmartFloor = true,
-    SmartFloorY = 5,
-    DisableFallDamage = true,
-    DodgeEnabled = false,
-    ReverseFlingEnabled = false,
+    AntiKnockback = true, AntiTeleport = true, AntiFreeze = true,
+    AutoHeal = false, AutoHealValue = 100,
+    AntiVoid = true, AntiVoidY = 5, AntiExplosion = true, AntiFling = true,
+    SavePosOnEnable = false, LockPosition = false,
+    SmartFloor = true, SmartFloorY = 5, DisableFallDamage = true,
+    DodgeEnabled = false, ReverseFlingEnabled = false,
 
-    -- ESP
-    ESPEnabled = false,
-    ESPMaxDistance = 500,
+    ESPEnabled = false, ESPMaxDistance = 500,
 
-    -- Боты
-    UseMySkin = false,
-    AutoCollect = true,
-    CollectRadius = 12,
+    UseMySkin = false, AutoCollect = true, CollectRadius = 12,
 }
 ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
 
@@ -209,8 +200,8 @@ P.orbitPatternIndex = 1
 P.SHAPE_CATEGORIES = {
     {name="ВСЕ"},
     {name="ОСНОВНЫЕ",  shapes={"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"}},
-    {name="ОРУЖИЕ",    shapes={"МЕЧ","ЩИТ","КОРОНА"}},
-    {name="МАГИЯ",     shapes={"ГЛАЗ","РУНА","КРИСТАЛЛ","ИНЬ-ЯН","МОЛНИЯ","ГАСТЕР БЛАСТЕР"}},
+    {name="ОРУЖИЕ",    shapes={"МЕЧ","ЩИТ"}},
+    {name="МАГИЯ",     shapes={"ГЛАЗ","ИНЬ-ЯН","МОЛНИЯ","ГАСТЕР БЛАСТЕР"}},
     {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ"}},
 }
 P.shapeCategoryIndex = 1
@@ -319,6 +310,12 @@ P.AURA_SPIN_AXIS = {
     {name="↕️ ВЕРХ/ВНИЗ",value="Y"},{name="↔️ ВЛЕВО/ВПРАВО",value="X"},
 }
 P.auraSpinAxisIndex = 1
+-- 🆕 Узоры ауры (как у колец)
+P.AURA_PATTERNS = {
+    {name="Круг"},{name="Спираль"},{name="Волна"},{name="Восьмёрка"},
+    {name="Зигзаг"},{name="Лиссажу"},{name="Хаос"},
+}
+P.auraPatternIndex = 1
 
 P.FIRE_SIZE = {
     {name="Маленький",value=3},{name="Средний",value=6},{name="Большой",value=10},
@@ -364,6 +361,13 @@ ORBIT.RING_STEP = 5
 ORBIT.SAVES = {}
 ORBIT.lastSafePos = nil
 
+-- 🆕 Сессия создаётся сразу — защита от nil в p4_shop
+ORBIT.SESSION = {
+    botsCollected = 0, cheatersTagged = 0, dodgesMade = 0,
+    protectionsTriggered = 0, startTime = tick(),
+    coinsSpent = 0, coinsEarned = 0,
+}
+
 ORBIT.rings = {
     [1] = {enabled=true,  shapeIndex=1, folder=nil, blocks={}, radiusOffset=0, heightOffset=0,   direction=1,  speedMult=1.0, angleShift=0,   colorShift=0   },
     [2] = {enabled=false, shapeIndex=2, folder=nil, blocks={}, radiusOffset=1, heightOffset=-0.5, direction=-1, speedMult=1.3, angleShift=22.5, colorShift=0.2 },
@@ -375,6 +379,28 @@ for ri in pairs(ORBIT.rings) do
     ORBIT.currentRadius[ri], ORBIT.currentHeight[ri] = 8, 3
     ORBIT.currentSpeed[ri], ORBIT.currentSpin[ri] = 60, 120
     ORBIT.currentOrbitAngle[ri], ORBIT.currentSpinAngle[ri], ORBIT.currentBobPhase[ri] = 0, 0, 0
+end
+
+-- ==================== 🆕 ПЛАТФОРМО-ЗАВИСИМЫЕ ДЕФОЛТЫ ====================
+-- Вызывается после выбора платформы в загрузчике
+function ORBIT.applyPlatformDefaults()
+    if ORBIT.PLATFORM == "mobile" then
+        -- Мобилка: облегчаем по умолчанию, чтобы не лагало
+        ORBIT.SETTINGS.BlockCount = 6
+        ORBIT.SETTINGS.LightLimit = 12
+        ORBIT.SETTINGS.LightEnabled = true
+        ORBIT.SETTINGS.TrailEnabled = false
+        ORBIT.SETTINGS.AuraParticles = true
+        ORBIT.SETTINGS.AuraShapes = true
+        ORBIT.SETTINGS.ESPEnabled = false
+    else
+        -- ПК: стандартные настройки
+        ORBIT.SETTINGS.BlockCount = 8
+        ORBIT.SETTINGS.LightLimit = 20
+        ORBIT.SETTINGS.LightEnabled = true
+        ORBIT.SETTINGS.TrailEnabled = false
+        ORBIT.SETTINGS.ESPEnabled = false
+    end
 end
 
 -- ==================== МУЗЫКА ====================
@@ -402,7 +428,7 @@ function ORBIT.setMusicId(idText)
     return true
 end
 
--- ==================== ЗВУКИ (заглушки, заменяются из orbit_sfx.lua) ====================
+-- ==================== ЗВУКИ (заглушки, переопределяются orbit_sfx.lua) ====================
 ORBIT.SOUNDS = {
     Enabled = true,
     Volume = 1.0,
@@ -432,6 +458,8 @@ function ORBIT.playDodge()
     ORBIT.playSound(ORBIT.SOUNDS.DodgeId)
     task.delay(0.3, function() ORBIT.playSound(ORBIT.SOUNDS.AfterDodgeId) end)
 end
+function ORBIT.playBuy() ORBIT.playSound(ORBIT.SOUNDS.ClickId) end
+function ORBIT.playWin() ORBIT.playSound(ORBIT.SOUNDS.ClickId) end
 
 -- ==================== УВЕДОМЛЕНИЯ ====================
 ORBIT.NOTIF_QUEUE = {}
@@ -497,7 +525,7 @@ function ORBIT.saveSavesList()
     end)
 end
 
--- ==================== ВЫГРУЗКА ====================
+-- ==================== 🐛 ЧИСТЫЙ UNLOAD ====================
 ORBIT.unload = function()
     if ORBIT.updateConn then pcall(function() ORBIT.updateConn:Disconnect() end); ORBIT.updateConn = nil end
     if ORBIT.protConn then pcall(function() ORBIT.protConn:Disconnect() end); ORBIT.protConn = nil end
@@ -507,6 +535,20 @@ ORBIT.unload = function()
     end
     if ORBIT.auraFolder then pcall(function() ORBIT.auraFolder:Destroy() end); ORBIT.auraFolder = nil end
     if ORBIT.fireFolder then pcall(function() ORBIT.fireFolder:Destroy() end); ORBIT.fireFolder = nil end
+    -- 🐛 Чистим кольца на других игроках
+    if ORBIT.cleanupAllTargetRings then pcall(ORBIT.cleanupAllTargetRings) end
+    -- 🐛 Чистим ботов
+    if ORBIT.removeAllBots then pcall(ORBIT.removeAllBots) end
+    -- 🐛 Чистим ESP-теги
+    if ORBIT.ESP and ORBIT.removeESPTag then
+        for p in pairs(ORBIT.ESP.Tags or {}) do
+            pcall(ORBIT.removeESPTag, p)
+        end
+    end
+    -- 🐛 Чистим фейерверки
+    if ORBIT.fireworkFolder then pcall(function() ORBIT.fireworkFolder:Destroy() end); ORBIT.fireworkFolder = nil end
+    -- 🐛 Чистим SFX-папку
+    if ORBIT.sfxFolder then pcall(function() ORBIT.sfxFolder:Destroy() end); ORBIT.sfxFolder = nil end
     if ORBIT.musicSound then pcall(function() ORBIT.musicSound:Destroy() end); ORBIT.musicSound = nil end
     if GENV._OrbitLoaderGui then pcall(function() GENV._OrbitLoaderGui:Destroy() end) end
     if GENV._OrbitMainGui then pcall(function() GENV._OrbitMainGui:Destroy() end) end
@@ -558,6 +600,126 @@ frameStroke.Color = LC_BORDER
 frameStroke.Thickness = 1.5
 frameStroke.Transparency = 0.2
 
+-- 🆕 ==================== ЭКРАН ВЫБОРА ПЛАТФОРМЫ ====================
+local platformScreen = Instance.new("Frame")
+platformScreen.Size = UDim2.new(0, 500, 0, 620)
+platformScreen.Position = UDim2.new(0.5, -250, 0.5, -310)
+platformScreen.BackgroundColor3 = LC_BG
+platformScreen.BorderSizePixel = 0
+platformScreen.ZIndex = 10
+platformScreen.Parent = loaderGui
+Instance.new("UICorner", platformScreen).CornerRadius = UDim.new(0, 6)
+
+local platformStroke = Instance.new("UIStroke", platformScreen)
+platformStroke.Color = LC_BORDER
+platformStroke.Thickness = 1.5
+platformStroke.Transparency = 0.2
+
+local pTitle = Instance.new("TextLabel")
+pTitle.Size = UDim2.new(1, 0, 0, 60)
+pTitle.Position = UDim2.new(0, 0, 0, 60)
+pTitle.BackgroundTransparency = 1
+pTitle.Text = "ОРБИТА " .. ORBIT.version
+pTitle.TextColor3 = LC_GREEN
+pTitle.Font = Enum.Font.Code
+pTitle.TextSize = 36
+pTitle.ZIndex = 11
+pTitle.Parent = platformScreen
+
+local pSub = Instance.new("TextLabel")
+pSub.Size = UDim2.new(1, 0, 0, 24)
+pSub.Position = UDim2.new(0, 0, 0, 122)
+pSub.BackgroundTransparency = 1
+pSub.Text = "ВЫБЕРИ СВОЮ ПЛАТФОРМУ"
+pSub.TextColor3 = LC_ORANGE
+pSub.Font = Enum.Font.Code
+pSub.TextSize = 15
+pSub.ZIndex = 11
+pSub.Parent = platformScreen
+
+local pHint = Instance.new("TextLabel")
+pHint.Size = UDim2.new(1, 0, 0, 20)
+pHint.Position = UDim2.new(0, 0, 0, 152)
+pHint.BackgroundTransparency = 1
+pHint.Text = "от этого зависят настройки и размер интерфейса"
+pHint.TextColor3 = LC_DIM
+pHint.Font = Enum.Font.Code
+pHint.TextSize = 11
+pHint.ZIndex = 11
+pHint.Parent = platformScreen
+
+local mobileBtn = Instance.new("TextButton")
+mobileBtn.Size = UDim2.new(0, 220, 0, 200)
+mobileBtn.Position = UDim2.new(0, 30, 0, 200)
+mobileBtn.BackgroundColor3 = Color3.fromRGB(25, 45, 32)
+mobileBtn.BackgroundTransparency = 0.15
+mobileBtn.TextColor3 = LC_GREEN
+mobileBtn.Font = Enum.Font.Code
+mobileBtn.TextSize = 18
+mobileBtn.Text = "📱\nТЕЛЕФОН\n\n• Меньше фигур\n• Легче эффекты\n• Большие кнопки"
+mobileBtn.AutoButtonColor = false
+mobileBtn.ZIndex = 11
+mobileBtn.Parent = platformScreen
+Instance.new("UICorner", mobileBtn).CornerRadius = UDim.new(0, 12)
+local mbStroke = Instance.new("UIStroke", mobileBtn)
+mbStroke.Color = LC_BORDER; mbStroke.Thickness = 2; mbStroke.Transparency = 0.3
+
+local pcBtn = Instance.new("TextButton")
+pcBtn.Size = UDim2.new(0, 220, 0, 200)
+pcBtn.Position = UDim2.new(0, 250, 0, 200)
+pcBtn.BackgroundColor3 = Color3.fromRGB(25, 45, 32)
+pcBtn.BackgroundTransparency = 0.15
+pcBtn.TextColor3 = LC_GREEN
+pcBtn.Font = Enum.Font.Code
+pcBtn.TextSize = 18
+pcBtn.Text = "💻\nКОМПЬЮТЕР\n\n• Больше фигур\n• Все эффекты\n• Полный UI"
+pcBtn.AutoButtonColor = false
+pcBtn.ZIndex = 11
+pcBtn.Parent = platformScreen
+Instance.new("UICorner", pcBtn).CornerRadius = UDim.new(0, 12)
+local pcStroke = Instance.new("UIStroke", pcBtn)
+pcStroke.Color = LC_BORDER; pcStroke.Thickness = 2; pcStroke.Transparency = 0.3
+
+local autoDetectLbl = Instance.new("TextLabel")
+autoDetectLbl.Size = UDim2.new(1, 0, 0, 20)
+autoDetectLbl.Position = UDim2.new(0, 0, 0, 420)
+autoDetectLbl.BackgroundTransparency = 1
+autoDetectLbl.Text = UIS.TouchEnabled and "👉 Похоже, ты на телефоне" or "👉 Похоже, ты на ПК"
+autoDetectLbl.TextColor3 = LC_DIM
+autoDetectLbl.Font = Enum.Font.Code
+autoDetectLbl.TextSize = 12
+autoDetectLbl.ZIndex = 11
+autoDetectLbl.Parent = platformScreen
+
+local function highlightBtn(btn, stroke, on)
+    TweenService:Create(btn, TweenInfo.new(0.1), {
+        BackgroundColor3 = on and LC_GREEN or Color3.fromRGB(25, 45, 32),
+        TextColor3 = on and Color3.fromRGB(10, 25, 18) or LC_GREEN,
+    }):Play()
+    stroke.Color = on and LC_ORANGE or LC_BORDER
+end
+
+mobileBtn.MouseButton1Down:Connect(function() highlightBtn(mobileBtn, mbStroke, true) end)
+mobileBtn.MouseButton1Up:Connect(function() highlightBtn(mobileBtn, mbStroke, false) end)
+mobileBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then highlightBtn(mobileBtn, mbStroke, true) end
+end)
+mobileBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then highlightBtn(mobileBtn, mbStroke, false) end
+end)
+
+pcBtn.MouseButton1Down:Connect(function() highlightBtn(pcBtn, pcStroke, true) end)
+pcBtn.MouseButton1Up:Connect(function() highlightBtn(pcBtn, pcStroke, false) end)
+pcBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then highlightBtn(pcBtn, pcStroke, true) end
+end)
+pcBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then highlightBtn(pcBtn, pcStroke, false) end
+end)
+
+-- ==================== ОСНОВНОЙ ЭКРАН ЗАГРУЗЧИКА ====================
+frame.Visible = false  -- скрыт до выбора платформы
+
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 52)
 title.Position = UDim2.new(0, 0, 0, 14)
@@ -579,6 +741,19 @@ subtitle.Font = Enum.Font.Code
 subtitle.TextSize = 14
 subtitle.ZIndex = 3
 subtitle.Parent = frame
+
+local platformBadge = Instance.new("TextLabel")
+platformBadge.Size = UDim2.new(0, 160, 0, 22)
+platformBadge.Position = UDim2.new(1, -170, 0, 20)
+platformBadge.BackgroundColor3 = Color3.fromRGB(25, 45, 32)
+platformBadge.BorderSizePixel = 0
+platformBadge.Text = "PLATFORM: —"
+platformBadge.TextColor3 = LC_ORANGE
+platformBadge.Font = Enum.Font.Code
+platformBadge.TextSize = 11
+platformBadge.ZIndex = 4
+platformBadge.Parent = frame
+Instance.new("UICorner", platformBadge).CornerRadius = UDim.new(0, 6)
 
 local function makeCorner(x, y, isRight, isBottom)
     local h = Instance.new("Frame")
@@ -687,6 +862,7 @@ local function addLog(kind, text)
     task.wait()
     termScroll.CanvasPosition = Vector2.new(0, math.max(0, termScroll.AbsoluteCanvasSize.Y - termScroll.AbsoluteWindowSize.Y))
 end
+ORBIT.addLog = addLog
 
 local progHolder = Instance.new("Frame")
 progHolder.Size = UDim2.new(1, -40, 0, 34)
@@ -822,32 +998,16 @@ local function refreshStatus()
 end
 ORBIT.refreshLoaderStatus = refreshStatus
 
-task.spawn(function()
-    addLog("SYS", "$ executing orbit_loader.lua...")
-    task.wait(0.15)
-    addLog("INFO", "Loading ORBITA " .. ORBIT.version)
-    addLog("INFO", "Part 1/4: CORE + SETTINGS + SOUNDS")
-    addLog("INFO", "Initializing services...")
-    ORBIT.loadSavesList()
-    local saveCount = 0
-    for _ in pairs(ORBIT.SAVES) do saveCount = saveCount + 1 end
-    addLog("OK", "Found " .. saveCount .. " save(s) in storage")
-    addLog("INFO", "Setting up protection module...")
-    task.wait(0.25)
-    addLog("WAIT", "Part 2/4: SHAPES — loading figures...")
-    addLog("WAIT", "Part 3/4: LOGIC + PROTECTION...")
-    addLog("WAIT", "Part 4/4: INTERFACE — tabbed UI...")
-    task.wait(0.15)
-    addLog("OK", "Auto-save: DISABLED")
-    addLog("OK", "Multi-save: ENABLED")
-    addLog("OK", "Sounds: ENABLED")
-end)
-
+-- ==================== 🐛 ЗАГРУЗКА ЧАСТИ (с ретраями и проверкой) ====================
 local loading = {}
-local function loadPart(part)
-    if loading[part.num] then return end
+
+local function loadPart(part, onDone)
+    if loading[part.num] then
+        if onDone then onDone(false) end
+        return
+    end
     if ORBIT.loaded["p" .. part.num] then
-        ORBIT.notify("Часть " .. part.num .. " уже загружена", Color3.fromRGB(255, 200, 100))
+        if onDone then onDone(true) end
         return
     end
     loading[part.num] = true
@@ -856,34 +1016,67 @@ local function loadPart(part)
     addLog("INFO", "Downloading " .. part.file .. "...")
 
     task.spawn(function()
-        local url = BASE_URL .. part.file .. "?t=" .. os.time()
-        local ok, src = pcall(function() return game:HttpGet(url) end)
-        if not ok or type(src) ~= "string" or #src < 100 then
+        local success = false
+        local maxRetries = 3
+        for attempt = 1, maxRetries do
+            local url = BASE_URL .. part.file .. "?t=" .. os.time() .. "&a=" .. attempt
+            local ok, src = pcall(function() return game:HttpGet(url) end)
+            if not ok or type(src) ~= "string" or #src < 100 then
+                addLog("WARN", "Attempt " .. attempt .. " failed (download)")
+                task.wait(0.5)
+                continue
+            end
+            local fn, err = loadstring(src)
+            if not fn then
+                addLog("ERR", "Compile error: " .. tostring(err):sub(1, 60))
+                task.wait(0.5)
+                continue
+            end
+            local runOk, runErr = pcall(fn)
+            if not runOk then
+                addLog("ERR", "Runtime error: " .. tostring(runErr):sub(1, 60))
+                task.wait(0.5)
+                continue
+            end
+            success = true
+            break
+        end
+
+        if not success then
             btn.Text = "❌ ERROR"
-            addLog("ERR", "Failed to download " .. part.file)
+            addLog("ERR", "Failed to load " .. part.file .. " after " .. maxRetries .. " attempts")
             loading[part.num] = nil
             task.wait(2)
             btn.Text = part.title .. "\n" .. part.sub
+            if onDone then onDone(false) end
             return
         end
-        local fn, err = loadstring(src)
-        if not fn then
-            btn.Text = "❌ ERROR"
-            addLog("ERR", "Compile error: " .. tostring(err):sub(1, 60))
+
+        -- 🐛 Проверка: реально ли часть установила свои поля
+        local verified = true
+        if part.num == 2 and (not ORBIT.SHAPE_PRESETS or #ORBIT.SHAPE_PRESETS < 3) then
+            verified = false
+            addLog("WARN", "Part 2 loaded but SHAPE_PRESETS empty!")
+        end
+        if part.num == 3 and not ORBIT.startUpdateLoop then
+            verified = false
+            addLog("WARN", "Part 3 loaded but startUpdateLoop missing!")
+        end
+        if part.num == 4 and not ORBIT.ui then
+            verified = false
+            addLog("WARN", "Part 4 loaded but ORBIT.ui missing!")
+        end
+
+        if not verified then
+            ORBIT.loaded["p" .. part.num] = false
+            btn.Text = "⚠ VERIFY"
             loading[part.num] = nil
-            task.wait(3)
+            task.wait(1)
             btn.Text = part.title .. "\n" .. part.sub
+            if onDone then onDone(false) end
             return
         end
-        local runOk, runErr = pcall(fn)
-        if not runOk then
-            btn.Text = "❌ ERROR"
-            addLog("ERR", "Runtime error: " .. tostring(runErr):sub(1, 60))
-            loading[part.num] = nil
-            task.wait(3)
-            btn.Text = part.title .. "\n" .. part.sub
-            return
-        end
+
         ORBIT.loaded["p" .. part.num] = true
         btn.Text = "✓ " .. part.title
         btn.TextColor3 = LC_GREEN
@@ -891,6 +1084,7 @@ local function loadPart(part)
         addLog("OK", "Part " .. part.num .. "/4: " .. part.sub .. " — loaded")
         ORBIT.notify("✅ Часть " .. part.num .. " загружена", Color3.fromRGB(160, 255, 180), 3)
         refreshStatus()
+        if onDone then onDone(true) end
     end)
 end
 
@@ -914,52 +1108,98 @@ startBtn.Activated:Connect(function()
     pcall(function() ORBIT.start() end)
 end)
 
-task.spawn(function()
-    task.wait(0.5)
-    for _, part in ipairs(PARTS) do
-        if not ORBIT.loaded["p" .. part.num] then
-            task.wait(0.3)
-            loadPart(part)
+-- ==================== 🐛 ПОСЛЕДОВАТЕЛЬНАЯ ЗАГРУЗКА (без гонки) ====================
+local function autoLoadAll()
+    task.wait(0.4)
+    loadPart(PARTS[1], function(ok1)
+        if not ok1 then
+            addLog("WARN", "Part 2 failed — skip 3, 4")
+            return
         end
-    end
-end)
+        task.wait(0.2)
+        loadPart(PARTS[2], function(ok2)
+            if not ok2 then
+                addLog("WARN", "Part 3 failed — skip 4")
+                return
+            end
+            task.wait(0.2)
+            loadPart(PARTS[3], function(ok3)
+                if not ok3 then
+                    addLog("WARN", "Part 4 failed")
+                    return
+                end
+                addLog("OK", "All parts loaded — ready to launch")
+            end)
+        end)
+    end)
+end
 
--- 🆕 Подгрузка Anti-Cheat (отдельный скрипт)
+-- 🆕 Подгрузка Anti-Cheat (отдельный скрипт — из основного репо)
 task.spawn(function()
-    task.wait(0.9)
+    task.wait(2.5)
     local url = BASE_URL .. "orbit_anticheat.lua?t=" .. os.time()
     local ok, src = pcall(function() return game:HttpGet(url) end)
     if ok and type(src) == "string" and #src > 100 then
-        local fn, err = loadstring(src)
+        local fn = loadstring(src)
         if fn then
             local runOk, runErr = pcall(fn)
             if not runOk then warn("[Orbit AntiCheat] Runtime error: " .. tostring(runErr)) end
-        else
-            warn("[Orbit AntiCheat] Compile error: " .. tostring(err))
         end
     else
         warn("[Orbit AntiCheat] Не удалось загрузить (это ок, если запускаешь отдельно)")
     end
 end)
 
--- 🆕 Подгрузка SFX (звуки клиента)
+-- 🆕 Подгрузка SFX
 task.spawn(function()
-    task.wait(1.0)
+    task.wait(3.0)
     local url = BASE_URL .. "orbit_sfx.lua?t=" .. os.time()
     local ok, src = pcall(function() return game:HttpGet(url) end)
     if ok and type(src) == "string" and #src > 100 then
-        local fn, err = loadstring(src)
+        local fn = loadstring(src)
         if fn then
             local runOk, runErr = pcall(fn)
             if not runOk then warn("[Orbit SFX] Runtime error: " .. tostring(runErr)) end
-        else
-            warn("[Orbit SFX] Compile error: " .. tostring(err))
         end
     else
         warn("[Orbit SFX] Не удалось загрузить orbit_sfx.lua")
     end
 end)
 
-ORBIT.notify("✨ ОРБИТА " .. ORBIT.version .. ": загружаю части 2-4 + Sfx + AntiCheat...", Color3.fromRGB(200, 200, 255), 4)
+-- ==================== 🆕 ОБРАБОТЧИКИ ВЫБОРА ПЛАТФОРМЫ ====================
+local function selectPlatform(platform)
+    ORBIT.PLATFORM = platform
+    ORBIT.applyPlatformDefaults()
+
+    -- Показать основной экран загрузчика, скрыть выбор
+    TweenService:Create(platformScreen, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
+    for _, ch in ipairs(platformScreen:GetChildren()) do
+        if ch:IsA("TextLabel") or ch:IsA("TextButton") then
+            TweenService:Create(ch, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
+        end
+    end
+    task.wait(0.35)
+    platformScreen.Visible = false
+    frame.Visible = true
+
+    platformBadge.Text = platform == "mobile" and "📱 MOBILE" or "💻 PC"
+
+    addLog("SYS", "$ executing orbit_loader.lua...")
+    addLog("INFO", "Platform: " .. platform:upper())
+    addLog("INFO", "Loading ORBITA " .. ORBIT.version)
+    ORBIT.loadSavesList()
+    local saveCount = 0
+    for _ in pairs(ORBIT.SAVES) do saveCount = saveCount + 1 end
+    addLog("OK", "Found " .. saveCount .. " save(s) in storage")
+    addLog("OK", "BlockCount: " .. ORBIT.SETTINGS.BlockCount)
+    addLog("OK", "Sounds: ENABLED")
+
+    task.spawn(autoLoadAll)
+end
+
+mobileBtn.Activated:Connect(function() selectPlatform("mobile") end)
+pcBtn.Activated:Connect(function() selectPlatform("pc") end)
+
+ORBIT.notify("✨ ОРБИТА " .. ORBIT.version .. " — выбери платформу", Color3.fromRGB(200, 200, 255), 4)
 
 return ORBIT
