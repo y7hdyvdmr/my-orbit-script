@@ -1,10 +1,9 @@
---[[ ОРБИТА v23.0 — 3D-РЕДАКТОР ФИГУР
-     🧊 Настоящий 3D: вращение камеры, слои, симметрия
-     🎨 Палитра 24 цвета
-     🖌 Режимы: поставить / удалить / красить
-     ↩️ Undo/Redo, шаблоны (куб/шар/крест)
-     📥 Экспорт/импорт JSON
-     💾 Сохранение прямо в SHAPE_PRESETS
+--[[ ОРБИТА v23.2 — 3D-РЕДАКТОР ФИГУР v2.0
+     🐛 Фикс: цвет не менялся (Activated → InputBegan с Touch)
+     🐛 Фикс: не работал на телефоне (вертикальный лэйаут)
+     🎨 Улучшено: индикатор текущего цвета + большая палитра
+     🔄 Кнопка поворота фигуры
+     📱 Полная поддержка мобилки
 ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
@@ -14,12 +13,13 @@ if not ORBIT.ui or not ORBIT.ui.screenGui then warn("[Orbit 3D Editor] UI не �
 local Players      = ORBIT.Players
 local RunService   = ORBIT.RunService
 local HttpService  = ORBIT.HttpService
+local UIS          = game:GetService("UserInputService")
 local LocalPlayer  = ORBIT.LocalPlayer
 local screenGui    = ORBIT.ui.screenGui
 local IS_MOBILE    = (ORBIT.PLATFORM == "mobile")
 
 -- ============================================================
---       ПАЛИТРА
+--       ПАЛИТРА 24 ЦВЕТА
 -- ============================================================
 local PALETTE = {
     Color3.fromRGB(255, 60, 60),   Color3.fromRGB(255, 140, 40),
@@ -38,42 +38,25 @@ local PALETTE = {
 local selectedColorIndex = 1
 
 -- ============================================================
---       СОСТОЯНИЕ РЕДАКТОРА
+--       СОСТОЯНИЕ
 -- ============================================================
 local Ed = {
-    Open = false,
-    Gui = nil,
-    Vp = nil,
-    World = nil,
-    Cam = nil,
-    Folder = nil,         -- папка с занятыми клетками
-    GridFolder = nil,     -- папка с сеткой
-    N = 6,                -- размер сетки (N×N×N)
-    ActiveZ = 1,          -- активный слой
-    Mode = "place",       -- place / remove / paint
-    SymX = false,
-    SymY = false,
-    SymZ = false,
-    Cells = {},           -- [key] = {x, y, z, color}
-    History = {},         -- undo stack
-    HistoryIdx = 0,
-    MaxHistory = 20,
-    CamAzimuth = -45,
-    CamElevation = 30,
-    CamDistance = 14,
-    Dragging = false,
-    DragStart = nil,
-    DragMoved = false,
-    DragBegan = nil,
+    Open = false, Gui = nil, Vp = nil, World = nil, Cam = nil,
+    Folder = nil, GridFolder = nil,
+    N = 6, ActiveZ = 1,
+    Mode = "place",
+    SymX = false, SymY = false, SymZ = false,
+    Cells = {},             -- [key] = {x,y,z,color}
+    History = {}, HistoryIdx = 0, MaxHistory = 20,
+    CamAzimuth = -45, CamElevation = 30, CamDistance = 14,
     Name = "",
 }
 local function cellKey(x, y, z) return x .. "|" .. y .. "|" .. z end
 
 -- ============================================================
---       УТИЛИТЫ 3D
+--       УТИЛИТЫ
 -- ============================================================
 local function cellToWorld(x, y, z)
-    -- Центр сетки в (0,0,0), клетки размером 1
     local off = (Ed.N - 1) / 2
     return Vector3.new(x - off - 1, y - off - 1, z - off - 1)
 end
@@ -83,13 +66,10 @@ local function worldToCell(pos)
     local x = math.floor(pos.X + off + 1.5)
     local y = math.floor(pos.Y + off + 1.5)
     local z = math.floor(pos.Z + off + 1.5)
-    if x < 1 or x > Ed.N then return nil end
-    if y < 1 or y > Ed.N then return nil end
-    if z < 1 or z > Ed.N then return nil end
+    if x < 1 or x > Ed.N or y < 1 or y > Ed.N or z < 1 or z > Ed.N then return nil end
     return x, y, z
 end
 
--- Пересечение луча с AABB (box min/max)
 local function rayAABB(ro, rd, mn, mx)
     local tmin, tmax = -math.huge, math.huge
     local function axis(o, d, lo, hi)
@@ -113,10 +93,28 @@ local function rayAABB(ro, rd, mn, mx)
 end
 
 -- ============================================================
+--       УНИВЕРСАЛЬНЫЙ ТАП
+-- ============================================================
+local function onClick(btn, fn)
+    local debounce = false
+    local function call()
+        if debounce then return end
+        debounce = true
+        task.delay(0.05, function() debounce = false end)
+        fn()
+    end
+    btn.MouseButton1Down:Connect(call)
+    btn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then call() end
+    end)
+    btn.Activated:Connect(call)
+end
+
+-- ============================================================
 --       ПОСТРОЕНИЕ СЕТКИ
 -- ============================================================
 local function clearGridVisual()
-    if Ed.GridFolder then Ed.GridFolder:Destroy(); Ed.GridFolder = nil end
+    if Ed.GridFolder then Ed.GridFolder:Destroy() end
     Ed.GridFolder = Instance.new("Folder")
     Ed.GridFolder.Name = "Grid"
     Ed.GridFolder.Parent = Ed.World
@@ -127,70 +125,48 @@ local function buildGridVisual()
     local N = Ed.N
     local off = (N - 1) / 2
 
-    -- Рёбра куба
     local function line(a, b, color, transp, thickness)
         local diff = b - a
         local len = diff.Magnitude
+        if len < 0.01 then return end
         local p = Instance.new("Part")
         p.Name = "Line"
-        p.Size = Vector3.new(thickness or 0.04, thickness or 0.04, len)
+        p.Size = Vector3.new(thickness or 0.03, thickness or 0.03, len)
         p.CFrame = CFrame.lookAt((a + b) / 2, (a + b) / 2 + diff.Unit)
-        p.Anchored = true
-        p.CanCollide = false
-        p.CanQuery = false
-        p.CanTouch = false
-        p.CastShadow = false
-        p.Material = Enum.Material.Neon
-        p.Color = color
-        p.Transparency = transp or 0.6
+        p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false
+        p.CastShadow = false; p.Material = Enum.Material.Neon
+        p.Color = color; p.Transparency = transp or 0.6
         p.Parent = Ed.GridFolder
     end
 
-    -- Линии сетки текущего слоя (активный Z)
     local zLevel = Ed.ActiveZ - off - 1
     local cActive = PALETTE[selectedColorIndex]
     for i = 0, N do
         local x = i - off - 1
         local y = i - off - 1
-        -- По X
         line(Vector3.new(-off - 1, -off - 1, zLevel), Vector3.new(-off - 1 + N, -off - 1, zLevel), cActive, 0.75, 0.03)
-        line(Vector3.new(-off - 1, y - 0.0, zLevel), Vector3.new(-off - 1 + N, y, zLevel), cActive, 0.85, 0.02)
-        -- По Y
+        line(Vector3.new(-off - 1, y, zLevel), Vector3.new(-off - 1 + N, y, zLevel), cActive, 0.85, 0.02)
         line(Vector3.new(x, -off - 1, zLevel), Vector3.new(x, -off - 1 + N, zLevel), cActive, 0.85, 0.02)
     end
 
-    -- Полупрозрачная платформа активного слоя
     local plat = Instance.new("Part")
     plat.Name = "Plat"
     plat.Size = Vector3.new(N, 0.02, N)
     plat.CFrame = CFrame.new(0, -off - 1, zLevel)
-    plat.Anchored = true
-    plat.CanCollide = false
-    plat.CanQuery = false
-    plat.CanTouch = false
-    plat.CastShadow = false
-    plat.Material = Enum.Material.Neon
-    plat.Color = cActive
-    plat.Transparency = 0.92
+    plat.Anchored = true; plat.CanCollide = false; plat.CanQuery = false; plat.CanTouch = false
+    plat.CastShadow = false; plat.Material = Enum.Material.Neon
+    plat.Color = cActive; plat.Transparency = 0.92
     plat.Parent = Ed.GridFolder
 
-    -- Каркас куба (внешний)
     local cc = Color3.fromRGB(120, 160, 220)
-    local a = -off - 1
-    local b = a + N
+    local a, b = -off - 1, -off - 1 + N
     for _, pair in ipairs({
-        {Vector3.new(a,a,a), Vector3.new(b,a,a)},
-        {Vector3.new(b,a,a), Vector3.new(b,a,b)},
-        {Vector3.new(b,a,b), Vector3.new(a,a,b)},
-        {Vector3.new(a,a,b), Vector3.new(a,a,a)},
-        {Vector3.new(a,b,a), Vector3.new(b,b,a)},
-        {Vector3.new(b,b,a), Vector3.new(b,b,b)},
-        {Vector3.new(b,b,b), Vector3.new(a,b,b)},
-        {Vector3.new(a,b,b), Vector3.new(a,b,a)},
-        {Vector3.new(a,a,a), Vector3.new(a,b,a)},
-        {Vector3.new(b,a,a), Vector3.new(b,b,a)},
-        {Vector3.new(b,a,b), Vector3.new(b,b,b)},
-        {Vector3.new(a,a,b), Vector3.new(a,b,b)},
+        {Vector3.new(a,a,a), Vector3.new(b,a,a)}, {Vector3.new(b,a,a), Vector3.new(b,a,b)},
+        {Vector3.new(b,a,b), Vector3.new(a,a,b)}, {Vector3.new(a,a,b), Vector3.new(a,a,a)},
+        {Vector3.new(a,b,a), Vector3.new(b,b,a)}, {Vector3.new(b,b,a), Vector3.new(b,b,b)},
+        {Vector3.new(b,b,b), Vector3.new(a,b,b)}, {Vector3.new(a,b,b), Vector3.new(a,b,a)},
+        {Vector3.new(a,a,a), Vector3.new(a,b,a)}, {Vector3.new(b,a,a), Vector3.new(b,b,a)},
+        {Vector3.new(b,a,b), Vector3.new(b,b,b)}, {Vector3.new(a,a,b), Vector3.new(a,b,b)},
     }) do
         line(pair[1], pair[2], cc, 0.8, 0.03)
     end
@@ -211,12 +187,8 @@ local function buildBlock(x, y, z, color, isActiveLayer)
     p.Name = "Cell_" .. x .. "_" .. y .. "_" .. z
     p.Size = Vector3.new(0.92, 0.92, 0.92)
     p.Position = cellToWorld(x, y, z)
-    p.Anchored = true
-    p.CanCollide = false
-    p.CanQuery = false
-    p.CanTouch = false
-    p.CastShadow = false
-    p.Material = Enum.Material.Neon
+    p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false
+    p.CastShadow = false; p.Material = Enum.Material.Neon
     p.Color = color or PALETTE[selectedColorIndex]
     p.Transparency = isActiveLayer and 0.05 or 0.55
     p.Parent = Ed.Folder
@@ -232,16 +204,15 @@ end
 
 local function updateBlocksTransparency()
     for _, p in ipairs(Ed.Folder:GetChildren()) do
-        local _, _, z = p.Name:match("Cell_(%d+)_(%d+)_(%d+)")
-        if z then
-            z = tonumber(z)
-            p.Transparency = (z == Ed.ActiveZ) and 0.05 or 0.55
+        local _, _, zs = p.Name:match("Cell_(%d+)_(%d+)_(%d+)")
+        if zs then
+            p.Transparency = (tonumber(zs) == Ed.ActiveZ) and 0.05 or 0.55
         end
     end
 end
 
 -- ============================================================
---       UNDO / REDO
+--       ИСТОРИЯ
 -- ============================================================
 local function pushHistory()
     Ed.HistoryIdx = Ed.HistoryIdx + 1
@@ -262,7 +233,6 @@ local function doUndo()
     for k, v in pairs(snap) do Ed.Cells[k] = {x=v.x, y=v.y, z=v.z, color=v.color} end
     rebuildAllBlocks()
 end
-
 local function doRedo()
     if Ed.HistoryIdx >= #Ed.History then return end
     Ed.HistoryIdx = Ed.HistoryIdx + 1
@@ -275,44 +245,26 @@ end
 -- ============================================================
 --       ДЕЙСТВИЯ
 -- ============================================================
-local function setCell(x, y, z, color)
-    local k = cellKey(x, y, z)
-    Ed.Cells[k] = {x=x, y=y, z=z, color=color}
-end
-local function delCell(x, y, z)
-    Ed.Cells[cellKey(x, y, z)] = nil
-end
+local function setCell(x, y, z, color) Ed.Cells[cellKey(x, y, z)] = {x=x, y=y, z=z, color=color} end
+local function delCell(x, y, z) Ed.Cells[cellKey(x, y, z)] = nil end
 
 local function applySymmetry(x, y, z, color, isSet)
     local points = {{x, y, z}}
     local N = Ed.N
     if Ed.SymX then
-        local count = #points
-        for i = 1, count do
-            local p = points[i]
-            table.insert(points, {N + 1 - p[1], p[2], p[3]})
-        end
+        local c = #points
+        for i = 1, c do local p = points[i]; table.insert(points, {N + 1 - p[1], p[2], p[3]}) end
     end
     if Ed.SymY then
-        local count = #points
-        for i = 1, count do
-            local p = points[i]
-            table.insert(points, {p[1], N + 1 - p[2], p[3]})
-        end
+        local c = #points
+        for i = 1, c do local p = points[i]; table.insert(points, {p[1], N + 1 - p[2], p[3]}) end
     end
     if Ed.SymZ then
-        local count = #points
-        for i = 1, count do
-            local p = points[i]
-            table.insert(points, {p[1], p[2], N + 1 - p[3]})
-        end
+        local c = #points
+        for i = 1, c do local p = points[i]; table.insert(points, {p[1], p[2], N + 1 - p[3]}) end
     end
     for _, p in ipairs(points) do
-        if isSet then
-            setCell(p[1], p[2], p[3], color)
-        else
-            delCell(p[1], p[2], p[3])
-        end
+        if isSet then setCell(p[1], p[2], p[3], color) else delCell(p[1], p[2], p[3]) end
     end
 end
 
@@ -327,7 +279,7 @@ local function applyMode(x, y, z)
             Ed.Cells[k].color = PALETTE[selectedColorIndex]
             rebuildAllBlocks()
         end
-    else -- place
+    else
         applySymmetry(x, y, z, PALETTE[selectedColorIndex], true)
         rebuildAllBlocks()
     end
@@ -338,36 +290,30 @@ local function clearAll()
     Ed.Cells = {}
     rebuildAllBlocks()
 end
-
-local function fillCube()
+local function clearLayer()
     pushHistory()
-    for x = 1, Ed.N do
-        for y = 1, Ed.N do
-            for z = 1, Ed.N do
-                setCell(x, y, z, PALETTE[selectedColorIndex])
-            end
-        end
+    for k, cell in pairs(Ed.Cells) do
+        if cell.z == Ed.ActiveZ then Ed.Cells[k] = nil end
     end
     rebuildAllBlocks()
 end
-
+local function fillCube()
+    pushHistory()
+    for x = 1, Ed.N do for y = 1, Ed.N do for z = 1, Ed.N do
+        setCell(x, y, z, PALETTE[selectedColorIndex])
+    end end end
+    rebuildAllBlocks()
+end
 local function fillSphere()
     pushHistory()
     local c = (Ed.N + 1) / 2
     local r = (Ed.N - 0.5) / 2
-    for x = 1, Ed.N do
-        for y = 1, Ed.N do
-            for z = 1, Ed.N do
-                local dx, dy, dz = x - c, y - c, z - c
-                if dx*dx + dy*dy + dz*dz <= r*r then
-                    setCell(x, y, z, PALETTE[selectedColorIndex])
-                end
-            end
-        end
-    end
+    for x = 1, Ed.N do for y = 1, Ed.N do for z = 1, Ed.N do
+        local dx, dy, dz = x - c, y - c, z - c
+        if dx*dx + dy*dy + dz*dz <= r*r then setCell(x, y, z, PALETTE[selectedColorIndex]) end
+    end end end
     rebuildAllBlocks()
 end
-
 local function fillCross()
     pushHistory()
     local c = math.ceil(Ed.N / 2)
@@ -379,19 +325,76 @@ local function fillCross()
     rebuildAllBlocks()
 end
 
-local function clearLayer()
+-- Поворот всей фигуры вокруг центра
+local function rotateAll(axis, dir)
     pushHistory()
+    local N = Ed.N
+    local c = (N + 1) / 2
+    local newCells = {}
     for k, cell in pairs(Ed.Cells) do
-        if cell.z == Ed.ActiveZ then Ed.Cells[k] = nil end
+        local x, y, z = cell.x - c, cell.y - c, cell.z - c
+        local nx, ny, nz = x, y, z
+        if axis == "X" then
+            nx, ny, nz = x, -z * dir, y * dir
+        elseif axis == "Y" then
+            nx, ny, nz = -z * dir, y, x * dir
+        elseif axis == "Z" then
+            nx, ny, nz = -y * dir, x * dir, z
+        end
+        -- Если вращаем — но это может выйти за границы, обрезаем
+        local fx = math.floor(nx + c + 0.5)
+        local fy = math.floor(ny + c + 0.5)
+        local fz = math.floor(nz + c + 0.5)
+        if fx >= 1 and fx <= N and fy >= 1 and fy <= N and fz >= 1 and fz <= N then
+            newCells[cellKey(fx, fy, fz)] = {x=fx, y=fy, z=fz, color=cell.color}
+        end
     end
+    Ed.Cells = newCells
     rebuildAllBlocks()
+end
+
+-- ============================================================
+--       RAY PICK
+-- ============================================================
+local function pickCellFromScreen(sx, sy)
+    if not Ed.Cam or not Ed.Vp then return nil end
+    local ray = Ed.Cam:ScreenPointToRay(sx, sy)
+    if not ray then return nil end
+
+    local best, bestT = nil, math.huge
+
+    for _, cell in pairs(Ed.Cells) do
+        local center = cellToWorld(cell.x, cell.y, cell.z)
+        local mn = center - Vector3.new(0.46, 0.46, 0.46)
+        local mx = center + Vector3.new(0.46, 0.46, 0.46)
+        local t = rayAABB(ray.Origin, ray.Direction, mn, mx)
+        if t and t > 0 and t < bestT then
+            bestT = t
+            best = {kind = "hit", cell = cell}
+        end
+    end
+
+    if not best then
+        local off = (Ed.N - 1) / 2
+        local zLevel = Ed.ActiveZ - off - 1
+        local mn = Vector3.new(-off - 1, -off - 1, zLevel - 0.46)
+        local mx = Vector3.new(-off - 1 + Ed.N, -off - 1 + Ed.N, zLevel + 0.46)
+        local t = rayAABB(ray.Origin, ray.Direction, mn, mx)
+        if t and t > 0 then
+            local hit = ray.Origin + ray.Direction * t
+            local x, y, z = worldToCell(hit)
+            if x and z == Ed.ActiveZ then
+                best = {kind = "floor", x = x, y = y, z = z}
+            end
+        end
+    end
+    return best
 end
 
 -- ============================================================
 --       РЕГИСТРАЦИЯ ФИГУРЫ
 -- ============================================================
 local function registerShapeAsShapePreset(name, cellsData, N)
-    -- Подсчитываем bounds и нормализуем
     local minX, maxX = math.huge, -math.huge
     local minY, maxY = math.huge, -math.huge
     local minZ, maxZ = math.huge, -math.huge
@@ -405,12 +408,10 @@ local function registerShapeAsShapePreset(name, cellsData, N)
     local cx = (minX + maxX) / 2
     local cy = (minY + maxY) / 2
     local cz = (minZ + maxZ) / 2
-
     local size = math.max(maxX - minX + 1, maxY - minY + 1, maxZ - minZ + 1)
 
-    -- Проверка уникальности имени
     local finalName = name
-    local base = finalName; local n = 1
+    local base, n = finalName, 1
     local function exists(nm)
         for _, sp in ipairs(ORBIT.SHAPE_PRESETS) do if sp.name == nm then return true end end
         return false
@@ -434,7 +435,8 @@ local function registerShapeAsShapePreset(name, cellsData, N)
                 local px = (cell.x - cx) * unit
                 local py = (cell.y - cy) * unit
                 local pz = (cell.z - cz) * unit
-                local p = ORBIT.newPart(model, "V", Vector3.new(unit * 0.95, unit * 0.95, unit * 0.95),
+                local p = ORBIT.newPart(model, "V",
+                    Vector3.new(unit * 0.95, unit * 0.95, unit * 0.95),
                     CFrame.new(px, py, pz), cell.color, true)
                 table.insert(bodies, p)
             end
@@ -442,7 +444,7 @@ local function registerShapeAsShapePreset(name, cellsData, N)
         end,
     })
 
-    -- Сохранение в файл
+    -- Сохранение
     if ORBIT.HAS_FS then
         ORBIT.CUSTOM_SHAPES = ORBIT.CUSTOM_SHAPES or {}
         local blocks = {}
@@ -451,68 +453,31 @@ local function registerShapeAsShapePreset(name, cellsData, N)
                 r=cell.color.R, g=cell.color.G, b=cell.color.B})
         end
         table.insert(ORBIT.CUSTOM_SHAPES, {name = finalName, is3D = true, N = size, blocks = blocks})
-        if ORBIT.saveCustomShapes then ORBIT.saveCustomShapes() end
+        if ORBIT.saveCustomShapes then pcall(ORBIT.saveCustomShapes) end
         pcall(function()
             writefile(ORBIT.CUSTOM_FILE or "orbit_v21_custom_shapes.json",
                 HttpService:JSONEncode(ORBIT.CUSTOM_SHAPES))
         end)
     end
-
     return true, finalName
 end
 
 -- ============================================================
---       RAY PICK: клик по клетке
--- ============================================================
-local function pickCellFromScreen(sx, sy)
-    if not Ed.Cam or not Ed.Vp then return nil end
-    local ray = Ed.Cam:ScreenPointToRay(sx, sy)
-    if not ray then return nil end
-
-    local best, bestT = nil, math.huge
-    local hasBlocks = false
-
-    -- 1. Проверяем занятые клетки (прямое попадание = удалить)
-    for _, cell in pairs(Ed.Cells) do
-        hasBlocks = true
-        local center = cellToWorld(cell.x, cell.y, cell.z)
-        local mn = center - Vector3.new(0.46, 0.46, 0.46)
-        local mx = center + Vector3.new(0.46, 0.46, 0.46)
-        local t = rayAABB(ray.Origin, ray.Direction, mn, mx)
-        if t and t > 0 and t < bestT then
-            bestT = t
-            best = {kind = "hit", cell = cell}
-        end
-    end
-
-    -- 2. Если не попали в блок — проверяем плоскости активного слоя
-    if not best then
-        local off = (Ed.N - 1) / 2
-        local zLevel = Ed.ActiveZ - off - 1
-        local mn = Vector3.new(-off - 1, -off - 1, zLevel - 0.46)
-        local mx = Vector3.new(-off - 1 + Ed.N, -off - 1 + Ed.N, zLevel + 0.46)
-        local t = rayAABB(ray.Origin, ray.Direction, mn, mx)
-        if t and t > 0 then
-            local hit = ray.Origin + ray.Direction * t
-            local x, y, z = worldToCell(hit)
-            if x and z == Ed.ActiveZ then
-                best = {kind = "floor", x = x, y = y, z = z}
-            end
-        end
-    end
-
-    return best
-end
-
--- ============================================================
---       UI
+--       UI 3D-РЕДАКТОРА
 -- ============================================================
 local function openEditor3D()
     if Ed.Open then return end
     Ed.Open = true
 
-    local W = IS_MOBILE and 360 or 720
-    local H = IS_MOBILE and 620 or 520
+    -- 🆕 Адаптивные размеры
+    local W, H
+    if IS_MOBILE then
+        W = 340
+        H = 600
+    else
+        W = 680
+        H = 560
+    end
 
     Ed.Gui = Instance.new("Frame")
     Ed.Gui.Name = "_Orbit3DEditor"
@@ -533,7 +498,7 @@ local function openEditor3D()
     title.Size = UDim2.new(1, -100, 0, 26)
     title.Position = UDim2.new(0, 14, 0, 8)
     title.BackgroundTransparency = 1
-    title.Text = "🔮 3D-РЕДАКТОР ФИГУР"
+    title.Text = "🔮 3D-РЕДАКТОР"
     title.TextColor3 = Color3.fromRGB(230, 210, 255)
     title.Font = Enum.Font.GothamBold
     title.TextSize = 15
@@ -552,16 +517,29 @@ local function openEditor3D()
     closeBtn.ZIndex = 51
     closeBtn.Parent = Ed.Gui
     Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
+    onClick(closeBtn, function()
+        Ed.Open = false
+        if Ed.Gui then Ed.Gui:Destroy(); Ed.Gui = nil end
+        Ed.Vp = nil; Ed.World = nil; Ed.Cam = nil
+        Ed.Folder = nil; Ed.GridFolder = nil
+    end)
 
-    -- Layout: Viewport + панель управления
-    local vpW = IS_MOBILE and (W - 20) or 400
-    local vpH = IS_MOBILE and 280 or (H - 80)
-    local ctrlX = IS_MOBILE and 10 or 420
-    local ctrlY = IS_MOBILE and 320 or 40
-    local ctrlW = IS_MOBILE and (W - 20) or (W - 430)
-    local ctrlH = IS_MOBILE and (H - 380) or (H - 100)
+    -- ============================================================
+    --       ВЁРСТКА (вертикальная)
+    -- ============================================================
+    local vpW, vpH
+    local ctrlY
+    if IS_MOBILE then
+        vpW = W - 20          -- 320
+        vpH = 240
+        ctrlY = 36 + vpH + 8  -- начинается под вьюпортом
+    else
+        vpW = W - 20
+        vpH = 260
+        ctrlY = 36 + vpH + 8
+    end
 
-    -- ViewportFrame
+    -- Viewport
     Ed.Vp = Instance.new("ViewportFrame")
     Ed.Vp.Size = UDim2.new(0, vpW, 0, vpH)
     Ed.Vp.Position = UDim2.new(0, 10, 0, 36)
@@ -599,20 +577,14 @@ local function openEditor3D()
     rebuildAllBlocks()
 
     -- ============================================================
-    --         УПРАВЛЕНИЕ ПАЛЬЦЕМ
+    --       УПРАВЛЕНИЕ КАМЕРОЙ
     -- ============================================================
-    local dragBegan = nil
-    local dragMoved = false
-    local prevTouch = nil
-    local pinchStartDist = nil
-    local pinchStartZoom = nil
+    local dragBegan, dragMoved, prevTouch = nil, false, nil
+    local pinchStartDist, pinchStartZoom = nil, nil
 
     Ed.Vp.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch
-           or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if input.UserInputType == Enum.UserInputType.Touch then
-                prevTouch = input.Position
-            end
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if input.UserInputType == Enum.UserInputType.Touch then prevTouch = input.Position end
             dragBegan = input.Position
             dragMoved = false
         end
@@ -620,28 +592,24 @@ local function openEditor3D()
 
     Ed.Vp.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch then
-            local touches = game:GetService("UserInputService"):GetTouches()
+            local touches = UIS:GetTouches()
             if #touches >= 2 then
-                -- Пинч: зум
                 local p1 = touches[1].Position
                 local p2 = touches[2].Position
-                local dist = (p1 - p2).Magnitude
+                local d = (p1 - p2).Magnitude
                 if not pinchStartDist then
-                    pinchStartDist = dist
+                    pinchStartDist = d
                     pinchStartZoom = Ed.CamDistance
                 else
-                    local ratio = pinchStartDist / math.max(dist, 1)
+                    local ratio = pinchStartDist / math.max(d, 1)
                     Ed.CamDistance = math.clamp(pinchStartZoom * ratio, 5, 30)
                     updateCamera()
                 end
                 return
             end
-
             if dragBegan and not dragMoved then
-                local d = input.Position - dragBegan
-                if d.Magnitude > 8 then dragMoved = true end
+                if (input.Position - dragBegan).Magnitude > 8 then dragMoved = true end
             end
-
             if dragMoved and prevTouch then
                 local delta = input.Position - prevTouch
                 Ed.CamAzimuth = Ed.CamAzimuth - delta.X * 0.5
@@ -650,8 +618,7 @@ local function openEditor3D()
             end
             prevTouch = input.Position
         elseif input.UserInputType == Enum.UserInputType.MouseMovement and dragBegan then
-            local d = input.Position - dragBegan
-            if d.Magnitude > 6 then
+            if (input.Position - dragBegan).Magnitude > 6 then
                 dragMoved = true
                 Ed.CamAzimuth = Ed.CamAzimuth - input.Delta.X * 0.5
                 Ed.CamElevation = math.clamp(Ed.CamElevation + input.Delta.Y * 0.5, -80, 80)
@@ -662,33 +629,21 @@ local function openEditor3D()
 
     Ed.Vp.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch then
-            local touches = game:GetService("UserInputService"):GetTouches()
-            if #touches < 2 then
-                pinchStartDist = nil
-                pinchStartZoom = nil
-            end
+            local touches = UIS:GetTouches()
+            if #touches < 2 then pinchStartDist, pinchStartZoom = nil, nil end
             if dragBegan and not dragMoved then
-                -- Это был тап → действие
                 local rel = input.Position - Ed.Vp.AbsolutePosition
                 local picked = pickCellFromScreen(rel.X, rel.Y)
                 if picked then
                     if picked.kind == "hit" then
-                        if Ed.Mode == "place" and picked.cell.z == Ed.ActiveZ then
-                            applyMode(picked.cell.x, picked.cell.y, picked.cell.z)
-                        else
-                            applyMode(picked.cell.x, picked.cell.y, picked.cell.z)
-                        end
-                    elseif picked.kind == "floor" then
-                        if Ed.Mode == "place" then
-                            applyMode(picked.x, picked.y, picked.z)
-                        end
+                        applyMode(picked.cell.x, picked.cell.y, picked.cell.z)
+                    elseif picked.kind == "floor" and Ed.Mode == "place" then
+                        applyMode(picked.x, picked.y, picked.z)
                     end
                 end
             end
-            dragBegan = nil
-            prevTouch = nil
+            dragBegan, prevTouch = nil, nil
         end
-
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             if dragBegan and not dragMoved then
                 local rel = input.Position - Ed.Vp.AbsolutePosition
@@ -706,180 +661,249 @@ local function openEditor3D()
     end)
 
     -- ============================================================
-    --         ПАНЕЛЬ УПРАВЛЕНИЯ
+    --       ПАНЕЛЬ КОНТРОЛОВ (вертикальный скролл)
     -- ============================================================
     local ctrl = Instance.new("ScrollingFrame")
-    ctrl.Size = UDim2.new(0, ctrlW, 0, ctrlH)
-    ctrl.Position = UDim2.new(0, ctrlX, 0, ctrlY)
+    ctrl.Size = UDim2.new(1, -20, 0, H - ctrlY - 12)
+    ctrl.Position = UDim2.new(0, 10, 0, ctrlY)
     ctrl.BackgroundColor3 = Color3.fromRGB(22, 16, 36)
     ctrl.BorderSizePixel = 0
-    ctrl.CanvasSize = UDim2.new(0, 0, 0, 900)
-    ctrl.ScrollBarThickness = 3
+    ctrl.CanvasSize = UDim2.new(0, 0, 0, 700)
+    ctrl.ScrollBarThickness = 4
     ctrl.ScrollBarImageColor3 = Color3.fromRGB(180, 130, 255)
+    ctrl.AutomaticCanvasSize = Enum.AutomaticSize.Y
     ctrl.ZIndex = 51
     ctrl.Parent = Ed.Gui
     Instance.new("UICorner", ctrl).CornerRadius = UDim.new(0, 10)
 
-    local cy = 6
-    local function section(txt, color)
-        local l = Instance.new("TextLabel")
-        l.Size = UDim2.new(1, -12, 0, 18)
-        l.Position = UDim2.new(0, 6, 0, cy)
-        l.BackgroundColor3 = color
-        l.BackgroundTransparency = 0.6
-        l.BorderSizePixel = 0
-        l.Text = " " .. txt
-        l.TextColor3 = Color3.fromRGB(240, 240, 255)
-        l.Font = Enum.Font.GothamBold
-        l.TextSize = 11
-        l.TextXAlignment = Enum.TextXAlignment.Left
-        l.ZIndex = 52
-        l.Parent = ctrl
-        Instance.new("UICorner", l).CornerRadius = UDim.new(0, 4)
-        cy = cy + 22
-    end
-    local function button(text, color, onClick)
-        local b = Instance.new("TextButton")
-        b.Size = UDim2.new(1, -12, 0, 26)
-        b.Position = UDim2.new(0, 6, 0, cy)
-        b.BackgroundColor3 = color or Color3.fromRGB(45, 38, 65)
-        b.TextColor3 = Color3.fromRGB(230, 220, 255)
-        b.Font = Enum.Font.GothamBold
-        b.TextSize = 11
-        b.Text = text
-        b.ZIndex = 52
-        b.Parent = ctrl
-        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-        b.Activated:Connect(function() onClick(b) end)
-        cy = cy + 30
-        return b
-    end
-    local function row(txtLeft, txtRight, color)
-        local r = Instance.new("TextButton")
-        r.Size = UDim2.new(1, -12, 0, 26)
-        r.Position = UDim2.new(0, 6, 0, cy)
-        r.BackgroundColor3 = color or Color3.fromRGB(35, 30, 50)
-        r.TextColor3 = Color3.fromRGB(230, 220, 255)
-        r.Font = Enum.Font.GothamBold
-        r.TextSize = 10
-        r.Text = txtLeft
-        r.TextXAlignment = Enum.TextXAlignment.Left
-        r.ZIndex = 52
-        r.Parent = ctrl
-        Instance.new("UICorner", r).CornerRadius = UDim.new(0, 6)
-        local valLbl = Instance.new("TextLabel")
-        valLbl.Size = UDim2.new(0, 100, 1, 0)
-        valLbl.Position = UDim2.new(1, -104, 0, 0)
-        valLbl.BackgroundTransparency = 1
-        valLbl.Text = txtRight
-        valLbl.TextColor3 = Color3.fromRGB(255, 220, 150)
-        valLbl.Font = Enum.Font.GothamBold
-        valLbl.TextSize = 10
-        valLbl.TextXAlignment = Enum.TextXAlignment.Right
-        valLbl.ZIndex = 53
-        valLbl.Parent = r
-        cy = cy + 30
-        return r, valLbl
-    end
+    local cy = 8
+    local CTRL_W = W - 40  -- эффективная ширина контролов
 
-    section("🎨 ЦВЕТ", Color3.fromRGB(100, 60, 140))
-    -- Палитра: 8 × 3
-    local palGrid = Instance.new("Frame")
-    palGrid.Size = UDim2.new(1, -12, 0, 80)
-    palGrid.Position = UDim2.new(0, 6, 0, cy)
-    palGrid.BackgroundTransparency = 1
-    palGrid.ZIndex = 52
-    palGrid.Parent = ctrl
+    -- ============ ТЕКУЩИЙ ЦВЕТ + СЧЁТЧИК ============
+    local infoRow = Instance.new("Frame")
+    infoRow.Size = UDim2.new(1, -16, 0, 34)
+    infoRow.Position = UDim2.new(0, 8, 0, cy)
+    infoRow.BackgroundColor3 = Color3.fromRGB(30, 24, 45)
+    infoRow.BorderSizePixel = 0
+    infoRow.ZIndex = 52
+    infoRow.Parent = ctrl
+    Instance.new("UICorner", infoRow).CornerRadius = UDim.new(0, 8)
+    cy = cy + 38
+
+    local colorSquare = Instance.new("Frame")
+    colorSquare.Size = UDim2.new(0, 26, 0, 26)
+    colorSquare.Position = UDim2.new(0, 4, 0.5, -13)
+    colorSquare.BackgroundColor3 = PALETTE[1]
+    colorSquare.BorderSizePixel = 0
+    colorSquare.ZIndex = 53
+    colorSquare.Parent = infoRow
+    Instance.new("UICorner", colorSquare).CornerRadius = UDim.new(0, 6)
+    local cs = Instance.new("UIStroke", colorSquare)
+    cs.Color = Color3.fromRGB(255, 255, 255); cs.Thickness = 1.5; cs.Transparency = 0.3
+
+    local colorLbl = Instance.new("TextLabel")
+    colorLbl.Size = UDim2.new(0.5, -40, 1, 0)
+    colorLbl.Position = UDim2.new(0, 36, 0, 0)
+    colorLbl.BackgroundTransparency = 1
+    colorLbl.Text = "🎨 Цвет #1"
+    colorLbl.TextColor3 = Color3.fromRGB(230, 220, 255)
+    colorLbl.Font = Enum.Font.GothamBold
+    colorLbl.TextSize = 11
+    colorLbl.TextXAlignment = Enum.TextXAlignment.Left
+    colorLbl.ZIndex = 53
+    colorLbl.Parent = infoRow
+
+    local countLbl = Instance.new("TextLabel")
+    countLbl.Size = UDim2.new(0.5, -8, 1, 0)
+    countLbl.Position = UDim2.new(0.5, 4, 0, 0)
+    countLbl.BackgroundTransparency = 1
+    countLbl.Text = "🧱 0"
+    countLbl.TextColor3 = Color3.fromRGB(180, 220, 255)
+    countLbl.Font = Enum.Font.GothamBold
+    countLbl.TextSize = 11
+    countLbl.TextXAlignment = Enum.TextXAlignment.Right
+    countLbl.ZIndex = 53
+    countLbl.Parent = infoRow
+
+    local function refreshInfo()
+        colorSquare.BackgroundColor3 = PALETTE[selectedColorIndex]
+        colorLbl.Text = "🎨 Цвет #" .. selectedColorIndex
+        local count = 0
+        for _ in pairs(Ed.Cells) do count = count + 1 end
+        countLbl.Text = "🧱 " .. count
+    end
+    refreshInfo()
+
+    -- ============ ПАЛИТРА (горизонтальный скролл, крупные ячейки) ============
+    local palLabel = Instance.new("TextLabel")
+    palLabel.Size = UDim2.new(1, -16, 0, 16)
+    palLabel.Position = UDim2.new(0, 8, 0, cy)
+    palLabel.BackgroundTransparency = 1
+    palLabel.Text = "🎨 ВЫБЕРИ ЦВЕТ (тапни)"
+    palLabel.TextColor3 = Color3.fromRGB(220, 200, 255)
+    palLabel.Font = Enum.Font.GothamBold
+    palLabel.TextSize = 10
+    palLabel.TextXAlignment = Enum.TextXAlignment.Left
+    palLabel.ZIndex = 52
+    palLabel.Parent = ctrl
+    cy = cy + 18
+
+    local palScroll = Instance.new("ScrollingFrame")
+    palScroll.Size = UDim2.new(1, -16, 0, 82)
+    palScroll.Position = UDim2.new(0, 8, 0, cy)
+    palScroll.BackgroundColor3 = Color3.fromRGB(15, 12, 24)
+    palScroll.BorderSizePixel = 0
+    palScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    palScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+    palScroll.ScrollBarThickness = 4
+    palScroll.ScrollBarImageColor3 = Color3.fromRGB(180, 130, 255)
+    palScroll.ScrollingDirection = Enum.ScrollingDirection.X
+    palScroll.ZIndex = 52
+    palScroll.Parent = ctrl
+    Instance.new("UICorner", palScroll).CornerRadius = UDim.new(0, 8)
+
     local palLayout = Instance.new("UIGridLayout")
-    palLayout.CellSize = UDim2.new(0, 24, 0, 24)
-    palLayout.CellPadding = UDim2.new(0, 3, 0, 3)
-    palLayout.Parent = palGrid
+    palLayout.CellSize = UDim2.new(0, 36, 0, 36)
+    palLayout.CellPadding = UDim2.new(0, 4, 0, 4)
+    palLayout.FillDirection = Enum.FillDirection.Horizontal
+    palLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    palLayout.Parent = palScroll
+
+    -- Отступы
+    local palPad = Instance.new("UIPadding")
+    palPad.PaddingTop = UDim.new(0, 4)
+    palPad.PaddingBottom = UDim.new(0, 4)
+    palPad.PaddingLeft = UDim.new(0, 4)
+    palPad.PaddingRight = UDim.new(0, 4)
+    palPad.Parent = palScroll
 
     local palButtons = {}
-    local function refreshPalButtons()
+    local function refreshPalVisual()
         for i, b in ipairs(palButtons) do
-            b.UIStroke.Transparency = (i == selectedColorIndex) and 0 or 0.85
+            if b then
+                b.UIStroke.Transparency = (i == selectedColorIndex) and 0 or 0.8
+                b.UIStroke.Thickness = (i == selectedColorIndex) and 3 or 1.5
+            end
         end
         if Ed.GridFolder then buildGridVisual() end
+        refreshInfo()
     end
+
     for i, col in ipairs(PALETTE) do
         local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0, 36, 0, 36)
         b.BackgroundColor3 = col
-        b.Text = ""
         b.BorderSizePixel = 0
+        b.Text = ""
+        b.LayoutOrder = i
         b.ZIndex = 53
-        b.Parent = palGrid
-        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+        b.Parent = palScroll
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
         local s = Instance.new("UIStroke", b)
         s.Color = Color3.fromRGB(255, 255, 255)
-        s.Thickness = 2
-        s.Transparency = 0.85
+        s.Thickness = 1.5
+        s.Transparency = 0.8
         b.UIStroke = s
-        b.Activated:Connect(function()
+        onClick(b, function()
             selectedColorIndex = i
-            refreshPalButtons()
+            refreshPalVisual()
+            print("[3D Editor] Цвет #" .. i .. " выбран")
         end)
         table.insert(palButtons, b)
     end
-    cy = cy + 86
-    refreshPalButtons()
+    refreshPalVisual()
+    cy = cy + 88
 
-    section("🖌 РЕЖИМ", Color3.fromRGB(100, 80, 40))
+    -- ============ РЕЖИМЫ ============
+    local modeLabel = Instance.new("TextLabel")
+    modeLabel.Size = UDim2.new(1, -16, 0, 16)
+    modeLabel.Position = UDim2.new(0, 8, 0, cy)
+    modeLabel.BackgroundTransparency = 1
+    modeLabel.Text = "🖌 РЕЖИМ"
+    modeLabel.TextColor3 = Color3.fromRGB(220, 200, 255)
+    modeLabel.Font = Enum.Font.GothamBold
+    modeLabel.TextSize = 10
+    modeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    modeLabel.ZIndex = 52
+    modeLabel.Parent = ctrl
+    cy = cy + 18
+
     local modeRow = Instance.new("Frame")
-    modeRow.Size = UDim2.new(1, -12, 0, 28)
-    modeRow.Position = UDim2.new(0, 6, 0, cy)
+    modeRow.Size = UDim2.new(1, -16, 0, 32)
+    modeRow.Position = UDim2.new(0, 8, 0, cy)
     modeRow.BackgroundTransparency = 1
     modeRow.ZIndex = 52
     modeRow.Parent = ctrl
+
     local modeButtons = {}
-    local modeLabels = { place = "➕ Поставить", remove = "➖ Удалить", paint = "🎨 Красить" }
-    local modeKeys = { "place", "remove", "paint" }
-    for i, key in ipairs(modeKeys) do
+    local modeConfig = {
+        {key = "place",  label = "🖌 Ставить",  color = Color3.fromRGB(60, 130, 80)},
+        {key = "remove", label = "🗑 Удалить",  color = Color3.fromRGB(140, 60, 60)},
+        {key = "paint",  label = "🎨 Красить",  color = Color3.fromRGB(140, 90, 40)},
+    }
+    for i, cfg in ipairs(modeConfig) do
         local b = Instance.new("TextButton")
         b.Size = UDim2.new(0.33, -2, 1, 0)
-        b.Position = UDim2.new((i-1)*0.333, 0, 0, 0)
+        b.Position = UDim2.new((i - 1) * 0.333, 0, 0, 0)
         b.BackgroundColor3 = Color3.fromRGB(45, 38, 65)
         b.TextColor3 = Color3.fromRGB(220, 210, 255)
         b.Font = Enum.Font.GothamBold
-        b.TextSize = 9
-        b.Text = modeLabels[key]
+        b.TextSize = 10
+        b.Text = cfg.label
         b.ZIndex = 53
         b.Parent = modeRow
         Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-        modeButtons[key] = b
-    end
-    local function refreshModeButtons()
-        for k, b in pairs(modeButtons) do
-            if k == Ed.Mode then
-                b.BackgroundColor3 = Color3.fromRGB(120, 90, 180)
-                b.TextColor3 = Color3.fromRGB(255, 240, 255)
-            else
-                b.BackgroundColor3 = Color3.fromRGB(45, 38, 65)
-                b.TextColor3 = Color3.fromRGB(200, 190, 220)
+        modeButtons[cfg.key] = {btn = b, color = cfg.color}
+
+        onClick(b, function()
+            Ed.Mode = cfg.key
+            for k, data in pairs(modeButtons) do
+                if k == Ed.Mode then
+                    data.btn.BackgroundColor3 = data.color
+                    data.btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                else
+                    data.btn.BackgroundColor3 = Color3.fromRGB(45, 38, 65)
+                    data.btn.TextColor3 = Color3.fromRGB(200, 190, 220)
+                end
             end
-        end
-    end
-    for k, b in pairs(modeButtons) do
-        b.Activated:Connect(function()
-            Ed.Mode = k
-            refreshModeButtons()
+            print("[3D Editor] Режим: " .. cfg.key)
         end)
     end
-    refreshModeButtons()
-    cy = cy + 34
+    -- Инициализация
+    for k, data in pairs(modeButtons) do
+        if k == Ed.Mode then
+            data.btn.BackgroundColor3 = data.color
+            data.btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end
+    end
+    cy = cy + 36
 
-    section("📐 РАЗМЕР СЕТКИ", Color3.fromRGB(40, 80, 100))
+    -- ============ РАЗМЕР СЕТКИ ============
+    local sizeLabel = Instance.new("TextLabel")
+    sizeLabel.Size = UDim2.new(1, -16, 0, 16)
+    sizeLabel.Position = UDim2.new(0, 8, 0, cy)
+    sizeLabel.BackgroundTransparency = 1
+    sizeLabel.Text = "📐 РАЗМЕР СЕТКИ"
+    sizeLabel.TextColor3 = Color3.fromRGB(220, 200, 255)
+    sizeLabel.Font = Enum.Font.GothamBold
+    sizeLabel.TextSize = 10
+    sizeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    sizeLabel.ZIndex = 52
+    sizeLabel.Parent = ctrl
+    cy = cy + 18
+
     local sizeRow = Instance.new("Frame")
-    sizeRow.Size = UDim2.new(1, -12, 0, 26)
-    sizeRow.Position = UDim2.new(0, 6, 0, cy)
+    sizeRow.Size = UDim2.new(1, -16, 0, 30)
+    sizeRow.Position = UDim2.new(0, 8, 0, cy)
     sizeRow.BackgroundTransparency = 1
     sizeRow.ZIndex = 52
     sizeRow.Parent = ctrl
+
     local sizeButtons = {}
     for i, n in ipairs({4, 5, 6, 7, 8}) do
         local b = Instance.new("TextButton")
         b.Size = UDim2.new(0.2, -2, 1, 0)
-        b.Position = UDim2.new((i-1) * 0.2, 0, 0, 0)
+        b.Position = UDim2.new((i - 1) * 0.2, 0, 0, 0)
         b.BackgroundColor3 = Color3.fromRGB(45, 38, 65)
         b.TextColor3 = Color3.fromRGB(220, 210, 255)
         b.Font = Enum.Font.GothamBold
@@ -889,114 +913,302 @@ local function openEditor3D()
         b.Parent = sizeRow
         Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
         sizeButtons[n] = b
-    end
-    local function refreshSizeButtons()
-        for n, b in pairs(sizeButtons) do
-            if n == Ed.N then
-                b.BackgroundColor3 = Color3.fromRGB(80, 140, 200)
-            else
-                b.BackgroundColor3 = Color3.fromRGB(45, 38, 65)
-            end
-        end
-    end
-    for n, b in pairs(sizeButtons) do
-        b.Activated:Connect(function()
+        onClick(b, function()
             Ed.N = n
             Ed.ActiveZ = 1
             Ed.Cells = {}
             Ed.History = {}
             Ed.HistoryIdx = 0
-            refreshSizeButtons()
-            buildGridVisual(); rebuildAllBlocks()
+            for nn, bb in pairs(sizeButtons) do
+                bb.BackgroundColor3 = (nn == Ed.N) and Color3.fromRGB(80, 140, 200) or Color3.fromRGB(45, 38, 65)
+            end
+            buildGridVisual(); rebuildAllBlocks(); refreshInfo()
         end)
     end
-    refreshSizeButtons()
-    cy = cy + 30
+    for n, b in pairs(sizeButtons) do
+        if n == Ed.N then b.BackgroundColor3 = Color3.fromRGB(80, 140, 200) end
+    end
+    cy = cy + 34
 
-    section("📚 СЛОЙ Z", Color3.fromRGB(60, 60, 100))
+    -- ============ СЛОЙ Z ============
+    local zLabel = Instance.new("TextLabel")
+    zLabel.Size = UDim2.new(1, -16, 0, 16)
+    zLabel.Position = UDim2.new(0, 8, 0, cy)
+    zLabel.BackgroundTransparency = 1
+    zLabel.Text = "📚 АКТИВНЫЙ СЛОЙ (Z)"
+    zLabel.TextColor3 = Color3.fromRGB(220, 200, 255)
+    zLabel.Font = Enum.Font.GothamBold
+    zLabel.TextSize = 10
+    zLabel.TextXAlignment = Enum.TextXAlignment.Left
+    zLabel.ZIndex = 52
+    zLabel.Parent = ctrl
+    cy = cy + 18
+
     local zRow = Instance.new("Frame")
-    zRow.Size = UDim2.new(1, -12, 0, 30)
-    zRow.Position = UDim2.new(0, 6, 0, cy)
+    zRow.Size = UDim2.new(1, -16, 0, 34)
+    zRow.Position = UDim2.new(0, 8, 0, cy)
     zRow.BackgroundTransparency = 1
     zRow.ZIndex = 52
     zRow.Parent = ctrl
+
     local zDown = Instance.new("TextButton")
-    zDown.Size = UDim2.new(0.3, -3, 1, 0); zDown.Position = UDim2.new(0, 0, 0, 0)
-    zDown.BackgroundColor3 = Color3.fromRGB(60, 50, 85); zDown.TextColor3 = Color3.fromRGB(220, 210, 255)
-    zDown.Font = Enum.Font.GothamBold; zDown.TextSize = 14; zDown.Text = "▼"
-    zDown.ZIndex = 53; zDown.Parent = zRow
+    zDown.Size = UDim2.new(0.3, -3, 1, 0)
+    zDown.Position = UDim2.new(0, 0, 0, 0)
+    zDown.BackgroundColor3 = Color3.fromRGB(60, 50, 85)
+    zDown.TextColor3 = Color3.fromRGB(220, 210, 255)
+    zDown.Font = Enum.Font.GothamBold
+    zDown.TextSize = 16
+    zDown.Text = "▼"
+    zDown.ZIndex = 53
+    zDown.Parent = zRow
     Instance.new("UICorner", zDown).CornerRadius = UDim.new(0, 6)
+
     local zLbl = Instance.new("TextLabel")
-    zLbl.Size = UDim2.new(0.4, -4, 1, 0); zLbl.Position = UDim2.new(0.3, 0, 0, 0)
-    zLbl.BackgroundColor3 = Color3.fromRGB(35, 30, 50); zLbl.BorderSizePixel = 0
+    zLbl.Size = UDim2.new(0.4, -4, 1, 0)
+    zLbl.Position = UDim2.new(0.3, 0, 0, 0)
+    zLbl.BackgroundColor3 = Color3.fromRGB(35, 30, 50)
+    zLbl.BorderSizePixel = 0
     zLbl.Text = "Слой 1 / " .. Ed.N
     zLbl.TextColor3 = Color3.fromRGB(255, 220, 150)
-    zLbl.Font = Enum.Font.GothamBold; zLbl.TextSize = 11
-    zLbl.ZIndex = 53; zLbl.Parent = zRow
+    zLbl.Font = Enum.Font.GothamBold
+    zLbl.TextSize = 11
+    zLbl.ZIndex = 53
+    zLbl.Parent = zRow
     Instance.new("UICorner", zLbl).CornerRadius = UDim.new(0, 6)
+
     local zUp = Instance.new("TextButton")
-    zUp.Size = UDim2.new(0.3, -3, 1, 0); zUp.Position = UDim2.new(0.7, 0, 0, 0)
-    zUp.BackgroundColor3 = Color3.fromRGB(60, 50, 85); zUp.TextColor3 = Color3.fromRGB(220, 210, 255)
-    zUp.Font = Enum.Font.GothamBold; zUp.TextSize = 14; zUp.Text = "▲"
-    zUp.ZIndex = 53; zUp.Parent = zRow
+    zUp.Size = UDim2.new(0.3, -3, 1, 0)
+    zUp.Position = UDim2.new(0.7, 0, 0, 0)
+    zUp.BackgroundColor3 = Color3.fromRGB(60, 50, 85)
+    zUp.TextColor3 = Color3.fromRGB(220, 210, 255)
+    zUp.Font = Enum.Font.GothamBold
+    zUp.TextSize = 16
+    zUp.Text = "▲"
+    zUp.ZIndex = 53
+    zUp.Parent = zRow
     Instance.new("UICorner", zUp).CornerRadius = UDim.new(0, 6)
 
-    local function refreshZLbl()
-        zLbl.Text = "Слой " .. Ed.ActiveZ .. " / " .. Ed.N
-    end
-    zDown.Activated:Connect(function()
+    onClick(zDown, function()
         Ed.ActiveZ = math.max(1, Ed.ActiveZ - 1)
-        refreshZLbl(); buildGridVisual(); updateBlocksTransparency()
+        zLbl.Text = "Слой " .. Ed.ActiveZ .. " / " .. Ed.N
+        buildGridVisual(); updateBlocksTransparency()
     end)
-    zUp.Activated:Connect(function()
+    onClick(zUp, function()
         Ed.ActiveZ = math.min(Ed.N, Ed.ActiveZ + 1)
-        refreshZLbl(); buildGridVisual(); updateBlocksTransparency()
+        zLbl.Text = "Слой " .. Ed.ActiveZ .. " / " .. Ed.N
+        buildGridVisual(); updateBlocksTransparency()
     end)
-    cy = cy + 36
+    cy = cy + 38
 
-    section("🔀 СИММЕТРИЯ", Color3.fromRGB(90, 60, 130))
-    local symXBtn = button("X симметрия: ВЫКЛ", nil, function(b)
-        Ed.SymX = not Ed.SymX
-        b.Text = "X симметрия: " .. (Ed.SymX and "ВКЛ" or "ВЫКЛ")
-        b.BackgroundColor3 = Ed.SymX and Color3.fromRGB(80,120,180) or Color3.fromRGB(45,38,65)
-    end)
-    local symYBtn = button("Y симметрия: ВЫКЛ", nil, function(b)
-        Ed.SymY = not Ed.SymY
-        b.Text = "Y симметрия: " .. (Ed.SymY and "ВКЛ" or "ВЫКЛ")
-        b.BackgroundColor3 = Ed.SymY and Color3.fromRGB(80,120,180) or Color3.fromRGB(45,38,65)
-    end)
-    local symZBtn = button("Z симметрия: ВЫКЛ", nil, function(b)
-        Ed.SymZ = not Ed.SymZ
-        b.Text = "Z симметрия: " .. (Ed.SymZ and "ВКЛ" or "ВЫКЛ")
-        b.BackgroundColor3 = Ed.SymZ and Color3.fromRGB(80,120,180) or Color3.fromRGB(45,38,65)
-    end)
+    -- ============ СИММЕТРИЯ ============
+    local symLabel = Instance.new("TextLabel")
+    symLabel.Size = UDim2.new(1, -16, 0, 16)
+    symLabel.Position = UDim2.new(0, 8, 0, cy)
+    symLabel.BackgroundTransparency = 1
+    symLabel.Text = "🔀 СИММЕТРИЯ (зеркалит блоки)"
+    symLabel.TextColor3 = Color3.fromRGB(220, 200, 255)
+    symLabel.Font = Enum.Font.GothamBold
+    symLabel.TextSize = 10
+    symLabel.TextXAlignment = Enum.TextXAlignment.Left
+    symLabel.ZIndex = 52
+    symLabel.Parent = ctrl
+    cy = cy + 18
 
-    section("⚡ БЫСТРЫЕ ФОРМЫ", Color3.fromRGB(140, 80, 40))
-    button("⬜ Заполнить КУБ", Color3.fromRGB(80,60,100), function() fillCube() end)
-    button("⚪ Заполнить ШАР",  Color3.fromRGB(80,60,100), function() fillSphere() end)
-    button("✚ Заполнить КРЕСТ", Color3.fromRGB(80,60,100), function() fillCross() end)
+    local symRow = Instance.new("Frame")
+    symRow.Size = UDim2.new(1, -16, 0, 30)
+    symRow.Position = UDim2.new(0, 8, 0, cy)
+    symRow.BackgroundTransparency = 1
+    symRow.ZIndex = 52
+    symRow.Parent = ctrl
 
-    section("↩️ ИСТОРИЯ", Color3.fromRGB(60, 90, 60))
-    local undoBtn = button("↩ Отменить", Color3.fromRGB(50,70,60), function() doUndo() end)
-    local redoBtn = button("↪ Вернуть",  Color3.fromRGB(50,70,60), function() doRedo() end)
-    button("🗑 Очистить всё",      Color3.fromRGB(80,40,40), function() clearAll() end)
-    button("🗑 Очистить только слой", Color3.fromRGB(80,50,40), function() clearLayer() end)
+    local symConfig = {
+        {key = "SymX", label = "X"},
+        {key = "SymY", label = "Y"},
+        {key = "SymZ", label = "Z"},
+    }
+    local symButtons = {}
+    for i, cfg in ipairs(symConfig) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0.33, -2, 1, 0)
+        b.Position = UDim2.new((i - 1) * 0.333, 0, 0, 0)
+        b.BackgroundColor3 = Color3.fromRGB(45, 38, 65)
+        b.TextColor3 = Color3.fromRGB(220, 210, 255)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.Text = cfg.label .. " ➖"
+        b.ZIndex = 53
+        b.Parent = symRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+        symButtons[cfg.key] = b
+        onClick(b, function()
+            Ed[cfg.key] = not Ed[cfg.key]
+            b.Text = cfg.label .. " " .. (Ed[cfg.key] and "✅" or "➖")
+            b.BackgroundColor3 = Ed[cfg.key] and Color3.fromRGB(80, 120, 180) or Color3.fromRGB(45, 38, 65)
+        end)
+    end
+    cy = cy + 34
 
-    section("🔍 ЗУМ", Color3.fromRGB(60, 80, 110))
-    local zoomInBtn = button("➕ Приблизить", Color3.fromRGB(50,60,80), function()
-        Ed.CamDistance = math.max(5, Ed.CamDistance - 1.5); updateCamera()
-    end)
-    local zoomOutBtn = button("➖ Отдалить", Color3.fromRGB(50,60,80), function()
-        Ed.CamDistance = math.min(30, Ed.CamDistance + 1.5); updateCamera()
-    end)
-    button("🎯 Сбросить камеру", Color3.fromRGB(50,60,80), function()
-        Ed.CamAzimuth = -45; Ed.CamElevation = 30; Ed.CamDistance = 14; updateCamera()
-    end)
+    -- ============ БЫСТРЫЕ ФОРМЫ ============
+    local shapeLabel = Instance.new("TextLabel")
+    shapeLabel.Size = UDim2.new(1, -16, 0, 16)
+    shapeLabel.Position = UDim2.new(0, 8, 0, cy)
+    shapeLabel.BackgroundTransparency = 1
+    shapeLabel.Text = "⚡ ЗАПОЛНИТЬ ФОРМОЙ"
+    shapeLabel.TextColor3 = Color3.fromRGB(220, 200, 255)
+    shapeLabel.Font = Enum.Font.GothamBold
+    shapeLabel.TextSize = 10
+    shapeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    shapeLabel.ZIndex = 52
+    shapeLabel.Parent = ctrl
+    cy = cy + 18
 
-    section("💾 СОХРАНЕНИЕ", Color3.fromRGB(100, 60, 140))
+    local shapeRow = Instance.new("Frame")
+    shapeRow.Size = UDim2.new(1, -16, 0, 30)
+    shapeRow.Position = UDim2.new(0, 8, 0, cy)
+    shapeRow.BackgroundTransparency = 1
+    shapeRow.ZIndex = 52
+    shapeRow.Parent = ctrl
+
+    local shapeConfig = {
+        {label = "⬜ Куб",   fn = fillCube},
+        {label = "⚪ Шар",    fn = fillSphere},
+        {label = "✚ Крест",  fn = fillCross},
+    }
+    for i, cfg in ipairs(shapeConfig) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0.33, -2, 1, 0)
+        b.Position = UDim2.new((i - 1) * 0.333, 0, 0, 0)
+        b.BackgroundColor3 = Color3.fromRGB(80, 60, 100)
+        b.TextColor3 = Color3.fromRGB(240, 220, 255)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 10
+        b.Text = cfg.label
+        b.ZIndex = 53
+        b.Parent = shapeRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+        onClick(b, function() cfg.fn(); refreshInfo() end)
+    end
+    cy = cy + 34
+
+    -- ============ ПОВОРОТ ============
+    local rotLabel = Instance.new("TextLabel")
+    rotLabel.Size = UDim2.new(1, -16, 0, 16)
+    rotLabel.Position = UDim2.new(0, 8, 0, cy)
+    rotLabel.BackgroundTransparency = 1
+    rotLabel.Text = "🔄 ПОВЕРНУТЬ ФИГУРУ"
+    rotLabel.TextColor3 = Color3.fromRGB(220, 200, 255)
+    rotLabel.Font = Enum.Font.GothamBold
+    rotLabel.TextSize = 10
+    rotLabel.TextXAlignment = Enum.TextXAlignment.Left
+    rotLabel.ZIndex = 52
+    rotLabel.Parent = ctrl
+    cy = cy + 18
+
+    local rotRow = Instance.new("Frame")
+    rotRow.Size = UDim2.new(1, -16, 0, 30)
+    rotRow.Position = UDim2.new(0, 8, 0, cy)
+    rotRow.BackgroundTransparency = 1
+    rotRow.ZIndex = 52
+    rotRow.Parent = ctrl
+
+    local rotConfig = {
+        {label = "⟲ X", axis = "X", dir = 1},
+        {label = "⟳ X", axis = "X", dir = -1},
+        {label = "⟲ Y", axis = "Y", dir = 1},
+        {label = "⟳ Y", axis = "Y", dir = -1},
+    }
+    for i, cfg in ipairs(rotConfig) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0.25, -2, 1, 0)
+        b.Position = UDim2.new((i - 1) * 0.25, 0, 0, 0)
+        b.BackgroundColor3 = Color3.fromRGB(60, 80, 110)
+        b.TextColor3 = Color3.fromRGB(220, 230, 255)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 10
+        b.Text = cfg.label
+        b.ZIndex = 53
+        b.Parent = rotRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+        onClick(b, function() rotateAll(cfg.axis, cfg.dir); refreshInfo() end)
+    end
+    cy = cy + 34
+
+    -- ============ ИСТОРИЯ ============
+    local histRow = Instance.new("Frame")
+    histRow.Size = UDim2.new(1, -16, 0, 30)
+    histRow.Position = UDim2.new(0, 8, 0, cy)
+    histRow.BackgroundTransparency = 1
+    histRow.ZIndex = 52
+    histRow.Parent = ctrl
+
+    local histConfig = {
+        {label = "↩ Отмена", fn = function() doUndo(); refreshInfo() end},
+        {label = "↪ Вернуть", fn = function() doRedo(); refreshInfo() end},
+        {label = "🗑 Слой", fn = function() clearLayer(); refreshInfo() end},
+        {label = "🗑 Всё", fn = function() clearAll(); refreshInfo() end},
+    }
+    for i, cfg in ipairs(histConfig) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0.25, -2, 1, 0)
+        b.Position = UDim2.new((i - 1) * 0.25, 0, 0, 0)
+        b.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+        b.TextColor3 = Color3.fromRGB(220, 220, 240)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 9
+        b.Text = cfg.label
+        b.ZIndex = 53
+        b.Parent = histRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+        onClick(b, cfg.fn)
+    end
+    cy = cy + 34
+
+    -- ============ КАМЕРА ============
+    local camRow = Instance.new("Frame")
+    camRow.Size = UDim2.new(1, -16, 0, 30)
+    camRow.Position = UDim2.new(0, 8, 0, cy)
+    camRow.BackgroundTransparency = 1
+    camRow.ZIndex = 52
+    camRow.Parent = ctrl
+
+    local camConfig = {
+        {label = "➕ Зум", fn = function() Ed.CamDistance = math.max(5, Ed.CamDistance - 1.5); updateCamera() end},
+        {label = "➖ Зум", fn = function() Ed.CamDistance = math.min(30, Ed.CamDistance + 1.5); updateCamera() end},
+        {label = "🎯 Резет", fn = function() Ed.CamAzimuth = -45; Ed.CamElevation = 30; Ed.CamDistance = 14; updateCamera() end},
+    }
+    for i, cfg in ipairs(camConfig) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0.33, -2, 1, 0)
+        b.Position = UDim2.new((i - 1) * 0.333, 0, 0, 0)
+        b.BackgroundColor3 = Color3.fromRGB(50, 60, 80)
+        b.TextColor3 = Color3.fromRGB(220, 230, 255)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 10
+        b.Text = cfg.label
+        b.ZIndex = 53
+        b.Parent = camRow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+        onClick(b, cfg.fn)
+    end
+    cy = cy + 34
+
+    -- ============ СОХРАНЕНИЕ ============
+    local saveLabel = Instance.new("TextLabel")
+    saveLabel.Size = UDim2.new(1, -16, 0, 16)
+    saveLabel.Position = UDim2.new(0, 8, 0, cy)
+    saveLabel.BackgroundTransparency = 1
+    saveLabel.Text = "💾 СОХРАНИТЬ КАК ФИГУРУ"
+    saveLabel.TextColor3 = Color3.fromRGB(220, 200, 255)
+    saveLabel.Font = Enum.Font.GothamBold
+    saveLabel.TextSize = 10
+    saveLabel.TextXAlignment = Enum.TextXAlignment.Left
+    saveLabel.ZIndex = 52
+    saveLabel.Parent = ctrl
+    cy = cy + 18
+
     local nameInput = Instance.new("TextBox")
-    nameInput.Size = UDim2.new(1, -12, 0, 28)
-    nameInput.Position = UDim2.new(0, 6, 0, cy)
+    nameInput.Size = UDim2.new(1, -16, 0, 30)
+    nameInput.Position = UDim2.new(0, 8, 0, cy)
     nameInput.BackgroundColor3 = Color3.fromRGB(35, 30, 50)
     nameInput.TextColor3 = Color3.fromRGB(230, 220, 255)
     nameInput.Font = Enum.Font.GothamBold
@@ -1008,38 +1220,21 @@ local function openEditor3D()
     nameInput.ZIndex = 52
     nameInput.Parent = ctrl
     Instance.new("UICorner", nameInput).CornerRadius = UDim.new(0, 6)
-    cy = cy + 34
+    cy = cy + 36
 
-    local infoLbl = Instance.new("TextLabel")
-    infoLbl.Size = UDim2.new(1, -12, 0, 20)
-    infoLbl.Position = UDim2.new(0, 6, 0, cy)
-    infoLbl.BackgroundTransparency = 1
-    infoLbl.Text = "🧱 Блоков: 0"
-    infoLbl.TextColor3 = Color3.fromRGB(200, 220, 255)
-    infoLbl.Font = Enum.Font.GothamBold
-    infoLbl.TextSize = 11
-    infoLbl.TextXAlignment = Enum.TextXAlignment.Left
-    infoLbl.ZIndex = 52
-    infoLbl.Parent = ctrl
-    cy = cy + 24
+    local saveBtn = Instance.new("TextButton")
+    saveBtn.Size = UDim2.new(1, -16, 0, 34)
+    saveBtn.Position = UDim2.new(0, 8, 0, cy)
+    saveBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 80)
+    saveBtn.TextColor3 = Color3.fromRGB(200, 255, 210)
+    saveBtn.Font = Enum.Font.GothamBold
+    saveBtn.TextSize = 12
+    saveBtn.Text = "💾 СОХРАНИТЬ КАК ФИГУРУ"
+    saveBtn.ZIndex = 52
+    saveBtn.Parent = ctrl
+    Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
 
-    local function refreshInfo()
-        local count = 0
-        for _ in pairs(Ed.Cells) do count = count + 1 end
-        infoLbl.Text = "🧱 Блоков: " .. count
-    end
-
-    -- Обновляем info после каждого действия
-    local origRebuild = rebuildAllBlocks
-    -- Просто добавим цикл обновления
-    task.spawn(function()
-        while Ed.Open and Ed.Gui and Ed.Gui.Parent do
-            refreshInfo()
-            task.wait(0.3)
-        end
-    end)
-
-    button("💾 СОХРАНИТЬ КАК ФИГУРУ", Color3.fromRGB(60,120,80), function()
+    onClick(saveBtn, function()
         local filled = 0
         for _ in pairs(Ed.Cells) do filled = filled + 1 end
         if filled < 2 then
@@ -1058,66 +1253,34 @@ local function openEditor3D()
             ORBIT.notify("❌ " .. tostring(result), Color3.fromRGB(255,120,120), 2)
         end
     end)
+    cy = cy + 40
 
-    local exportBox = Instance.new("TextBox")
-    exportBox.Size = UDim2.new(1, -12, 0, 60)
-    exportBox.Position = UDim2.new(0, 6, 0, cy)
-    exportBox.BackgroundColor3 = Color3.fromRGB(15, 12, 25)
-    exportBox.TextColor3 = Color3.fromRGB(180, 255, 180)
-    exportBox.Font = Enum.Font.Code
-    exportBox.TextSize = 9
-    exportBox.Text = ""
-    exportBox.PlaceholderText = "📥 JSON сюда — вставится"
-    exportBox.PlaceholderColor3 = Color3.fromRGB(120, 110, 150)
-    exportBox.ClearTextOnFocus = false
-    exportBox.MultiLine = true
-    exportBox.TextWrapped = true
-    exportBox.ZIndex = 52
-    exportBox.Parent = ctrl
-    Instance.new("UICorner", exportBox).CornerRadius = UDim.new(0, 6)
-    cy = cy + 66
+    -- ============ ПОДСКАЗКА ============
+    local hintLbl = Instance.new("TextLabel")
+    hintLbl.Size = UDim2.new(1, -16, 0, 40)
+    hintLbl.Position = UDim2.new(0, 8, 0, cy)
+    hintLbl.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
+    hintLbl.BackgroundTransparency = 0.3
+    hintLbl.BorderSizePixel = 0
+    hintLbl.Text = "👆 Свайп по 3D — вращать\n🔍 Пинч 2 пальцами — зум\n👆 Тап по клетке — действие"
+    hintLbl.TextColor3 = Color3.fromRGB(200, 220, 255)
+    hintLbl.Font = Enum.Font.Gotham
+    hintLbl.TextSize = 9
+    hintLbl.TextWrapped = true
+    hintLbl.ZIndex = 52
+    hintLbl.Parent = ctrl
+    Instance.new("UICorner", hintLbl).CornerRadius = UDim.new(0, 6)
+    cy = cy + 46
 
-    button("📤 Экспорт в текст", Color3.fromRGB(60,80,120), function()
-        local arr = {}
-        for _, cell in pairs(Ed.Cells) do
-            table.insert(arr, {x=cell.x, y=cell.y, z=cell.z, r=cell.color.R, g=cell.color.G, b=cell.color.B})
+    ctrl.CanvasSize = UDim2.new(0, 0, 0, cy + 10)
+
+    -- Автообновление счётчика
+    task.spawn(function()
+        while Ed.Open and Ed.Gui and Ed.Gui.Parent do
+            refreshInfo()
+            task.wait(0.4)
         end
-        local ok, json = pcall(function() return HttpService:JSONEncode({n=Ed.N, blocks=arr}) end)
-        if ok then exportBox.Text = json end
-        pcall(function()
-            if setclipboard then setclipboard(json) end
-        end)
     end)
-    button("📥 Импорт из текста", Color3.fromRGB(60,80,120), function()
-        local txt = exportBox.Text
-        if not txt or txt == "" then return end
-        local ok, data = pcall(function() return HttpService:JSONDecode(txt) end)
-        if not ok or not data or not data.blocks then
-            ORBIT.notify("❌ Плохой JSON", Color3.fromRGB(255,120,120), 2)
-            return
-        end
-        pushHistory()
-        Ed.Cells = {}
-        if data.n then Ed.N = math.clamp(data.n, 4, 8) end
-        for _, b in ipairs(data.blocks) do
-            local col = Color3.new(b.r or 1, b.g or 1, b.b or 1)
-            setCell(b.x, b.y, b.z, col)
-        end
-        rebuildAllBlocks(); buildGridVisual()
-        ORBIT.notify("✅ Импорт: " .. #data.blocks .. " блоков", Color3.fromRGB(160,255,180), 2)
-    end)
-
-    ctrl.CanvasSize = UDim2.new(0, 0, 0, cy + 20)
-
-    -- Кнопка закрытия
-    closeBtn.Activated:Connect(function()
-        Ed.Open = false
-        if Ed.Gui then Ed.Gui:Destroy(); Ed.Gui = nil end
-        Ed.Vp = nil; Ed.World = nil; Ed.Cam = nil; Ed.Folder = nil; Ed.GridFolder = nil
-    end)
-
-    -- Автозум начальный
-    updateCamera()
 end
 
 -- ============================================================
@@ -1127,8 +1290,8 @@ ORBIT.openEditor3D = openEditor3D
 ORBIT.Editor3D = Ed
 
 if ORBIT.notify then
-    ORBIT.notify("🔮 3D-Редактор загружен", Color3.fromRGB(200, 180, 255), 3)
+    ORBIT.notify("🔮 3D-Редактор v2.0 загружен", Color3.fromRGB(200, 180, 255), 3)
 end
 
-warn("[Orbit 3D Editor] Загружен ✅")
+warn("[Orbit 3D Editor v2.0] Загружен ✅")
 return true
