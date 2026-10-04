@@ -9,6 +9,16 @@
         • сохранение { name, pixels } → SHAPE_PRESETS
      ВАЖНО: все идентификаторы — латиницей, кириллица только в комментариях и текстах.
 ]]
+--[[ ИЗМЕНЕНИЯ (общий релиз v23.5): onClick теперь срабатывает при отпускании пальца внутри ScrollingFrame —
+     раньше прокрутка сетки магазина могла случайно ПОКУПАТЬ фигуры (касание = нажатие).
+     --[[ ФИКСЫ v23.6:
+        🐛 на мобилке (shopW = 320) кнопка «🔮 3D-РЕДАКТОР» перекрывала заголовок «МАГАЗИН»
+           и значок монет — на мобилке вынесена во второй ряд хедера;
+        🐛 двойной onClick на ORBIT.ui.openShopBtn / openEditorBtn — p4 уже навешивает свои
+           обработчики, из-за чего окно открывалось дважды. Дубль убран;
+        🐛 локальный onClick не играл ORBIT.playClick — кнопки магазина/редактора молчали.
+     ]]
+]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Shop] ORBIT не найден!"); return end
@@ -119,25 +129,46 @@ local COLOR_NAMES = {
 --       Down + Touch + Activated, плюс защита от двойного срабатывания
 --       (Activated приходит уже после касания и раньше дублировал действие)
 -- ============================================================
-local function onClick(btn, fn)
-    local debounce = false
-    local downSeen = false
+-- ============================================================
+--  onClick: Down + Touch + Activated (Android / Delta).
+--  Внутри ScrollingFrame кнопка срабатывает при ОТПУСКАНИИ пальца (если он почти не двигался),
+--  иначе свайп для прокрутки нажимал бы кнопки под пальцем. Атрибут ReleaseOnly = true
+--  включает этот режим принудительно (например, для перетаскиваемых кнопок).
+-- ============================================================
+local function onClick(btn, fn, releaseOnly)
+    local deb = false
+    local touchStart = nil
     local function call()
-        if debounce then return end
-        debounce = true
-        task.delay(0.05, function() debounce = false end)
+        if deb then return end
+        deb = true
+        task.delay(0.12, function() deb = false end)
+        -- 🐛 ФИКС v23.6: локальный onClick не играл playClick — кнопки магазина/редактора молчали
+        if ORBIT.playClick then pcall(ORBIT.playClick) end
         local ok, err = pcall(fn)
         if not ok then warn("[Orbit] " .. tostring(err)) end
     end
-    btn.MouseButton1Down:Connect(function() downSeen = true; call() end)
+    local function inScroll()
+        return releaseOnly or btn:GetAttribute("ReleaseOnly")
+            or btn:FindFirstAncestorOfClass("ScrollingFrame") ~= nil
+    end
+    btn.MouseButton1Down:Connect(function() if not inScroll() then call() end end)
+    btn.MouseButton1Click:Connect(function() if inScroll() then call() end end)
     btn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then downSeen = true; call() end
+        if input.UserInputType == Enum.UserInputType.Touch then
+            touchStart = input.Position
+            if not inScroll() then call() end
+        end
     end)
-    btn.Activated:Connect(function()
-        if downSeen then downSeen = false; return end
-        call()
+    btn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch and touchStart then
+            local moved = (input.Position - touchStart).Magnitude
+            touchStart = nil
+            if inScroll() and moved < 12 then call() end
+        end
     end)
+    btn.Activated:Connect(call)
 end
+
 
 -- ============================================================
 --       РЕГИСТРАЦИЯ 2D И 3D ФИГУР
@@ -429,7 +460,6 @@ local function openShop()
 
     local open3DBtn = Instance.new("TextButton")
     open3DBtn.Size = UDim2.new(0, 130, 0, 26)
-    open3DBtn.Position = UDim2.new(1, -310, 0, 10)
     open3DBtn.BackgroundColor3 = Color3.fromRGB(80, 45, 130)
     open3DBtn.TextColor3 = Color3.fromRGB(230, 200, 255)
     open3DBtn.Font = Enum.Font.GothamBold
@@ -438,6 +468,15 @@ local function openShop()
     open3DBtn.ZIndex = 11
     open3DBtn.Parent = shopGui
     Instance.new("UICorner", open3DBtn).CornerRadius = UDim.new(0, 8)
+    -- 🐛 ФИКС v23.6: на мобилке кнопка 3D-редактора перекрывала заголовок и монеты.
+    -- На мобилке выносим её во ВТОРОЙ ряд хедера (Y = 40), на ПК — оставляем как было.
+    local headerExtraY = 0
+    if IS_MOBILE then
+        open3DBtn.Position = UDim2.new(0, 16, 0, 40)
+        headerExtraY = 32   -- previewFrame и всё ниже сдвигается на 32 px
+    else
+        open3DBtn.Position = UDim2.new(1, -310, 0, 10)
+    end
     onClick(open3DBtn, function()
         if ORBIT.openEditor3D then
             ORBIT.openEditor3D()
@@ -450,7 +489,7 @@ local function openShop()
     local previewH = IS_MOBILE and 200 or 300
     local previewFrame = Instance.new("Frame")
     previewFrame.Size = UDim2.new(0, previewW, 0, previewH)
-    previewFrame.Position = UDim2.new(0, 16, 0, 44)
+    previewFrame.Position = UDim2.new(0, 16, 0, 44 + headerExtraY)
     previewFrame.BackgroundColor3 = Color3.fromRGB(15, 10, 30)
     previewFrame.BorderSizePixel = 0
     previewFrame.ZIndex = 11
@@ -461,7 +500,7 @@ local function openShop()
     vp.ZIndex = 12
 
     local rightX = IS_MOBILE and 16 or 272
-    local rightY = IS_MOBILE and (44 + previewH + 8) or 44
+    local rightY = IS_MOBILE and (44 + headerExtraY + previewH + 8) or 44
     local rightW = IS_MOBILE and (shopW - 32) or 272
     local rightH = IS_MOBILE and (shopH - rightY - 60) or (shopH - 100)
 
@@ -1352,7 +1391,6 @@ local function openEditor()
                 -- выбор цвета выводит из режима ластика
                 if Ed2D.Tool == "eraser" then Ed2D.Tool = "b1"; if Ed2D.paintTools then Ed2D.paintTools() end end
                 refreshPal()
-                if ORBIT.playClick then pcall(ORBIT.playClick) end
             end)
         end
         refreshPal()
@@ -1544,15 +1582,15 @@ local function openEditor()
 end
 
 -- ============================================================
---       ПРИВЯЗКА
+--       ЭКСПОРТ
 -- ============================================================
-if ORBIT.ui.openShopBtn then
-    onClick(ORBIT.ui.openShopBtn, function() openShop() end)
-end
-
-if ORBIT.ui.openEditorBtn then
-    onClick(ORBIT.ui.openEditorBtn, function() openEditor() end)
-end
+-- 🐛 ФИКС v23.6: убран дублирующий onClick на ORBIT.ui.openShopBtn / openEditorBtn.
+-- p4 (orbit_p4.lua) УЖЕ навешивает свои обработчики на эти кнопки:
+--   onClick(openShopBtn,  function() if ORBIT.openShop   then ORBIT.openShop()   end end)
+--   onClick(openEditorBtn,function() if ORBIT.openEditor then ORBIT.openEditor() end end)
+-- Поскольку загрузчик (p1) грузит p4 РАНЬШЕ p4_shop, повторное навешивание приводило
+-- к тому, что окно магазина/редактора открывалось дважды за одно нажатие.
+-- Здесь только экспортируем функции — p4 сам вызовет их через свой onClick.
 
 ORBIT.openShop = openShop
 ORBIT.openEditor = openEditor
@@ -1561,7 +1599,7 @@ ORBIT.PALETTE = PALETTE
 ORBIT.saveStorage = saveStorage
 
 if ORBIT.notify then
-    ORBIT.notify("🎨 2D + 🔮 3D редакторы v23.3", Color3.fromRGB(220,200,255), 3)
+    ORBIT.notify("🎨 2D + 🔮 3D редакторы v23.6", Color3.fromRGB(220,200,255), 3)
 end
 
 return true
