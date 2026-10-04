@@ -1,11 +1,9 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v23.2 — CORE + LOADER                           ║
+    ║   ОРБИТА v23.4 — CORE + LOADER                           ║
     ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗАГРУЗЧИК                ║
-    ║   🆕 Круговой прогресс вокруг иконки этапа                ║
-    ║   🆕 Плавные анимации появления                           ║
-    ║   🆕 Улучшенный дизайн обложки                            ║
-    ║   🆕 Иконки всех 4 частей + античит + sfx + extras + 3D   ║
+    ║   🐛 ФИКС: extras/3D/anticheat грузятся ПОСЛЕ p4         ║
+    ║   🐛 ФИКС: "UI не готов" больше не появится              ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -18,7 +16,7 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v23.2"
+ORBIT.version = "v23.4"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, sfx = false, ac = false, extras = false, editor3d = false }
 ORBIT.started = false
 ORBIT.PLATFORM = nil
@@ -106,19 +104,23 @@ ORBIT.DEFAULT_SETTINGS = {
     Rainbow = true, FixedColor = Color3.fromRGB(0, 180, 255),
     ShowBlockNames = false, NameColor = Color3.fromRGB(255, 255, 255),
     LerpSpeed = 5.0,
-    TrailEnabled = false, TrailLength = 0.5, TrailWidth = 0.8,
+    TrailEnabled = false, TrailLength = 0.25, TrailWidth = 0.5,
     PulseEnabled = false, PulseAmplitude = 0.15, PulseSpeed = 4.0,
     WaveEnabled = false, WaveSpeed = 3.0, WaveLength = 2.0, WaveAmplitude = 2.5,
     ExplosionEnabled = false, ExplosionSpeed = 0.4, ExplosionPower = 0.7,
     HeartScale = 0.65, OrbitPattern = "Круг",
+
     AuraEnabled = false, AuraSize = 3.5, AuraThickness = 0.15,
     AuraColor = Color3.fromRGB(150, 100, 255),
     AuraRing = true, AuraParticles = true, AuraShapes = true,
     AuraSpeedMult = 1.0, AuraDirection = 1,
     AuraHeight = 0.5, AuraShapeScale = 1.0,
-    AuraTrailEnabled = false, AuraTrailLength = 0.5, AuraTrailWidth = 0.8,
+    AuraTrailEnabled = false, AuraTrailLength = 0.25, AuraTrailWidth = 0.35,
     AuraSpinEnabled = true, AuraSpinAxis = "Y", AuraSpinSpeed = 60,
-    AuraPulseEnabled = false, AuraPattern = "Круг",
+    AuraPulseEnabled = false,
+    AuraPattern = "Круг",
+    AuraLightEnabled = false, AuraLightRange = 8, AuraLightBrightness = 2,
+
     FireEnabled = false, FireColor = Color3.fromRGB(255, 120, 0),
     FireSize = 6, FireHeat = 8,
     AutoSaveEnabled = false,
@@ -126,6 +128,7 @@ ORBIT.DEFAULT_SETTINGS = {
     RainbowSpeed = 0.15,
     GradientEnabled = false, GradientSpeed = 0.5,
     AutoShapeSwap = false, AutoShapeSwapInterval = 15,
+
     ProtEnabled = false,
     AntiKnockback = true, AntiTeleport = true, AntiFreeze = true,
     AutoHeal = false, AutoHealValue = 100,
@@ -133,11 +136,15 @@ ORBIT.DEFAULT_SETTINGS = {
     SavePosOnEnable = false, LockPosition = false,
     SmartFloor = true, SmartFloorY = 5, DisableFallDamage = true,
     DodgeEnabled = false, ReverseFlingEnabled = false,
+
     ESPEnabled = false, ESPMaxDistance = 500,
+
     UseMySkin = false, AutoCollect = true, CollectRadius = 12,
+
     AtmoEnabled = false, AtmoType = "Снег", AtmoIntensity = "Средняя", AtmoSize = "Средний",
-    TrailStreamEnabled = false, TrailStreamColorMode = "Радуга",
-    ReactSparksEnabled = false,
+    AtmoColorMode = "Авто", AtmoColorIndex = 1,
+    TrailStreamEnabled = false, TrailStreamColorMode = "Радуга", TrailStreamColorIndex = 1,
+    ReactSparksEnabled = false, ReactSparksColorIndex = 1,
 }
 ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
 
@@ -194,6 +201,7 @@ P.ORBIT_PATTERNS = {
     {name="Зигзаг"},{name="Лиссажу"},{name="Хаос"},
 }
 P.orbitPatternIndex = 1
+
 P.SHAPE_CATEGORIES = {
     {name="ВСЕ"},
     {name="ОСНОВНЫЕ",  shapes={"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"}},
@@ -202,76 +210,104 @@ P.SHAPE_CATEGORIES = {
     {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ"}},
 }
 P.shapeCategoryIndex = 1
+
+-- 50 ЦВЕТОВ
 P.COLORS = {
     {name="РАДУГА",rainbow=true},
     {name="КРАСНЫЙ",c=Color3.fromRGB(255,50,50)},
+    {name="АЛЫЙ",c=Color3.fromRGB(220,20,60)},
     {name="ОРАНЖЕВЫЙ",c=Color3.fromRGB(255,140,40)},
+    {name="ПЕРСИКОВЫЙ",c=Color3.fromRGB(255,180,120)},
+    {name="АБРИКОСОВЫЙ",c=Color3.fromRGB(255,200,150)},
     {name="ЖЁЛТЫЙ",c=Color3.fromRGB(255,230,60)},
-    {name="ЗЕЛЁНЫЙ",c=Color3.fromRGB(0,255,120)},
-    {name="ГОЛУБОЙ",c=Color3.fromRGB(0,180,255)},
-    {name="СИНИЙ",c=Color3.fromRGB(40,80,255)},
-    {name="ФИОЛЕТОВЫЙ",c=Color3.fromRGB(160,80,255)},
-    {name="РОЗОВЫЙ",c=Color3.fromRGB(255,90,180)},
-    {name="НЕОН-РОЗОВЫЙ",c=Color3.fromRGB(255,0,200)},
-    {name="НЕОН-ЗЕЛЁНЫЙ",c=Color3.fromRGB(80,255,80)},
-    {name="НЕОН-ГОЛУБОЙ",c=Color3.fromRGB(0,255,255)},
-    {name="НЕОН-ЖЁЛТЫЙ",c=Color3.fromRGB(255,255,0)},
-    {name="НЕОН-ОРАНЖ",c=Color3.fromRGB(255,120,0)},
-    {name="НЕОН-ФИОЛЕТ",c=Color3.fromRGB(200,0,255)},
     {name="ЗОЛОТОЙ",c=Color3.fromRGB(255,200,40)},
-    {name="СЕРЕБРЯНЫЙ",c=Color3.fromRGB(220,220,230)},
-    {name="БРОНЗОВЫЙ",c=Color3.fromRGB(205,127,50)},
+    {name="МЁД",c=Color3.fromRGB(240,190,80)},
+    {name="ШАФРАН",c=Color3.fromRGB(255,180,30)},
+    {name="ЗЕЛЁНЫЙ",c=Color3.fromRGB(0,255,120)},
+    {name="ЛАЙМ",c=Color3.fromRGB(180,255,80)},
+    {name="САЛАТОВЫЙ",c=Color3.fromRGB(150,230,100)},
+    {name="МЯТА",c=Color3.fromRGB(150,255,200)},
+    {name="ИЗУМРУД",c=Color3.fromRGB(80,200,120)},
+    {name="ТРАВА",c=Color3.fromRGB(90,200,80)},
+    {name="ОЛИВКОВЫЙ",c=Color3.fromRGB(150,170,80)},
+    {name="ХАКИ",c=Color3.fromRGB(189,183,107)},
+    {name="ГОЛУБОЙ",c=Color3.fromRGB(0,180,255)},
+    {name="НЕБО",c=Color3.fromRGB(120,190,255)},
+    {name="ЛАЗУРЬ",c=Color3.fromRGB(80,180,255)},
+    {name="БИРЮЗОВЫЙ",c=Color3.fromRGB(64,224,208)},
+    {name="АКВАМАРИН",c=Color3.fromRGB(120,220,220)},
+    {name="МОРСКАЯ ВОЛНА",c=Color3.fromRGB(64,180,180)},
+    {name="ЛЁД",c=Color3.fromRGB(180,230,255)},
+    {name="СИНИЙ",c=Color3.fromRGB(40,80,255)},
+    {name="САПФИР",c=Color3.fromRGB(15,82,186)},
+    {name="ИНДИГО",c=Color3.fromRGB(75,0,130)},
+    {name="ФИОЛЕТОВЫЙ",c=Color3.fromRGB(160,80,255)},
+    {name="АМЕТИСТ",c=Color3.fromRGB(180,100,240)},
+    {name="ЛАВАНДА",c=Color3.fromRGB(180,130,255)},
+    {name="СИРЕНЕВЫЙ",c=Color3.fromRGB(200,160,255)},
+    {name="ОРХИДЕЯ",c=Color3.fromRGB(220,120,230)},
+    {name="ПУРПУРНЫЙ",c=Color3.fromRGB(140,30,180)},
+    {name="МАДЖЕНТА",c=Color3.fromRGB(255,0,200)},
+    {name="РОЗОВЫЙ",c=Color3.fromRGB(255,90,180)},
+    {name="КАРМИН",c=Color3.fromRGB(230,30,90)},
+    {name="ВИШНЯ",c=Color3.fromRGB(180,30,60)},
+    {name="МАЛИНОВЫЙ",c=Color3.fromRGB(200,0,80)},
+    {name="БОРДО",c=Color3.fromRGB(120,20,40)},
+    {name="РУБИН",c=Color3.fromRGB(220,20,90)},
+    {name="КОРАЛЛ",c=Color3.fromRGB(255,127,80)},
+    {name="ТЕРРАКОТА",c=Color3.fromRGB(200,110,80)},
     {name="МЕДНЫЙ",c=Color3.fromRGB(184,115,51)},
+    {name="БРОНЗОВЫЙ",c=Color3.fromRGB(205,127,50)},
     {name="ОГОНЬ",c=Color3.fromRGB(255,90,0)},
     {name="ЛАВА",c=Color3.fromRGB(200,40,0)},
-    {name="ЛЁД",c=Color3.fromRGB(180,230,255)},
-    {name="ТРАВА",c=Color3.fromRGB(90,200,80)},
-    {name="НЕБО",c=Color3.fromRGB(120,190,255)},
-    {name="БИРЮЗОВЫЙ",c=Color3.fromRGB(64,224,208)},
-    {name="ИЗУМРУД",c=Color3.fromRGB(80,200,120)},
-    {name="РУБИН",c=Color3.fromRGB(220,20,90)},
-    {name="САПФИР",c=Color3.fromRGB(15,82,186)},
-    {name="КОРАЛЛ",c=Color3.fromRGB(255,127,80)},
-    {name="ЛАВАНДА",c=Color3.fromRGB(180,130,255)},
     {name="БЕЛЫЙ",c=Color3.fromRGB(245,245,255)},
+    {name="СЕРЕБРЯНЫЙ",c=Color3.fromRGB(220,220,230)},
     {name="СЕРЫЙ",c=Color3.fromRGB(150,150,160)},
     {name="ЧЁРНЫЙ",c=Color3.fromRGB(25,25,30)},
-    {name="МАЛИНОВЫЙ",c=Color3.fromRGB(200,0,80)},
-    {name="ИНДИГО",c=Color3.fromRGB(75,0,130)},
-    {name="ХАКИ",c=Color3.fromRGB(189,183,107)},
 }
 P.colorIndex = 1
 P.auraColorIndex = 1
+
 P.HEART_STEPS = {0.2, 0.35, 0.5, 0.65, 0.9, 1.2, 1.6, 2.2}
+
 P.TRAIL_LEN = {
-    {name="Короткий",value=0.25},{name="Средний",value=0.5},
-    {name="Длинный",value=0.9},{name="Очень длинный",value=1.6},{name="Гигантский",value=2.5},
+    {name="Крошечный",value=0.05},{name="Микро",value=0.1},
+    {name="Очень короткий",value=0.15},{name="Короткий",value=0.25},
+    {name="Средний",value=0.5},{name="Длинный",value=0.9},
+    {name="Очень длинный",value=1.6},{name="Гигантский",value=2.5},
 }
-P.trailLengthIndex = 2
+P.trailLengthIndex = 4
 P.TRAIL_WID = {
-    {name="Тонкий",value=0.3},{name="Средний",value=0.8},
-    {name="Толстый",value=1.5},{name="Широкий",value=2.5},{name="Огромный",value=4.0},
+    {name="Ниточка",value=0.05},{name="Очень тонкий",value=0.1},
+    {name="Тонкий",value=0.2},{name="Средний",value=0.5},
+    {name="Толстый",value=1.0},{name="Широкий",value=1.8},
+    {name="Огромный",value=3.0},{name="Гигантский",value=4.5},
 }
-P.trailWidthIndex = 2
+P.trailWidthIndex = 4
+
 P.AURA_TRAIL_LEN = {
-    {name="Микро",value=0.1},{name="Очень короткий",value=0.2},{name="Короткий",value=0.35},
-    {name="Средний",value=0.6},{name="Длинный",value=1.0},{name="Очень длинный",value=1.8},
-    {name="Гигантский",value=3.0},{name="Огромный",value=5.0},{name="Бесконечный",value=10.0},
-    {name="Абсолютный",value=20.0},
+    {name="Исчезающий",value=0.02},{name="Крошечный",value=0.05},
+    {name="Микро",value=0.1},{name="Очень короткий",value=0.15},
+    {name="Короткий",value=0.25},{name="Средний",value=0.5},
+    {name="Длинный",value=1.0},{name="Очень длинный",value=1.8},
+    {name="Гигантский",value=3.0},{name="Огромный",value=5.0},
 }
-P.auraTrailLengthIndex = 4
+P.auraTrailLengthIndex = 5
 P.AURA_TRAIL_WID = {
-    {name="Тонкий",value=0.3},{name="Средний",value=0.8},{name="Толстый",value=1.5},
-    {name="Широкий",value=2.5},{name="Огромный",value=4.0},{name="Гигантский",value=6.5},
-    {name="Колоссальный",value=10.0},{name="Мега",value=15.0},{name="Абсолютный",value=25.0},
+    {name="Ниточка",value=0.05},{name="Микро",value=0.1},
+    {name="Очень тонкий",value=0.2},{name="Тонкий",value=0.35},
+    {name="Средний",value=0.7},{name="Толстый",value=1.4},
+    {name="Широкий",value=2.5},{name="Огромный",value=4.5},
+    {name="Гигантский",value=7.0},{name="Колоссальный",value=11.0},
 }
-P.auraTrailWidthIndex = 2
+P.auraTrailWidthIndex = 4
+
 P.AURA_SPEED = {
     {name="0.25x",value=0.25},{name="0.5x",value=0.5},{name="1x",value=1.0},
     {name="2x",value=2.0},{name="3x",value=3.0},{name="5x",value=5.0},
 }
 P.auraSpeedIndex = 3
-P.AURA_DIR = { {name="→ Право (↻)",value=1},{name="← Лево (↺)",value=-1} }
+P.AURA_DIR = { {name="Вправо",value=1},{name="Влево",value=-1} }
 P.auraDirIndex = 1
 P.AURA_SIZE = {
     {name="XS",value=2.0},{name="S",value=3.0},{name="M",value=3.5},
@@ -299,7 +335,7 @@ P.AURA_SPIN_SPEED = {
 }
 P.auraSpinSpeedIndex = 2
 P.AURA_SPIN_AXIS = {
-    {name="↕️ ВЕРХ/ВНИЗ",value="Y"},{name="↔️ ВЛЕВО/ВПРАВО",value="X"},
+    {name="ВЕРХ/ВНИЗ",value="Y"},{name="ВЛЕВО/ВПРАВО",value="X"},
 }
 P.auraSpinAxisIndex = 1
 P.AURA_PATTERNS = {
@@ -307,6 +343,7 @@ P.AURA_PATTERNS = {
     {name="Зигзаг"},{name="Лиссажу"},{name="Хаос"},
 }
 P.auraPatternIndex = 1
+
 P.FIRE_SIZE = {
     {name="Маленький",value=3},{name="Средний",value=6},{name="Большой",value=10},
     {name="Огромный",value=16},{name="Адский",value=25},
@@ -559,9 +596,6 @@ local C_BORDER  = Color3.fromRGB(140, 100, 220)
 local C_RED     = Color3.fromRGB(255, 100, 120)
 local C_CYAN    = Color3.fromRGB(120, 220, 255)
 
--- ============================================================
---       BACKGROUND
--- ============================================================
 local backdrop = Instance.new("Frame")
 backdrop.Size = UDim2.new(1, 0, 1, 0)
 backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -828,9 +862,7 @@ platformBadge.ZIndex = 4
 platformBadge.Parent = frame
 Instance.new("UICorner", platformBadge).CornerRadius = UDim.new(0, 6)
 
--- ============================================================
---       ОБЛОЖКА — КРУГОВОЙ ПРОГРЕСС + ИКОНКА
--- ============================================================
+-- Обложка с круговым прогрессом
 local coverHolder = Instance.new("Frame")
 coverHolder.Size = UDim2.new(1, -32, 0, 130)
 coverHolder.Position = UDim2.new(0, 16, 0, 44)
@@ -988,7 +1020,7 @@ local function stopPulse()
     coverIcon.TextSize = 40
 end
 
-setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "3 части + античит + звуки + extras + 3D", C_GREEN)
+setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "части 2 → 3 → 4 → защита → звуки → extras → 3D", C_GREEN)
 updateRingProgress(0.125)
 refreshSteps()
 
@@ -1060,16 +1092,9 @@ for i, part in ipairs(PARTS) do
     statusLbl.ZIndex = 5
     statusLbl.Parent = card
 
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 1, 0)
-    btn.BackgroundTransparency = 1
-    btn.Text = ""
-    btn.ZIndex = 6
-    btn.Parent = card
-
     partCards[part.num] = {
         card = card, iconLbl = iconLbl, nameLbl = nameLbl,
-        statusLbl = statusLbl, stroke = cStroke, btn = btn,
+        statusLbl = statusLbl, stroke = cStroke,
     }
 end
 
@@ -1136,18 +1161,6 @@ end
 makeDot(10, Color3.fromRGB(255, 95, 86))
 makeDot(22, Color3.fromRGB(255, 189, 46))
 makeDot(34, Color3.fromRGB(39, 201, 63))
-
-local termTitle = Instance.new("TextLabel")
-termTitle.Size = UDim2.new(1, -50, 1, 0)
-termTitle.Position = UDim2.new(0, 48, 0, 0)
-termTitle.BackgroundTransparency = 1
-termTitle.Text = "orbit loader"
-termTitle.TextColor3 = C_DIM
-termTitle.Font = Enum.Font.GothamBold
-termTitle.TextSize = 10
-termTitle.TextXAlignment = Enum.TextXAlignment.Left
-termTitle.ZIndex = 5
-termTitle.Parent = termHeader
 
 local termScroll = Instance.new("ScrollingFrame")
 termScroll.Size = UDim2.new(1, -8, 1, -26)
@@ -1347,22 +1360,14 @@ local function loadPart(part, onDone)
             stopPulse()
             addLog("ERR", "Failed: " .. part.file)
             loading[part.num] = nil
-            task.wait(2)
-            setCover("⚠️", "ОЖИДАНИЕ", "нажми на карточку ещё раз", C_ORANGE)
             if onDone then onDone(false) end
             return
         end
 
         local verified = true
-        if part.num == 2 and (not ORBIT.SHAPE_PRESETS or #ORBIT.SHAPE_PRESETS < 3) then
-            verified = false
-        end
-        if part.num == 3 and not ORBIT.startUpdateLoop then
-            verified = false
-        end
-        if part.num == 4 and not ORBIT.ui then
-            verified = false
-        end
+        if part.num == 2 and (not ORBIT.SHAPE_PRESETS or #ORBIT.SHAPE_PRESETS < 3) then verified = false end
+        if part.num == 3 and not ORBIT.startUpdateLoop then verified = false end
+        if part.num == 4 and not ORBIT.ui then verified = false end
 
         if not verified then
             ORBIT.loaded["p" .. part.num] = false
@@ -1379,141 +1384,106 @@ local function loadPart(part, onDone)
         addLog("OK", part.sub .. " — загружено")
         ORBIT.notify("✅ " .. part.sub .. " загружено", Color3.fromRGB(160, 255, 180), 2)
         refreshStatus()
-
-        setCover("✅", "ГОТОВО: " .. part.sub, "переход к следующему этапу...", C_GREEN)
-
         if onDone then onDone(true) end
     end)
 end
 
+-- ============================================================
+--       🆕 ДОП. МОДУЛИ (загружаются ПОСЛЕ p4!)
+-- ============================================================
+local function loadExtra(name, file, key, onDone)
+    if ORBIT.loaded[key] then
+        if onDone then onDone(true) end
+        return
+    end
+    task.spawn(function()
+        addLog("INFO", "Downloading " .. file .. "...")
+        local url = BASE_URL .. file .. "?t=" .. os.time()
+        local ok, src = pcall(function() return game:HttpGet(url) end)
+        if not ok or type(src) ~= "string" or #src < 100 then
+            addLog("WARN", name .. " не скачался")
+            if onDone then onDone(false) end
+            return
+        end
+        local fn, err = loadstring(src)
+        if not fn then
+            addLog("ERR", name .. " compile: " .. tostring(err):sub(1, 40))
+            if onDone then onDone(false) end
+            return
+        end
+        local runOk, runErr = pcall(fn)
+        if not runOk then
+            addLog("ERR", name .. " runtime: " .. tostring(runErr):sub(1, 40))
+            if onDone then onDone(false) end
+            return
+        end
+        ORBIT.loaded[key] = true
+        addLog("OK", name .. " — загружено")
+        refreshStatus()
+        if onDone then onDone(true) end
+    end)
+end
+
+-- ============================================================
+--       ГЛАВНАЯ ЦЕПОЧКА ЗАГРУЗКИ (СТРОГО ПОСЛЕДОВАТЕЛЬНО)
+-- ============================================================
 local function autoLoadAll()
     task.wait(0.3)
+
+    -- 1. Части 2 → 3 → 4
     loadPart(PARTS[1], function(ok1)
         if not ok1 then
-            setCover("⚠️", "ЧАСТЬ 2 НЕ ЗАГРУЖЕНА", "проверь интернет и нажми ещё раз", C_ORANGE)
-            addLog("WARN", "Пропускаю 3 и 4")
+            setCover("⚠️", "ЧАСТЬ 2 НЕ ЗАГРУЖЕНА", "проверь интернет", C_ORANGE)
             return
         end
         task.wait(0.3)
         loadPart(PARTS[2], function(ok2)
             if not ok2 then
-                setCover("⚠️", "ЧАСТЬ 3 НЕ ЗАГРУЖЕНА", "нажми на карточку ещё раз", C_ORANGE)
-                addLog("WARN", "Пропускаю 4")
+                setCover("⚠️", "ЧАСТЬ 3 НЕ ЗАГРУЖЕНА", "проверь интернет", C_ORANGE)
                 return
             end
             task.wait(0.3)
             loadPart(PARTS[3], function(ok3)
                 if not ok3 then
-                    setCover("⚠️", "ЧАСТЬ 4 НЕ ЗАГРУЖЕНА", "нажми на карточку ещё раз", C_ORANGE)
+                    setCover("⚠️", "ЧАСТЬ 4 НЕ ЗАГРУЖЕНА", "проверь интернет", C_ORANGE)
                     return
                 end
-                addLog("OK", "Все основные части загружены")
-                setCover("✅", "ГОТОВО", "продолжаю подгрузку защит и модулей...", C_GREEN)
+
+                -- ✅ p4 загружен, UI есть — можно грузить доп. модули
+                setCover("✅", "ОСНОВА ГОТОВА", "загружаю защиту, звуки, extras, 3D...", C_GREEN)
+
+                -- 2. Античит
+                setCover("🛡️", "ЗАГРУЗКА: ЗАЩИТА", "orbit_anticheat.lua...", Color3.fromRGB(255, 140, 140))
+                startPulse()
+                loadExtra("🛡️ Античит", "orbit_anticheat.lua", "ac", function()
+                    stopPulse()
+                    -- 3. SFX
+                    setCover("🎵", "ЗАГРУЗКА: ЗВУКИ", "orbit_sfx.lua...", Color3.fromRGB(255, 200, 255))
+                    startPulse()
+                    loadExtra("🎵 SFX", "orbit_sfx.lua", "sfx", function()
+                        stopPulse()
+                        -- 4. Extras
+                        setCover("✨", "ЗАГРУЗКА: EXTRAS", "атмосфера, шлейф, искры...", Color3.fromRGB(200, 220, 255))
+                        startPulse()
+                        loadExtra("✨ Extras", "orbit_extras.lua", "extras", function()
+                            stopPulse()
+                            -- 5. 3D-редактор
+                            setCover("🔮", "ЗАГРУЗКА: 3D-РЕДАКТОР", "orbit_editor3d.lua...", Color3.fromRGB(200, 150, 255))
+                            startPulse()
+                            loadExtra("🔮 3D-Редактор", "orbit_editor3d.lua", "editor3d", function()
+                                stopPulse()
+                                task.wait(0.3)
+                                setCover("✅", "ВСЁ ГОТОВО", "нажми ЗАПУСТИТЬ ОРБИТУ", C_GREEN)
+                                updateRingProgress(1)
+                                refreshStatus()
+                            end)
+                        end)
+                    end)
+                end)
             end)
         end)
     end)
 end
-
--- ============================================================
---       ДОП. ЭТАПЫ
--- ============================================================
-task.spawn(function()
-    task.wait(2.8)
-
-    if not ORBIT.loaded.ac then
-        setCover("🛡️", "ЗАГРУЗКА: ЗАЩИТА", "orbit_anticheat.lua...", Color3.fromRGB(255, 140, 140))
-        startPulse()
-        local url = BASE_URL .. "orbit_anticheat.lua?t=" .. os.time()
-        local ok, src = pcall(function() return game:HttpGet(url) end)
-        if ok and type(src) == "string" and #src > 100 then
-            local fn = loadstring(src)
-            if fn then
-                local runOk, runErr = pcall(fn)
-                if runOk then
-                    ORBIT.loaded.ac = true
-                    addLog("OK", "🛡️ Античит загружен")
-                    refreshStatus()
-                else
-                    addLog("ERR", "AntiCheat: " .. tostring(runErr):sub(1, 40))
-                end
-            end
-        else
-            addLog("WARN", "Античит не скачался")
-        end
-        stopPulse()
-    end
-
-    task.wait(0.4)
-    if not ORBIT.loaded.sfx then
-        setCover("🎵", "ЗАГРУЗКА: ЗВУКИ", "orbit_sfx.lua...", Color3.fromRGB(255, 200, 255))
-        startPulse()
-        local url = BASE_URL .. "orbit_sfx.lua?t=" .. os.time()
-        local ok, src = pcall(function() return game:HttpGet(url) end)
-        if ok and type(src) == "string" and #src > 100 then
-            local fn = loadstring(src)
-            if fn then
-                local runOk = pcall(fn)
-                if runOk then ORBIT.loaded.sfx = true; addLog("OK", "🎵 SFX загружены"); refreshStatus() end
-            end
-        else
-            addLog("WARN", "SFX не скачались")
-        end
-        stopPulse()
-    end
-
-    task.wait(0.4)
-    if not ORBIT.loaded.extras then
-        setCover("✨", "ЗАГРУЗКА: EXTRAS", "атмосфера, шлейф, искры...", Color3.fromRGB(200, 220, 255))
-        startPulse()
-        local url = BASE_URL .. "orbit_extras.lua?t=" .. os.time()
-        local ok, src = pcall(function() return game:HttpGet(url) end)
-        if ok and type(src) == "string" and #src > 100 then
-            local fn = loadstring(src)
-            if fn then
-                local runOk, runErr = pcall(fn)
-                if runOk then
-                    ORBIT.loaded.extras = true
-                    addLog("OK", "✨ Extras загружены")
-                    refreshStatus()
-                else
-                    addLog("ERR", "Extras: " .. tostring(runErr):sub(1, 40))
-                end
-            end
-        else
-            addLog("WARN", "Extras не скачались")
-        end
-        stopPulse()
-    end
-
-    task.wait(0.4)
-    if not ORBIT.loaded.editor3d then
-        setCover("🔮", "ЗАГРУЗКА: 3D-РЕДАКТОР", "orbit_editor3d.lua...", Color3.fromRGB(200, 150, 255))
-        startPulse()
-        local url = BASE_URL .. "orbit_editor3d.lua?t=" .. os.time()
-        local ok, src = pcall(function() return game:HttpGet(url) end)
-        if ok and type(src) == "string" and #src > 100 then
-            local fn = loadstring(src)
-            if fn then
-                local runOk, runErr = pcall(fn)
-                if runOk then
-                    ORBIT.loaded.editor3d = true
-                    addLog("OK", "🔮 3D-Редактор загружен")
-                    refreshStatus()
-                else
-                    addLog("ERR", "3D Editor: " .. tostring(runErr):sub(1, 40))
-                end
-            end
-        else
-            addLog("WARN", "3D-Редактор не скачался")
-        end
-        stopPulse()
-    end
-
-    task.wait(0.3)
-    setCover("✅", "ВСЁ ГОТОВО", "нажми ЗАПУСТИТЬ ОРБИТУ", C_GREEN)
-    updateRingProgress(1)
-    refreshStatus()
-end)
 
 -- ============================================================
 --       СТАРТ
@@ -1567,7 +1537,7 @@ local function selectPlatform(platform)
     addLog("OK", "Найдено сохранений: " .. saveCount)
     addLog("OK", "BlockCount: " .. ORBIT.SETTINGS.BlockCount)
 
-    setCover("✨", "СТАРТ ЗАГРУЗКИ", "3 части → защита → звуки → extras → 3D", C_GREEN)
+    setCover("✨", "СТАРТ ЗАГРУЗКИ", "части 2 → 3 → 4 → защита → звуки → extras → 3D", C_GREEN)
 
     task.spawn(autoLoadAll)
 end
