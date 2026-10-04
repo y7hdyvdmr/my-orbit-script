@@ -6,7 +6,17 @@
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Extras] ORBIT не найден!"); return end
-if not ORBIT.ui or not ORBIT.ui.panel then warn("[Orbit Extras] UI не готов!"); return end
+
+-- Ждём UI (если p4 ещё не готов)
+local waitT = 0
+while (not ORBIT.ui or not ORBIT.ui.panel) and waitT < 20 do
+    task.wait(0.3)
+    waitT = waitT + 0.3
+end
+if not ORBIT.ui or not ORBIT.ui.panel then
+    warn("[Orbit Extras] UI не готов после 20 сек!")
+    return
+end
 
 local Players     = ORBIT.Players
 local RunService  = ORBIT.RunService
@@ -130,8 +140,6 @@ local atmoSeed = 0
 local trailStreamFolder = nil
 local trailStreamPart = nil
 local trailStreamTrail = nil
-local trailStreamAttach0 = nil
-local trailStreamAttach1 = nil
 
 local reactSparksFolder = nil
 local reactSparksConn = nil
@@ -242,7 +250,7 @@ end
 -- ============================================================
 local function buildTrailStream()
     if trailStreamFolder then trailStreamFolder:Destroy(); trailStreamFolder = nil end
-    trailStreamPart = nil; trailStreamTrail = nil; trailStreamAttach0 = nil; trailStreamAttach1 = nil
+    trailStreamPart = nil; trailStreamTrail = nil
     if not SETTINGS.TrailStreamEnabled then return end
 
     local char = LocalPlayer.Character
@@ -266,17 +274,12 @@ local function buildTrailStream()
     p.Parent = trailStreamFolder
     trailStreamPart = p
 
-    trailStreamAttach0 = Instance.new("Attachment")
-    trailStreamAttach0.Position = Vector3.new(0, -1.2, 0)
-    trailStreamAttach0.Parent = p
-
-    trailStreamAttach1 = Instance.new("Attachment")
-    trailStreamAttach1.Position = Vector3.new(0, 1.2, 0)
-    trailStreamAttach1.Parent = p
+    local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(0, -1.2, 0); a0.Parent = p
+    local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(0, 1.2, 0); a1.Parent = p
 
     trailStreamTrail = Instance.new("Trail")
-    trailStreamTrail.Attachment0 = trailStreamAttach0
-    trailStreamTrail.Attachment1 = trailStreamAttach1
+    trailStreamTrail.Attachment0 = a0
+    trailStreamTrail.Attachment1 = a1
     trailStreamTrail.Lifetime = SETTINGS.TrailLength or 0.5
     trailStreamTrail.WidthScale = NumberSequence.new({
         NumberSequenceKeypoint.new(0, SETTINGS.TrailWidth or 0.8),
@@ -720,15 +723,11 @@ panel.CanvasSize = UDim2.new(0, 0, 0, finalY + 20)
 -- ============================================================
 --       РЕСПАВН
 -- ============================================================
-local function rebuildOnChar()
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
     if SETTINGS.AtmoEnabled then setupAtmo() end
     if SETTINGS.TrailStreamEnabled then setupTrailStream() end
     if SETTINGS.ReactSparksEnabled then setupReactSparks() end
-end
-
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(1)
-    rebuildOnChar()
 end)
 
 -- ============================================================
@@ -748,8 +747,7 @@ ORBIT.extras = {
 }
 
 if ORBIT.notify then
-    ORBIT.notify("❄️ Extras v23.2 загружен (атмосфера + шлейф + искры)", Color3.fromRGB(180,220,255), 3)
+    ORBIT.notify("❄️ Extras v23.2 загружен", Color3.fromRGB(180,220,255), 3)
 end
-
 warn("[Orbit Extras v23.2] Загружен ✅")
 return true
