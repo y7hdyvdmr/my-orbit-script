@@ -1,27 +1,21 @@
---[[ ОРБИТА v23.5 — P4: UI
-  ИЗМЕНЕНИЯ v23.5 (относительно v23.4):
-  🎨 ИНТЕРФЕЙС: панель переделана — шапка, ПОИСК по функциям, 9 вкладок (ГЛАВНАЯ / ВИД / ДВИЖЕНИЕ /
-     АУРА / ЭФФЕКТЫ / БОТЫ / ИГРОКИ / ЕЩЁ / СИСТЕМА), сворачиваемые разделы, кнопки в 2 столбца,
-     градиенты, скруглённая рамка с градиентной обводкой, тень, плавное открытие и смена вкладок.
-     Все прежние функции и кнопки сохранены (меняется только раскладка).
-  🎨 ПАЛИТРА: цвет колец и цвет ауры выбираются из сетки 50 цветов (вместо 50 тапов по кругу).
-  ⭐ НОВОЕ: раздел «СТИЛИ» — 6 готовых образов + «Случайный стиль» одним нажатием;
-     кнопки «Появление колец», «Вспышка при вкл», «FPS-панель».
-  🐛 все кнопки теперь через onClick (Down + Touch + Activated); внутри прокрутки срабатывают при
-     отпускании пальца — раньше свайп для прокрутки мог нажимать кнопки под пальцем.
-  🐛 после загрузки сохранения / сброса часть кнопок показывала старые значения — добавлен
-     refreshAllLabels(); «Сбросить всё» теперь сбрасывает и индексы пресетов (раньше подписи врали).
-  🐛 «Свечение» ничего не делало — теперь включает/выключает свет у колец.
-  🐛 FPS-панель обещала команду /showfps, которой не было — добавлена кнопка во вкладке СИСТЕМА.
-  🐛 античит запускался второй раз поверх уже загруженного загрузчиком — теперь определяется.
-  🐛 повторный запуск скрипта оставлял подключения UIS/Players (клавиша L срабатывала дважды) —
-     подключения отслеживаются и отключаются в unload.
-  🐛 магазин и мини-игра подгружались без повторов и без уведомления об ошибке — добавлены.
-  🐛 getgenv() без проверки — безопасный вызов.
-  API для модулей: ORBIT.ui.window, ORBIT.ui.addSection(title,color,tabId), ORBIT.ui.addControl(inst,h,half),
-     ORBIT.ui.makeButton(text,h,bg,fg), ORBIT.ui.onClick, ORBIT.ui.setTab(id), ORBIT.ui.relayout().
-     Старые модули, добавляющие элементы прямо в ORBIT.ui.panel, подхватываются автоматически.
-]]
+-- ОРБИТА v23.6 — P4: UI
+-- ИЗМЕНЕНИЯ v23.5 (относительно v23.4):
+-- 🎨 ИНТЕРФЕЙС: панель переделана — шапка, ПОИСК по функциям, 9 вкладок (ГЛАВНАЯ / ВИД /
+--    ДВИЖЕНИЕ / АУРА / ЭФФЕКТЫ / БОТЫ / ИГРОКИ / ЕЩЁ / СИСТЕМА), сворачиваемые разделы,
+--    кнопки в 2 столбца, градиенты, скруглённая рамка, тень, плавное открытие.
+-- 🎨 ПАЛИТРА: цвет колец и цвет ауры выбираются из сетки 50 цветов.
+-- ⭐ НОВОЕ: раздел «СТИЛИ» — 6 готовых образов + «Случайный стиль»; кнопки
+--    «Появление колец», «Вспышка при вкл», «FPS-панель».
+-- 🐛 все кнопки через onClick (Down + Touch + Activated).
+-- 🐛 после загрузки сохранения / сброса — refreshAllLabels().
+-- 🐛 «Свечение» реально включает/выключает свет у колец.
+-- 🐛 FPS-панель с кнопкой /showfps.
+-- 🐛 античит запускался второй раз — теперь определяется.
+-- 🐛 повторный запуск скрипта оставлял подключения UIS/Players — теперь все через UIK.connect.
+-- 🐛 магазин и мини-игра подгружались без повторов — исправлено.
+-- API для модулей: ORBIT.ui.window, ORBIT.ui.addSection, ORBIT.ui.addControl,
+--    ORBIT.ui.makeButton, ORBIT.ui.onClick, ORBIT.ui.setTab, ORBIT.ui.relayout.
+-- ФИКС v23.6: добавлены share-кнопки в раздел СОХРАНЕНИЯ и кнопка «🔗 Поделиться» в СИСТЕМУ.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
@@ -62,9 +56,6 @@ end
 
 -- ============================================================
 --       ОБРАБОТЧИК КЛИКОВ (Android / Delta)
---  .Activated на части Android-executor'ов не срабатывает, поэтому дублируем Touch-ом.
---  Кнопки внутри ScrollingFrame срабатывают при ОТПУСКАНИИ пальца (если палец почти не
---  двигался) — иначе каждый свайп для прокрутки нажимал бы кнопки под пальцем.
 -- ============================================================
 local function onClick(btn, fn, releaseOnly)
     local deb = false
@@ -77,7 +68,7 @@ local function onClick(btn, fn, releaseOnly)
         local ok, err = pcall(fn)
         if not ok then warn("[Orbit] " .. tostring(err)) end
     end
-    local function inScroll()      -- проверка в момент нажатия: кнопка уже точно в иерархии
+    local function inScroll()
         return releaseOnly or btn:GetAttribute("ReleaseOnly")
             or btn:FindFirstAncestorOfClass("ScrollingFrame") ~= nil
     end
@@ -100,10 +91,10 @@ local function onClick(btn, fn, releaseOnly)
 end
 
 -- ============================================================
-local NB = {}   -- новые кнопки (чтобы не раздувать число локальных переменных)
+local NB = {}
 
 -- ============================================================
---       🆕 FPS-СЧЁТЧИК (правильный, считает кадры сам)
+--       🆕 FPS-СЧЁТЧИК
 -- ============================================================
 local myFps = 60
 local myFpsFrames = 0
@@ -152,7 +143,6 @@ topBarLabel.TextXAlignment = Enum.TextXAlignment.Center
 topBarLabel.ZIndex = 6
 topBarLabel.Parent = topBar
 
--- 🆕 Крестик на FPS-панели
 local topBarCloseBtn = Instance.new("TextButton")
 topBarCloseBtn.Size = UDim2.new(0, 22, 0, 22)
 topBarCloseBtn.Position = UDim2.new(1, -26, 0, 2)
@@ -191,11 +181,11 @@ do
     mainStroke.Color = Color3.fromRGB(120, 120, 255)
     mainStroke.Thickness = 1.5
 end
-mainBtn:SetAttribute("ReleaseOnly", true)   -- тап = открыть, перетаскивание не открывает
+mainBtn:SetAttribute("ReleaseOnly", true)
 
 -- ==================== ПАНЕЛЬ: шапка + поиск + вкладки + контент ====================
 local PANEL_W = IS_MOBILE and 340 or 368
-local BTN_H = IS_MOBILE and 40 or 32          -- мобилка: крупнее (минимум 30x30 соблюдён)
+local BTN_H = IS_MOBILE and 40 or 32
 local BTN_H_BIG = IS_MOBILE and 46 or 38
 local S_STEP = 4
 
@@ -242,7 +232,6 @@ window:GetPropertyChangedSignal("Position"):Connect(syncShadow)
 window:GetPropertyChangedSignal("Size"):Connect(syncShadow)
 window:GetPropertyChangedSignal("Visible"):Connect(function() shadow.Visible = window.Visible end)
 
--- шапка: заголовок + поиск + крестик
 local searchBox, panelCloseBtn
 do
     local header = Instance.new("Frame")
@@ -291,7 +280,6 @@ do
     Instance.new("UICorner", panelCloseBtn).CornerRadius = UDim.new(0, 10)
 end
 
--- вкладки
 local TABS = {
     { id = "main",    name = "⚡ ГЛАВНАЯ" },
     { id = "look",    name = "🎨 ВИД" },
@@ -303,7 +291,6 @@ local TABS = {
     { id = "more",    name = "🛒 ЕЩЁ" },
     { id = "sys",     name = "💾 СИСТЕМА" },
 }
--- подстрока заголовка раздела -> вкладка (порядок важен)
 local SECTION_TAB = {
     { "ОСНОВНОЕ", "main" }, { "СТИЛИ", "main" }, { "ПРОИЗВОДИТЕЛЬНОСТЬ", "main" },
     { "ВНЕШНИЙ ВИД", "look" }, { "ГРАФИКА", "look" }, { "ДОПОЛНИТЕЛЬНО", "look" },
@@ -313,15 +300,15 @@ local SECTION_TAB = {
     { "БОТЫ", "bots" },
     { "ESP", "players" }, { "ЛЮДИ", "players" }, { "ЗАЩИТА", "players" },
     { "ЗВУКИ", "more" }, { "МУЗЫКА", "more" }, { "МАГАЗИН", "more" },
-    { "СОХРАНЕНИЯ", "sys" }, { "СИСТЕМА", "sys" }, { "СТАТИСТИКА", "sys" },
+    { "SHARE", "sys" }, { "СОХРАНЕНИЯ", "sys" }, { "СИСТЕМА", "sys" }, { "СТАТИСТИКА", "sys" },
 }
 
-local panel          -- контент (ScrollingFrame): сюда добавляются все контролы
-local relayout       -- переразмещение под вкладку / поиск
+local panel
+local relayout
 local setTab
 local makeBigSection, makeButton
-local UIK = { TABS = TABS, _conns = {} }   -- общие функции UI для других модулей
-UIK.connect = function(sig, fn)                 -- подключение, которое отключится при unload
+local UIK = { TABS = TABS, _conns = {} }
+UIK.connect = function(sig, fn)
     local c = sig:Connect(fn); UIK._conns[#UIK._conns + 1] = c; return c
 end
 
@@ -357,7 +344,6 @@ do
     emptyLbl.TextSize = 12; emptyLbl.TextWrapped = true; emptyLbl.Visible = false
     emptyLbl:SetAttribute("_reg", true); emptyLbl.Parent = panel
 
-    -- нижний регистр с кириллицей; ё -> е (чтобы «лёд» находился по «лед»)
     local function lowerRu(s)
         local out = {}
         for _, c in utf8.codes(s) do
@@ -373,7 +359,6 @@ do
         local ok, r = pcall(lowerRu, s)
         return ok and r or s:lower()
     end
-    -- грубое «сжатие» окончания: «аура» найдёт «ауры», «цвет» — «цвета»
     local function stem(w)
         local ok, n = pcall(utf8.len, w)
         if ok and n and n >= 4 then
@@ -466,7 +451,7 @@ do
         tc.MaxTextSize = IS_MOBILE and 14 or 12; tc.MinTextSize = 8
         local pad = Instance.new("UIPadding", b)
         pad.PaddingLeft = UDim.new(0, 6); pad.PaddingRight = UDim.new(0, 6)
-        local gr = Instance.new("UIGradient", b)       -- мягкий вертикальный градиент «объёма»
+        local gr = Instance.new("UIGradient", b)
         gr.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 190, 205)); gr.Rotation = 90
         local stroke = Instance.new("UIStroke", b)
         stroke.Color = Color3.fromRGB(255, 255, 255); stroke.Thickness = 1; stroke.Transparency = 0.86
@@ -474,7 +459,6 @@ do
         return b
     end
 
-    -- главная функция раскладки
     relayout = function()
         local q = normText(searchBox.Text)
         local words = {}
@@ -562,7 +546,7 @@ do
         if not had then relayout() end
         styleChips()
         panel.CanvasPosition = Vector2.new(0, 0)
-        panel.Position = UDim2.new(0, 14, 0, 86)           -- лёгкий «выезд» контента
+        panel.Position = UDim2.new(0, 14, 0, 86)
         TweenService:Create(panel, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
             { Position = UDim2.new(0, 0, 0, 86) }):Play()
     end
@@ -585,14 +569,13 @@ do
         relayout(); styleChips(); panel.CanvasPosition = Vector2.new(0, 0)
     end)
 
-    -- контролы, добавленные в panel напрямую (TextBox, списки, старые модули)
     panel.ChildAdded:Connect(function(ch)
         if not ch:IsA("GuiObject") or ch:GetAttribute("_reg") then return end
         ch:SetAttribute("_reg", true)
         if not built then
             registerControl(ch, ch.Size.Y.Offset, false)
         else
-            task.defer(function()                    -- модуль, загруженный позже (совместимость)
+            task.defer(function()
                 if not ch.Parent then return end
                 local h = ch.Size.Y.Offset
                 if h <= 0 then h = ch.AbsoluteSize.Y end
@@ -630,7 +613,6 @@ local ring3Btn      = makeButton("➕ Кольцо 3", yCursor); yCursor = yCurs
 local ring4Btn      = makeButton("➕ Кольцо 4", yCursor); yCursor = yCursor + BTN_H + S_STEP
 local ring5Btn      = makeButton("➕ Кольцо 5", yCursor); yCursor = yCursor + BTN_H + S_STEP + 6
 
--- ============ СТИЛИ (1 нажатие = целый образ) ============
 NB.styleDefs = {
     { name = "🌈 Радуга-вихрь", bg = Color3.fromRGB(70,40,95), fg = Color3.fromRGB(255,200,255),
       color = "РАДУГА", pattern = "Спираль", speed = 2.0, orbit = "L", size = "M", shape = "ЗВЕЗДА",
@@ -853,6 +835,12 @@ local perfBtn = makeButton("⚡ Качество: АВТО", yCursor, BTN_H, Col
 makeBigSection("💗  ДОПОЛНИТЕЛЬНО", yCursor, Color3.fromRGB(100, 50, 80)); yCursor = yCursor + 30
 local heartSizeBtn = makeButton("💗 Размер сердца: 100%", yCursor, BTN_H, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200)); yCursor = yCursor + BTN_H + S_STEP + 6
 
+-- ============ 🆕 SHARE (PODELITSYA) ============
+makeBigSection("🔗  SHARE — ПОДЕЛИТЬСЯ", yCursor, Color3.fromRGB(90, 100, 160)); yCursor = yCursor + 30
+local openShareBtn       = makeButton("🔗 Панель SHARE (отдать/принять)", yCursor, BTN_H_BIG, Color3.fromRGB(70,90,150), Color3.fromRGB(220,235,255)); yCursor = yCursor + BTN_H_BIG + S_STEP
+local shareCurSettingsBtn = makeButton("📤 Поделиться настройками", yCursor, BTN_H, Color3.fromRGB(60,110,80), Color3.fromRGB(200,255,220)); yCursor = yCursor + BTN_H + S_STEP
+local importSettingsBtn   = makeButton("📥 Импорт настроек из буфера", yCursor, BTN_H, Color3.fromRGB(100,80,60), Color3.fromRGB(255,225,190)); yCursor = yCursor + BTN_H + S_STEP + 6
+
 -- ============ СОХРАНЕНИЯ ============
 makeBigSection("💾  СОХРАНЕНИЯ", yCursor, Color3.fromRGB(60, 60, 90)); yCursor = yCursor + 30
 local saveNameInput = Instance.new("TextBox")
@@ -873,6 +861,8 @@ Instance.new("UICorner", saveNameInput).CornerRadius = UDim.new(0, 8)
 yCursor = yCursor + 36
 
 local createSaveBtn = makeButton("💾 СОЗДАТЬ СОХРАНЕНИЕ", yCursor, BTN_H_BIG, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180)); yCursor = yCursor + BTN_H_BIG + S_STEP
+-- 🆕 кнопка импорта сохранения
+local importSaveBtn = makeButton("📥 ИМПОРТ СОХРАНЕНИЯ ИЗ БУФЕРА", yCursor, BTN_H, Color3.fromRGB(55, 75, 105), Color3.fromRGB(190, 220, 255)); yCursor = yCursor + BTN_H + S_STEP + 4
 
 local savesContainer = Instance.new("ScrollingFrame")
 savesContainer.Size = UDim2.new(1, -20, 0, 130)
@@ -946,7 +936,7 @@ yCursor = yCursor + 106
 
 local resetSessionBtn = makeButton("🔄 Сбросить статистику", yCursor, BTN_H, Color3.fromRGB(50,40,40), Color3.fromRGB(255,180,180)); yCursor = yCursor + BTN_H + S_STEP + 6
 
-UIK.finishBuild()   -- раскладка по вкладкам
+UIK.finishBuild()
 
 -- ============================================================
 --       ОТКРЫТИЕ/ЗАКРЫТИЕ
@@ -1070,7 +1060,7 @@ local function rebuildPeopleList()
         sigParts[#sigParts + 1] = info.name .. (info.hasRing and "1" or "0") .. (info.isTagged and "1" or "0")
     end
     local sig = table.concat(sigParts, "|")
-    if sig == NB.peopleSig then return end     -- список не изменился — не трогаем кнопки
+    if sig == NB.peopleSig then return end
     NB.peopleSig = sig
     for _, ch in ipairs(peopleListScroll:GetChildren()) do
         if ch:IsA("Frame") or ch:IsA("TextLabel") then ch:Destroy() end
@@ -1476,7 +1466,7 @@ onClick(auraPulseBtn, function()
     auraPulseBtn.Text = "💓 Пульсация ауры: " .. (SETTINGS.AuraPulseEnabled and "ВКЛ" or "ВЫКЛ")
 end)
 
--- 🆕 СВЕТ АУРЫ
+-- СВЕТ АУРЫ
 onClick(auraLightBtn, function()
     SETTINGS.AuraLightEnabled = not SETTINGS.AuraLightEnabled
     auraLightBtn.Text = "💡 Свет ауры: " .. (SETTINGS.AuraLightEnabled and "ВКЛ" or "ВЫКЛ")
@@ -1506,7 +1496,7 @@ onClick(auraLightBrightBtn, function()
     refreshAura()
 end)
 
--- 🆕 ГРАФИКА
+-- ГРАФИКА
 local MATERIALS = {"Neon", "Glass", "ForceField", "Plastic", "SmoothPlastic", "Metal", "Ice", "Marble", "Slate", "Granite"}
 local materialIndex = 1
 for i, m in ipairs(MATERIALS) do
@@ -1553,7 +1543,7 @@ onClick(glowBtn, function()
     else
         glowBtn.BackgroundColor3 = Color3.fromRGB(45,45,65); glowBtn.TextColor3 = Color3.fromRGB(200,200,220)
     end
-    for _, ring in pairs(rings) do                     -- раньше кнопка не делала ничего
+    for _, ring in pairs(rings) do
         for _, d in ipairs(ring.blocks) do
             if d.light then d.light.Enabled = on end
         end
@@ -1628,7 +1618,7 @@ end)
 -- ЗАЩИТА
 local antichitLoaded = false
 onClick(antichitLaunchBtn, function()
-    if antichitLoaded or (ORBIT.loaded and ORBIT.loaded.ac) then   -- загрузчик уже запустил его
+    if antichitLoaded or (ORBIT.loaded and ORBIT.loaded.ac) then
         antichitLoaded = true
         antichitLaunchBtn.Text = "✅ АНТИ-ЧИТ АКТИВЕН"
         antichitStatusLbl.Text = "🛡 Защита: активна (18 функций)"
@@ -1677,7 +1667,7 @@ onClick(antichitLaunchBtn, function()
     end)
 end)
 
-task.spawn(function()      -- загрузчик p1 запускает античит сам: показываем это в статусе
+task.spawn(function()
     while screenGui and screenGui.Parent and not antichitLoaded do
         task.wait(1)
         if ORBIT.loaded and ORBIT.loaded.ac then
@@ -1747,6 +1737,48 @@ onClick(openShopBtn, function() if ORBIT.openShop then ORBIT.openShop() end end)
 onClick(openEditorBtn, function() if ORBIT.openEditor then ORBIT.openEditor() end end)
 onClick(openGameBtn, function() if ORBIT.openMiniGame then ORBIT.openMiniGame() end end)
 
+-- 🆕 SHARE
+onClick(openShareBtn, function()
+    if not ORBIT.share or not ORBIT.share.open then
+        ORBIT.notify("❌ Модуль шаринга не загружен (orbit_share.lua)", Color3.fromRGB(255,150,150), 3)
+        return
+    end
+    ORBIT.share.open()
+end)
+onClick(shareCurSettingsBtn, function()
+    if not ORBIT.share or not ORBIT.share.encodeCurrentSettings then
+        ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
+        return
+    end
+    local str, err = ORBIT.share.encodeCurrentSettings()
+    if not str then
+        ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255,150,150), 3)
+        return
+    end
+    ORBIT.share.open(str)
+    ORBIT.notify("📤 Строка настроек готова — скопируй или создай ссылку", Color3.fromRGB(180,220,255), 3)
+end)
+onClick(importSettingsBtn, function()
+    if not ORBIT.share or not ORBIT.share.open then
+        ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
+        return
+    end
+    -- читаем буфер
+    local txt, err = ORBIT.share.paste()
+    if not txt then
+        ORBIT.share.open()
+        ORBIT.notify("📋 " .. tostring(err) .. " — вставь вручную", Color3.fromRGB(255,200,120), 3)
+        return
+    end
+    local dec, err2 = ORBIT.share.decode(txt)
+    if not dec then
+        ORBIT.share.openImport(txt)
+        ORBIT.notify("❌ " .. tostring(err2) .. " — проверь в панели", Color3.fromRGB(255,150,150), 3)
+        return
+    end
+    ORBIT.share.applyDecoded(dec)
+end)
+
 -- ПРОИЗВОДИТЕЛЬНОСТЬ
 local PERF_MODES = {"auto", "high", "medium", "low", "minimal", "off"}
 local PERF_LABELS = {auto="АВТО", high="ВЫСОКОЕ", medium="СРЕДНЕЕ", low="НИЗКОЕ", minimal="МИНИМУМ", off="ВЫКЛ"}
@@ -1779,13 +1811,11 @@ onClick(heartSizeBtn, function()
 end)
 
 -- ============================================================
---       ОБЩЕЕ ОБНОВЛЕНИЕ ПОДПИСЕЙ (после загрузки/сброса/стиля)
---  Раньше после загрузки сохранения часть кнопок показывала старые значения.
+--       ОБЩЕЕ ОБНОВЛЕНИЕ ПОДПИСЕЙ
 -- ============================================================
 local function onOff(v) return v and "ВКЛ" or "ВЫКЛ" end
 
 local function refreshAllLabels()
-    -- основное
     if ORBIT.enabled then
         toggleBtn.Text = "🟢 ВКЛЮЧЕНО"; toggleBtn.TextColor3 = Color3.fromRGB(0,255,120); toggleBtn.BackgroundColor3 = Color3.fromRGB(40,50,40)
     else
@@ -1794,13 +1824,11 @@ local function refreshAllLabels()
     local allOn = true
     for ri = 2, 5 do refreshRingButton(ri); if not rings[ri].enabled then allOn = false end end
     allRingsBtn.Text = allOn and "⭕ Все кольца: ВЫКЛ" or "⭕ Все кольца: ВКЛ"
-    -- боты
     botAutoCollectBtn.Text = "🎁 Автосбор: " .. onOff(ORBIT.botSettings.AutoCollect)
     botRadiusBtn.Text = "📏 Радиус сбора: " .. ORBIT.botSettings.CollectRadius .. " st"
     botShowPlayerRing.Text = "👤 Кольцо как у игрока: " .. onOff(ORBIT.botSettings.ShowPlayerRing)
     botSkinBtnEnd.Text = "🎭 Скин как у меня: " .. onOff(ORBIT.botSettings.UseMySkin)
     espBtn.Text = "👁️ ESP игроков: " .. onOff(ORBIT.ESP and ORBIT.ESP.Enabled)
-    -- вид
     shapeCatBtn.Text = "📁 Категория: " .. P.SHAPE_CATEGORIES[P.shapeCategoryIndex].name
     shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name
     shapeModeBtn.Text = "🎭 Режим: " .. P.FORM_MODES[P.formModeIndex].name
@@ -1810,7 +1838,6 @@ local function refreshAllLabels()
     lightBtn.Text = "💡 Свет: " .. onOff(SETTINGS.LightEnabled)
     nameBtn.Text = "🏷️ Имена блоков: " .. onOff(SETTINGS.ShowBlockNames)
     autoSwapBtn.Text = "🎭 Автосмена: " .. onOff(SETTINGS.AutoShapeSwap)
-    -- движение и кручение
     orbitBtn.Text = "📏 Орбита: " .. P.ORBIT[P.orbitIndex].name
     spreadBtn.Text = "📐 Разлёт: " .. P.SPREAD[P.spreadIndex].name
     heightBtn.Text = "⬆️ Высота: " .. P.HEIGHT[P.heightIndex].name
@@ -1822,7 +1849,6 @@ local function refreshAllLabels()
     spinAxisBtn.Text = "🔄 Кручение оси: " .. onOff(ORBIT.spinAxisEnabled)
     spinDirBtn.Text = (ORBIT.spinAxisDir == "X") and "↕️ Ось: ВЕРХ/ВНИЗ" or "↔️ Ось: ВЛЕВО/ВПРАВО"
     spinSpeedBtn.Text = "🌀 Скорость: " .. P.SPIN_SPEED[P.spinSpeedIndex].name
-    -- эффекты
     trailBtn.Text = "🌠 Трейлы: " .. onOff(SETTINGS.TrailEnabled)
     trailLenBtn.Text = "📏 Длина: " .. P.TRAIL_LEN[P.trailLengthIndex].name
     trailWidBtn.Text = "🎚️ Толщина: " .. P.TRAIL_WID[P.trailWidthIndex].name
@@ -1831,7 +1857,6 @@ local function refreshAllLabels()
     pulseBtn.Text = "💓 Пульсация: " .. onOff(SETTINGS.PulseEnabled)
     NB.spawnAnim.Text = "🎆 Появление колец: " .. onOff(SETTINGS.SpawnAnim ~= false)
     NB.spawnFlash.Text = "💫 Вспышка при вкл: " .. onOff(SETTINGS.SpawnFlash ~= false)
-    -- аура
     auraBtn.Text = "🌀 Аура: " .. onOff(SETTINGS.AuraEnabled)
     auraRingBtn.Text = "⭕ Кольцо: " .. onOff(SETTINGS.AuraRing)
     auraPartBtn.Text = "✨ Частицы: " .. onOff(SETTINGS.AuraParticles)
@@ -1855,7 +1880,6 @@ local function refreshAllLabels()
     auraLightBtn.Text = "💡 Свет ауры: " .. onOff(SETTINGS.AuraLightEnabled)
     auraLightRangeBtn.Text = "📏 Дальность: " .. tostring(SETTINGS.AuraLightRange)
     auraLightBrightBtn.Text = "✨ Яркость: " .. tostring(SETTINGS.AuraLightBrightness)
-    -- графика
     local mname = (tostring(SETTINGS.Material):gsub("Enum%.Material%.", ""))
     for i, m in ipairs(MATERIALS) do if m == mname then materialIndex = i; break end end
     materialBtn.Text = "🎨 Материал: " .. mname:upper()
@@ -1863,11 +1887,9 @@ local function refreshAllLabels()
     brightnessBtn.Text = "☀️ Яркость: " .. tostring(SETTINGS.GlowIntensity or 1)
     glowBtn.Text = "✨ Свечение: " .. onOff(SETTINGS.GlowEnabled ~= false)
     castShadowBtn.Text = "🌑 Тени: " .. onOff(SETTINGS.CastShadow)
-    -- огонь
     fireBtn.Text = "🔥 Огонь: " .. onOff(SETTINGS.FireEnabled)
     fireSizeBtn.Text = "📏 Размер: " .. P.FIRE_SIZE[P.fireSizeIndex].name
     fireHeatBtn.Text = "🌡️ Жар: " .. P.FIRE_HEAT[P.fireHeatIndex].name
-    -- звук / музыка / сердце
     if ORBIT.SOUNDS then
         soundToggleBtn.Text = "🔊 Звуки: " .. onOff(ORBIT.SOUNDS.Enabled)
         soundVolumeBtn.Text = "🎵 Громкость: " .. math.floor((ORBIT.SOUNDS.Volume or 1) * 100 + 0.5) .. "%"
@@ -1881,7 +1903,7 @@ local function refreshAllLabels()
 end
 
 -- ============================================================
---       ПАЛИТРА ЦВЕТОВ (50 цветов одним нажатием вместо 50 тапов)
+--       ПАЛИТРА ЦВЕТОВ (50 цветов)
 -- ============================================================
 local paletteGui = nil
 local function closePalette()
@@ -1975,7 +1997,7 @@ onClick(auraColorBtn, function()
 end)
 
 -- ============================================================
---       СТИЛИ: готовые образы одним нажатием
+--       СТИЛИ
 -- ============================================================
 local function idxByName(list, name)
     for i, v in ipairs(list) do if v.name == name then return i end end
@@ -2055,9 +2077,6 @@ for i, b in ipairs(NB.styleBtns) do
     onClick(b, function() applyStyle(NB.styleDefs[i]) end)
 end
 
--- ============================================================
---       НОВЫЕ КНОПКИ: появление колец, FPS-панель, свечение
--- ============================================================
 onClick(NB.spawnAnim, function()
     SETTINGS.SpawnAnim = not (SETTINGS.SpawnAnim ~= false)
     NB.spawnAnim.Text = "🎆 Появление колец: " .. onOff(SETTINGS.SpawnAnim)
@@ -2095,13 +2114,21 @@ local function rebuildSavesList()
         Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
 
         local nameLbl = Instance.new("TextLabel")
-        nameLbl.Size = UDim2.new(1, -130, 1, 0); nameLbl.Position = UDim2.new(0, 8, 0, 0)
+        nameLbl.Size = UDim2.new(1, -190, 1, 0); nameLbl.Position = UDim2.new(0, 8, 0, 0)
         nameLbl.BackgroundTransparency = 1; nameLbl.Text = "💾 " .. name
         nameLbl.TextColor3 = Color3.fromRGB(220,220,255)
         nameLbl.Font = Enum.Font.GothamBold; nameLbl.TextSize = 11
         nameLbl.TextXAlignment = Enum.TextXAlignment.Left
         nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
         nameLbl.Parent = row
+
+        -- 📤 Поделиться (share)
+        local shareB = Instance.new("TextButton")
+        shareB.Size = UDim2.new(0, 55, 0, 24); shareB.Position = UDim2.new(1, -180, 0, 4)
+        shareB.BackgroundColor3 = Color3.fromRGB(70, 70, 130); shareB.TextColor3 = Color3.fromRGB(220, 220, 255)
+        shareB.Font = Enum.Font.GothamBold; shareB.TextSize = 10; shareB.Text = "📤 SHR"
+        shareB.Parent = row
+        Instance.new("UICorner", shareB).CornerRadius = UDim.new(0, 5)
 
         local loadB = Instance.new("TextButton")
         loadB.Size = UDim2.new(0, 55, 0, 24); loadB.Position = UDim2.new(1, -120, 0, 4)
@@ -2131,6 +2158,20 @@ local function rebuildSavesList()
                 rebuildSavesList()
             end
         end)
+        -- 🆕 share
+        onClick(shareB, function()
+            if not ORBIT.share or not ORBIT.share.encodeSave then
+                ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
+                return
+            end
+            local str, err = ORBIT.share.encodeSave(name)
+            if not str then
+                ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255,150,150), 3)
+                return
+            end
+            ORBIT.share.open(str)
+            ORBIT.notify("📤 Строка сохранения готова", Color3.fromRGB(180,220,255), 2)
+        end)
     end
 end
 
@@ -2143,6 +2184,37 @@ onClick(createSaveBtn, function()
         saveNameInput.Text = ""; rebuildSavesList()
     else
         ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255,100,100))
+    end
+end)
+
+-- 🆕 кнопка импорта сохранения из буфера
+onClick(importSaveBtn, function()
+    if not ORBIT.share or not ORBIT.share.paste then
+        ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
+        return
+    end
+    local txt, err = ORBIT.share.paste()
+    if not txt then
+        ORBIT.notify("📋 " .. tostring(err) .. " — открой SHARE вручную", Color3.fromRGB(255,200,120), 3)
+        if ORBIT.share.open then ORBIT.share.open() end
+        return
+    end
+    local dec, err2 = ORBIT.share.decode(txt)
+    if not dec then
+        if ORBIT.share.openImport then ORBIT.share.openImport(txt) end
+        ORBIT.notify("❌ " .. tostring(err2), Color3.fromRGB(255,150,150), 3)
+        return
+    end
+    if dec.kind == "SH" then
+        -- это фигура, а не сохранение — предупредим
+        ORBIT.notify("⚠️ В буфере фигура, а не сохранение. Открываю SHARE...", Color3.fromRGB(255,220,140), 3)
+        if ORBIT.share.openImport then ORBIT.share.openImport(txt) end
+        return
+    end
+    local ok = ORBIT.share.applyDecoded(dec)
+    if ok then
+        task.wait(0.15)
+        rebuildSavesList()   -- покажем новый сейв в списке
     end
 end)
 
@@ -2166,7 +2238,6 @@ onClick(resetBtn, function()
     ORBIT.shapeIndex = 1; ORBIT.auraShapeIndex = 1
     P.colorIndex = 1; P.auraColorIndex = 1
     P.shapeCategoryIndex = 1; P.orbitPatternIndex = 1; P.auraPatternIndex = 1
-    -- индексы пресетов тоже к значениям по умолчанию (раньше подписи кнопок врали после сброса)
     P.spinSpeedIndex = 2; P.spreadIndex = 2; P.heightIndex = 4; P.speedIndex = 2; P.speedModeIndex = 1
     P.directionIndex = 1; P.formModeIndex = 1; P.orbitIndex = 2; P.shapeSizeIndex = 3
     P.trailLengthIndex = 4; P.trailWidthIndex = 4
@@ -2210,7 +2281,7 @@ end)
 rebuildSavesList()
 
 -- ============================================================
---       FPS СЧЁТЧИК (исправлен — берёт из myFps)
+--       FPS СЧЁТЧИК
 -- ============================================================
 task.spawn(function()
     while screenGui and screenGui.Parent do
@@ -2303,7 +2374,6 @@ end)
 -- ============================================================
 --       СТАРТ
 -- ============================================================
--- при выгрузке отключаем подключения UI (клавиша L и перетаскивание не должны дублироваться)
 local prevUnload = ORBIT.unload
 ORBIT.unload = function()
     for _, c in ipairs(UIK._conns) do pcall(function() c:Disconnect() end) end
@@ -2315,14 +2385,14 @@ ORBIT.start = function()
     local genv = rawget(_G, "getgenv") and getgenv() or _G
     if genv._OrbitLoaderGui then pcall(function() genv._OrbitLoaderGui:Destroy() end) end
     ORBIT.startLogic()
-    pcall(refreshAllLabels)   -- подписи по фактическим значениям (после автозагрузки настроек)
+    pcall(refreshAllLabels)
     ORBIT.notify("✨ ОРБИТА " .. tostring(ORBIT.version) .. " запущена!", Color3.fromRGB(200,200,255), 3)
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4 v23.5 (вкладки + поиск + палитра + стили)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4 v23.6 (вкладки + поиск + палитра + стили + SHARE)", Color3.fromRGB(180,255,180), 3) end
 
--- ПОДГРУЗКА МАГАЗИНА И МИНИ-ИГРЫ (с повторами и отметкой в ORBIT.loaded)
+-- ПОДГРУЗКА МАГАЗИНА И МИНИ-ИГРЫ
 do
     local BASE = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
     local function fetchRun(file, key, tries)
