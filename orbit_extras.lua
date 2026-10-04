@@ -1,8 +1,7 @@
---[[ ОРБИТА v23.1 — EXTRAS
-     🆕 Атмосфера: 7 типов + выбор из 50 цветов
-     🆕 Трейл-шлейф за игроком + 50 цветов
-     🆕 Реактивные искры + 50 цветов
-     Все настройки сохраняются в общий конфиг
+--[[ ОРБИТА v23.2 — EXTRAS (исправлен S_STEP)
+     ❄️ Атмосфера: 7 типов + выбор из 50 цветов
+     🌠 Трейл-шлейф + 50 цветов
+     💥 Реактивные искры + 50 цветов
 ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
@@ -36,20 +35,16 @@ SETTINGS.ReactSparksEnabled = SETTINGS.ReactSparksEnabled or false
 SETTINGS.ReactSparksColorIndex = SETTINGS.ReactSparksColorIndex or 1
 
 -- ============================================================
---       СПИСОК 50 ЦВЕТОВ (берём из ORBIT.P.COLORS)
+--       СПИСОК ЦВЕТОВ
 -- ============================================================
 local COLORS_LIST = P and P.COLORS or {
     {name="РАДУГА",rainbow=true},
     {name="КРАСНЫЙ",c=Color3.fromRGB(255,50,50)},
-    {name="ЗЕЛЁНЫЙ",c=Color3.fromRGB(0,255,120)},
-    {name="СИНИЙ",c=Color3.fromRGB(40,80,255)},
 }
 local function getColorByIndex(i)
     if not COLORS_LIST or #COLORS_LIST == 0 then return Color3.fromRGB(255,255,255) end
     local c = COLORS_LIST[((i - 1) % #COLORS_LIST) + 1]
-    if c.rainbow then
-        return Color3.fromHSV((tick() * 0.2) % 1, 0.9, 1)
-    end
+    if c.rainbow then return Color3.fromHSV((tick() * 0.2) % 1, 0.9, 1) end
     return c.c or Color3.fromRGB(255,255,255)
 end
 local function getColorNameByIndex(i)
@@ -61,55 +56,27 @@ end
 --       ТИПЫ АТМОСФЕРЫ
 -- ============================================================
 local ATMO_TYPES = {
-    {
-        name = "Снег", icon = "❄️",
-        texture = "rbxasset://textures/particles/sparkles_main.dds",
-        colors = {Color3.fromRGB(230, 245, 255), Color3.fromRGB(200, 230, 255)},
-        speed = {-3, -1}, spread = Vector2.new(30, 30), rotSpeed = {-20, 20},
-        gravity = 0.15,
-    },
-    {
-        name = "Дождь", icon = "🌧️",
-        texture = "rbxasset://textures/particles/sparkles_main.dds",
-        colors = {Color3.fromRGB(140, 180, 255), Color3.fromRGB(100, 150, 220)},
-        speed = {-20, -10}, spread = Vector2.new(8, 8), rotSpeed = {0, 0},
-        gravity = 0.5,
-    },
-    {
-        name = "Лепестки", icon = "🌸",
-        texture = "rbxasset://textures/particles/sparkles_main.dds",
-        colors = {Color3.fromRGB(255, 180, 220), Color3.fromRGB(255, 140, 200)},
-        speed = {-2, -0.5}, spread = Vector2.new(180, 180), rotSpeed = {-60, 60},
-        gravity = 0.1,
-    },
-    {
-        name = "Искры", icon = "✨",
-        texture = "rbxasset://textures/particles/sparkles_main.dds",
-        colors = {Color3.fromRGB(255, 220, 80), Color3.fromRGB(255, 180, 40)},
-        speed = {3, 6}, spread = Vector2.new(180, 180), rotSpeed = {-180, 180},
-        gravity = -0.05,
-    },
-    {
-        name = "Звёзды", icon = "⭐",
-        texture = "rbxasset://textures/particles/sparkles_main.dds",
-        colors = {Color3.fromRGB(255, 255, 220), Color3.fromRGB(220, 230, 255)},
-        speed = {0.5, 2}, spread = Vector2.new(180, 180), rotSpeed = {0, 0},
-        gravity = -0.02,
-    },
-    {
-        name = "Пузыри", icon = "💧",
-        texture = "rbxasset://textures/particles/sparkles_main.dds",
-        colors = {Color3.fromRGB(140, 200, 255), Color3.fromRGB(80, 160, 240)},
-        speed = {2, 5}, spread = Vector2.new(30, 30), rotSpeed = {0, 0},
-        gravity = -0.1,
-    },
-    {
-        name = "Пепел", icon = "🔥",
-        texture = "rbxasset://textures/particles/sparkles_main.dds",
-        colors = {Color3.fromRGB(255, 100, 40), Color3.fromRGB(200, 60, 20)},
-        speed = {-2, -0.5}, spread = Vector2.new(180, 180), rotSpeed = {-30, 30},
-        gravity = 0.1,
-    },
+    { name="Снег", icon="❄️", texture="rbxasset://textures/particles/sparkles_main.dds",
+      colors={Color3.fromRGB(230,245,255), Color3.fromRGB(200,230,255)},
+      speed={-3,-1}, spread=Vector2.new(30,30), rotSpeed={-20,20}, gravity=0.15 },
+    { name="Дождь", icon="🌧️", texture="rbxasset://textures/particles/sparkles_main.dds",
+      colors={Color3.fromRGB(140,180,255), Color3.fromRGB(100,150,220)},
+      speed={-20,-10}, spread=Vector2.new(8,8), rotSpeed={0,0}, gravity=0.5 },
+    { name="Лепестки", icon="🌸", texture="rbxasset://textures/particles/sparkles_main.dds",
+      colors={Color3.fromRGB(255,180,220), Color3.fromRGB(255,140,200)},
+      speed={-2,-0.5}, spread=Vector2.new(180,180), rotSpeed={-60,60}, gravity=0.1 },
+    { name="Искры", icon="✨", texture="rbxasset://textures/particles/sparkles_main.dds",
+      colors={Color3.fromRGB(255,220,80), Color3.fromRGB(255,180,40)},
+      speed={3,6}, spread=Vector2.new(180,180), rotSpeed={-180,180}, gravity=-0.05 },
+    { name="Звёзды", icon="⭐", texture="rbxasset://textures/particles/sparkles_main.dds",
+      colors={Color3.fromRGB(255,255,220), Color3.fromRGB(220,230,255)},
+      speed={0.5,2}, spread=Vector2.new(180,180), rotSpeed={0,0}, gravity=-0.02 },
+    { name="Пузыри", icon="💧", texture="rbxasset://textures/particles/sparkles_main.dds",
+      colors={Color3.fromRGB(140,200,255), Color3.fromRGB(80,160,240)},
+      speed={2,5}, spread=Vector2.new(30,30), rotSpeed={0,0}, gravity=-0.1 },
+    { name="Пепел", icon="🔥", texture="rbxasset://textures/particles/sparkles_main.dds",
+      colors={Color3.fromRGB(255,100,40), Color3.fromRGB(200,60,20)},
+      speed={-2,-0.5}, spread=Vector2.new(180,180), rotSpeed={-30,30}, gravity=0.1 },
 }
 local atmoTypeIndex = 1
 for i, t in ipairs(ATMO_TYPES) do
@@ -117,11 +84,11 @@ for i, t in ipairs(ATMO_TYPES) do
 end
 
 local ATMO_INTENSITY = {
-    { name = "Очень слабая", rate = 20 },
-    { name = "Слабая",       rate = 50 },
-    { name = "Средняя",      rate = 90 },
-    { name = "Сильная",      rate = 150 },
-    { name = "Очень сильная", rate = 250 },
+    { name="Очень слабая", rate=20 },
+    { name="Слабая", rate=50 },
+    { name="Средняя", rate=90 },
+    { name="Сильная", rate=150 },
+    { name="Очень сильная", rate=250 },
 }
 local atmoIntensityIndex = 3
 for i, t in ipairs(ATMO_INTENSITY) do
@@ -129,11 +96,11 @@ for i, t in ipairs(ATMO_INTENSITY) do
 end
 
 local ATMO_SIZE = {
-    { name = "Крошка",   min = 0.15, max = 0.3 },
-    { name = "Мелкий",   min = 0.25, max = 0.5 },
-    { name = "Средний",  min = 0.4,  max = 0.8 },
-    { name = "Крупный",  min = 0.7,  max = 1.3 },
-    { name = "Огромный", min = 1.2,  max = 2.0 },
+    { name="Крошка", min=0.15, max=0.3 },
+    { name="Мелкий", min=0.25, max=0.5 },
+    { name="Средний", min=0.4, max=0.8 },
+    { name="Крупный", min=0.7, max=1.3 },
+    { name="Огромный", min=1.2, max=2.0 },
 }
 local atmoSizeIndex = 3
 for i, t in ipairs(ATMO_SIZE) do
@@ -144,6 +111,12 @@ local TRAIL_STREAM_COLOR_MODES = { "Радуга", "Из списка 50", "Ка
 local trailStreamColorIndex = 1
 for i, m in ipairs(TRAIL_STREAM_COLOR_MODES) do
     if m == SETTINGS.TrailStreamColorMode then trailStreamColorIndex = i; break end
+end
+
+local ATMO_COLOR_MODES = {"Авто", "Из списка 50"}
+local atmoColorModeIndex = 1
+for i, m in ipairs(ATMO_COLOR_MODES) do
+    if m == SETTINGS.AtmoColorMode then atmoColorModeIndex = i; break end
 end
 
 -- ============================================================
@@ -221,7 +194,6 @@ local function buildAtmoEmitter()
     pe.LightEmission = 0.5
     pe.LightInfluence = 0
 
-    -- 🆕 Режим цвета
     if SETTINGS.AtmoColorMode == "Авто" then
         local c1 = cfg.colors[1]
         local c2 = cfg.colors[2]
@@ -231,9 +203,7 @@ local function buildAtmoEmitter()
             ColorSequenceKeypoint.new(1, c1),
         })
     else
-        -- Из 50 цветов
-        local col = getColorByIndex(SETTINGS.AtmoColorIndex)
-        pe.Color = ColorSequence.new(col)
+        pe.Color = ColorSequence.new(getColorByIndex(SETTINGS.AtmoColorIndex))
     end
     pe.Parent = emitterPart
 end
@@ -251,12 +221,10 @@ local function updateAtmo()
     )
     atmoEmitter.CFrame = CFrame.new(hrp.Position + offset)
 
-    -- 🆕 Обновляем цвет каждый кадр, если не Авто
     if SETTINGS.AtmoColorMode ~= "Авто" then
         local pe = atmoEmitter:FindFirstChildOfClass("ParticleEmitter")
         if pe then
-            local col = getColorByIndex(SETTINGS.AtmoColorIndex)
-            pe.Color = ColorSequence.new(col)
+            pe.Color = ColorSequence.new(getColorByIndex(SETTINGS.AtmoColorIndex))
         end
     end
 end
@@ -350,18 +318,15 @@ local function setupTrailStream()
         local mode = TRAIL_STREAM_COLOR_MODES[trailStreamColorIndex]
         if trailStreamTrail then
             if mode == "Радуга" then
-                local c = Color3.fromHSV((tick() * 0.2) % 1, 0.9, 1)
-                trailStreamTrail.Color = ColorSequence.new(c)
+                trailStreamTrail.Color = ColorSequence.new(Color3.fromHSV((tick() * 0.2) % 1, 0.9, 1))
             elseif mode == "Из списка 50" then
-                local c = getColorByIndex(SETTINGS.TrailStreamColorIndex)
-                trailStreamTrail.Color = ColorSequence.new(c)
+                trailStreamTrail.Color = ColorSequence.new(getColorByIndex(SETTINGS.TrailStreamColorIndex))
             elseif mode == "Как у колец" then
                 local p = P.COLORS[P.colorIndex]
                 if p and not p.rainbow then
                     trailStreamTrail.Color = ColorSequence.new(p.c)
                 else
-                    local c = Color3.fromHSV((tick() * (SETTINGS.RainbowSpeed or 0.15)) % 1, 0.9, 1)
-                    trailStreamTrail.Color = ColorSequence.new(c)
+                    trailStreamTrail.Color = ColorSequence.new(Color3.fromHSV((tick() * (SETTINGS.RainbowSpeed or 0.15)) % 1, 0.9, 1))
                 end
             end
         end
@@ -427,23 +392,18 @@ local function setupReactSparks()
         local now = tick()
         local sparkColor = getColorByIndex(SETTINGS.ReactSparksColorIndex)
 
-        -- 1) Прыжок
         local vy = hrp.AssemblyLinearVelocity.Y
         if vy > 25 and (now - reactLastJump) > 1.2 then
             reactLastJump = now
-            reactBurst(hrp.Position - Vector3.new(0, 2.5, 0),
-                sparkColor, 18, Vector2.new(180, 180))
+            reactBurst(hrp.Position - Vector3.new(0, 2.5, 0), sparkColor, 18, Vector2.new(180, 180))
         end
 
-        -- 2) Бег
         local speedXZ = math.sqrt(hrp.AssemblyLinearVelocity.X^2 + hrp.AssemblyLinearVelocity.Z^2)
         if speedXZ > 12 and (now - reactLastRun) > 0.35 then
             reactLastRun = now
-            reactBurst(hrp.Position - Vector3.new(0, 2.7, 0),
-                sparkColor, 6, Vector2.new(40, 40))
+            reactBurst(hrp.Position - Vector3.new(0, 2.7, 0), sparkColor, 6, Vector2.new(40, 40))
         end
 
-        -- 3) Урон
         if hum.Health < reactLastHealth - 5 then
             reactBurst(hrp.Position, Color3.fromRGB(255, 60, 80), 30, Vector2.new(180, 180))
         end
@@ -452,7 +412,7 @@ local function setupReactSparks()
 end
 
 -- ============================================================
---       UI (добавляем в panel)
+--       UI
 -- ============================================================
 local finalY = panel.CanvasSize.Y.Offset + 12
 local BTN_H = IS_MOBILE and 34 or 30
@@ -517,22 +477,20 @@ local function makeButton(text, y, h, bgColor, textColor)
     return b
 end
 
--- ====== БЛОК: АТМОСФЕРА ======
+-- ====== АТМОСФЕРА ======
 makeBigSection("❄️  АТМОСФЕРА (вокруг тебя)", finalY, Color3.fromRGB(70, 100, 140))
 finalY = finalY + 30
 
-local atmoToggle = makeButton("", finalY, BTN_H + 4, nil, nil)
+local atmoToggle = makeButton("", finalY, BTN_H + 4)
 finalY = finalY + BTN_H + 8
 local atmoTypeBtn = makeButton("", finalY, BTN_H, Color3.fromRGB(60,60,90), Color3.fromRGB(200,220,255))
-finalY = finalY + BTN_H + S_STEP or (finalY + BTN_H + 4)
+finalY = finalY + BTN_H + 4
 local atmoIntBtn = makeButton("", finalY, BTN_H, Color3.fromRGB(60,60,90), Color3.fromRGB(200,220,255))
 finalY = finalY + BTN_H + 4
 local atmoSizeBtn = makeButton("", finalY, BTN_H, Color3.fromRGB(60,60,90), Color3.fromRGB(200,220,255))
 finalY = finalY + BTN_H + 4
--- 🆕 Режим цвета
 local atmoColorModeBtn = makeButton("", finalY, BTN_H, Color3.fromRGB(80,60,110), Color3.fromRGB(240,210,255))
 finalY = finalY + BTN_H + 4
--- 🆕 Выбор цвета из 50
 local atmoColorBtn = makeButton("", finalY, BTN_H, Color3.fromRGB(80,60,110), Color3.fromRGB(240,210,255))
 finalY = finalY + BTN_H + 10
 
@@ -574,7 +532,6 @@ atmoToggle.Activated:Connect(function()
     setupAtmo()
     ORBIT.notify("❄️ Атмосфера: " .. (SETTINGS.AtmoEnabled and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(180,220,255), 2)
 end)
-
 atmoTypeBtn.Activated:Connect(function()
     atmoTypeIndex = atmoTypeIndex + 1
     if atmoTypeIndex > #ATMO_TYPES then atmoTypeIndex = 1 end
@@ -582,7 +539,6 @@ atmoTypeBtn.Activated:Connect(function()
     refreshAtmoUI()
     if SETTINGS.AtmoEnabled then setupAtmo() end
 end)
-
 atmoIntBtn.Activated:Connect(function()
     atmoIntensityIndex = atmoIntensityIndex + 1
     if atmoIntensityIndex > #ATMO_INTENSITY then atmoIntensityIndex = 1 end
@@ -590,7 +546,6 @@ atmoIntBtn.Activated:Connect(function()
     refreshAtmoUI()
     if SETTINGS.AtmoEnabled then setupAtmo() end
 end)
-
 atmoSizeBtn.Activated:Connect(function()
     atmoSizeIndex = atmoSizeIndex + 1
     if atmoSizeIndex > #ATMO_SIZE then atmoSizeIndex = 1 end
@@ -598,13 +553,6 @@ atmoSizeBtn.Activated:Connect(function()
     refreshAtmoUI()
     if SETTINGS.AtmoEnabled then setupAtmo() end
 end)
-
--- 🆕 Режим цвета: Авто / Из списка 50
-local ATMO_COLOR_MODES = {"Авто", "Из списка 50"}
-local atmoColorModeIndex = 1
-for i, m in ipairs(ATMO_COLOR_MODES) do
-    if m == SETTINGS.AtmoColorMode then atmoColorModeIndex = i; break end
-end
 atmoColorModeBtn.Activated:Connect(function()
     atmoColorModeIndex = atmoColorModeIndex + 1
     if atmoColorModeIndex > #ATMO_COLOR_MODES then atmoColorModeIndex = 1 end
@@ -612,11 +560,8 @@ atmoColorModeBtn.Activated:Connect(function()
     refreshAtmoUI()
     if SETTINGS.AtmoEnabled then setupAtmo() end
 end)
-
--- 🆕 Выбор цвета из 50
 atmoColorBtn.Activated:Connect(function()
     if SETTINGS.AtmoColorMode == "Авто" then
-        -- Переключаемся в режим "Из списка 50" автоматически
         SETTINGS.AtmoColorMode = "Из списка 50"
         atmoColorModeIndex = 2
     end
@@ -627,11 +572,11 @@ atmoColorBtn.Activated:Connect(function()
         getColorByIndex(SETTINGS.AtmoColorIndex), 1.5)
 end)
 
--- ====== БЛОК: ТРЕЙЛ-ШЛЕЙФ ======
+-- ====== ТРЕЙЛ-ШЛЕЙФ ======
 makeBigSection("🌠  ТРЕЙЛ-ШЛЕЙФ", finalY, Color3.fromRGB(100, 70, 140))
 finalY = finalY + 30
 
-local trailStreamToggle = makeButton("", finalY, BTN_H + 4, nil, nil)
+local trailStreamToggle = makeButton("", finalY, BTN_H + 4)
 finalY = finalY + BTN_H + 8
 local trailStreamLenBtn = makeButton("", finalY, BTN_H, Color3.fromRGB(60,60,90), Color3.fromRGB(200,220,255))
 finalY = finalY + BTN_H + 4
@@ -639,7 +584,6 @@ local trailStreamWidBtn = makeButton("", finalY, BTN_H, Color3.fromRGB(60,60,90)
 finalY = finalY + BTN_H + 4
 local trailStreamColorModeBtn = makeButton("", finalY, BTN_H, Color3.fromRGB(60,60,90), Color3.fromRGB(200,220,255))
 finalY = finalY + BTN_H + 4
--- 🆕 Кнопка выбора цвета из 50
 local trailStreamColorBtn = makeButton("", finalY, BTN_H, Color3.fromRGB(80,60,110), Color3.fromRGB(240,210,255))
 finalY = finalY + BTN_H + 10
 
@@ -677,7 +621,6 @@ trailStreamToggle.Activated:Connect(function()
     setupTrailStream()
     ORBIT.notify("🌠 Шлейф: " .. (SETTINGS.TrailStreamEnabled and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(230,200,255), 2)
 end)
-
 trailStreamLenBtn.Activated:Connect(function()
     if not P.TRAIL_LEN then return end
     P.trailLengthIndex = P.trailLengthIndex + 1
@@ -706,7 +649,6 @@ trailStreamColorModeBtn.Activated:Connect(function()
     SETTINGS.TrailStreamColorMode = TRAIL_STREAM_COLOR_MODES[trailStreamColorIndex]
     refreshTrailStreamUI()
 end)
--- 🆕 Выбор цвета из 50
 trailStreamColorBtn.Activated:Connect(function()
     if SETTINGS.TrailStreamColorMode ~= "Из списка 50" then
         SETTINGS.TrailStreamColorMode = "Из списка 50"
@@ -718,13 +660,12 @@ trailStreamColorBtn.Activated:Connect(function()
         getColorByIndex(SETTINGS.TrailStreamColorIndex), 1.5)
 end)
 
--- ====== БЛОК: РЕАКТИВНЫЕ ИСКРЫ ======
+-- ====== РЕАКТИВНЫЕ ИСКРЫ ======
 makeBigSection("💥  РЕАКТИВНЫЕ ИСКРЫ", finalY, Color3.fromRGB(140, 80, 50))
 finalY = finalY + 30
 
-local reactToggle = makeButton("", finalY, BTN_H + 4, nil, nil)
+local reactToggle = makeButton("", finalY, BTN_H + 4)
 finalY = finalY + BTN_H + 8
--- 🆕 Кнопка выбора цвета из 50
 local reactColorBtn = makeButton("", finalY, BTN_H, Color3.fromRGB(80,60,110), Color3.fromRGB(240,210,255))
 finalY = finalY + BTN_H + 8
 
@@ -765,9 +706,8 @@ reactToggle.Activated:Connect(function()
     SETTINGS.ReactSparksEnabled = not SETTINGS.ReactSparksEnabled
     refreshReactUI()
     setupReactSparks()
-    ORBIT.notify("💥 Реактивные искры: " .. (SETTINGS.ReactSparksEnabled and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(255,200,140), 2)
+    ORBIT.notify("💥 Искры: " .. (SETTINGS.ReactSparksEnabled and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(255,200,140), 2)
 end)
-
 reactColorBtn.Activated:Connect(function()
     SETTINGS.ReactSparksColorIndex = ((SETTINGS.ReactSparksColorIndex) % #COLORS_LIST) + 1
     refreshReactUI()
@@ -775,11 +715,10 @@ reactColorBtn.Activated:Connect(function()
         getColorByIndex(SETTINGS.ReactSparksColorIndex), 1.5)
 end)
 
--- Обновляем CanvasSize
 panel.CanvasSize = UDim2.new(0, 0, 0, finalY + 20)
 
 -- ============================================================
---       ПОДПИСКА НА СМЕРТЬ/РЕСПАВН
+--       РЕСПАВН
 -- ============================================================
 local function rebuildOnChar()
     if SETTINGS.AtmoEnabled then setupAtmo() end
@@ -809,8 +748,8 @@ ORBIT.extras = {
 }
 
 if ORBIT.notify then
-    ORBIT.notify("❄️ Extras v23.1: атмосфера + шлейф + искры с 50 цветами", Color3.fromRGB(180,220,255), 3)
+    ORBIT.notify("❄️ Extras v23.2 загружен (атмосфера + шлейф + искры)", Color3.fromRGB(180,220,255), 3)
 end
 
-warn("[Orbit Extras v23.1] Загружен ✅")
+warn("[Orbit Extras v23.2] Загружен ✅")
 return true
