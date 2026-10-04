@@ -3,6 +3,20 @@
      🌠 Трейл-шлейф + 50 цветов
      💥 Реактивные искры + 50 цветов
 ]]
+--[[ ИЗМЕНЕНИЯ (общий релиз v23.5):
+  🎨 разделы «Атмосфера / Шлейф / Искры» теперь во вкладке ✨ ЭФФЕКТЫ новой панели
+     (через ORBIT.ui.addSection / ORBIT.ui.makeButton / ORBIT.ui.addControl); с старой панелью
+     по-прежнему работают (запасной путь).
+  🐛 все кнопки — через onClick (Android); подключение CharacterAdded отключается в unload
+     (раньше при повторном запуске эффекты создавались дважды).
+]]
+--[[ ФИКСЫ v23.6:
+  🐛 Heartbeat-коннекты extras (atmoConn, trailStreamConn, reactSparksConn) НЕ отключались
+     в ORBIT.unload — утечка: при повторной загрузке скрипта коннекты наслаивались и
+     продолжали дёргать уже несуществующие эмиттеры. Теперь все три отключаются.
+  🐛 папки extras (OrbitAtmo_*, OrbitTrailStream_*, OrbitReactSparks) НЕ удалялись из Workspace
+     при выгрузке — p1.unload чистит только свои папки. Теперь сносятся здесь же.
+]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Extras] ORBIT не найден!"); return end
@@ -28,6 +42,8 @@ local SETTINGS = ORBIT.SETTINGS
 local P        = ORBIT.P
 local panel    = ORBIT.ui.panel
 local IS_MOBILE = (ORBIT.PLATFORM == "mobile")
+local UI = ORBIT.ui
+local onClick = UI.onClick or function(btn, fn) btn.Activated:Connect(fn) end
 
 -- ============================================================
 --       ДЕФОЛТНЫЕ НАСТРОЙКИ
@@ -420,7 +436,7 @@ end
 local finalY = panel.CanvasSize.Y.Offset + 12
 local BTN_H = IS_MOBILE and 34 or 30
 
-local function makeBigSection(text, y, color)
+local function oldMakeBigSection(text, y, color)
     local holder = Instance.new("Frame")
     holder.Size = UDim2.new(1, -20, 0, 26)
     holder.Position = UDim2.new(0, 10, 0, y)
@@ -452,7 +468,7 @@ local function makeBigSection(text, y, color)
     return holder
 end
 
-local function makeButton(text, y, h, bgColor, textColor)
+local function oldMakeButton(text, y, h, bgColor, textColor)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(1, -20, 0, h or BTN_H)
     b.Position = UDim2.new(0, 10, 0, y)
@@ -478,6 +494,20 @@ local function makeButton(text, y, h, bgColor, textColor)
         end
     end)
     return b
+end
+
+-- новая панель: раздел во вкладке «ЭФФЕКТЫ»; старая — прежняя раскладка по Y
+local function makeBigSection(text, y, color)
+    if UI.addSection then return UI.addSection(text, color, "fx") end
+    return oldMakeBigSection(text, y, color)
+end
+local function makeButton(text, y, h, bgColor, textColor)
+    if UI.makeButton then
+        local hh = h
+        if h == BTN_H then hh = nil end          -- обычная кнопка: может стоять парой в два столбца
+        return UI.makeButton(text, hh, bgColor, textColor)
+    end
+    return oldMakeButton(text, y, h, bgColor, textColor)
 end
 
 -- ====== АТМОСФЕРА ======
@@ -526,7 +556,7 @@ local function refreshAtmoUI()
 end
 refreshAtmoUI()
 
-atmoToggle.Activated:Connect(function()
+onClick(atmoToggle, function()
     SETTINGS.AtmoEnabled = not SETTINGS.AtmoEnabled
     SETTINGS.AtmoType = ATMO_TYPES[atmoTypeIndex].name
     SETTINGS.AtmoIntensity = ATMO_INTENSITY[atmoIntensityIndex].name
@@ -535,35 +565,35 @@ atmoToggle.Activated:Connect(function()
     setupAtmo()
     ORBIT.notify("❄️ Атмосфера: " .. (SETTINGS.AtmoEnabled and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(180,220,255), 2)
 end)
-atmoTypeBtn.Activated:Connect(function()
+onClick(atmoTypeBtn, function()
     atmoTypeIndex = atmoTypeIndex + 1
     if atmoTypeIndex > #ATMO_TYPES then atmoTypeIndex = 1 end
     SETTINGS.AtmoType = ATMO_TYPES[atmoTypeIndex].name
     refreshAtmoUI()
     if SETTINGS.AtmoEnabled then setupAtmo() end
 end)
-atmoIntBtn.Activated:Connect(function()
+onClick(atmoIntBtn, function()
     atmoIntensityIndex = atmoIntensityIndex + 1
     if atmoIntensityIndex > #ATMO_INTENSITY then atmoIntensityIndex = 1 end
     SETTINGS.AtmoIntensity = ATMO_INTENSITY[atmoIntensityIndex].name
     refreshAtmoUI()
     if SETTINGS.AtmoEnabled then setupAtmo() end
 end)
-atmoSizeBtn.Activated:Connect(function()
+onClick(atmoSizeBtn, function()
     atmoSizeIndex = atmoSizeIndex + 1
     if atmoSizeIndex > #ATMO_SIZE then atmoSizeIndex = 1 end
     SETTINGS.AtmoSize = ATMO_SIZE[atmoSizeIndex].name
     refreshAtmoUI()
     if SETTINGS.AtmoEnabled then setupAtmo() end
 end)
-atmoColorModeBtn.Activated:Connect(function()
+onClick(atmoColorModeBtn, function()
     atmoColorModeIndex = atmoColorModeIndex + 1
     if atmoColorModeIndex > #ATMO_COLOR_MODES then atmoColorModeIndex = 1 end
     SETTINGS.AtmoColorMode = ATMO_COLOR_MODES[atmoColorModeIndex]
     refreshAtmoUI()
     if SETTINGS.AtmoEnabled then setupAtmo() end
 end)
-atmoColorBtn.Activated:Connect(function()
+onClick(atmoColorBtn, function()
     if SETTINGS.AtmoColorMode == "Авто" then
         SETTINGS.AtmoColorMode = "Из списка 50"
         atmoColorModeIndex = 2
@@ -617,14 +647,14 @@ local function refreshTrailStreamUI()
 end
 refreshTrailStreamUI()
 
-trailStreamToggle.Activated:Connect(function()
+onClick(trailStreamToggle, function()
     SETTINGS.TrailStreamEnabled = not SETTINGS.TrailStreamEnabled
     SETTINGS.TrailStreamColorMode = TRAIL_STREAM_COLOR_MODES[trailStreamColorIndex]
     refreshTrailStreamUI()
     setupTrailStream()
     ORBIT.notify("🌠 Шлейф: " .. (SETTINGS.TrailStreamEnabled and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(230,200,255), 2)
 end)
-trailStreamLenBtn.Activated:Connect(function()
+onClick(trailStreamLenBtn, function()
     if not P.TRAIL_LEN then return end
     P.trailLengthIndex = P.trailLengthIndex + 1
     if P.trailLengthIndex > #P.TRAIL_LEN then P.trailLengthIndex = 1 end
@@ -632,7 +662,7 @@ trailStreamLenBtn.Activated:Connect(function()
     refreshTrailStreamUI()
     if trailStreamTrail then trailStreamTrail.Lifetime = SETTINGS.TrailLength end
 end)
-trailStreamWidBtn.Activated:Connect(function()
+onClick(trailStreamWidBtn, function()
     if not P.TRAIL_WID then return end
     P.trailWidthIndex = P.trailWidthIndex + 1
     if P.trailWidthIndex > #P.TRAIL_WID then P.trailWidthIndex = 1 end
@@ -646,13 +676,13 @@ trailStreamWidBtn.Activated:Connect(function()
         })
     end
 end)
-trailStreamColorModeBtn.Activated:Connect(function()
+onClick(trailStreamColorModeBtn, function()
     trailStreamColorIndex = trailStreamColorIndex + 1
     if trailStreamColorIndex > #TRAIL_STREAM_COLOR_MODES then trailStreamColorIndex = 1 end
     SETTINGS.TrailStreamColorMode = TRAIL_STREAM_COLOR_MODES[trailStreamColorIndex]
     refreshTrailStreamUI()
 end)
-trailStreamColorBtn.Activated:Connect(function()
+onClick(trailStreamColorBtn, function()
     if SETTINGS.TrailStreamColorMode ~= "Из списка 50" then
         SETTINGS.TrailStreamColorMode = "Из списка 50"
         trailStreamColorIndex = 2
@@ -684,7 +714,7 @@ reactHint.Font = Enum.Font.Gotham
 reactHint.TextSize = 10
 reactHint.TextWrapped = true
 reactHint.ZIndex = 2
-reactHint.Parent = panel
+if UI.addControl then UI.addControl(reactHint, 40) else reactHint.Parent = panel end
 Instance.new("UICorner", reactHint).CornerRadius = UDim.new(0, 6)
 finalY = finalY + 46
 
@@ -705,25 +735,25 @@ local function refreshReactUI()
 end
 refreshReactUI()
 
-reactToggle.Activated:Connect(function()
+onClick(reactToggle, function()
     SETTINGS.ReactSparksEnabled = not SETTINGS.ReactSparksEnabled
     refreshReactUI()
     setupReactSparks()
     ORBIT.notify("💥 Искры: " .. (SETTINGS.ReactSparksEnabled and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(255,200,140), 2)
 end)
-reactColorBtn.Activated:Connect(function()
+onClick(reactColorBtn, function()
     SETTINGS.ReactSparksColorIndex = ((SETTINGS.ReactSparksColorIndex) % #COLORS_LIST) + 1
     refreshReactUI()
     ORBIT.notify("💥 Цвет искр: " .. getColorNameByIndex(SETTINGS.ReactSparksColorIndex),
         getColorByIndex(SETTINGS.ReactSparksColorIndex), 1.5)
 end)
 
-panel.CanvasSize = UDim2.new(0, 0, 0, finalY + 20)
+if not UI.addSection then panel.CanvasSize = UDim2.new(0, 0, 0, finalY + 20) end
 
 -- ============================================================
 --       РЕСПАВН
 -- ============================================================
-LocalPlayer.CharacterAdded:Connect(function()
+local respawnConn = LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1)
     if SETTINGS.AtmoEnabled then setupAtmo() end
     if SETTINGS.TrailStreamEnabled then setupTrailStream() end
@@ -737,6 +767,31 @@ if SETTINGS.AtmoEnabled then setupAtmo() end
 if SETTINGS.TrailStreamEnabled then setupTrailStream() end
 if SETTINGS.ReactSparksEnabled then setupReactSparks() end
 
+-- ============================================================
+--       ВЫГРУЗКА (ФИКС v23.6)
+-- ============================================================
+do
+    local prevUnload = ORBIT.unload
+    ORBIT.unload = function()
+        pcall(function() respawnConn:Disconnect() end)
+
+        -- 🐛 ФИКС v23.6: отключаем Heartbeat-коннекты extras (утечка при повторной загрузке)
+        if atmoConn then pcall(function() atmoConn:Disconnect() end); atmoConn = nil end
+        if trailStreamConn then pcall(function() trailStreamConn:Disconnect() end); trailStreamConn = nil end
+        if reactSparksConn then pcall(function() reactSparksConn:Disconnect() end); reactSparksConn = nil end
+
+        -- 🐛 ФИКС v23.6: убираем папки extras из Workspace (p1.unload о них не знает)
+        if atmoFolder then pcall(function() atmoFolder:Destroy() end); atmoFolder = nil; atmoEmitter = nil end
+        if trailStreamFolder then
+            pcall(function() trailStreamFolder:Destroy() end)
+            trailStreamFolder = nil; trailStreamPart = nil; trailStreamTrail = nil
+        end
+        if reactSparksFolder then pcall(function() reactSparksFolder:Destroy() end); reactSparksFolder = nil end
+
+        if prevUnload then pcall(prevUnload) end
+    end
+end
+
 ORBIT.extras = {
     setupAtmo = setupAtmo,
     setupTrailStream = setupTrailStream,
@@ -747,7 +802,7 @@ ORBIT.extras = {
 }
 
 if ORBIT.notify then
-    ORBIT.notify("❄️ Extras v23.2 загружен", Color3.fromRGB(180,220,255), 3)
+    ORBIT.notify("❄️ Extras v23.6 загружен", Color3.fromRGB(180,220,255), 3)
 end
-warn("[Orbit Extras v23.2] Загружен ✅")
+warn("[Orbit Extras v23.6] Загружен ✅")
 return true
