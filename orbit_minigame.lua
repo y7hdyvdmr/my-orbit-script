@@ -4,9 +4,62 @@
      🆕 Разные награды за каждую сложность
      🐛 Фикс math.random с дробными, убран task.wait в Heartbeat
 ]]
+--[[ ИЗМЕНЕНИЯ (общий релиз v23.5): кнопки закрытия / сложности / старта теперь через onClick
+     (на Android .Activated мог не срабатывать). Логика игры не менялась. ]]
+--[[ ФИКСЫ v23.6:
+  🐛 onClick не играл ORBIT.playClick — кнопки мини-игры молчали. Добавлено.
+  🐛 minigameGui:FindFirstChild("_PlayField", true) вызывался при КАЖДОМ спавне звезды,
+     а FindFirstChild("_TimerLbl", true) — в КАЖДОМ кадре Heartbeat. Рекурсивный обход всего
+     дерева GUI на мобилке заметно просаживал FPS. Ссылки на _PlayField / _ProgressLbl /
+     _TimerLbl / _WinBanner теперь кэшируются в MINIGAME.Fields.
+  🐛 при быстром перезапуске (СТАРТ → СТАРТ) отложенный task.delay(diff.TimeLimit + 1)
+     от ПЕРВОЙ игры срабатывал во время ВТОРОЙ и менял текст кнопки на «ИГРАТЬ СНОВА».
+     Введён RunId: обработчик проверяет, что игра та же самая, иначе молчит.
+]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit MiniGame] ORBIT не найден!"); return end
+
+-- ============================================================
+--  onClick: Down + Touch + Activated (Android / Delta).
+--  Внутри ScrollingFrame кнопка срабатывает при ОТПУСКАНИИ пальца (если он почти не двигался),
+--  иначе свайп для прокрутки нажимал бы кнопки под пальцем. Атрибут ReleaseOnly = true
+--  включает этот режим принудительно (например, для перетаскиваемых кнопок).
+-- ============================================================
+local function onClick(btn, fn, releaseOnly)
+    local deb = false
+    local touchStart = nil
+    local function call()
+        if deb then return end
+        deb = true
+        task.delay(0.12, function() deb = false end)
+        -- 🐛 ФИКС v23.6: играем клик, чтобы кнопки не были «молчаливыми»
+        if ORBIT.playClick then pcall(ORBIT.playClick) end
+        local ok, err = pcall(fn)
+        if not ok then warn("[Orbit] " .. tostring(err)) end
+    end
+    local function inScroll()
+        return releaseOnly or btn:GetAttribute("ReleaseOnly")
+            or btn:FindFirstAncestorOfClass("ScrollingFrame") ~= nil
+    end
+    btn.MouseButton1Down:Connect(function() if not inScroll() then call() end end)
+    btn.MouseButton1Click:Connect(function() if inScroll() then call() end end)
+    btn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            touchStart = input.Position
+            if not inScroll() then call() end
+        end
+    end)
+    btn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch and touchStart then
+            local moved = (input.Position - touchStart).Magnitude
+            touchStart = nil
+            if inScroll() and moved < 12 then call() end
+        end
+    end)
+    btn.Activated:Connect(call)
+end
+
 if not ORBIT.ui or not ORBIT.ui.screenGui then warn("[Orbit MiniGame] UI не готов!"); return end
 
 local Players      = ORBIT.Players
@@ -369,6 +422,15 @@ local MINIGAME = {
     TimeLeft = 20,
     Stars    = {},
     Conn     = nil,
+    -- 🐛 ФИКС v23.6: кэш ссылок на элементы GUI (не дёргаем FindFirstChild с recursive=true)
+    Fields   = {
+        playField   = nil,
+        progressLbl = nil,
+        timerLbl    = nil,
+        winBanner   = nil,
+    },
+    -- 🐛 ФИКС v23.6: идентификатор текущей игры — защита от «зависшего» task.delay
+    RunId    = 0,
 }
 
 local minigameGui
@@ -378,8 +440,9 @@ local minigameGui
 -- ============================================================
 local function spawnStar()
     if not minigameGui or not MINIGAME.Playing then return end
-    local field = minigameGui:FindFirstChild("_PlayField", true)
-    if not field then return end
+    -- 🐛 ФИКС v23.6: используем кэш, не ищем рекурсивно
+    local field = MINIGAME.Fields.playField
+    if not field or not field.Parent then return end
     local diff = getDifficulty()
 
     local starSize = math.random(diff.StarMinSize, diff.StarMaxSize)
@@ -432,8 +495,9 @@ local function spawnStar()
 
         if ORBIT.playClick then ORBIT.playClick() end
 
-        local progressLbl = minigameGui and minigameGui:FindFirstChild("_ProgressLbl", true)
-        if progressLbl then
+        -- 🐛 ФИКС v23.6: прогресс-лейбл из кэша
+        local progressLbl = MINIGAME.Fields.progressLbl
+        if progressLbl and progressLbl.Parent then
             progressLbl.Text = "⭐ " .. MINIGAME.Caught .. " / " .. diff.TargetCount
         end
 
@@ -444,8 +508,9 @@ local function spawnStar()
             if ORBIT.playDodge then ORBIT.playDodge() end
             task.delay(0.5, function()
                 local rewarded = giveReward()
-                local winBanner = minigameGui and minigameGui:FindFirstChild("_WinBanner", true)
-                if winBanner and rewarded then
+                -- 🐛 ФИКС v23.6: win-banner из кэша
+                local winBanner = MINIGAME.Fields.winBanner
+                if winBanner and winBanner.Parent and rewarded then
                     winBanner.Visible = true
                     winBanner.Text = diff.GiveUltra
                         and "💀 ХАРДКОР ПРОЙДЕН!\n🌈 24 КОЛЬЦА + " .. diff.CoinsReward .. " МОНЕТ"
@@ -474,8 +539,9 @@ local function startGameLoop()
         local diff = getDifficulty()
 
         MINIGAME.TimeLeft = MINIGAME.TimeLeft - dt
-        local timerLbl = minigameGui and minigameGui:FindFirstChild("_TimerLbl", true)
-        if timerLbl then
+        -- 🐛 ФИКС v23.6: таймер-лейбл из кэша (раньше искали каждый кадр)
+        local timerLbl = MINIGAME.Fields.timerLbl
+        if timerLbl and timerLbl.Parent then
             timerLbl.Text = "⏱️ " .. string.format("%.1f", math.max(0, MINIGAME.TimeLeft)) .. "с"
             timerLbl.TextColor3 = MINIGAME.TimeLeft <= 5
                 and Color3.fromRGB(255, 80, 80)
@@ -484,8 +550,9 @@ local function startGameLoop()
 
         if MINIGAME.TimeLeft <= 0 then
             MINIGAME.Playing = false
-            local winBanner = minigameGui and minigameGui:FindFirstChild("_WinBanner", true)
-            if winBanner then
+            -- 🐛 ФИКС v23.6: win-banner из кэша
+            local winBanner = MINIGAME.Fields.winBanner
+            if winBanner and winBanner.Parent then
                 winBanner.Visible = true
                 winBanner.Text = "⏰ ВРЕМЯ ВЫШЛО! Поймано: " .. MINIGAME.Caught .. "/" .. diff.TargetCount
                 winBanner.TextColor3 = Color3.fromRGB(255, 100, 100)
@@ -521,11 +588,17 @@ end
 local function closeMiniGame()
     MINIGAME.Open = false
     MINIGAME.Playing = false
+    MINIGAME.RunId = MINIGAME.RunId + 1      -- 🐛 ФИКС v23.6: гасим отложенные колбэки
     if MINIGAME.Conn then MINIGAME.Conn:Disconnect(); MINIGAME.Conn = nil end
     for _, s in ipairs(MINIGAME.Stars) do
         pcall(function() if s.frame then s.frame:Destroy() end end)
     end
     MINIGAME.Stars = {}
+    -- 🐛 ФИКС v23.6: чистим кэш ссылок
+    MINIGAME.Fields.playField   = nil
+    MINIGAME.Fields.progressLbl = nil
+    MINIGAME.Fields.timerLbl    = nil
+    MINIGAME.Fields.winBanner   = nil
     if minigameGui then
         pcall(function() minigameGui:Destroy() end)
         minigameGui = nil
@@ -580,7 +653,7 @@ local function openMiniGame()
     closeBtn.ZIndex = 31
     closeBtn.Parent = minigameGui
     Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
-    closeBtn.Activated:Connect(closeMiniGame)
+    onClick(closeBtn, closeMiniGame)
 
     -- Строка сложности
     local diffBtn = Instance.new("TextButton")
@@ -682,6 +755,12 @@ local function openMiniGame()
     startBtn.Parent = minigameGui
     Instance.new("UICorner", startBtn).CornerRadius = UDim.new(0, 10)
 
+    -- 🐛 ФИКС v23.6: сохраняем ссылки в кэш (используются в spawnStar / startGameLoop)
+    MINIGAME.Fields.playField   = playField
+    MINIGAME.Fields.progressLbl = progressLbl
+    MINIGAME.Fields.timerLbl    = timerLbl
+    MINIGAME.Fields.winBanner   = winBanner
+
     -- Функции обновления текстов по сложности
     local function refreshDifficultyUI()
         local diff = getDifficulty()
@@ -698,7 +777,7 @@ local function openMiniGame()
         timerLbl.Text = "⏱️ " .. diff.TimeLimit .. ".0с"
     end
 
-    diffBtn.Activated:Connect(function()
+    onClick(diffBtn, function()
         if MINIGAME.Playing then
             ORBIT.notify("⏳ Сложность не меняется во время игры", Color3.fromRGB(255, 200, 120), 2)
             return
@@ -711,11 +790,14 @@ local function openMiniGame()
 
     refreshDifficultyUI()
 
-    startBtn.Activated:Connect(function()
+    onClick(startBtn, function()
         local diff = getDifficulty()
         MINIGAME.Playing = true
         MINIGAME.Caught = 0
         MINIGAME.TimeLeft = diff.TimeLimit
+        -- 🐛 ФИКС v23.6: новая игра = новый RunId — старые отложенные колбэки перестанут срабатывать
+        MINIGAME.RunId = MINIGAME.RunId + 1
+        local myRunId = MINIGAME.RunId
 
         for _, s in ipairs(MINIGAME.Stars) do
             pcall(function() if s.frame then s.frame:Destroy() end end)
@@ -734,6 +816,8 @@ local function openMiniGame()
         startGameLoop()
 
         task.delay(diff.TimeLimit + 1, function()
+            -- 🐛 ФИКС v23.6: если запустилась новая игра или окно закрыто — молчим
+            if MINIGAME.RunId ~= myRunId then return end
             if startBtn and startBtn.Parent then
                 startBtn.Text = "▶  ИГРАТЬ СНОВА"
                 startBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 80)
