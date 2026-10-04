@@ -38,9 +38,9 @@ local PREFIX    = "ORBIT1|"
 local MAX_LEN   = 200000          -- защита от гигантских строк
 local MAX_PIX   = 24              -- максимальная сетка 2D
 local MIN_PIX   = 8               -- минимальная
-local MAX_GRID3 = 8               -- максимальный куб 3D
+local MAX_GRID3 = 64              -- максимальный куб 3D (v23.10: поднято с 8)
 local MIN_GRID3 = 2
-local MAX_BLOCKS3 = 1500          -- лимит блоков в 3D
+local MAX_BLOCKS3 = 5000          -- лимит блоков в 3D (v23.10: поднято с 1500)
 local MAX_NAME_LEN = 32
 
 -- ============================================================
