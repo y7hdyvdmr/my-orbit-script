@@ -1,15 +1,24 @@
 --[[ ОРБИТА v22.7 — SFX (ФИНАЛЬНЫЙ с Сансом и смехом)
      Загружается из orbit_p1.lua
      Подменяет ORBIT.playClick / playDodge / playBotCollect / playWin / playBuy
-     
+
      Звуки:
      - 135692693675195 — 🎤 голос Санса
      - 113650760423588 — 😂 смех
      - 140721035016341 — 💨 звук уворота
      - 6325779988      — 💨 после уворота
      - 12221967        — 🎁 сбор бота
-     
+
      + Эмоция Laugh при увороте
+]]
+--[[ ИЗМЕНЕНИЯ (общий релиз v23.5):
+  🐛 при повторном запуске скрипта старая папка со звуками оставалась в SoundService — теперь удаляется;
+  🐛 ORBIT.unload не убирал папку и не возвращал оригинальные функции звуков — добавлено;
+  🐛 _origPlayClick/_origPlayDodge/... перезаписывались уже подменёнными функциями при повторной
+     загрузке — оригиналы запоминаются только один раз.
+]]
+--[[ ПРОВЕРКА v23.6: багов не найдено. Логика / коннекты / unload — корректны.
+     Файл возвращён без изменений.
 ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
@@ -39,7 +48,8 @@ local IDS = {
     botCollect  = "rbxassetid://12221967",         -- 🎁 сбор бота
 }
 
--- Контейнер
+-- Контейнер (старую папку от прошлого запуска убираем)
+if ORBIT.sfxFolder and ORBIT.sfxFolder.Parent then pcall(function() ORBIT.sfxFolder:Destroy() end) end
 local folder = Instance.new("Folder")
 folder.Name = "OrbitSfx_" .. tostring(math.random(100000, 999999))
 folder.Parent = SoundService
@@ -133,9 +143,14 @@ end
 -- ============================================================
 --              ПОДМЕНА ФУНКЦИЙ В ORBIT
 -- ============================================================
-ORBIT._origPlayClick      = ORBIT.playClick
-ORBIT._origPlayDodge      = ORBIT.playDodge
-ORBIT._origPlayBotCollect = ORBIT.playBotCollect
+if not ORBIT._sfxPatched then
+    ORBIT._origPlayClick      = ORBIT.playClick
+    ORBIT._origPlayDodge      = ORBIT.playDodge
+    ORBIT._origPlayBotCollect = ORBIT.playBotCollect
+    ORBIT._origPlayWin        = ORBIT.playWin
+    ORBIT._origPlayBuy        = ORBIT.playBuy
+    ORBIT._sfxPatched = true
+end
 
 -- 🖱️ Клик по кнопкам
 ORBIT.playClick = function()
@@ -196,6 +211,23 @@ ORBIT.playProtect = function()
 end
 
 ORBIT.Sfx = Sfx
+
+-- при выгрузке скрипта: убираем папку и возвращаем оригинальные функции
+do
+    local prevUnload = ORBIT.unload
+    ORBIT.unload = function()
+        pcall(function() folder:Destroy() end)
+        if ORBIT._sfxPatched then
+            ORBIT.playClick = ORBIT._origPlayClick or ORBIT.playClick
+            ORBIT.playDodge = ORBIT._origPlayDodge or ORBIT.playDodge
+            ORBIT.playBotCollect = ORBIT._origPlayBotCollect or ORBIT.playBotCollect
+            ORBIT.playWin = ORBIT._origPlayWin or ORBIT.playWin
+            ORBIT.playBuy = ORBIT._origPlayBuy or ORBIT.playBuy
+            ORBIT._sfxPatched = nil
+        end
+        if prevUnload then pcall(prevUnload) end
+    end
+end
 
 print("[Orbit SFX] ═══════════════════════════════════")
 print("[Orbit SFX] Загружен ✅")
