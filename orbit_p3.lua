@@ -1,7 +1,31 @@
---[[ ОРБИТА v23.3 — P3: ЛОГИКА
-     🆕 Свет ауры (PointLight)
-     🆕 Синхронизация цвета
-     🐛 Фикс SESSION
+--[[ ОРБИТА v23.4 — P3: ЛОГИКА
+  ИЗМЕНЕНИЯ v23.4 (относительно v23.3):
+  🐛 FPS всегда показывал 60: statsData.fpsLastCheck хранил абсолютный tick(), а t — относительное
+     время => условие «прошла секунда» не срабатывало никогда. Из-за этого авто-режим
+     производительности не работал. Теперь счётчик сбрасывается в startUpdateLoop.
+  🐛 ESP пропадал после респавна цели (старый тег оставался в таблице) — теперь пересоздаётся.
+  🐛 кольца на игроке, который вышел, оставались в Workspace и в таблице — добавлен PlayerRemoving
+     и авто-очистка; у умершего игрока кольца прячутся (не висят в воздухе).
+  🐛 боты: при внешнем удалении модели оставалась папка колец (утечка) — теперь removeBot;
+     createBot падал при неверном индексе фигуры — добавлен запасной вариант;
+     кольца ботов теперь CanQuery=false (на них не «вставал» луч поиска земли).
+  🐛 сбор кольца у бота: activeLightCount раздувался (свет у колец переставал создаваться) —
+     добавлен countActiveLights перед buildRing.
+  🐛 повторный запуск скрипта оставлял старые подключения (Died/CharacterAdded) => дубли колец.
+     Теперь все подключения отслеживаются и отключаются в unload (обёртка над ORBIT.unload).
+  🐛 поток авто-производительности умирал при выключении/включении скрипта и не останавливался
+     при unload — исправлено флагом alive.
+  🐛 загрузка сохранений: индекс вне диапазона списка ронял applySaveData — добавлена валидация;
+     autoShapeSwapInterval не применялся — исправлено.
+  🐛 getgenv() вызывался без проверки — теперь безопасный GENV.
+  ⭐ перекраска блоков ограничена ~30 Гц и кэширует список перекрашиваемых частей
+     (раньше GetAttribute на каждую часть каждый кадр) — заметно легче при 5 кольцах и ботах.
+  ⭐ ScaleTo реже (порог 0.01) и под pcall.
+  ⭐ эффект появления кольца: фигуры «вылетают» из игрока с отскоком (SETTINGS.SpawnAnim)
+     + вспышка искр при включении кольца (SETTINGS.SpawnFlash, ORBIT.ringFlash).
+  ⭐ ORBIT.paintBlock(block, color) — общий быстрый способ перекраски блока.
+  🐛 (v23.4b) «Материал» из вкладки ВИД не применялся к фигурам-моделям — теперь применяется к
+     перекрашиваемым частям; «Свечение» теперь реально включает/выключает PointLight колец.
 ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
@@ -73,6 +97,59 @@ local function applyPattern(pattern, angle, radius, height, seed)
     return math.cos(angle)*radius, height, math.sin(angle)*radius
 end
 ORBIT.applyPattern = applyPattern
+
+-- ==================== ОБЩИЕ ХЕЛПЕРЫ v23.4 ====================
+local GENV = rawget(_G, "getgenv") and getgenv() or _G
+local alive = true
+local conns = {}
+local function track(c) conns[#conns + 1] = c; return c end
+
+local function makeThrottle(step)
+    local last = 0
+    return function(now)
+        if now - last >= step then last = now; return true end
+        return false
+    end
+end
+local auraRecolorDue   = makeThrottle(1/30)
+local targetRecolorDue = makeThrottle(1/30)
+local mainRecolorDue   = makeThrottle(1/30)
+
+-- быстрая перекраска блока: список перекрашиваемых частей кэшируется один раз
+local function paintBlock(b, col)
+    if b.bodyParts then
+        local list = b.recolorParts
+        if not list then
+            list = {}
+            for _, p in ipairs(b.bodyParts) do
+                if not p:GetAttribute("NoRecolor") then list[#list + 1] = p end
+            end
+            b.recolorParts = list
+        end
+        for i = 1, #list do list[i].Color = col end
+    elseif b.part then
+        b.part.Color = col
+    end
+end
+ORBIT.paintBlock = paintBlock
+
+local function easeOutBack(x)
+    local c1 = 1.70158; local c3 = c1 + 1
+    return 1 + c3 * (x - 1) ^ 3 + c1 * (x - 1) ^ 2
+end
+local SPAWN_TIME = 0.4
+
+if SETTINGS.SpawnAnim == nil then SETTINGS.SpawnAnim = true end
+if SETTINGS.SpawnFlash == nil then SETTINGS.SpawnFlash = true end
+
+-- отключаем все подключения P3 при выгрузке скрипта
+local prevUnload = ORBIT.unload
+ORBIT.unload = function()
+    alive = false
+    for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+    conns = {}
+    if prevUnload then pcall(prevUnload) end
+end
 
 -- ==================== АУРА ====================
 local function getAuraColor(i, total)
@@ -211,6 +288,7 @@ local function updateAura(dt)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     local baseCol = getAuraColor(1, 1)
+    local recolor = auraRecolorDue(tick())
 
     for _, part in ipairs(ORBIT.auraParts) do
         if part.Name == "AuraRing" then
@@ -218,7 +296,7 @@ local function updateAura(dt)
             part.Color = P.COLORS[P.auraColorIndex].rainbow and baseCol or (P.COLORS[P.auraColorIndex].c or SETTINGS.AuraColor)
         elseif part.Name == "AuraEmitter" then
             part.CFrame = hrp.CFrame
-            if P.COLORS[P.auraColorIndex].rainbow then
+            if recolor and P.COLORS[P.auraColorIndex].rainbow then
                 for _, child in ipairs(part:GetChildren()) do
                     if child:IsA("ParticleEmitter") then child.Color = ColorSequence.new(baseCol) end
                 end
@@ -276,7 +354,7 @@ local function updateAura(dt)
                 data.model:PivotTo(cf)
                 local tgt = pulseScale
                 local cur = data.model:GetAttribute("Scale") or 1
-                if math.abs(cur - tgt) > 0.005 then
+                if math.abs(cur - tgt) > 0.015 or (tgt == 1 and cur ~= 1) then
                     pcall(function() data.model:ScaleTo(tgt) end)
                     data.model:SetAttribute("Scale", tgt)
                 end
@@ -287,13 +365,11 @@ local function updateAura(dt)
                     data.part.Size = Vector3.new(baseSz, baseSz, baseSz)
                 end
             end
-            local col = getAuraColor(data.index, data.total)
-            if data.bodyParts then
-                for _, p in ipairs(data.bodyParts) do
-                    if not p:GetAttribute("NoRecolor") then p.Color = col end
-                end
-            elseif data.part then data.part.Color = col end
-            if data.trail then data.trail.Color = ColorSequence.new(col) end
+            if recolor then
+                local col = getAuraColor(data.index, data.total)
+                paintBlock(data, col)
+                if data.trail then data.trail.Color = ColorSequence.new(col) end
+            end
         end
     end
 end
@@ -418,7 +494,11 @@ local function updateESP()
         local char = player.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if char and hrp then
-            if not ORBIT.ESP.Tags[player] then makeESPTag(player) end
+            local tag = ORBIT.ESP.Tags[player]
+            if tag and (not tag.bb or not tag.bb.Parent or not tag.hl or tag.hl.Parent ~= char) then
+                removeESPTag(player); tag = nil   -- цель респавнилась: старый тег мёртв
+            end
+            if not tag then makeESPTag(player) end
             local data = ORBIT.ESP.Tags[player]
             if data then
                 local dist = (hrp.Position - myPos).Magnitude
@@ -484,7 +564,7 @@ ORBIT.spawnFireworks = spawnFireworks
 
 -- ==================== МЕТКА ЧИТЕРА ====================
 ORBIT.taggedPlayers = ORBIT.taggedPlayers or {}
-if not getgenv().ORBIT_CHEATERS then getgenv().ORBIT_CHEATERS = {} end
+if not GENV.ORBIT_CHEATERS then GENV.ORBIT_CHEATERS = {} end
 
 function ORBIT.getTaggedPlayers()
     local list = {}
@@ -498,18 +578,18 @@ function ORBIT.tagCheater(player, enable)
     if not player or player == LocalPlayer then return false end
     if enable then
         ORBIT.taggedPlayers[player] = true
-        getgenv().ORBIT_CHEATERS[player.UserId] = {
+        GENV.ORBIT_CHEATERS[player.UserId] = {
             name = player.Name, time = os.time(), reason = "manual",
         }
         ORBIT.addSession("cheatersTagged")
-        warn("[Orbit v23.3] Помечен: " .. player.Name)
+        warn("[Orbit " .. tostring(ORBIT.version) .. "] Помечен: " .. player.Name)
         if ORBIT.notify then ORBIT.notify("Помечен: " .. player.Name, Color3.fromRGB(255, 120, 120)) end
         if ORBIT.ESP and ORBIT.ESP.Enabled and ORBIT.ESP.Tags[player] then
             removeESPTag(player); task.wait(0.1); makeESPTag(player)
         end
     else
         ORBIT.taggedPlayers[player] = nil
-        if getgenv().ORBIT_CHEATERS then getgenv().ORBIT_CHEATERS[player.UserId] = nil end
+        if GENV.ORBIT_CHEATERS then GENV.ORBIT_CHEATERS[player.UserId] = nil end
         if ORBIT.ESP and ORBIT.ESP.Enabled and ORBIT.ESP.Tags[player] then
             removeESPTag(player); task.wait(0.1); makeESPTag(player)
         end
@@ -749,11 +829,19 @@ local function updateTargetRings(dt)
         baseCol = P.COLORS[P.colorIndex].c or baseCol
     end
     local now = tick()
+    local recolor = targetRecolorDue(now)
 
     for player, data in pairs(ORBIT.targetRings) do
         local char = player.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then continue end
+        if not player.Parent then
+            ORBIT.removeTargetRings(player); continue   -- игрок вышел
+        end
+        if not hrp then
+            if data.folder and data.folder.Parent then data.folder.Parent = nil end   -- мёртв: прячем
+            continue
+        end
+        if data.folder and not data.folder.Parent then data.folder.Parent = Workspace end
 
         for _, rd in ipairs(data.rings) do
             local ring = rings[rd.ri]
@@ -781,11 +869,7 @@ local function updateTargetRings(dt)
                 elseif SETTINGS.GradientEnabled then
                     col = Color3.fromHSV((t*SETTINGS.GradientSpeed + b.index/SETTINGS.BlockCount) % 1, 0.85, 1)
                 end
-                if b.bodyParts then
-                    for _, p in ipairs(b.bodyParts) do
-                        if not p:GetAttribute("NoRecolor") then p.Color = col end
-                    end
-                elseif b.part then b.part.Color = col end
+                if recolor then paintBlock(b, col) end
                 if b.trail and (now - (b.lastTrailUpdate or 0)) > 0.1 then
                     b.trail.Color = ColorSequence.new(col)
                     b.lastTrailUpdate = now
@@ -831,11 +915,7 @@ local function updateTargetRings(dt)
                 if P.COLORS[P.auraColorIndex].rainbow then
                     col = Color3.fromHSV((t*0.2 + b.index/b.total) % 1, 0.9, 1)
                 end
-                if b.bodyParts then
-                    for _, p in ipairs(b.bodyParts) do
-                        if not p:GetAttribute("NoRecolor") then p.Color = col end
-                    end
-                elseif b.part then b.part.Color = col end
+                if recolor then paintBlock(b, col) end
             end
         end
     end
@@ -1017,7 +1097,7 @@ function ORBIT.createBot(shapeIndex, position, targetSlot)
     local folder = Instance.new("Folder")
     folder.Name = "BotRing_" .. tostring(math.random(1, 999999))
     folder.Parent = Workspace
-    local shape = SHAPE_PRESETS[shapeIndex]
+    local shape = SHAPE_PRESETS[shapeIndex] or SHAPE_PRESETS[1]
     local ringSize = ORBIT.getCurrentShapeSize() * (0.5 + math.random() * 0.8)
     local ringRadius = 3 + math.random() * 3
     local ringHeight = 1.5 + math.random() * 2
@@ -1028,6 +1108,11 @@ function ORBIT.createBot(shapeIndex, position, targetSlot)
     for i = 1, blockCount do
         local data = shape.create(ringSize, "Bot_R" .. i, i)
         local refPart = data.part
+        if data.bodyParts then
+            for _, bp in ipairs(data.bodyParts) do
+                pcall(function() bp.CanQuery = false; bp.CanTouch = false end)
+            end
+        end
         if not data.isModel then
             refPart.Material = Enum.Material.Neon
             refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
@@ -1120,7 +1205,7 @@ local function collectBotRing(botModel, data)
     if not rings[SLOT].enabled then
         ORBIT.setRingEnabled(SLOT, true)
     else
-        ORBIT.destroyRing(SLOT); ORBIT.buildRing(SLOT); ORBIT.applyColor(); ORBIT.applyNameVisibility()
+        ORBIT.destroyRing(SLOT); ORBIT.countActiveLights(); ORBIT.buildRing(SLOT); ORBIT.applyColor(); ORBIT.applyNameVisibility()
     end
     ORBIT.notify(shapeName .. " - кольцо " .. SLOT, Color3.fromRGB(255, 220, 100), 3)
     ORBIT.addSession("botsCollected")
@@ -1153,7 +1238,7 @@ local function updateBots(dt)
 
     for botModel, data in pairs(ORBIT.bots) do
         if data.collected then continue end
-        if not data.model or not data.model.Parent then ORBIT.bots[botModel] = nil; continue end
+        if not data.model or not data.model.Parent then ORBIT.removeBot(botModel); continue end
         local botRoot = data.model:FindFirstChild("HumanoidRootPart")
         if not botRoot then continue end
 
@@ -1183,13 +1268,7 @@ local function updateBots(dt)
 
                 if doColor then
                     local c = Color3.fromHSV((data.hueBase + t * 0.15 + b.index / count) % 1, 0.85, 1)
-                    if b.bodyParts then
-                        for _, p in ipairs(b.bodyParts) do
-                            if not p:GetAttribute("NoRecolor") then p.Color = c end
-                        end
-                    elseif b.part then
-                        b.part.Color = c
-                    end
+                    paintBlock(b, c)
                 end
             end
 
@@ -1218,11 +1297,7 @@ local function updateBots(dt)
                         if SETTINGS.Rainbow then
                             col = Color3.fromHSV((t*SETTINGS.RainbowSpeed*SETTINGS.SpeedMultiplier + b.index/SETTINGS.BlockCount + ring.colorShift) % 1, 0.9, 1)
                         end
-                        if b.bodyParts then
-                            for _, p in ipairs(b.bodyParts) do
-                                if not p:GetAttribute("NoRecolor") then p.Color = col end
-                            end
-                        elseif b.part then b.part.Color = col end
+                        paintBlock(b, col)
                         if b.trail and (now - (b.lastTrailUpdate or 0)) > 0.1 then
                             b.trail.Color = ColorSequence.new(col)
                             b.lastTrailUpdate = now
@@ -1314,6 +1389,10 @@ function ORBIT.buildRing(ri)
                 pcall(function()
                     bp.Transparency = SETTINGS.Transparency
                     bp.CanQuery = false; bp.CanTouch = false
+                    -- материал из «Графики» раньше не применялся к моделям (большинство фигур)
+                    if SETTINGS.Material ~= Enum.Material.Neon and not bp:GetAttribute("NoRecolor") then
+                        bp.Material = SETTINGS.Material
+                    end
                 end)
             end
         end
@@ -1325,6 +1404,7 @@ function ORBIT.buildRing(ri)
             light.Color = SETTINGS.FixedColor
             light.Range = SETTINGS.LightRange
             light.Brightness = SETTINGS.GlowIntensity or 1
+            light.Enabled = (SETTINGS.GlowEnabled ~= false)    -- кнопка «Свечение»
             light.Parent = refPart
             ORBIT.activeLightCount = ORBIT.activeLightCount + 1
         end
@@ -1357,6 +1437,7 @@ function ORBIT.buildRing(ri)
         })
     end
     statsData.totalShapes = statsData.totalShapes + #ring.blocks
+    if SETTINGS.SpawnAnim ~= false then ring.spawnTime = tick() else ring.spawnTime = nil end
 end
 
 function ORBIT.destroyRing(ri)
@@ -1365,14 +1446,10 @@ function ORBIT.destroyRing(ri)
     if ring.folder then ring.folder:Destroy(); ring.folder = nil end
     ring.blocks = {}
 end
-function ORBIT.applyColorToBlock(data, c)
+function ORBIT.applyColorToBlock(data, c, skipTrail)
     if data.light then data.light.Color = c end
-    if data.bodyParts then
-        for _, p in ipairs(data.bodyParts) do
-            if not p:GetAttribute("NoRecolor") then p.Color = c end
-        end
-    elseif data.part then data.part.Color = c end
-    if data.trail then data.trail.Color = ColorSequence.new(c) end
+    paintBlock(data, c)
+    if data.trail and not skipTrail then data.trail.Color = ColorSequence.new(c) end
 end
 function ORBIT.applyColor()
     local p = P.COLORS[P.colorIndex]
@@ -1431,12 +1508,26 @@ function ORBIT.setEnabled(state)
     end
 end
 
+-- вспышка искр при включении кольца
+function ORBIT.ringFlash(ri)
+    if SETTINGS.SpawnFlash == false then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local col = SETTINGS.FixedColor
+    local pc = P.COLORS[P.colorIndex]
+    if pc and pc.rainbow then
+        col = Color3.fromHSV((((ri or 1) - 1) * 0.2 + (tick() - ORBIT.startTime) * 0.15) % 1, 0.9, 1)
+    end
+    pcall(spawnFireworks, hrp.Position + Vector3.new(0, 1, 0), col)
+end
+
 function ORBIT.setRingEnabled(ri, state)
     local ring = rings[ri]
     if not ring then return end
     ring.enabled = state
     if not ORBIT.enabled then return end
-    if state then ORBIT.countActiveLights(); ORBIT.buildRing(ri); ORBIT.applyColor(); ORBIT.applyNameVisibility()
+    if state then ORBIT.countActiveLights(); ORBIT.buildRing(ri); ORBIT.applyColor(); ORBIT.applyNameVisibility(); ORBIT.ringFlash(ri)
     else ORBIT.destroyRing(ri); ORBIT.countActiveLights() end
 end
 
@@ -1470,26 +1561,28 @@ local function cleanupOnDeath()
 end
 
 function ORBIT.setupRespawnHook()
+    if ORBIT._respawnHooked then return end
+    ORBIT._respawnHooked = true
     local function hookCurrentChar(char)
         if not char then return end
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
-            hum.Died:Connect(function() cleanupOnDeath() end)
+            track(hum.Died:Connect(function() cleanupOnDeath() end))
         else
-            char.ChildAdded:Connect(function(child)
+            track(char.ChildAdded:Connect(function(child)
                 if child:IsA("Humanoid") then
-                    child.Died:Connect(function() cleanupOnDeath() end)
+                    track(child.Died:Connect(function() cleanupOnDeath() end))
                 end
-            end)
+            end))
         end
     end
 
     if LocalPlayer.Character then hookCurrentChar(LocalPlayer.Character) end
 
-    LocalPlayer.CharacterAdded:Connect(function(newChar)
+    track(LocalPlayer.CharacterAdded:Connect(function(newChar)
         hookCurrentChar(newChar)
         task.wait(0.5)
-        if ORBIT.enabled then
+        if alive and ORBIT.enabled then
             for ri, ring in pairs(rings) do
                 if ring.enabled then ORBIT.destroyRing(ri) end
             end
@@ -1501,7 +1594,14 @@ function ORBIT.setupRespawnHook()
             ORBIT.setupAura()
             ORBIT.setupFire()
         end
-    end)
+    end))
+
+    -- чистим всё, что связано с вышедшим игроком
+    track(Players.PlayerRemoving:Connect(function(p)
+        pcall(ORBIT.removeTargetRings, p)
+        pcall(removeESPTag, p)
+        ORBIT.taggedPlayers[p] = nil
+    end))
 end
 
 -- ============================================================
@@ -1578,8 +1678,8 @@ task.spawn(function()
 end)
 task.spawn(function()
     while task.wait(0.5) do
-        if not ORBIT.enabled then break end
-        if PERFORMANCE.Enabled and PERFORMANCE.Level == "auto" then
+        if not alive then break end
+        if ORBIT.enabled and PERFORMANCE.Enabled and PERFORMANCE.Level == "auto" then
             local now = tick()
             if now - PERFORMANCE.LastCheck > PERFORMANCE.CheckInterval then
                 PERFORMANCE.LastCheck = now
@@ -1599,6 +1699,7 @@ end)
 function ORBIT.startUpdateLoop()
     if ORBIT.updateConn then return end
     ORBIT.startTime = tick()
+    statsData.fpsLastCheck = 0; statsData.fpsFrames = 0   -- t относительное, счётчик тоже
     ORBIT.updateConn = RunService.Heartbeat:Connect(function(dt)
         if not ORBIT.enabled then return end
         local character = LocalPlayer.Character
@@ -1652,10 +1753,16 @@ function ORBIT.startUpdateLoop()
             explosionMul = 1 + math.sin(phase*math.pi*2)*SETTINGS.ExplosionPower
         end
         local now = tick()
+        local recolor = mainRecolorDue(now)
 
         for ri, ring in pairs(rings) do
             if not ring.enabled then continue end
-            local radius = ORBIT.currentRadius[ri] * explosionMul
+            local spawnK = 1
+            if ring.spawnTime then
+                local x = (now - ring.spawnTime) / SPAWN_TIME
+                if x >= 1 then ring.spawnTime = nil else spawnK = easeOutBack(math.max(x, 0)) end
+            end
+            local radius = ORBIT.currentRadius[ri] * explosionMul * (0.35 + 0.65 * math.min(spawnK, 1))
             local height = ORBIT.currentHeight[ri]
             local orbitAngle = ORBIT.currentOrbitAngle[ri]
             local spinAngle = ORBIT.currentSpinAngle[ri]
@@ -1683,22 +1790,26 @@ function ORBIT.startUpdateLoop()
                 if SETTINGS.PulseEnabled then
                     ps = 1.0 + math.sin(t*SETTINGS.PulseSpeed + i + ri)*SETTINGS.PulseAmplitude
                 end
+                if spawnK ~= 1 then ps = ps * math.max(spawnK, 0.02) end
                 if data.isModel and data.model then
-                    local tgt = SETTINGS.PulseEnabled and ps or 1
+                    local tgt = ps
                     local cur = data.model:GetAttribute("Scale") or 1
-                    if math.abs(cur - tgt) > 0.005 then data.model:ScaleTo(tgt); data.model:SetAttribute("Scale", tgt) end
+                    if math.abs(cur - tgt) > 0.01 or (tgt == 1 and cur ~= 1) then
+                        pcall(function() data.model:ScaleTo(tgt) end)
+                        data.model:SetAttribute("Scale", tgt)
+                    end
                 elseif data.part then
                     local sz = baseSize * ps
                     if math.abs(data.part.Size.X - sz) > 0.001 then data.part.Size = Vector3.new(sz, sz, sz) end
                 end
-                if SETTINGS.Rainbow then
+                if recolor and SETTINGS.Rainbow then
                     local hue = (t*SETTINGS.RainbowSpeed*globalMult*ring.speedMult + i/SETTINGS.BlockCount + ring.colorShift) % 1
                     local c = Color3.fromHSV(hue, 0.9, 1)
-                    ORBIT.applyColorToBlock(data, c)
+                    ORBIT.applyColorToBlock(data, c, true)
                     if data.trail and (now - data.lastTrailUpdate) > 0.1 then
                         data.trail.Color = ColorSequence.new(c); data.lastTrailUpdate = now
                     end
-                elseif SETTINGS.GradientEnabled then
+                elseif recolor and SETTINGS.GradientEnabled then
                     local hue = (t*SETTINGS.GradientSpeed + i/SETTINGS.BlockCount) % 1
                     ORBIT.applyColorToBlock(data, Color3.fromHSV(hue, 0.85, 1))
                 end
@@ -1769,11 +1880,45 @@ local function collectSaveData()
         espEnabled=ORBIT.ESP and ORBIT.ESP.Enabled,
         soundEnabled=ORBIT.SOUNDS and ORBIT.SOUNDS.Enabled,
         soundVolume=ORBIT.SOUNDS and ORBIT.SOUNDS.Volume,
+        spawnAnim=SETTINGS.SpawnAnim, spawnFlash=SETTINGS.SpawnFlash,
     }
+end
+
+-- проверка индексов: сохранение могло быть сделано в другой версии (списки менялись)
+local function sanitizeSave(d)
+    local lists = {
+        spreadIndex = P.SPREAD, speedIndex = P.SPEED, orbitIndex = P.ORBIT, shapeSizeIndex = P.SHAPE_SIZE,
+        colorIndex = P.COLORS, trailLengthIndex = P.TRAIL_LEN, trailWidthIndex = P.TRAIL_WID,
+        directionIndex = P.DIRECTION, speedModeIndex = P.SPEED_MODE, heightIndex = P.HEIGHT,
+        formModeIndex = P.FORM_MODES, orbitPatternIndex = P.ORBIT_PATTERNS, auraColorIndex = P.COLORS,
+        shapeCategoryIndex = P.SHAPE_CATEGORIES, spinSpeedIndex = P.SPIN_SPEED, auraSizeIndex = P.AURA_SIZE,
+        auraThickIndex = P.AURA_THICK, auraHeightIndex = P.AURA_HEIGHT, auraShapeScaleIndex = P.AURA_SHAPE_SCALE,
+        auraTrailLengthIndex = P.AURA_TRAIL_LEN, auraTrailWidthIndex = P.AURA_TRAIL_WID,
+        auraPatternIndex = P.AURA_PATTERNS, auraSpinSpeedIndex = P.AURA_SPIN_SPEED, auraSpeedIndex = P.AURA_SPEED,
+        auraDirIndex = P.AURA_DIR, fireSizeIndex = P.FIRE_SIZE, fireHeatIndex = P.FIRE_HEAT,
+        shapeIndex = SHAPE_PRESETS, auraShapeIndex = SHAPE_PRESETS,
+    }
+    for key, list in pairs(lists) do
+        local v = d[key]
+        if v ~= nil then
+            if type(v) ~= "number" or #list == 0 then d[key] = nil
+            else d[key] = math.clamp(math.floor(v), 1, #list) end
+        end
+    end
+    if type(d.ringShapes) == "table" then
+        for ri = 1, 5 do
+            local v = d.ringShapes[ri]
+            if v ~= nil then
+                if type(v) ~= "number" then d.ringShapes[ri] = nil
+                else d.ringShapes[ri] = math.clamp(math.floor(v), 1, #SHAPE_PRESETS) end
+            end
+        end
+    end
 end
 
 local function applySaveData(d)
     if not d then return end
+    sanitizeSave(d)
     if d.spreadIndex then P.spreadIndex = d.spreadIndex end
     if d.speedIndex then P.speedIndex = d.speedIndex; SETTINGS.SpeedMultiplier = P.SPEED[P.speedIndex].value end
     if d.orbitIndex then P.orbitIndex = d.orbitIndex end
@@ -1818,6 +1963,7 @@ local function applySaveData(d)
     if d.fireHeatIndex then P.fireHeatIndex = d.fireHeatIndex; SETTINGS.FireHeat = P.FIRE_HEAT[P.fireHeatIndex].value end
     if d.rainbowSpeed then SETTINGS.RainbowSpeed = d.rainbowSpeed end
     if d.autoShapeSwap ~= nil then SETTINGS.AutoShapeSwap = d.autoShapeSwap end
+    if type(d.autoShapeSwapInterval) == "number" then SETTINGS.AutoShapeSwapInterval = math.clamp(d.autoShapeSwapInterval, 3, 120) end
     if d.gradientEnabled ~= nil then SETTINGS.GradientEnabled = d.gradientEnabled end
     if d.ringShapes then for ri = 1, 5 do if d.ringShapes[ri] then rings[ri].shapeIndex = d.ringShapes[ri] end end end
     if d.ringEnabled then
@@ -1841,6 +1987,8 @@ local function applySaveData(d)
     if d.espEnabled ~= nil and ORBIT.ESP then ORBIT.ESP.Enabled = d.espEnabled end
     if d.soundEnabled ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Enabled = d.soundEnabled end
     if d.soundVolume ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Volume = d.soundVolume end
+    if d.spawnAnim ~= nil then SETTINGS.SpawnAnim = d.spawnAnim end
+    if d.spawnFlash ~= nil then SETTINGS.SpawnFlash = d.spawnFlash end
 end
 
 function ORBIT.saveSettings()
@@ -1915,6 +2063,6 @@ function ORBIT.startLogic()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v23.3 (логика + свет ауры)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v23.4 (логика + оптимизация + появление колец)", Color3.fromRGB(180,255,180), 3) end
 
 return true
