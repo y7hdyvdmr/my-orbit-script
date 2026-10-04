@@ -1,27 +1,27 @@
---[[
-    ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v23.5 — CORE + LOADER                           ║
-    ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗАГРУЗЧИК                ║
-    ╚══════════════════════════════════════════════════════════╝
-
-    ИЗМЕНЕНИЯ v23.5 (относительно v23.4):
-    🐛 кнопка «ЗАПУСТИТЬ ОРБИТУ» работала только через .Activated — на Android
-       не срабатывала. Теперь onTap (MouseButton1Down + Touch + Activated).
-    🐛 окна загрузчика были фиксированного размера (460×560 / 500×620) и не
-       влезали в экран телефона в горизонтали — добавлен UIScale + центрирование.
-    🐛 двойной тап по платформе мог запустить загрузку дважды — добавлена защита.
-    🐛 addLog делал task.wait() на каждую строку лога (тормозил загрузку) —
-       прокрутка теперь отложена через task.delay.
-    🐛 подключение к LogService не отключалось при перезапуске скрипта (утечка) —
-       теперь хранится в ORBIT.logConn и отключается в unload.
-    🐛 очередь уведомлений росла без предела, пока UI не загружен — лимит 30.
-    🐛 ORBIT.HAS_FS мог вернуть nil/функцию — теперь строгий boolean с type().
-    🐛 в P.SHAPE_CATEGORIES не было новой фигуры «СКАЛА» — добавлена в «СУЩЕСТВА».
-    ⭐ загрузка файлов: общий helper с повторами (3 для частей, 2 для модулей),
-       без оператора continue (для совместимости с Delta).
-    ⭐ playBuy / playWin теперь звучат по-разному (высота тона).
-    ⭐ плавное появление окон загрузчика.
-]]
+-- ОРБИТА v23.6 — CORE + LOADER
+-- Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗАГРУЗЧИК
+--
+-- ИЗМЕНЕНИЯ v23.5 (относительно v23.4):
+--   fix: кнопка «ЗАПУСТИТЬ ОРБИТУ» работала только через .Activated — на Android
+--        не срабатывала. Теперь onTap (MouseButton1Down + Touch + Activated).
+--   fix: окна загрузчика были фиксированного размера (460×560 / 500×620) и не
+--        влезали в экран телефона в горизонтали — добавлен UIScale + центрирование.
+--   fix: двойной тап по платформе мог запустить загрузку дважды — защита.
+--   fix: addLog делал task.wait() на каждую строку лога (тормозил загрузку).
+--   fix: подключение к LogService не отключалось при перезапуске скрипта.
+--   fix: очередь уведомлений росла без предела, пока UI не загружен — лимит 30.
+--   fix: ORBIT.HAS_FS мог вернуть nil/функцию — теперь строгий boolean.
+--   fix: в P.SHAPE_CATEGORIES не было новой фигуры «СКАЛА» — добавлена.
+--   new: общий helper с повторами (3 для частей, 2 для модулей).
+--   new: playBuy / playWin звучат по-разному.
+--   new: плавное появление окон загрузчика.
+--
+-- ИЗМЕНЕНИЯ v23.6:
+--   new: перед античитом грузится orbit_share.lua — модуль обмена фигурами и
+--        сохранениями. Грузится ПЕРВЫМ, чтобы p4_shop и editor3d увидели
+--        ORBIT.share уже готовым.
+--   fix: в ORBIT.loaded добавлен флаг share.
+--   new: индикатор SHARE в полосе прогресса (9 этапов вместо 8).
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 local OLD = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (GENV and GENV.ORBIT)
@@ -32,8 +32,8 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v23.5"
-ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, sfx = false, ac = false, extras = false, editor3d = false }
+ORBIT.version = "v23.6"
+ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, share = false, sfx = false, ac = false, extras = false, editor3d = false }
 ORBIT.started = false
 ORBIT.PLATFORM = nil
 
@@ -195,8 +195,8 @@ P.SPEED_MODE = {
 P.speedModeIndex = 1
 P.DIRECTION = {
     {name="Чередование",dirs={1,-1,1,-1,1}},
-    {name="Все ↻",dirs={1,1,1,1,1}},
-    {name="Все ↺",dirs={-1,-1,-1,-1,-1}},
+    {name="Все по часовой",dirs={1,1,1,1,1}},
+    {name="Все против",dirs={-1,-1,-1,-1,-1}},
     {name="Попарно",dirs={1,1,-1,-1,1}},
 }
 P.directionIndex = 1
@@ -585,6 +585,7 @@ ORBIT.unload = function()
     if ORBIT.sfxFolder then pcall(function() ORBIT.sfxFolder:Destroy() end); ORBIT.sfxFolder = nil end
     if ORBIT.musicSound then pcall(function() ORBIT.musicSound:Destroy() end); ORBIT.musicSound = nil end
     if ORBIT.stopUltra then pcall(ORBIT.stopUltra) end
+    if ORBIT.helperClose then pcall(ORBIT.helperClose) end
     if GENV._OrbitLoaderGui then pcall(function() GENV._OrbitLoaderGui:Destroy() end) end
     if GENV._OrbitMainGui then pcall(function() GENV._OrbitMainGui:Destroy() end) end
     shared.ORBIT = nil
@@ -592,7 +593,7 @@ ORBIT.unload = function()
     if GENV then GENV.ORBIT = nil end
 end
 ORBIT.start = function()
-    ORBIT.notify("⏳ Не все части загружены", Color3.fromRGB(255,200,100), 3)
+    ORBIT.notify("Не все части загружены", Color3.fromRGB(255,200,100), 3)
 end
 
 -- ============================================================
@@ -618,7 +619,7 @@ local C_BORDER  = Color3.fromRGB(140, 100, 220)
 local C_RED     = Color3.fromRGB(255, 100, 120)
 local C_CYAN    = Color3.fromRGB(120, 220, 255)
 
--- масштаб под экран (телефон в горизонтали ~360 px по высоте)
+-- масштаб под экран
 local function computeLoaderScale(w, h)
     local cam = Workspace.CurrentCamera
     local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
@@ -791,7 +792,7 @@ local autoDetectLbl = Instance.new("TextLabel")
 autoDetectLbl.Size = UDim2.new(1, 0, 0, 20)
 autoDetectLbl.Position = UDim2.new(0, 0, 0, 456)
 autoDetectLbl.BackgroundTransparency = 1
-autoDetectLbl.Text = UIS.TouchEnabled and "👉 Похоже, ты на телефоне" or "👉 Похоже, ты на ПК"
+autoDetectLbl.Text = UIS.TouchEnabled and "Похоже, ты на телефоне" or "Похоже, ты на ПК"
 autoDetectLbl.TextColor3 = C_DIM
 autoDetectLbl.Font = Enum.Font.Gotham
 autoDetectLbl.TextSize = 11
@@ -999,14 +1000,16 @@ coverStatus.Parent = coverHolder
 Instance.new("UICorner", coverStatus).CornerRadius = UDim.new(0, 6)
 
 local coverSteps = {}
+-- v23.6: добавлен SHARE (9 шагов вместо 8)
 local stepsConfig = {
-    {name = "P2", key = "p2"},
-    {name = "P3", key = "p3"},
-    {name = "P4", key = "p4"},
-    {name = "AC", key = "ac"},
-    {name = "SFX", key = "sfx"},
-    {name = "EX", key = "extras"},
-    {name = "3D", key = "editor3d"},
+    {name = "P2",    key = "p2"},
+    {name = "P3",    key = "p3"},
+    {name = "P4",    key = "p4"},
+    {name = "SHR",   key = "share"},
+    {name = "AC",    key = "ac"},
+    {name = "SFX",   key = "sfx"},
+    {name = "EX",    key = "extras"},
+    {name = "3D",    key = "editor3d"},
 }
 local stepW = 1 / #stepsConfig
 for i, cfg in ipairs(stepsConfig) do
@@ -1060,7 +1063,7 @@ local function stopPulse()
     coverIcon.TextSize = 40
 end
 
-setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "части 2 → 3 → 4 → защита → звуки → extras → 3D", C_GREEN)
+setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "части 2 → 3 → 4 → share → защита → звуки → extras → 3D", C_GREEN)
 updateRingProgress(0.125)
 refreshSteps()
 
@@ -1278,7 +1281,7 @@ fillGradient.Color = ColorSequence.new({
 local progText = Instance.new("TextLabel")
 progText.Size = UDim2.new(1, 0, 1, 0)
 progText.BackgroundTransparency = 1
-progText.Text = "LOADING 12%  •  1/8 ЭТАПОВ"
+progText.Text = "LOADING 11%  •  1/9 ЭТАПОВ"
 progText.TextColor3 = Color3.fromRGB(20, 40, 28)
 progText.Font = Enum.Font.GothamBold
 progText.TextSize = 11
@@ -1293,7 +1296,7 @@ startBtn.BackgroundTransparency = 0.1
 startBtn.TextColor3 = C_DIM
 startBtn.Font = Enum.Font.GothamBold
 startBtn.TextSize = 14
-startBtn.Text = "⌛ ЖДЁМ ЗАГРУЗКИ..."
+startBtn.Text = "ЖДЁМ ЗАГРУЗКИ..."
 startBtn.AutoButtonColor = false
 startBtn.ZIndex = 3
 startBtn.Parent = frame
@@ -1314,13 +1317,14 @@ statusBar.ZIndex = 3
 statusBar.Parent = frame
 
 -- ============================================================
---       ПОДСЧЁТ ПРОГРЕССА
+--       ПОДСЧЁТ ПРОГРЕССА (9 этапов с v23.6)
 -- ============================================================
 local function countLoaded()
     local n = 1
     if ORBIT.loaded.p2 then n = n + 1 end
     if ORBIT.loaded.p3 then n = n + 1 end
     if ORBIT.loaded.p4 then n = n + 1 end
+    if ORBIT.loaded.share then n = n + 1 end
     if ORBIT.loaded.ac then n = n + 1 end
     if ORBIT.loaded.sfx then n = n + 1 end
     if ORBIT.loaded.extras then n = n + 1 end
@@ -1330,7 +1334,7 @@ end
 
 local function refreshStatus()
     local n = countLoaded()
-    local total = 8
+    local total = 9
     local percent = n / total
 
     TweenService:Create(progFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), { Size = UDim2.new(percent, 0, 1, 0) }):Play()
@@ -1340,7 +1344,7 @@ local function refreshStatus()
 
     if n >= 4 then
         progText.TextColor3 = Color3.fromRGB(20, 40, 28)
-        startBtn.Text = "▶  ЗАПУСТИТЬ ОРБИТУ"
+        startBtn.Text = "ЗАПУСТИТЬ ОРБИТУ"
         startBtn.TextColor3 = C_GREEN
         stStroke.Color = C_GREEN
         stStroke.Transparency = 0.1
@@ -1365,11 +1369,11 @@ local function fetchAndRun(file, attempts, tag)
         else
             local fn, err = loadstring(src)
             if not fn then
-                addLog("ERR", tag .. " compile: " .. tostring(err):sub(1, 40))
+                addLog("ERR", tag .. " compile: " .. tostring(err):sub(1, 60))
             else
                 local runOk, runErr = pcall(fn)
                 if runOk then return true end
-                addLog("ERR", tag .. " runtime: " .. tostring(runErr):sub(1, 40))
+                addLog("ERR", tag .. " runtime: " .. tostring(runErr):sub(1, 60))
             end
         end
         task.wait(0.4)
@@ -1433,7 +1437,7 @@ local function loadPart(part, onDone)
 end
 
 -- ============================================================
---       🆕 ДОП. МОДУЛИ (загружаются ПОСЛЕ p4!)
+--       ДОП. МОДУЛИ
 -- ============================================================
 local function loadExtra(name, file, key, onDone)
     if ORBIT.loaded[key] then
@@ -1455,7 +1459,7 @@ local function loadExtra(name, file, key, onDone)
 end
 
 -- ============================================================
---       ГЛАВНАЯ ЦЕПОЧКА ЗАГРУЗКИ (СТРОГО ПОСЛЕДОВАТЕЛЬНО)
+--       ГЛАВНАЯ ЦЕПОЧКА ЗАГРУЗКИ
 -- ============================================================
 local function autoLoadAll()
     task.wait(0.3)
@@ -1479,33 +1483,50 @@ local function autoLoadAll()
                     return
                 end
 
-                -- ✅ p4 загружен, UI есть — можно грузить доп. модули
-                setCover("✅", "ОСНОВА ГОТОВА", "загружаю защиту, звуки, extras, 3D...", C_GREEN)
+                -- ✅ p4 загружен, UI есть
+                setCover("✅", "ОСНОВА ГОТОВА", "загружаю share, защиту, звуки, extras, 3D...", C_GREEN)
 
-                -- 2. Античит
-                setCover("🛡️", "ЗАГРУЗКА: ЗАЩИТА", "orbit_anticheat.lua...", Color3.fromRGB(255, 140, 140))
+                -- 2. SHARE (первым, чтобы p4_shop и editor3d его увидели)
+                setCover("🔗", "ЗАГРУЗКА: SHARE", "orbit_share.lua...", Color3.fromRGB(180, 220, 255))
                 startPulse()
-                loadExtra("🛡️ Античит", "orbit_anticheat.lua", "ac", function()
+                loadExtra("🔗 Share", "orbit_share.lua", "share", function()
                     stopPulse()
-                    -- 3. SFX
-                    setCover("🎵", "ЗАГРУЗКА: ЗВУКИ", "orbit_sfx.lua...", Color3.fromRGB(255, 200, 255))
+
+                    -- 3. Античит
+                    setCover("🛡️", "ЗАГРУЗКА: ЗАЩИТА", "orbit_anticheat.lua...", Color3.fromRGB(255, 140, 140))
                     startPulse()
-                    loadExtra("🎵 SFX", "orbit_sfx.lua", "sfx", function()
+                    loadExtra("🛡️ Античит", "orbit_anticheat.lua", "ac", function()
                         stopPulse()
-                        -- 4. Extras
-                        setCover("✨", "ЗАГРУЗКА: EXTRAS", "атмосфера, шлейф, искры...", Color3.fromRGB(200, 220, 255))
+
+                        -- 4. SFX
+                        setCover("🎵", "ЗАГРУЗКА: ЗВУКИ", "orbit_sfx.lua...", Color3.fromRGB(255, 200, 255))
                         startPulse()
-                        loadExtra("✨ Extras", "orbit_extras.lua", "extras", function()
+                        loadExtra("🎵 SFX", "orbit_sfx.lua", "sfx", function()
                             stopPulse()
-                            -- 5. 3D-редактор
-                            setCover("🔮", "ЗАГРУЗКА: 3D-РЕДАКТОР", "orbit_editor3d.lua...", Color3.fromRGB(200, 150, 255))
+
+                            -- 5. Extras
+                            setCover("✨", "ЗАГРУЗКА: EXTRAS", "атмосфера, шлейф, искры...", Color3.fromRGB(200, 220, 255))
                             startPulse()
-                            loadExtra("🔮 3D-Редактор", "orbit_editor3d.lua", "editor3d", function()
+                            loadExtra("✨ Extras", "orbit_extras.lua", "extras", function()
                                 stopPulse()
-                                task.wait(0.3)
-                                setCover("✅", "ВСЁ ГОТОВО", "нажми ЗАПУСТИТЬ ОРБИТУ", C_GREEN)
-                                updateRingProgress(1)
-                                refreshStatus()
+
+                                -- 6. 3D-редактор
+                                setCover("🔮", "ЗАГРУЗКА: 3D-РЕДАКТОР", "orbit_editor3d.lua...", Color3.fromRGB(200, 150, 255))
+                                startPulse()
+                                loadExtra("🔮 3D-Редактор", "orbit_editor3d.lua", "editor3d", function()
+                                    stopPulse()
+
+                                    -- 7. Помощник (опционально)
+                                    setCover("🤖", "ЗАГРУЗКА: ПОМОЩНИК", "orbit_helper.lua...", Color3.fromRGB(200, 220, 255))
+                                    startPulse()
+                                    loadExtra("🤖 Помощник", "orbit_helper.lua", "helper", function()
+                                        stopPulse()
+                                        task.wait(0.3)
+                                        setCover("✅", "ВСЁ ГОТОВО", "нажми ЗАПУСТИТЬ ОРБИТУ", C_GREEN)
+                                        updateRingProgress(1)
+                                        refreshStatus()
+                                    end)
+                                end)
                             end)
                         end)
                     end)
@@ -1520,12 +1541,12 @@ end
 -- ============================================================
 onTap(startBtn, function()
     if not (ORBIT.loaded.p2 and ORBIT.loaded.p3 and ORBIT.loaded.p4) then
-        ORBIT.notify("⏳ Сначала загрузи все части", Color3.fromRGB(255, 200, 100), 3)
+        ORBIT.notify("Сначала загрузи все части", Color3.fromRGB(255, 200, 100), 3)
         return
     end
     if ORBIT.started then return end
     ORBIT.started = true
-    startBtn.Text = "▶ РАБОТАЕТ..."
+    startBtn.Text = "РАБОТАЕТ..."
     setCover("🚀", "ЗАПУСК ОРБИТЫ", "включаю все системы...", C_GREEN)
     addLog("OK", "Запуск ОРБИТЫ...")
     task.wait(0.3)
@@ -1562,7 +1583,7 @@ local function selectPlatform(platform)
     TweenService:Create(frameScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
         { Scale = frameScaleTarget }):Play()
 
-    platformBadge.Text = platform == "mobile" and "📱 MOBILE" or "💻 PC"
+    platformBadge.Text = platform == "mobile" and "MOBILE" or "PC"
 
     addLog("SYS", "orbit_loader.lua — старт")
     addLog("INFO", "Платформа: " .. platform:upper())
@@ -1573,7 +1594,7 @@ local function selectPlatform(platform)
     addLog("OK", "Найдено сохранений: " .. saveCount)
     addLog("OK", "BlockCount: " .. ORBIT.SETTINGS.BlockCount)
 
-    setCover("✨", "СТАРТ ЗАГРУЗКИ", "части 2 → 3 → 4 → защита → звуки → extras → 3D", C_GREEN)
+    setCover("✨", "СТАРТ ЗАГРУЗКИ", "части 2 → 3 → 4 → share → защита → звуки → extras → 3D", C_GREEN)
 
     task.spawn(autoLoadAll)
 end
