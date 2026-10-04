@@ -1,4 +1,4 @@
--- ОРБИТА v23.8 — P4_SHOP (Магазин + 2D-Редактор + кнопка 3D)
+-- ОРБИТА v23.9 — P4_SHOP (Магазин + 2D-Редактор + кнопка 3D)
 -- Магазин + 2D-редактор v3: сетка 16/20/24, кисти 1x1/2x2/3x3, ластик, заливка,
 -- история 20 шагов, симметрия, шаблоны, сохранение кастомных фигур.
 -- Сохранение { name, pixels } -> SHAPE_PRESETS.
@@ -9,8 +9,10 @@
 -- ФИКСЫ v23.6: на мобилке кнопка 3D-редактора вынесена во второй ряд хедера
 -- (перекрывала заголовок и монеты); локальный onClick играет playClick.
 -- ФИКС v23.7: в шапке только строчные комментарии (блочные ломали компиляцию).
--- v23.8: фигура «СКАЛА» добавлена в категорию «СУЩЕСТВА» магазина; в шапке только строчные
--- комментарии; файл проверен лексером Lua (кириллица вне строк/комментариев не найдена).
+-- v23.8: фигура «СКАЛА» добавлена в категорию «СУЩЕСТВА» магазина.
+-- v23.9: в 2D-редакторе появились кнопки «Поделиться» и «Импорт» — они работают
+-- через модуль orbit_share.lua. Созданную фигуру можно отправить другу строкой
+-- или короткой ссылкой, а чужую — принять и она попадёт в магазин.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Shop] ORBIT не найден!"); return end
@@ -119,13 +121,6 @@ local COLOR_NAMES = {
 -- ============================================================
 --       УНИВЕРСАЛЬНЫЙ ТАП (Delta/Android)
 --       Down + Touch + Activated, плюс защита от двойного срабатывания
---       (Activated приходит уже после касания и раньше дублировал действие)
--- ============================================================
--- ============================================================
---  onClick: Down + Touch + Activated (Android / Delta).
---  Внутри ScrollingFrame кнопка срабатывает при ОТПУСКАНИИ пальца (если он почти не двигался),
---  иначе свайп для прокрутки нажимал бы кнопки под пальцем. Атрибут ReleaseOnly = true
---  включает этот режим принудительно (например, для перетаскиваемых кнопок).
 -- ============================================================
 local function onClick(btn, fn, releaseOnly)
     local deb = false
@@ -594,8 +589,6 @@ local function openShop()
         demoFolder, demoBlocks = buildDemoRing(world, shopState.shapeIndex, c3, sizeMult, 8)
     end
 
-    -- ФИКС 1: refreshShapeLbl объявлена заранее (раньше обработчики категорий
-    -- вызывали ещё не созданную функцию и падали)
     local refreshShapeLbl
 
     local catL, catV, catR = shopRow("📁 КАТЕГОРИЯ")
@@ -773,7 +766,6 @@ local function openShop()
 
     rightPanel.CanvasSize = UDim2.new(0, 0, 0, ry + 20)
 
-    -- ФИКС 2: animConn объявлена заранее, чтобы внутри колбэка ссылаться на неё
     local animConn
     animConn = RunService.Heartbeat:Connect(function(dt)
         if not shopOpen or not shopGui or not shopGui.Parent then
@@ -1072,7 +1064,7 @@ local function openEditor()
     -- ============================================================
     local leftX, topY = 16, 42
     local gridPx = IS_MOBILE and 328 or 400
-    local pitch = 1                 -- шаг клетки в пикселях (считается при пересборке)
+    local pitch = 1
 
     local gridHolder = mk("Frame", {
         Name = "GridHolder", Size = UDim2.new(0, gridPx, 0, gridPx), Position = UDim2.new(0, leftX, 0, topY),
@@ -1113,12 +1105,10 @@ local function openEditor()
                     Size = UDim2.new(0, pitch - 2, 0, pitch - 2),
                     Position = UDim2.new(0, (c - 1) * pitch + 2, 0, (r - 1) * pitch + 2),
                 }, cellLayer)
-                -- рамка 1px у каждой клетки
                 local st = mk("UIStroke", {
                     Color = Color3.fromRGB(60, 50, 85), Thickness = 1,
                     ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
                 }, f)
-                -- каждая 4-я линия — толще и светлее
                 if c % 4 == 1 or r % 4 == 1 then
                     st.Color = Color3.fromRGB(90, 70, 140)
                     st.Thickness = 1.5
@@ -1132,7 +1122,7 @@ local function openEditor()
     -- ============================================================
     --       РИСОВАНИЕ (один оверлей: тап и протяжка пальцем)
     -- ============================================================
-    local countLbl   -- создаётся ниже (подпись «клеток: N»)
+    local countLbl
     local function countFilled()
         local n = 0
         for r = 1, GRID do for c = 1, GRID do
@@ -1152,7 +1142,6 @@ local function openEditor()
         return true
     end
 
-    -- isStart: заливка срабатывает только в начале касания, а не при протяжке
     local function applyTool(r, c, isStart)
         local tool = Ed2D.Tool
         local changed = false
@@ -1233,7 +1222,6 @@ local function openEditor()
             endStroke()
         end
     end)
-    -- палец/мышь отпущены за пределами сетки
     table.insert(editorConns, UIS.InputEnded:Connect(function(input)
         local t = input.UserInputType
         if t == Enum.UserInputType.MouseButton1 or (t == Enum.UserInputType.Touch and input == activeInput) then
@@ -1319,7 +1307,7 @@ local function openEditor()
             items[i] = {text = n .. "×" .. n, fn = function()
                 if n == GRID then return end
                 resizeGrid(n)
-                resetHistory2D()      -- размер сетки сменился: история начинается заново
+                resetHistory2D()
                 rebuildGridUI()
                 paintSizes()
                 refreshCount()
@@ -1377,7 +1365,6 @@ local function openEditor()
             }, b)
             onClick(b, function()
                 Ed2D.Color = i
-                -- выбор цвета выводит из режима ластика
                 if Ed2D.Tool == "eraser" then Ed2D.Tool = "b1"; if Ed2D.paintTools then Ed2D.paintTools() end end
                 refreshPal()
             end)
@@ -1452,7 +1439,6 @@ local function openEditor()
         local purple = Color3.fromRGB(80, 60, 100)
         buttonRow(body, {
             {text = "↔ Симметрия", color = purple, fn = function()
-                -- зеркало левой половины на правую
                 for r = 1, GRID do
                     for c = 1, math.floor(GRID / 2) do
                         Ed2D.Cells[r][GRID - c + 1] = Ed2D.Cells[r][c]
@@ -1471,7 +1457,8 @@ local function openEditor()
 
     -- 💾 СОХРАНЕНИЕ
     do
-        local body = section("💾 СОХРАНЕНИЕ", Color3.fromRGB(100, 60, 140), 150)
+        -- bodyH = 220: countLbl(0..16) + nameInput(20..52) + saveBtn(58..94) + sellBtn(100..132) + shareBtn(138..174) + importBtn(178..214)
+        local body = section("💾 СОХРАНЕНИЕ", Color3.fromRGB(100, 60, 140), 220)
 
         countLbl = mk("TextLabel", {
             Name = "Count", Size = UDim2.new(1, -4, 0, 16), Position = UDim2.new(0, 2, 0, 0),
@@ -1504,8 +1491,25 @@ local function openEditor()
         }, body)
         corner(sellBtn, 8)
 
+        -- 🆕 📤 Поделиться фигурой (упаковывает текущую сетку в строку ОРБИТЫ и открывает панель)
+        local shareBtn = mk("TextButton", {
+            Name = "Share", Size = UDim2.new(1, -4, 0, 36), Position = UDim2.new(0, 2, 0, 138),
+            BackgroundColor3 = Color3.fromRGB(70, 60, 130), TextColor3 = Color3.fromRGB(220, 210, 255),
+            Font = Enum.Font.GothamBold, TextSize = 12, Text = "📤 ПОДЕЛИТЬСЯ ФИГУРОЙ",
+            AutoButtonColor = false, BorderSizePixel = 0,
+        }, body)
+        corner(shareBtn, 8)
+
+        -- 🆕 📥 Импорт чужой фигуры (открывает панель шаринга для приёма строки)
+        local importBtn = mk("TextButton", {
+            Name = "Import", Size = UDim2.new(1, -4, 0, 36), Position = UDim2.new(0, 2, 0, 178),
+            BackgroundColor3 = Color3.fromRGB(50, 80, 110), TextColor3 = Color3.fromRGB(200, 230, 255),
+            Font = Enum.Font.GothamBold, TextSize = 12, Text = "📥 ИМПОРТ ЧУЖОЙ ФИГУРЫ",
+            AutoButtonColor = false, BorderSizePixel = 0,
+        }, body)
+        corner(importBtn, 8)
+
         onClick(saveBtn, function()
-            -- формат: { name = "...", pixels = { {1,2,0,...}, ... } }, 0 = пусто, 1..24 = палитра
             local data = {}
             local filled = 0
             for r = 1, GRID do
@@ -1562,6 +1566,53 @@ local function openEditor()
             ORBIT.notify("💰 +50 монет (всего: " .. ORBIT.COINS .. ")", Color3.fromRGB(255,220,120), 3)
             if ORBIT.playBuy then pcall(ORBIT.playBuy) end
         end)
+
+        -- 📤 Поделиться: упаковать текущую сетку в строку и открыть share-панель
+        onClick(shareBtn, function()
+            if not ORBIT.share or not ORBIT.share.encodeShape then
+                ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
+                return
+            end
+            -- собираем пиксели
+            local data = {}
+            local filled = 0
+            for r = 1, GRID do
+                data[r] = {}
+                for c = 1, GRID do
+                    data[r][c] = Ed2D.Cells[r][c]
+                    if Ed2D.Cells[r][c] > 0 then filled = filled + 1 end
+                end
+            end
+            if filled < 3 then
+                ORBIT.notify("🎨 Сначала нарисуй фигуру", Color3.fromRGB(255,200,120), 2)
+                return
+            end
+            local nm = nameInput.Text
+            local len = utf8.len(nm)
+            if nm == "" or not len or len > 20 then
+                nm = "СВОЯ_" .. (#SHAPE_PRESETS + 1)
+            end
+            local str, err = ORBIT.share.encodeShape({
+                name = nm,
+                grid = GRID,
+                pixels = data,
+            })
+            if not str then
+                ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255,150,150), 3)
+                return
+            end
+            -- открыть панель шаринга со строкой уже в поле «отдать»
+            ORBIT.share.open(str)
+        end)
+
+        -- 📥 Импорт: открыть панель шаринга (пустую), пользователь вставит строку
+        onClick(importBtn, function()
+            if not ORBIT.share or not ORBIT.share.open then
+                ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
+                return
+            end
+            ORBIT.share.open()
+        end)
     end
 
     -- Первичная сборка сетки
@@ -1588,7 +1639,7 @@ ORBIT.PALETTE = PALETTE
 ORBIT.saveStorage = saveStorage
 
 if ORBIT.notify then
-    ORBIT.notify("🎨 2D + 🔮 3D редакторы v23.3", Color3.fromRGB(220,200,255), 3)
+    ORBIT.notify("🎨 2D + 🔮 3D редакторы v23.9", Color3.fromRGB(220,200,255), 3)
 end
 
 return true
