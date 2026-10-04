@@ -1,19 +1,15 @@
---[[ ОРБИТА v23.3 — 3D-РЕДАКТОР ФИГУР v3.0 (orbit_editor3d.lua)
-     Открывается через ORBIT.openEditor3D()
-     • Сетка N×N×N (4..8), слои Z, симметрия X/Y/Z, история 20 шагов
-     • Камера: свайп — вращение, пинч — зум, кнопки сброса/зума
-     • Выбор клетки: свой луч + rayAABB (Workspace:Raycast в ViewportFrame не работает)
-     • Сохранение в ORBIT.SHAPE_PRESETS / ORBIT.CUSTOM_SHAPES (+ writefile, если есть)
-     ВАЖНО: все идентификаторы — латиницей, кириллица только в комментариях и текстах.
-]]
---[[ ИЗМЕНЕНИЯ (общий релиз v23.5): onClick срабатывает при отпускании пальца внутри ScrollingFrame
-     (прокрутка панелей не нажимает кнопки). Логика редактора не менялась. ]]
---[[ ФИКСЫ v23.6:
-  🐛 onClick НЕ играл ORBIT.playClick — кнопки редактора молчали, при этом кнопки палитры
-     отдельно вызывали playClick (несогласованность). Теперь клик играется единообразно из onClick.
-  ✅ остальной код проверен построчно: Ed.Conns пуст (но не утечка — все коннекты на Ed.Vp/Ed.Gui,
-     умирают с Destroy), Workspace не пачкается, undo/redo/setGridSize/pickFromScreen — корректны.
-]]
+-- ОРБИТА v23.10 — 3D-РЕДАКТОР ФИГУР (orbit_editor3d.lua)
+-- Открывается через ORBIT.openEditor3D()
+-- Сетка N×N×N: 4..8 (легко), 16 (средне), 32 (тяжело), 64 (крайне тяжело).
+-- Слои Z, симметрия X/Y/Z, история 20 (10 для N>=16) шагов.
+-- Камера: свайп — вращение, пинч — зум, кнопки сброса/зума.
+-- Выбор клетки: свой луч + rayAABB.
+-- Сохранение в ORBIT.SHAPE_PRESETS / ORBIT.CUSTOM_SHAPES (+ writefile, если есть).
+-- v23.9: добавлены кнопки «Поделиться» и «Импорт» через orbit_share.lua.
+-- v23.10: добавлены размеры 16/32/64. Для больших сеток — упрощённая визуализация
+--    (иначе ViewportFrame захлёбывается). Лимит блоков = 5000 (предупреждение при
+--    превышении). История шагов = 20 для N<16, 10 для N>=16 (память).
+-- ВАЖНО: все идентификаторы латиницей, кириллица только в комментариях и текстах.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit 3D Editor] ORBIT не найден!"); return end
@@ -51,7 +47,7 @@ local COLOR_NAMES = {
     "Пастель-розовый", "Пастель-крем", "Пастель-голубой", "Пастель-мята",
     "Пастель-сиреневый", "Пастель-лаванда",
     "Белый", "Серый", "Тёмно-серый", "Тёмный", "Почти-чёрный",
-    "Золотой", "Свето-золотой", "Бронзовый",
+    "Золотой", "Светло-золотой", "Бронзовый",
 }
 
 local C = {
@@ -65,6 +61,16 @@ local C = {
 }
 
 -- ============================================================
+--       КОНСТАНТЫ
+-- ============================================================
+local SIZES_ALLOWED   = {4, 5, 6, 7, 8, 16, 32, 64}
+local BIG_THRESHOLD   = 16      -- N >= 16 — упрощённая визуализация
+local HUGE_THRESHOLD  = 32      -- N >= 32 — отключаем сетку, только рамка
+local MAX_CELLS       = 5000    -- больше — предупреждение и обрезка
+local MAX_HISTORY_BIG = 10      -- история для N >= 16
+local MAX_HISTORY_STD = 20      -- обычная
+
+-- ============================================================
 --       СОСТОЯНИЕ
 -- ============================================================
 local Ed = {
@@ -73,16 +79,17 @@ local Ed = {
     N = 6, ActiveZ = 1, Mode = "place",
     SymX = false, SymY = false, SymZ = false,
     Color = 1,
-    Cells = {},          -- [key] = {x, y, z, color}
-    Parts = {},          -- [key] = Part (визуал блока)
-    States = {}, StateIdx = 0, MaxHistory = 20,
+    Cells = {},
+    Parts = {},
+    States = {}, StateIdx = 0, MaxHistory = MAX_HISTORY_STD,
     Az = -45, El = 30, Dist = 16,
     Conns = {}, UI = {},
 }
 
 local HALF = Vector3.new(0.5, 0.5, 0.5)
 
-local function key(x, y, z) return (x * 16 + y) * 16 + z end
+-- Ключ ячейки — 32-битный (для N<=64 достаточно)
+local function key(x, y, z) return (x * 128 + y) * 128 + z end
 
 local function cellCenter(x, y, z)
     local o = (Ed.N + 1) / 2
@@ -97,10 +104,12 @@ end
 
 local function defaultDist() return 4 + Ed.N * 2 end
 
+local function isBig()  return Ed.N >= BIG_THRESHOLD end
+local function isHuge() return Ed.N >= HUGE_THRESHOLD end
+
 -- ============================================================
 --       УТИЛИТЫ GUI
 -- ============================================================
--- Создаёт объект, даёт имя с префиксом и ZIndex = ZIndex родителя + 1
 local function mk(class, props, parent)
     local o = Instance.new(class)
     for k, v in pairs(props or {}) do
@@ -120,14 +129,6 @@ local function corner(o, r)
     return mk("UICorner", {CornerRadius = UDim.new(0, r or 8)}, o)
 end
 
--- Универсальный тап (Delta/Android): Down + Touch + Activated
--- + защита от двойного срабатывания (Activated приходит после касания)
--- ============================================================
---  onClick: Down + Touch + Activated (Android / Delta).
---  Внутри ScrollingFrame кнопка срабатывает при ОТПУСКАНИИ пальца (если он почти не двигался),
---  иначе свайп для прокрутки нажимал бы кнопки под пальцем. Атрибут ReleaseOnly = true
---  включает этот режим принудительно (например, для перетаскиваемых кнопок).
--- ============================================================
 local function onClick(btn, fn, releaseOnly)
     local deb = false
     local touchStart = nil
@@ -135,7 +136,6 @@ local function onClick(btn, fn, releaseOnly)
         if deb then return end
         deb = true
         task.delay(0.12, function() deb = false end)
-        -- 🐛 ФИКС v23.6: играем клик, чтобы кнопки редактора не были «молчаливыми»
         if ORBIT.playClick then pcall(ORBIT.playClick) end
         local ok, err = pcall(fn)
         if not ok then warn("[Orbit] " .. tostring(err)) end
@@ -162,9 +162,8 @@ local function onClick(btn, fn, releaseOnly)
     btn.Activated:Connect(call)
 end
 
-
 -- ============================================================
---       ЛУЧ: rayAABB (своя функция, без Workspace:Raycast)
+--       ЛУЧ: rayAABB
 -- ============================================================
 local function rayAABB(origin, direction, mn, mx)
     local o  = {origin.X, origin.Y, origin.Z}
@@ -188,7 +187,6 @@ local function rayAABB(origin, direction, mn, mx)
     return tmin
 end
 
--- Луч из точки внутри ViewportFrame (px, py — относительно его угла)
 local function screenRay(px, py)
     local size = Ed.Vp.AbsoluteSize
     local nx = (px / math.max(size.X, 1)) * 2 - 1
@@ -201,7 +199,6 @@ local function screenRay(px, py)
     return cf.Position, dir
 end
 
--- Выбор клетки: сначала блоки активного слоя, потом плоскость слоя
 local function pickFromScreen(px, py)
     local ro, rd = screenRay(px, py)
     local bestT, bestCell = math.huge, nil
@@ -238,7 +235,6 @@ local function setupPart(p, color, transp)
     p.Color = color; p.Transparency = transp
 end
 
--- Ось-выровненный отрезок/пластина между двумя точками
 local function gridSeg(a, b, color, transp, th)
     local mn = Vector3.new(math.min(a.X, b.X), math.min(a.Y, b.Y), math.min(a.Z, b.Z))
     local mx = Vector3.new(math.max(a.X, b.X), math.max(a.Y, b.Y), math.max(a.Z, b.Z))
@@ -264,7 +260,7 @@ local function buildGrid()
     local accent = PALETTE[Ed.Color]
     local frameCol = Color3.fromRGB(120, 160, 220)
 
-    -- внешний куб (12 рёбер)
+    -- внешний куб (12 рёбер) — всегда
     for _, u in ipairs({-h, h}) do
         for _, v in ipairs({-h, h}) do
             gridSeg(Vector3.new(-h, u, v), Vector3.new(h, u, v), frameCol, 0.7, 0.05)
@@ -273,7 +269,29 @@ local function buildGrid()
         end
     end
 
-    -- остальные слои: только тонкая рамка (полупрозрачно)
+    -- HUGE (N >= 32): только рамка куба + активный слой — сетка не рисуется
+    if isHuge() then
+        local zc = Ed.ActiveZ - o
+        -- плоскость активного слоя: тонкая рамка
+        gridSeg(Vector3.new(-h, -h, zc), Vector3.new(h, -h, zc), accent, 0.4, 0.02)
+        gridSeg(Vector3.new(-h, h, zc),  Vector3.new(h, h, zc),  accent, 0.4, 0.02)
+        gridSeg(Vector3.new(-h, -h, zc), Vector3.new(-h, h, zc), accent, 0.4, 0.02)
+        gridSeg(Vector3.new(h, -h, zc),  Vector3.new(h, h, zc),  accent, 0.4, 0.02)
+        return
+    end
+
+    -- BIG (N >= 16): активный слой с сеткой, остальные слои — без рамок
+    if isBig() then
+        local zc = Ed.ActiveZ - o
+        for i = 0, N do
+            local v = -h + i
+            gridSeg(Vector3.new(v, -h, zc), Vector3.new(v, h, zc), accent, 0.5, 0.03)
+            gridSeg(Vector3.new(-h, v, zc), Vector3.new(h, v, zc), accent, 0.5, 0.03)
+        end
+        return
+    end
+
+    -- Обычный режим: рамки остальных слоёв + полная сетка активного
     for zi = 1, N do
         if zi ~= Ed.ActiveZ then
             local zc = zi - o
@@ -285,7 +303,6 @@ local function buildGrid()
         end
     end
 
-    -- активный слой: яркая сетка + лёгкая заливка
     local zc = Ed.ActiveZ - o
     gridSeg(Vector3.new(-h, -h, zc), Vector3.new(h, h, zc), accent, 0.9, 0.04)
     for i = 0, N do
@@ -336,7 +353,7 @@ local function updateCamera()
 end
 
 -- ============================================================
---       ИСТОРИЯ (до 20 шагов)
+--       ИСТОРИЯ
 -- ============================================================
 local function snapshot()
     local s = {}
@@ -348,10 +365,10 @@ local function restore(s)
     for k, c in pairs(s) do Ed.Cells[k] = {x = c.x, y = c.y, z = c.z, color = c.color} end
 end
 local function resetHistory()
+    Ed.MaxHistory = isBig() and MAX_HISTORY_BIG or MAX_HISTORY_STD
     Ed.States = {snapshot()}
     Ed.StateIdx = 1
 end
--- вызывается ПОСЛЕ изменения: запоминает новое состояние
 local function commit()
     while #Ed.States > Ed.StateIdx do table.remove(Ed.States) end
     table.insert(Ed.States, snapshot())
@@ -378,7 +395,6 @@ resetHistory()
 -- ============================================================
 --       ДЕЙСТВИЯ НАД СЕТКОЙ
 -- ============================================================
--- Точка + её зеркальные пары по включённым осям симметрии
 local function mirrored(x, y, z)
     local pts = {{x, y, z}}
     local N = Ed.N
@@ -400,18 +416,28 @@ end
 local function applyAt(x, y, z)
     local col = PALETTE[Ed.Color]
     local changed = false
+    local warned = false
     for _, p in ipairs(mirrored(x, y, z)) do
         local k = key(p[1], p[2], p[3])
         local cur = Ed.Cells[k]
         if Ed.Mode == "place" then
-            -- поставить (на занятой клетке — перекрасить)
-            if not cur or cur.color ~= col then
-                Ed.Cells[k] = {x = p[1], y = p[2], z = p[3], color = col}
+            if not cur then
+                if countCells() >= MAX_CELLS then
+                    if not warned then
+                        warned = true
+                        ORBIT.notify("⚠️ Лимит блоков: " .. MAX_CELLS, Color3.fromRGB(255,200,120), 3)
+                    end
+                else
+                    Ed.Cells[k] = {x = p[1], y = p[2], z = p[3], color = col}
+                    changed = true
+                end
+            elseif cur.color ~= col then
+                cur.color = col
                 changed = true
             end
         elseif Ed.Mode == "remove" then
             if cur then Ed.Cells[k] = nil; changed = true end
-        else -- paint
+        else
             if cur and cur.color ~= col then cur.color = col; changed = true end
         end
     end
@@ -420,9 +446,19 @@ end
 
 local function fillWith(testFn)
     local col = PALETTE[Ed.Color]
+    local added = 0
     for x = 1, Ed.N do for y = 1, Ed.N do for z = 1, Ed.N do
         if testFn(x, y, z) then
-            Ed.Cells[key(x, y, z)] = {x = x, y = y, z = z, color = col}
+            local k = key(x, y, z)
+            if not Ed.Cells[k] then
+                if countCells() + added >= MAX_CELLS then
+                    ORBIT.notify("⚠️ Лимит блоков: " .. MAX_CELLS .. " (обрезано)", Color3.fromRGB(255,200,120), 3)
+                    commit(); refreshView()
+                    return
+                end
+                added = added + 1
+            end
+            Ed.Cells[k] = {x = x, y = y, z = z, color = col}
         end
     end end end
     commit(); refreshView()
@@ -459,7 +495,6 @@ local function clearLayer()
     commit(); refreshView()
 end
 
--- Поворот всей фигуры на 90° вокруг центра куба
 local function rotateAll(axis, dir)
     local N = Ed.N
     local c = (N + 1) / 2
@@ -469,7 +504,7 @@ local function rotateAll(axis, dir)
         local nx, ny, nz = x, y, z
         if axis == "X" then
             ny, nz = -z * dir, y * dir
-        else -- "Y"
+        else
             nx, nz = -z * dir, x * dir
         end
         local fx = math.floor(nx + c + 0.5)
@@ -493,6 +528,11 @@ local function setGridSize(n)
     buildGrid()
     updateCamera()
     refreshView()
+    if n >= 32 then
+        ORBIT.notify("🐢 N=" .. n .. ": упрощённая сетка (иначе лаги)", Color3.fromRGB(255,200,120), 3)
+    elseif n >= 16 then
+        ORBIT.notify("⚠️ N=" .. n .. ": без подсветки остальных слоёв", Color3.fromRGB(255,220,140), 2)
+    end
 end
 
 local function setActiveZ(z)
@@ -525,7 +565,6 @@ local function registerShape(name)
     end
     if minX == math.huge then return false, "Пустая фигура" end
 
-    -- Нормализуем: фигура центрируется в кубе размером size
     local size = math.max(maxX - minX + 1, maxY - minY + 1, maxZ - minZ + 1)
     local cx, cy, cz = (minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2
     local mid = (size + 1) / 2
@@ -536,7 +575,6 @@ local function registerShape(name)
         })
     end
 
-    -- Уникальное имя
     local function exists(nm)
         for _, sp in ipairs(ORBIT.SHAPE_PRESETS) do
             if sp.name == nm then return true end
@@ -566,7 +604,6 @@ local function registerShape(name)
         end,
     })
 
-    -- Хранилище (формат совпадает с загрузчиком в orbit_p4_shop.lua)
     ORBIT.CUSTOM_SHAPES = ORBIT.CUSTOM_SHAPES or {}
     local saved = {}
     for i, b in ipairs(blocksCopy) do
@@ -660,7 +697,7 @@ local function openEditor3D()
     buildGrid()
     syncBlocks()
 
-    -- ---------- Жесты: свайп / пинч / тап ----------
+    -- ---------- Жесты ----------
     local touches = {}
     local g = {moved = false, mouse = false, last = nil, start = nil}
     local pinchStart, pinchZoom
@@ -706,7 +743,7 @@ local function openEditor3D()
             if n == 1 then
                 g.start, g.last, g.moved = input.Position, input.Position, false
             else
-                g.moved = true; g.last = nil   -- второй палец: это не тап
+                g.moved = true; g.last = nil
             end
         elseif t == Enum.UserInputType.MouseButton1 then
             g.mouse = true
@@ -724,7 +761,7 @@ local function openEditor3D()
                 if not pinchStart then
                     pinchStart, pinchZoom = d, Ed.Dist
                 else
-                    Ed.Dist = math.clamp(pinchZoom * pinchStart / d, 5, 40)
+                    Ed.Dist = math.clamp(pinchZoom * pinchStart / d, 5, math.max(40, Ed.N * 3))
                     updateCamera()
                 end
                 return
@@ -733,7 +770,7 @@ local function openEditor3D()
         elseif t == Enum.UserInputType.MouseMovement then
             if g.mouse then rotateBy(input.Position, 6) end
         elseif t == Enum.UserInputType.MouseWheel then
-            Ed.Dist = math.clamp(Ed.Dist - input.Position.Z * 1.5, 5, 40)
+            Ed.Dist = math.clamp(Ed.Dist - input.Position.Z * 1.5, 5, math.max(40, Ed.N * 3))
             updateCamera()
         end
     end)
@@ -755,7 +792,7 @@ local function openEditor3D()
         end
     end)
 
-    -- ---------- Палитра (всегда под вьюпортом) ----------
+    -- ---------- Палитра ----------
     local palX, palY, palW = 10, 36 + vpH + 6, vpW
     local palBlock = mk("Frame", {
         Name = "PalBlock", Size = UDim2.new(0, palW, 0, 74), Position = UDim2.new(0, palX, 0, palY),
@@ -811,12 +848,11 @@ local function openEditor3D()
             Ed.Color = i
             refreshPalette()
             buildGrid()
-            -- playClick теперь играет сам onClick — отдельный вызов не нужен
         end)
     end
     refreshPalette()
 
-    -- ---------- Панель инструментов (вертикальный скролл) ----------
+    -- ---------- Панель инструментов ----------
     local toolsX, toolsY, toolsW, toolsH
     if IS_MOBILE then
         toolsX, toolsY = 10, palY + 78
@@ -903,24 +939,48 @@ local function openEditor3D()
         paintModes()
     end
 
-    -- 📐 РАЗМЕР СЕТКИ
+    -- 📐 РАЗМЕР СЕТКИ — теперь два ряда
+    -- Ряд 1: 4 5 6 7 8 (стандарт)
+    -- Ряд 2: 16 32 64 (большие)
     do
-        local body = section("📐 РАЗМЕР СЕТКИ", 32)
-        local sizes = {4, 5, 6, 7, 8}
-        local btns = {}
+        local body = section("📐 РАЗМЕР СЕТКИ", 68)
+        local row1 = {4, 5, 6, 7, 8}
+        local row2 = {16, 32, 64}
+        local btnsBySize = {}
         local function paintSizes()
-            for i, n in ipairs(sizes) do
-                btns[i].BackgroundColor3 = (Ed.N == n) and C.btnOn or C.btn
+            for n, b in pairs(btnsBySize) do
+                if n == Ed.N then
+                    b.BackgroundColor3 = C.btnOn
+                elseif n >= HUGE_THRESHOLD then
+                    b.BackgroundColor3 = Color3.fromRGB(110, 45, 45)
+                elseif n >= BIG_THRESHOLD then
+                    b.BackgroundColor3 = Color3.fromRGB(110, 80, 45)
+                else
+                    b.BackgroundColor3 = C.btn
+                end
             end
         end
-        local items = {}
-        for i, n in ipairs(sizes) do
-            items[i] = {text = tostring(n), fn = function()
+
+        local items1 = {}
+        for i, n in ipairs(row1) do
+            items1[i] = {text = tostring(n), fn = function()
                 if Ed.N ~= n then setGridSize(n) end
                 paintSizes()
             end}
         end
-        btns = buttonRow(body, items, 0, 32, 13)
+        local btns1 = buttonRow(body, items1, 0, 32, 12)
+        for i, n in ipairs(row1) do btnsBySize[n] = btns1[i] end
+
+        local items2 = {}
+        for i, n in ipairs(row2) do
+            items2[i] = {text = tostring(n) .. (n >= HUGE_THRESHOLD and " ⚠" or ""), fn = function()
+                if Ed.N ~= n then setGridSize(n) end
+                paintSizes()
+            end}
+        end
+        local btns2 = buttonRow(body, items2, 36, 30, 12)
+        for i, n in ipairs(row2) do btnsBySize[n] = btns2[i] end
+
         paintSizes()
     end
 
@@ -932,7 +992,6 @@ local function openEditor3D()
             {text = "", fn = function() end},
             {text = "▲", fn = function() setActiveZ(Ed.ActiveZ + 1) end},
         }, 0, 34, 16)
-        -- средняя «кнопка» — просто подпись текущего слоя
         local zLbl = btns[2]
         zLbl.BackgroundColor3 = Color3.fromRGB(35, 30, 50)
         zLbl.TextColor3 = Color3.fromRGB(255, 220, 150)
@@ -1007,7 +1066,7 @@ local function openEditor3D()
         local cam = Color3.fromRGB(50, 60, 80)
         buttonRow(body, {
             {text = "➕ Зум", color = cam, fn = function() Ed.Dist = math.max(5, Ed.Dist - 1.5); updateCamera() end},
-            {text = "➖ Зум", color = cam, fn = function() Ed.Dist = math.min(40, Ed.Dist + 1.5); updateCamera() end},
+            {text = "➖ Зум", color = cam, fn = function() Ed.Dist = math.min(math.max(40, Ed.N * 3), Ed.Dist + 1.5); updateCamera() end},
             {text = "🎯 Сброс камеры", color = cam, fn = function()
                 Ed.Az, Ed.El, Ed.Dist = -45, 30, defaultDist()
                 updateCamera()
@@ -1015,9 +1074,11 @@ local function openEditor3D()
         }, 0, 32, 10)
     end
 
-    -- 💾 СОХРАНЕНИЕ
+    -- 💾 СОХРАНЕНИЕ (+ share/import)
     do
-        local body = section("💾 СОХРАНЕНИЕ", 74)
+        -- bodyH: nameInput(0-32) saveBtn(38-72) shareBtn(78-112) importBtn(118-152)
+        local body = section("💾 СОХРАНЕНИЕ И ОБМЕН", 160)
+
         local nameInput = mk("TextBox", {
             Name = "NameInput", Size = UDim2.new(1, -4, 0, 32), Position = UDim2.new(0, 2, 0, 0),
             BackgroundColor3 = Color3.fromRGB(35, 30, 50), TextColor3 = C.text,
@@ -1052,21 +1113,86 @@ local function openEditor3D()
                 ORBIT.notify("❌ " .. tostring(result), Color3.fromRGB(255, 120, 120), 2)
             end
         end)
+
+        -- 📤 Поделиться
+        local shareBtn = mk("TextButton", {
+            Name = "Share", Size = UDim2.new(1, -4, 0, 34), Position = UDim2.new(0, 2, 0, 78),
+            BackgroundColor3 = Color3.fromRGB(70, 60, 130), TextColor3 = Color3.fromRGB(220, 210, 255),
+            Font = Enum.Font.GothamBold, TextSize = 12, Text = "📤 ПОДЕЛИТЬСЯ ФИГУРОЙ",
+            AutoButtonColor = false, BorderSizePixel = 0,
+        }, body)
+        corner(shareBtn, 8)
+        onClick(shareBtn, function()
+            if not ORBIT.share or not ORBIT.share.encodeShape then
+                ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255, 150, 150), 3)
+                return
+            end
+            if countCells() < 2 then
+                ORBIT.notify("🧱 Поставь хотя бы 2 блока", Color3.fromRGB(255, 200, 120), 2)
+                return
+            end
+            -- нормализуем координаты (как в registerShape) и упакуем
+            local minX, minY, minZ = math.huge, math.huge, math.huge
+            local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
+            for _, c in pairs(Ed.Cells) do
+                minX = math.min(minX, c.x); maxX = math.max(maxX, c.x)
+                minY = math.min(minY, c.y); maxY = math.max(maxY, c.y)
+                minZ = math.min(minZ, c.z); maxZ = math.max(maxZ, c.z)
+            end
+            local size = math.max(maxX - minX + 1, maxY - minY + 1, maxZ - minZ + 1)
+            local cx, cy, cz = (minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2
+            local mid = (size + 1) / 2
+            local blocks = {}
+            for _, c in pairs(Ed.Cells) do
+                blocks[#blocks + 1] = {
+                    x = math.floor(c.x - cx + mid + 0.5),
+                    y = math.floor(c.y - cy + mid + 0.5),
+                    z = math.floor(c.z - cz + mid + 0.5),
+                    r = c.color.R, g = c.color.G, b = c.color.B,
+                }
+            end
+            local nm = nameInput.Text
+            if nm == "" or (utf8.len(nm) or 0) > 20 then nm = "3D_СВОЯ" end
+            local str, err = ORBIT.share.encodeShape({
+                name = nm, is3D = true, N = size, blocks = blocks,
+            })
+            if not str then
+                ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255, 150, 150), 3)
+                return
+            end
+            ORBIT.share.open(str)
+        end)
+
+        -- 📥 Импорт
+        local importBtn = mk("TextButton", {
+            Name = "Import", Size = UDim2.new(1, -4, 0, 34), Position = UDim2.new(0, 2, 0, 118),
+            BackgroundColor3 = Color3.fromRGB(50, 80, 110), TextColor3 = Color3.fromRGB(200, 230, 255),
+            Font = Enum.Font.GothamBold, TextSize = 12, Text = "📥 ИМПОРТ ЧУЖОЙ ФИГУРЫ",
+            AutoButtonColor = false, BorderSizePixel = 0,
+        }, body)
+        corner(importBtn, 8)
+        onClick(importBtn, function()
+            if not ORBIT.share or not ORBIT.share.open then
+                ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255, 150, 150), 3)
+                return
+            end
+            ORBIT.share.open()
+        end)
     end
 
     -- Подсказка
-    local hintText = "👆 Свайп по 3D — вращать\n🔍 Пинч двумя пальцами — зум\n👆 Тап по клетке — действие по режиму\n📚 Редактируется активный слой (▲/▼)"
+    local hintText = "👆 Свайп по 3D — вращать\n🔍 Пинч двумя пальцами — зум\n👆 Тап по клетке — действие по режиму\n📚 Редактируется активный слой (▲/▼)\n⚠️ N>=16: упрощённая сетка (иначе лаги)"
     if IS_MOBILE then
         secOrder = secOrder + 1
         mk("TextLabel", {
-            Name = "Hint", Size = UDim2.new(1, 0, 0, 62), BackgroundColor3 = Color3.fromRGB(30, 40, 60),
+            Name = "Hint", Size = UDim2.new(1, 0, 0, 78), BackgroundColor3 = Color3.fromRGB(30, 40, 60),
             BackgroundTransparency = 0.3, BorderSizePixel = 0, Text = hintText,
             TextColor3 = Color3.fromRGB(200, 220, 255), Font = Enum.Font.Gotham, TextSize = 10,
             TextWrapped = true, LayoutOrder = secOrder,
         }, ctrl)
     else
         local hint = mk("TextLabel", {
-            Name = "Hint", Size = UDim2.new(0, palW, 0, 70), Position = UDim2.new(0, 10, 0, palY + 82),
+            Name = "Hint", Size = UDim2.new(0, palW, 0, 86), Position = UDim2.new(0, 10, 0, palY + 82),
             BackgroundColor3 = Color3.fromRGB(30, 40, 60), BackgroundTransparency = 0.3,
             BorderSizePixel = 0, Text = hintText, TextColor3 = Color3.fromRGB(200, 220, 255),
             Font = Enum.Font.Gotham, TextSize = 10, TextWrapped = true,
@@ -1074,9 +1200,8 @@ local function openEditor3D()
         corner(hint, 6)
     end
 
-    -- Обновление счётчика и подписи слоя
     Ed.UI.refreshInfo = function()
-        countLbl.Text = "🧱 " .. countCells()
+        countLbl.Text = "🧱 " .. countCells() .. (countCells() >= MAX_CELLS and "/" .. MAX_CELLS or "")
         if Ed.UI.refreshLayer then Ed.UI.refreshLayer() end
     end
     Ed.UI.refreshInfo()
@@ -1091,7 +1216,7 @@ ORBIT.openEditor3D = openEditor3D
 ORBIT.Editor3D = Ed
 
 if ORBIT.notify then
-    ORBIT.notify("🔮 3D-Редактор v3.0 загружен", Color3.fromRGB(200, 180, 255), 3)
+    ORBIT.notify("🔮 3D-Редактор v23.10 (до 64×64)", Color3.fromRGB(200, 180, 255), 3)
 end
-warn("[Orbit 3D Editor v3.0] Загружен ✅")
+warn("[Orbit 3D Editor v23.10] Загружен ✅")
 return true
