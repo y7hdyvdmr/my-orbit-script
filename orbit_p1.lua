@@ -1,10 +1,11 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v23.3 — CORE + LOADER                           ║
+    ║   ОРБИТА v23.2 — CORE + LOADER                           ║
     ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗАГРУЗЧИК                ║
-    ║   🆕 50 ЦВЕТОВ в палитре                                  ║
-    ║   🆕 Трейлы меньше (0.05)                                 ║
-    ║   🆕 Обложка с круговым прогрессом                        ║
+    ║   🆕 Круговой прогресс вокруг иконки этапа                ║
+    ║   🆕 Плавные анимации появления                           ║
+    ║   🆕 Улучшенный дизайн обложки                            ║
+    ║   🆕 Иконки всех 4 частей + античит + sfx + extras + 3D   ║
     ╚══════════════════════════════════════════════════════════╝
 --]]
 
@@ -17,7 +18,7 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v23.3"
+ORBIT.version = "v23.2"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, sfx = false, ac = false, extras = false, editor3d = false }
 ORBIT.started = false
 ORBIT.PLATFORM = nil
@@ -105,23 +106,19 @@ ORBIT.DEFAULT_SETTINGS = {
     Rainbow = true, FixedColor = Color3.fromRGB(0, 180, 255),
     ShowBlockNames = false, NameColor = Color3.fromRGB(255, 255, 255),
     LerpSpeed = 5.0,
-    TrailEnabled = false, TrailLength = 0.25, TrailWidth = 0.5,
+    TrailEnabled = false, TrailLength = 0.5, TrailWidth = 0.8,
     PulseEnabled = false, PulseAmplitude = 0.15, PulseSpeed = 4.0,
     WaveEnabled = false, WaveSpeed = 3.0, WaveLength = 2.0, WaveAmplitude = 2.5,
     ExplosionEnabled = false, ExplosionSpeed = 0.4, ExplosionPower = 0.7,
     HeartScale = 0.65, OrbitPattern = "Круг",
-
     AuraEnabled = false, AuraSize = 3.5, AuraThickness = 0.15,
     AuraColor = Color3.fromRGB(150, 100, 255),
     AuraRing = true, AuraParticles = true, AuraShapes = true,
     AuraSpeedMult = 1.0, AuraDirection = 1,
     AuraHeight = 0.5, AuraShapeScale = 1.0,
-    AuraTrailEnabled = false, AuraTrailLength = 0.25, AuraTrailWidth = 0.35,
+    AuraTrailEnabled = false, AuraTrailLength = 0.5, AuraTrailWidth = 0.8,
     AuraSpinEnabled = true, AuraSpinAxis = "Y", AuraSpinSpeed = 60,
-    AuraPulseEnabled = false,
-    AuraPattern = "Круг",
-    AuraLightEnabled = false, AuraLightRange = 8, AuraLightBrightness = 2,
-
+    AuraPulseEnabled = false, AuraPattern = "Круг",
     FireEnabled = false, FireColor = Color3.fromRGB(255, 120, 0),
     FireSize = 6, FireHeat = 8,
     AutoSaveEnabled = false,
@@ -129,7 +126,6 @@ ORBIT.DEFAULT_SETTINGS = {
     RainbowSpeed = 0.15,
     GradientEnabled = false, GradientSpeed = 0.5,
     AutoShapeSwap = false, AutoShapeSwapInterval = 15,
-
     ProtEnabled = false,
     AntiKnockback = true, AntiTeleport = true, AntiFreeze = true,
     AutoHeal = false, AutoHealValue = 100,
@@ -137,15 +133,11 @@ ORBIT.DEFAULT_SETTINGS = {
     SavePosOnEnable = false, LockPosition = false,
     SmartFloor = true, SmartFloorY = 5, DisableFallDamage = true,
     DodgeEnabled = false, ReverseFlingEnabled = false,
-
     ESPEnabled = false, ESPMaxDistance = 500,
-
     UseMySkin = false, AutoCollect = true, CollectRadius = 12,
-
     AtmoEnabled = false, AtmoType = "Снег", AtmoIntensity = "Средняя", AtmoSize = "Средний",
-    AtmoColorMode = "Авто", AtmoColorIndex = 1,
-    TrailStreamEnabled = false, TrailStreamColorMode = "Радуга", TrailStreamColorIndex = 1,
-    ReactSparksEnabled = false, ReactSparksColorIndex = 1,
+    TrailStreamEnabled = false, TrailStreamColorMode = "Радуга",
+    ReactSparksEnabled = false,
 }
 ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
 
@@ -180,8 +172,8 @@ P.SPEED_MODE = {
 P.speedModeIndex = 1
 P.DIRECTION = {
     {name="Чередование",dirs={1,-1,1,-1,1}},
-    {name="Все по часовой",dirs={1,1,1,1,1}},
-    {name="Все против часовой",dirs={-1,-1,-1,-1,-1}},
+    {name="Все ↻",dirs={1,1,1,1,1}},
+    {name="Все ↺",dirs={-1,-1,-1,-1,-1}},
     {name="Попарно",dirs={1,1,-1,-1,1}},
 }
 P.directionIndex = 1
@@ -198,11 +190,10 @@ P.SHAPE_SIZE = {
 }
 P.shapeSizeIndex = 3
 P.ORBIT_PATTERNS = {
-    {name="Круг"},{name="Спираль"},{name="Волна"},{name="Восьмерка"},
+    {name="Круг"},{name="Спираль"},{name="Волна"},{name="Восьмёрка"},
     {name="Зигзаг"},{name="Лиссажу"},{name="Хаос"},
 }
 P.orbitPatternIndex = 1
-
 P.SHAPE_CATEGORIES = {
     {name="ВСЕ"},
     {name="ОСНОВНЫЕ",  shapes={"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"}},
@@ -211,106 +202,76 @@ P.SHAPE_CATEGORIES = {
     {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ"}},
 }
 P.shapeCategoryIndex = 1
-
--- 🆕 50 ЦВЕТОВ
 P.COLORS = {
     {name="РАДУГА",rainbow=true},
     {name="КРАСНЫЙ",c=Color3.fromRGB(255,50,50)},
-    {name="АЛЫЙ",c=Color3.fromRGB(220,20,60)},
     {name="ОРАНЖЕВЫЙ",c=Color3.fromRGB(255,140,40)},
-    {name="ПЕРСИКОВЫЙ",c=Color3.fromRGB(255,180,120)},
-    {name="АБРИКОСОВЫЙ",c=Color3.fromRGB(255,200,150)},
     {name="ЖЁЛТЫЙ",c=Color3.fromRGB(255,230,60)},
-    {name="ЗОЛОТОЙ",c=Color3.fromRGB(255,200,40)},
-    {name="МЁД",c=Color3.fromRGB(240,190,80)},
-    {name="ШАФРАН",c=Color3.fromRGB(255,180,30)},
     {name="ЗЕЛЁНЫЙ",c=Color3.fromRGB(0,255,120)},
-    {name="ЛАЙМ",c=Color3.fromRGB(180,255,80)},
-    {name="САЛАТОВЫЙ",c=Color3.fromRGB(150,230,100)},
-    {name="МЯТА",c=Color3.fromRGB(150,255,200)},
-    {name="ИЗУМРУД",c=Color3.fromRGB(80,200,120)},
-    {name="ТРАВА",c=Color3.fromRGB(90,200,80)},
-    {name="ОЛИВКОВЫЙ",c=Color3.fromRGB(150,170,80)},
-    {name="ХАКИ",c=Color3.fromRGB(189,183,107)},
     {name="ГОЛУБОЙ",c=Color3.fromRGB(0,180,255)},
-    {name="НЕБО",c=Color3.fromRGB(120,190,255)},
-    {name="ЛАЗУРЬ",c=Color3.fromRGB(80,180,255)},
-    {name="БИРЮЗОВЫЙ",c=Color3.fromRGB(64,224,208)},
-    {name="АКВАМАРИН",c=Color3.fromRGB(120,220,220)},
-    {name="МОРСКАЯ ВОЛНА",c=Color3.fromRGB(64,180,180)},
-    {name="ЛЁД",c=Color3.fromRGB(180,230,255)},
     {name="СИНИЙ",c=Color3.fromRGB(40,80,255)},
-    {name="САПФИР",c=Color3.fromRGB(15,82,186)},
-    {name="ИНДИГО",c=Color3.fromRGB(75,0,130)},
     {name="ФИОЛЕТОВЫЙ",c=Color3.fromRGB(160,80,255)},
-    {name="АМЕТИСТ",c=Color3.fromRGB(180,100,240)},
-    {name="ЛАВАНДА",c=Color3.fromRGB(180,130,255)},
-    {name="СИРЕНЕВЫЙ",c=Color3.fromRGB(200,160,255)},
-    {name="ОРХИДЕЯ",c=Color3.fromRGB(220,120,230)},
-    {name="ПУРПУРНЫЙ",c=Color3.fromRGB(140,30,180)},
-    {name="МАДЖЕНТА",c=Color3.fromRGB(255,0,200)},
     {name="РОЗОВЫЙ",c=Color3.fromRGB(255,90,180)},
-    {name="КАРМИН",c=Color3.fromRGB(230,30,90)},
-    {name="ВИШНЯ",c=Color3.fromRGB(180,30,60)},
-    {name="МАЛИНОВЫЙ",c=Color3.fromRGB(200,0,80)},
-    {name="БОРДО",c=Color3.fromRGB(120,20,40)},
-    {name="РУБИН",c=Color3.fromRGB(220,20,90)},
-    {name="КОРАЛЛ",c=Color3.fromRGB(255,127,80)},
-    {name="ТЕРРАКОТА",c=Color3.fromRGB(200,110,80)},
-    {name="МЕДНЫЙ",c=Color3.fromRGB(184,115,51)},
+    {name="НЕОН-РОЗОВЫЙ",c=Color3.fromRGB(255,0,200)},
+    {name="НЕОН-ЗЕЛЁНЫЙ",c=Color3.fromRGB(80,255,80)},
+    {name="НЕОН-ГОЛУБОЙ",c=Color3.fromRGB(0,255,255)},
+    {name="НЕОН-ЖЁЛТЫЙ",c=Color3.fromRGB(255,255,0)},
+    {name="НЕОН-ОРАНЖ",c=Color3.fromRGB(255,120,0)},
+    {name="НЕОН-ФИОЛЕТ",c=Color3.fromRGB(200,0,255)},
+    {name="ЗОЛОТОЙ",c=Color3.fromRGB(255,200,40)},
+    {name="СЕРЕБРЯНЫЙ",c=Color3.fromRGB(220,220,230)},
     {name="БРОНЗОВЫЙ",c=Color3.fromRGB(205,127,50)},
+    {name="МЕДНЫЙ",c=Color3.fromRGB(184,115,51)},
     {name="ОГОНЬ",c=Color3.fromRGB(255,90,0)},
     {name="ЛАВА",c=Color3.fromRGB(200,40,0)},
+    {name="ЛЁД",c=Color3.fromRGB(180,230,255)},
+    {name="ТРАВА",c=Color3.fromRGB(90,200,80)},
+    {name="НЕБО",c=Color3.fromRGB(120,190,255)},
+    {name="БИРЮЗОВЫЙ",c=Color3.fromRGB(64,224,208)},
+    {name="ИЗУМРУД",c=Color3.fromRGB(80,200,120)},
+    {name="РУБИН",c=Color3.fromRGB(220,20,90)},
+    {name="САПФИР",c=Color3.fromRGB(15,82,186)},
+    {name="КОРАЛЛ",c=Color3.fromRGB(255,127,80)},
+    {name="ЛАВАНДА",c=Color3.fromRGB(180,130,255)},
     {name="БЕЛЫЙ",c=Color3.fromRGB(245,245,255)},
-    {name="СЕРЕБРЯНЫЙ",c=Color3.fromRGB(220,220,230)},
     {name="СЕРЫЙ",c=Color3.fromRGB(150,150,160)},
     {name="ЧЁРНЫЙ",c=Color3.fromRGB(25,25,30)},
+    {name="МАЛИНОВЫЙ",c=Color3.fromRGB(200,0,80)},
+    {name="ИНДИГО",c=Color3.fromRGB(75,0,130)},
+    {name="ХАКИ",c=Color3.fromRGB(189,183,107)},
 }
 P.colorIndex = 1
 P.auraColorIndex = 1
-
 P.HEART_STEPS = {0.2, 0.35, 0.5, 0.65, 0.9, 1.2, 1.6, 2.2}
-
--- 🆕 Меньше трейлы
 P.TRAIL_LEN = {
-    {name="Крошечный",value=0.05},{name="Микро",value=0.1},
-    {name="Очень короткий",value=0.15},{name="Короткий",value=0.25},
-    {name="Средний",value=0.5},{name="Длинный",value=0.9},
-    {name="Очень длинный",value=1.6},{name="Гигантский",value=2.5},
-}
-P.trailLengthIndex = 4
-P.TRAIL_WID = {
-    {name="Ниточка",value=0.05},{name="Очень тонкий",value=0.1},
-    {name="Тонкий",value=0.2},{name="Средний",value=0.5},
-    {name="Толстый",value=1.0},{name="Широкий",value=1.8},
-    {name="Огромный",value=3.0},{name="Гигантский",value=4.5},
-}
-P.trailWidthIndex = 4
-
--- 🆕 Меньше трейлы ауры
-P.AURA_TRAIL_LEN = {
-    {name="Исчезающий",value=0.02},{name="Крошечный",value=0.05},
-    {name="Микро",value=0.1},{name="Очень короткий",value=0.15},
     {name="Короткий",value=0.25},{name="Средний",value=0.5},
-    {name="Длинный",value=1.0},{name="Очень длинный",value=1.8},
-    {name="Гигантский",value=3.0},{name="Огромный",value=5.0},
+    {name="Длинный",value=0.9},{name="Очень длинный",value=1.6},{name="Гигантский",value=2.5},
 }
-P.auraTrailLengthIndex = 5
+P.trailLengthIndex = 2
+P.TRAIL_WID = {
+    {name="Тонкий",value=0.3},{name="Средний",value=0.8},
+    {name="Толстый",value=1.5},{name="Широкий",value=2.5},{name="Огромный",value=4.0},
+}
+P.trailWidthIndex = 2
+P.AURA_TRAIL_LEN = {
+    {name="Микро",value=0.1},{name="Очень короткий",value=0.2},{name="Короткий",value=0.35},
+    {name="Средний",value=0.6},{name="Длинный",value=1.0},{name="Очень длинный",value=1.8},
+    {name="Гигантский",value=3.0},{name="Огромный",value=5.0},{name="Бесконечный",value=10.0},
+    {name="Абсолютный",value=20.0},
+}
+P.auraTrailLengthIndex = 4
 P.AURA_TRAIL_WID = {
-    {name="Ниточка",value=0.05},{name="Микро",value=0.1},
-    {name="Очень тонкий",value=0.2},{name="Тонкий",value=0.35},
-    {name="Средний",value=0.7},{name="Толстый",value=1.4},
-    {name="Широкий",value=2.5},{name="Огромный",value=4.5},
-    {name="Гигантский",value=7.0},{name="Колоссальный",value=11.0},
+    {name="Тонкий",value=0.3},{name="Средний",value=0.8},{name="Толстый",value=1.5},
+    {name="Широкий",value=2.5},{name="Огромный",value=4.0},{name="Гигантский",value=6.5},
+    {name="Колоссальный",value=10.0},{name="Мега",value=15.0},{name="Абсолютный",value=25.0},
 }
-P.auraTrailWidthIndex = 4
-
+P.auraTrailWidthIndex = 2
 P.AURA_SPEED = {
     {name="0.25x",value=0.25},{name="0.5x",value=0.5},{name="1x",value=1.0},
     {name="2x",value=2.0},{name="3x",value=3.0},{name="5x",value=5.0},
 }
 P.auraSpeedIndex = 3
-P.AURA_DIR = { {name="Вправо",value=1},{name="Влево",value=-1} }
+P.AURA_DIR = { {name="→ Право (↻)",value=1},{name="← Лево (↺)",value=-1} }
 P.auraDirIndex = 1
 P.AURA_SIZE = {
     {name="XS",value=2.0},{name="S",value=3.0},{name="M",value=3.5},
@@ -338,15 +299,14 @@ P.AURA_SPIN_SPEED = {
 }
 P.auraSpinSpeedIndex = 2
 P.AURA_SPIN_AXIS = {
-    {name="ВЕРХ/ВНИЗ",value="Y"},{name="ВЛЕВО/ВПРАВО",value="X"},
+    {name="↕️ ВЕРХ/ВНИЗ",value="Y"},{name="↔️ ВЛЕВО/ВПРАВО",value="X"},
 }
 P.auraSpinAxisIndex = 1
 P.AURA_PATTERNS = {
-    {name="Круг"},{name="Спираль"},{name="Волна"},{name="Восьмерка"},
+    {name="Круг"},{name="Спираль"},{name="Волна"},{name="Восьмёрка"},
     {name="Зигзаг"},{name="Лиссажу"},{name="Хаос"},
 }
 P.auraPatternIndex = 1
-
 P.FIRE_SIZE = {
     {name="Маленький",value=3},{name="Средний",value=6},{name="Большой",value=10},
     {name="Огромный",value=16},{name="Адский",value=25},
@@ -573,7 +533,7 @@ ORBIT.unload = function()
     if GENV then GENV.ORBIT = nil end
 end
 ORBIT.start = function()
-    ORBIT.notify("Не все части загружены", Color3.fromRGB(255,200,100), 3)
+    ORBIT.notify("⏳ Не все части загружены", Color3.fromRGB(255,200,100), 3)
 end
 
 -- ============================================================
@@ -599,6 +559,9 @@ local C_BORDER  = Color3.fromRGB(140, 100, 220)
 local C_RED     = Color3.fromRGB(255, 100, 120)
 local C_CYAN    = Color3.fromRGB(120, 220, 255)
 
+-- ============================================================
+--       BACKGROUND
+-- ============================================================
 local backdrop = Instance.new("Frame")
 backdrop.Size = UDim2.new(1, 0, 1, 0)
 backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -650,7 +613,7 @@ logoStroke.Color = C_BORDER; logoStroke.Thickness = 2; logoStroke.Transparency =
 local logoIcon = Instance.new("TextLabel")
 logoIcon.Size = UDim2.new(1, 0, 1, 0)
 logoIcon.BackgroundTransparency = 1
-logoIcon.Text = "О"
+logoIcon.Text = "✨"
 logoIcon.TextColor3 = C_GREEN
 logoIcon.Font = Enum.Font.GothamBold
 logoIcon.TextSize = 44
@@ -748,18 +711,18 @@ local function buildPlatformButton(text, icon, x, y, w, h, accent)
 end
 
 local mobileBtn, mobileStroke, mobileDesc = buildPlatformButton(
-    "ТЕЛЕФОН", "М", 24, 222, 200, 220, C_CYAN)
-mobileDesc.Text = "- Меньше фигур\n- Лёгкие эффекты\n- Крупные кнопки\n- Вертикальный UI"
+    "ТЕЛЕФОН", "📱", 24, 222, 200, 220, C_CYAN)
+mobileDesc.Text = "• Меньше фигур\n• Лёгкие эффекты\n• Крупные кнопки\n• Вертикальный UI"
 
 local pcBtn, pcStroke, pcDesc = buildPlatformButton(
-    "КОМПЬЮТЕР", "К", 236, 222, 200, 220, C_ORANGE)
-pcDesc.Text = "- Больше фигур\n- Все эффекты\n- Полный UI\n- Широкие панели"
+    "КОМПЬЮТЕР", "💻", 236, 222, 200, 220, C_ORANGE)
+pcDesc.Text = "• Больше фигур\n• Все эффекты\n• Полный UI\n• Широкие панели"
 
 local autoDetectLbl = Instance.new("TextLabel")
 autoDetectLbl.Size = UDim2.new(1, 0, 0, 20)
 autoDetectLbl.Position = UDim2.new(0, 0, 0, 456)
 autoDetectLbl.BackgroundTransparency = 1
-autoDetectLbl.Text = UIS.TouchEnabled and "Похоже, ты на телефоне" or "Похоже, ты на ПК"
+autoDetectLbl.Text = UIS.TouchEnabled and "👉 Похоже, ты на телефоне" or "👉 Похоже, ты на ПК"
 autoDetectLbl.TextColor3 = C_DIM
 autoDetectLbl.Font = Enum.Font.Gotham
 autoDetectLbl.TextSize = 11
@@ -857,7 +820,7 @@ platformBadge.Size = UDim2.new(0, 150, 0, 22)
 platformBadge.Position = UDim2.new(1, -166, 0, 12)
 platformBadge.BackgroundColor3 = Color3.fromRGB(30, 22, 48)
 platformBadge.BorderSizePixel = 0
-platformBadge.Text = "PLATFORM: -"
+platformBadge.Text = "PLATFORM: —"
 platformBadge.TextColor3 = C_ORANGE
 platformBadge.Font = Enum.Font.GothamBold
 platformBadge.TextSize = 11
@@ -865,6 +828,9 @@ platformBadge.ZIndex = 4
 platformBadge.Parent = frame
 Instance.new("UICorner", platformBadge).CornerRadius = UDim.new(0, 6)
 
+-- ============================================================
+--       ОБЛОЖКА — КРУГОВОЙ ПРОГРЕСС + ИКОНКА
+-- ============================================================
 local coverHolder = Instance.new("Frame")
 coverHolder.Size = UDim2.new(1, -32, 0, 130)
 coverHolder.Position = UDim2.new(0, 16, 0, 44)
@@ -909,7 +875,7 @@ local coverIcon = Instance.new("TextLabel")
 coverIcon.Size = UDim2.new(0, ringSize - 24, 0, ringSize - 24)
 coverIcon.Position = UDim2.new(0, 12, 0, 12)
 coverIcon.BackgroundTransparency = 1
-coverIcon.Text = "С"
+coverIcon.Text = "✨"
 coverIcon.TextColor3 = C_GREEN
 coverIcon.Font = Enum.Font.GothamBold
 coverIcon.TextSize = 40
@@ -990,7 +956,7 @@ local function refreshSteps()
         local lbl = coverSteps[cfg.key]
         if ORBIT.loaded[cfg.key] then
             lbl.TextColor3 = C_GREEN
-            lbl.Text = "+ " .. cfg.name
+            lbl.Text = "✓ " .. cfg.name
         else
             lbl.TextColor3 = Color3.fromRGB(70, 55, 90)
             lbl.Text = cfg.name
@@ -1022,7 +988,7 @@ local function stopPulse()
     coverIcon.TextSize = 40
 end
 
-setCover("С", "ГОТОВ К ЗАГРУЗКЕ", "3 части + античит + звуки + extras + 3D", C_GREEN)
+setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "3 части + античит + звуки + extras + 3D", C_GREEN)
 updateRingProgress(0.125)
 refreshSteps()
 
@@ -1031,9 +997,9 @@ refreshSteps()
 -- ============================================================
 local BASE_URL = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
 local PARTS = {
-    { num = 2, file = "orbit_p2.lua", title = "ЧАСТЬ 2", sub = "ФИГУРЫ",     icon = "Ф", color = Color3.fromRGB(120, 200, 255) },
-    { num = 3, file = "orbit_p3.lua", title = "ЧАСТЬ 3", sub = "ЛОГИКА",     icon = "Л", color = Color3.fromRGB(200, 220, 120) },
-    { num = 4, file = "orbit_p4.lua", title = "ЧАСТЬ 4", sub = "ИНТЕРФЕЙС",  icon = "И", color = Color3.fromRGB(220, 160, 255) },
+    { num = 2, file = "orbit_p2.lua", title = "ЧАСТЬ 2", sub = "ФИГУРЫ",     icon = "🔷", color = Color3.fromRGB(120, 200, 255) },
+    { num = 3, file = "orbit_p3.lua", title = "ЧАСТЬ 3", sub = "ЛОГИКА",     icon = "⚙️", color = Color3.fromRGB(200, 220, 120) },
+    { num = 4, file = "orbit_p4.lua", title = "ЧАСТЬ 4", sub = "ИНТЕРФЕЙС",  icon = "🎨", color = Color3.fromRGB(220, 160, 255) },
 }
 
 local partCards = {}
@@ -1075,7 +1041,7 @@ for i, part in ipairs(PARTS) do
     nameLbl.Size = UDim2.new(1, -110, 1, 0)
     nameLbl.Position = UDim2.new(0, 40, 0, 0)
     nameLbl.BackgroundTransparency = 1
-    nameLbl.Text = part.title .. "  -  " .. part.sub
+    nameLbl.Text = part.title .. "  —  " .. part.sub
     nameLbl.TextColor3 = C_DIM
     nameLbl.Font = Enum.Font.GothamBold
     nameLbl.TextSize = 12
@@ -1087,7 +1053,7 @@ for i, part in ipairs(PARTS) do
     statusLbl.Size = UDim2.new(0, 40, 1, 0)
     statusLbl.Position = UDim2.new(1, -44, 0, 0)
     statusLbl.BackgroundTransparency = 1
-    statusLbl.Text = "-"
+    statusLbl.Text = "⬜"
     statusLbl.TextColor3 = C_DIM
     statusLbl.Font = Enum.Font.GothamBold
     statusLbl.TextSize = 14
@@ -1111,22 +1077,22 @@ local function setPartStatus(num, status)
     local card = partCards[num]
     if not card then return end
     if status == "wait" then
-        card.statusLbl.Text = "-"
+        card.statusLbl.Text = "⬜"
         card.statusLbl.TextColor3 = C_DIM
         card.nameLbl.TextColor3 = C_DIM
         card.stroke.Transparency = 0.7
     elseif status == "loading" then
-        card.statusLbl.Text = "..."
+        card.statusLbl.Text = "⏳"
         card.statusLbl.TextColor3 = C_ORANGE
         card.nameLbl.TextColor3 = C_ORANGE
         card.stroke.Transparency = 0.3
     elseif status == "ok" then
-        card.statusLbl.Text = "+"
+        card.statusLbl.Text = "✅"
         card.statusLbl.TextColor3 = C_GREEN
         card.nameLbl.TextColor3 = C_GREEN
         card.stroke.Transparency = 0.2
     elseif status == "error" then
-        card.statusLbl.Text = "X"
+        card.statusLbl.Text = "❌"
         card.statusLbl.TextColor3 = C_RED
         card.nameLbl.TextColor3 = C_RED
         card.stroke.Transparency = 0.1
@@ -1256,7 +1222,7 @@ fillGradient.Color = ColorSequence.new({
 local progText = Instance.new("TextLabel")
 progText.Size = UDim2.new(1, 0, 1, 0)
 progText.BackgroundTransparency = 1
-progText.Text = "LOADING 12%  -  1/8 ЭТАПОВ"
+progText.Text = "LOADING 12%  •  1/8 ЭТАПОВ"
 progText.TextColor3 = Color3.fromRGB(20, 40, 28)
 progText.Font = Enum.Font.GothamBold
 progText.TextSize = 11
@@ -1271,7 +1237,7 @@ startBtn.BackgroundTransparency = 0.1
 startBtn.TextColor3 = C_DIM
 startBtn.Font = Enum.Font.GothamBold
 startBtn.TextSize = 14
-startBtn.Text = "ЖДЁМ ЗАГРУЗКИ..."
+startBtn.Text = "⌛ ЖДЁМ ЗАГРУЗКИ..."
 startBtn.AutoButtonColor = false
 startBtn.ZIndex = 3
 startBtn.Parent = frame
@@ -1312,13 +1278,13 @@ local function refreshStatus()
     local percent = n / total
 
     TweenService:Create(progFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), { Size = UDim2.new(percent, 0, 1, 0) }):Play()
-    progText.Text = string.format("LOADING %d%%  -  %d/%d ЭТАПОВ", math.floor(percent * 100 + 0.5), n, total)
+    progText.Text = string.format("LOADING %d%%  •  %d/%d ЭТАПОВ", math.floor(percent * 100 + 0.5), n, total)
     updateRingProgress(percent)
     refreshSteps()
 
     if n >= 4 then
         progText.TextColor3 = Color3.fromRGB(20, 40, 28)
-        startBtn.Text = "ЗАПУСТИТЬ ОРБИТУ"
+        startBtn.Text = "▶  ЗАПУСТИТЬ ОРБИТУ"
         startBtn.TextColor3 = C_GREEN
         stStroke.Color = C_GREEN
         stStroke.Transparency = 0.1
@@ -1344,7 +1310,7 @@ local function loadPart(part, onDone)
     loading[part.num] = true
     setPartStatus(part.num, "loading")
 
-    setCover(part.icon, "ЗАГРУЗКА: " .. part.sub, part.file .. " - скачивание...", part.color)
+    setCover(part.icon, "ЗАГРУЗКА: " .. part.sub, part.file .. " — скачивание...", part.color)
     startPulse()
     addLog("INFO", "Downloading " .. part.file .. "...")
 
@@ -1377,12 +1343,12 @@ local function loadPart(part, onDone)
 
         if not success then
             setPartStatus(part.num, "error")
-            setCover("X", "ОШИБКА: " .. part.sub, part.file .. " - не загрузился", C_RED)
+            setCover("❌", "ОШИБКА: " .. part.sub, part.file .. " — не загрузился", C_RED)
             stopPulse()
             addLog("ERR", "Failed: " .. part.file)
             loading[part.num] = nil
             task.wait(2)
-            setCover("!", "ОЖИДАНИЕ", "нажми на карточку ещё раз", C_ORANGE)
+            setCover("⚠️", "ОЖИДАНИЕ", "нажми на карточку ещё раз", C_ORANGE)
             if onDone then onDone(false) end
             return
         end
@@ -1410,11 +1376,11 @@ local function loadPart(part, onDone)
         ORBIT.loaded["p" .. part.num] = true
         setPartStatus(part.num, "ok")
         stopPulse()
-        addLog("OK", part.sub .. " - загружено")
-        ORBIT.notify(part.sub .. " загружено", Color3.fromRGB(160, 255, 180), 2)
+        addLog("OK", part.sub .. " — загружено")
+        ORBIT.notify("✅ " .. part.sub .. " загружено", Color3.fromRGB(160, 255, 180), 2)
         refreshStatus()
 
-        setCover("+", "ГОТОВО: " .. part.sub, "переход к следующему этапу...", C_GREEN)
+        setCover("✅", "ГОТОВО: " .. part.sub, "переход к следующему этапу...", C_GREEN)
 
         if onDone then onDone(true) end
     end)
@@ -1424,25 +1390,25 @@ local function autoLoadAll()
     task.wait(0.3)
     loadPart(PARTS[1], function(ok1)
         if not ok1 then
-            setCover("!", "ЧАСТЬ 2 НЕ ЗАГРУЖЕНА", "проверь интернет и нажми ещё раз", C_ORANGE)
+            setCover("⚠️", "ЧАСТЬ 2 НЕ ЗАГРУЖЕНА", "проверь интернет и нажми ещё раз", C_ORANGE)
             addLog("WARN", "Пропускаю 3 и 4")
             return
         end
         task.wait(0.3)
         loadPart(PARTS[2], function(ok2)
             if not ok2 then
-                setCover("!", "ЧАСТЬ 3 НЕ ЗАГРУЖЕНА", "нажми на карточку ещё раз", C_ORANGE)
+                setCover("⚠️", "ЧАСТЬ 3 НЕ ЗАГРУЖЕНА", "нажми на карточку ещё раз", C_ORANGE)
                 addLog("WARN", "Пропускаю 4")
                 return
             end
             task.wait(0.3)
             loadPart(PARTS[3], function(ok3)
                 if not ok3 then
-                    setCover("!", "ЧАСТЬ 4 НЕ ЗАГРУЖЕНА", "нажми на карточку ещё раз", C_ORANGE)
+                    setCover("⚠️", "ЧАСТЬ 4 НЕ ЗАГРУЖЕНА", "нажми на карточку ещё раз", C_ORANGE)
                     return
                 end
                 addLog("OK", "Все основные части загружены")
-                setCover("+", "ГОТОВО", "продолжаю подгрузку защит и модулей...", C_GREEN)
+                setCover("✅", "ГОТОВО", "продолжаю подгрузку защит и модулей...", C_GREEN)
             end)
         end)
     end)
@@ -1455,7 +1421,7 @@ task.spawn(function()
     task.wait(2.8)
 
     if not ORBIT.loaded.ac then
-        setCover("З", "ЗАГРУЗКА: ЗАЩИТА", "orbit_anticheat.lua...", Color3.fromRGB(255, 140, 140))
+        setCover("🛡️", "ЗАГРУЗКА: ЗАЩИТА", "orbit_anticheat.lua...", Color3.fromRGB(255, 140, 140))
         startPulse()
         local url = BASE_URL .. "orbit_anticheat.lua?t=" .. os.time()
         local ok, src = pcall(function() return game:HttpGet(url) end)
@@ -1465,7 +1431,7 @@ task.spawn(function()
                 local runOk, runErr = pcall(fn)
                 if runOk then
                     ORBIT.loaded.ac = true
-                    addLog("OK", "Античит загружен")
+                    addLog("OK", "🛡️ Античит загружен")
                     refreshStatus()
                 else
                     addLog("ERR", "AntiCheat: " .. tostring(runErr):sub(1, 40))
@@ -1479,7 +1445,7 @@ task.spawn(function()
 
     task.wait(0.4)
     if not ORBIT.loaded.sfx then
-        setCover("Зв", "ЗАГРУЗКА: ЗВУКИ", "orbit_sfx.lua...", Color3.fromRGB(255, 200, 255))
+        setCover("🎵", "ЗАГРУЗКА: ЗВУКИ", "orbit_sfx.lua...", Color3.fromRGB(255, 200, 255))
         startPulse()
         local url = BASE_URL .. "orbit_sfx.lua?t=" .. os.time()
         local ok, src = pcall(function() return game:HttpGet(url) end)
@@ -1487,7 +1453,7 @@ task.spawn(function()
             local fn = loadstring(src)
             if fn then
                 local runOk = pcall(fn)
-                if runOk then ORBIT.loaded.sfx = true; addLog("OK", "SFX загружены"); refreshStatus() end
+                if runOk then ORBIT.loaded.sfx = true; addLog("OK", "🎵 SFX загружены"); refreshStatus() end
             end
         else
             addLog("WARN", "SFX не скачались")
@@ -1497,7 +1463,7 @@ task.spawn(function()
 
     task.wait(0.4)
     if not ORBIT.loaded.extras then
-        setCover("Э", "ЗАГРУЗКА: EXTRAS", "атмосфера, шлейф, искры...", Color3.fromRGB(200, 220, 255))
+        setCover("✨", "ЗАГРУЗКА: EXTRAS", "атмосфера, шлейф, искры...", Color3.fromRGB(200, 220, 255))
         startPulse()
         local url = BASE_URL .. "orbit_extras.lua?t=" .. os.time()
         local ok, src = pcall(function() return game:HttpGet(url) end)
@@ -1507,7 +1473,7 @@ task.spawn(function()
                 local runOk, runErr = pcall(fn)
                 if runOk then
                     ORBIT.loaded.extras = true
-                    addLog("OK", "Extras загружены")
+                    addLog("OK", "✨ Extras загружены")
                     refreshStatus()
                 else
                     addLog("ERR", "Extras: " .. tostring(runErr):sub(1, 40))
@@ -1521,7 +1487,7 @@ task.spawn(function()
 
     task.wait(0.4)
     if not ORBIT.loaded.editor3d then
-        setCover("3D", "ЗАГРУЗКА: 3D-РЕДАКТОР", "orbit_editor3d.lua...", Color3.fromRGB(200, 150, 255))
+        setCover("🔮", "ЗАГРУЗКА: 3D-РЕДАКТОР", "orbit_editor3d.lua...", Color3.fromRGB(200, 150, 255))
         startPulse()
         local url = BASE_URL .. "orbit_editor3d.lua?t=" .. os.time()
         local ok, src = pcall(function() return game:HttpGet(url) end)
@@ -1531,7 +1497,7 @@ task.spawn(function()
                 local runOk, runErr = pcall(fn)
                 if runOk then
                     ORBIT.loaded.editor3d = true
-                    addLog("OK", "3D-Редактор загружен")
+                    addLog("OK", "🔮 3D-Редактор загружен")
                     refreshStatus()
                 else
                     addLog("ERR", "3D Editor: " .. tostring(runErr):sub(1, 40))
@@ -1544,7 +1510,7 @@ task.spawn(function()
     end
 
     task.wait(0.3)
-    setCover("+", "ВСЁ ГОТОВО", "нажми ЗАПУСТИТЬ ОРБИТУ", C_GREEN)
+    setCover("✅", "ВСЁ ГОТОВО", "нажми ЗАПУСТИТЬ ОРБИТУ", C_GREEN)
     updateRingProgress(1)
     refreshStatus()
 end)
@@ -1554,13 +1520,13 @@ end)
 -- ============================================================
 startBtn.Activated:Connect(function()
     if not (ORBIT.loaded.p2 and ORBIT.loaded.p3 and ORBIT.loaded.p4) then
-        ORBIT.notify("Сначала загрузи все части", Color3.fromRGB(255, 200, 100), 3)
+        ORBIT.notify("⏳ Сначала загрузи все части", Color3.fromRGB(255, 200, 100), 3)
         return
     end
     if ORBIT.started then return end
     ORBIT.started = true
-    startBtn.Text = "РАБОТАЕТ..."
-    setCover(">", "ЗАПУСК ОРБИТЫ", "включаю все системы...", C_GREEN)
+    startBtn.Text = "▶ РАБОТАЕТ..."
+    setCover("🚀", "ЗАПУСК ОРБИТЫ", "включаю все системы...", C_GREEN)
     addLog("OK", "Запуск ОРБИТЫ...")
     task.wait(0.3)
     backdrop.Visible = false
@@ -1568,6 +1534,9 @@ startBtn.Activated:Connect(function()
     pcall(function() ORBIT.start() end)
 end)
 
+-- ============================================================
+--       ВЫБОР ПЛАТФОРМЫ
+-- ============================================================
 local function selectPlatform(platform)
     ORBIT.PLATFORM = platform
     ORBIT.applyPlatformDefaults()
@@ -1587,9 +1556,9 @@ local function selectPlatform(platform)
     platformScreen.Visible = false
     frame.Visible = true
 
-    platformBadge.Text = platform == "mobile" and "MOBILE" or "PC"
+    platformBadge.Text = platform == "mobile" and "📱 MOBILE" or "💻 PC"
 
-    addLog("SYS", "orbit_loader.lua - старт")
+    addLog("SYS", "orbit_loader.lua — старт")
     addLog("INFO", "Платформа: " .. platform:upper())
     addLog("INFO", "Загрузка ОРБИТЫ " .. ORBIT.version)
     ORBIT.loadSavesList()
@@ -1598,7 +1567,7 @@ local function selectPlatform(platform)
     addLog("OK", "Найдено сохранений: " .. saveCount)
     addLog("OK", "BlockCount: " .. ORBIT.SETTINGS.BlockCount)
 
-    setCover("+", "СТАРТ ЗАГРУЗКИ", "3 части - защита - звуки - extras - 3D", C_GREEN)
+    setCover("✨", "СТАРТ ЗАГРУЗКИ", "3 части → защита → звуки → extras → 3D", C_GREEN)
 
     task.spawn(autoLoadAll)
 end
@@ -1606,6 +1575,6 @@ end
 onTap(mobileBtn, function() selectPlatform("mobile") end)
 onTap(pcBtn, function() selectPlatform("pc") end)
 
-ORBIT.notify("ОРБИТА " .. ORBIT.version .. " - выбери платформу", Color3.fromRGB(200, 200, 255), 4)
+ORBIT.notify("✨ ОРБИТА " .. ORBIT.version .. " — выбери платформу", Color3.fromRGB(200, 200, 255), 4)
 
 return ORBIT
