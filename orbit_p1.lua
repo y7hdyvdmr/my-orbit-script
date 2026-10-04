@@ -1,11 +1,27 @@
 --[[
     ╔══════════════════════════════════════════════════════════╗
-    ║   ОРБИТА v23.4 — CORE + LOADER                           ║
+    ║   ОРБИТА v23.5 — CORE + LOADER                           ║
     ║   Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗАГРУЗЧИК                ║
-    ║   🐛 ФИКС: extras/3D/anticheat грузятся ПОСЛЕ p4         ║
-    ║   🐛 ФИКС: "UI не готов" больше не появится              ║
     ╚══════════════════════════════════════════════════════════╝
---]]
+
+    ИЗМЕНЕНИЯ v23.5 (относительно v23.4):
+    🐛 кнопка «ЗАПУСТИТЬ ОРБИТУ» работала только через .Activated — на Android
+       не срабатывала. Теперь onTap (MouseButton1Down + Touch + Activated).
+    🐛 окна загрузчика были фиксированного размера (460×560 / 500×620) и не
+       влезали в экран телефона в горизонтали — добавлен UIScale + центрирование.
+    🐛 двойной тап по платформе мог запустить загрузку дважды — добавлена защита.
+    🐛 addLog делал task.wait() на каждую строку лога (тормозил загрузку) —
+       прокрутка теперь отложена через task.delay.
+    🐛 подключение к LogService не отключалось при перезапуске скрипта (утечка) —
+       теперь хранится в ORBIT.logConn и отключается в unload.
+    🐛 очередь уведомлений росла без предела, пока UI не загружен — лимит 30.
+    🐛 ORBIT.HAS_FS мог вернуть nil/функцию — теперь строгий boolean с type().
+    🐛 в P.SHAPE_CATEGORIES не было новой фигуры «СКАЛА» — добавлена в «СУЩЕСТВА».
+    ⭐ загрузка файлов: общий helper с повторами (3 для частей, 2 для модулей),
+       без оператора continue (для совместимости с Delta).
+    ⭐ playBuy / playWin теперь звучат по-разному (высота тона).
+    ⭐ плавное появление окон загрузчика.
+]]
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 local OLD = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (GENV and GENV.ORBIT)
@@ -16,7 +32,7 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v23.4"
+ORBIT.version = "v23.5"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, sfx = false, ac = false, extras = false, editor3d = false }
 ORBIT.started = false
 ORBIT.PLATFORM = nil
@@ -44,7 +60,7 @@ ORBIT.LocalPlayer = LocalPlayer
 ORBIT.PlayerGui = PlayerGui
 ORBIT.SAVE_FILE = "orbit_v21_settings.json"
 ORBIT.SAVES_FILE = "orbit_v21_saves.json"
-ORBIT.HAS_FS = (writefile and readfile and isfile and type(writefile) == "function")
+ORBIT.HAS_FS = (type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function")
 
 -- ==================== PROTECT GUI ====================
 local function getSafeParent()
@@ -85,7 +101,7 @@ local function isAnimError(msg)
 end
 ORBIT.animErrorCount = 0
 pcall(function()
-    LogService.MessageOut:Connect(function(msg, msgType)
+    ORBIT.logConn = LogService.MessageOut:Connect(function(msg, msgType)
         if msgType == Enum.MessageType.MessageError and isAnimError(msg) then
             ORBIT.animErrorCount = (ORBIT.animErrorCount or 0) + 1
             if ORBIT.animErrorCount % 10 == 0 then
@@ -207,7 +223,7 @@ P.SHAPE_CATEGORIES = {
     {name="ОСНОВНЫЕ",  shapes={"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"}},
     {name="ОРУЖИЕ",    shapes={"МЕЧ","ЩИТ"}},
     {name="МАГИЯ",     shapes={"ГЛАЗ","ИНЬ-ЯН","МОЛНИЯ","ГАСТЕР БЛАСТЕР"}},
-    {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ"}},
+    {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ","СКАЛА"}},
 }
 P.shapeCategoryIndex = 1
 
@@ -477,8 +493,12 @@ function ORBIT.playDodge()
     ORBIT.playSound(ORBIT.SOUNDS.DodgeId)
     task.delay(0.3, function() ORBIT.playSound(ORBIT.SOUNDS.AfterDodgeId) end)
 end
-function ORBIT.playBuy() ORBIT.playSound(ORBIT.SOUNDS.ClickId) end
-function ORBIT.playWin() ORBIT.playSound(ORBIT.SOUNDS.ClickId) end
+function ORBIT.playBuy() ORBIT.playSound(ORBIT.SOUNDS.ClickId, nil, 1.3) end
+function ORBIT.playWin()
+    ORBIT.playSound(ORBIT.SOUNDS.ClickId, nil, 1.2)
+    task.delay(0.12, function() ORBIT.playSound(ORBIT.SOUNDS.ClickId, nil, 1.5) end)
+    task.delay(0.24, function() ORBIT.playSound(ORBIT.SOUNDS.ClickId, nil, 1.8) end)
+end
 
 -- ==================== УВЕДОМЛЕНИЯ ====================
 ORBIT.NOTIF_QUEUE = {}
@@ -489,6 +509,7 @@ function ORBIT.notify(text, color, duration)
         color = color or Color3.fromRGB(140, 255, 200),
         duration = duration or ORBIT.SETTINGS.NotificationsDuration,
     })
+    while #ORBIT.NOTIF_QUEUE > 30 do table.remove(ORBIT.NOTIF_QUEUE, 1) end
 end
 
 -- ==================== ХЕЛПЕРЫ ====================
@@ -546,6 +567,7 @@ end
 
 -- ==================== UNLOAD ====================
 ORBIT.unload = function()
+    if ORBIT.logConn then pcall(function() ORBIT.logConn:Disconnect() end); ORBIT.logConn = nil end
     if ORBIT.updateConn then pcall(function() ORBIT.updateConn:Disconnect() end); ORBIT.updateConn = nil end
     if ORBIT.protConn then pcall(function() ORBIT.protConn:Disconnect() end); ORBIT.protConn = nil end
     for ri in pairs(ORBIT.rings) do
@@ -596,6 +618,13 @@ local C_BORDER  = Color3.fromRGB(140, 100, 220)
 local C_RED     = Color3.fromRGB(255, 100, 120)
 local C_CYAN    = Color3.fromRGB(120, 220, 255)
 
+-- масштаб под экран (телефон в горизонтали ~360 px по высоте)
+local function computeLoaderScale(w, h)
+    local cam = Workspace.CurrentCamera
+    local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+    return math.clamp(math.min((vp.X - 16) / w, (vp.Y - 16) / h), 0.4, 1)
+end
+
 local backdrop = Instance.new("Frame")
 backdrop.Size = UDim2.new(1, 0, 1, 0)
 backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -624,12 +653,18 @@ bgGlowGradient.Transparency = NumberSequence.new({
 -- ============================================================
 local platformScreen = Instance.new("Frame")
 platformScreen.Size = UDim2.new(0, 460, 0, 560)
-platformScreen.Position = UDim2.new(0.5, -230, 0.5, -280)
+platformScreen.AnchorPoint = Vector2.new(0.5, 0.5)
+platformScreen.Position = UDim2.new(0.5, 0, 0.5, 0)
 platformScreen.BackgroundColor3 = C_PANEL
 platformScreen.BorderSizePixel = 0
 platformScreen.ZIndex = 10
 platformScreen.Parent = loaderGui
 Instance.new("UICorner", platformScreen).CornerRadius = UDim.new(0, 16)
+local pScale = Instance.new("UIScale", platformScreen)
+local pScaleTarget = computeLoaderScale(460, 560)
+pScale.Scale = pScaleTarget * 0.9
+TweenService:Create(pScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+    { Scale = pScaleTarget }):Play()
 local pStroke = Instance.new("UIStroke", platformScreen)
 pStroke.Color = C_BORDER; pStroke.Thickness = 2; pStroke.Transparency = 0.2
 
@@ -796,6 +831,7 @@ local function onTap(btn, fn)
     btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch then call() end
     end)
+    btn.Activated:Connect(call)
 end
 
 mobileBtn.MouseButton1Down:Connect(function() highlightPlatform(mobileBtn, mobileStroke, true, C_CYAN) end)
@@ -808,13 +844,17 @@ pcBtn.MouseButton1Up:Connect(function() highlightPlatform(pcBtn, pcStroke, false
 -- ============================================================
 local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 500, 0, 620)
-frame.Position = UDim2.new(0.5, -250, 0.5, -310)
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.Position = UDim2.new(0.5, 0, 0.5, 0)
 frame.BackgroundColor3 = C_PANEL
 frame.BorderSizePixel = 0
 frame.ZIndex = 2
 frame.Visible = false
 frame.Parent = loaderGui
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 16)
+local frameScale = Instance.new("UIScale", frame)
+local frameScaleTarget = computeLoaderScale(500, 620)
+frameScale.Scale = frameScaleTarget
 
 local frameStroke = Instance.new("UIStroke", frame)
 frameStroke.Color = C_BORDER
@@ -1198,8 +1238,11 @@ local function addLog(kind, text)
     table.insert(LOG_ENTRIES, string.format('<font color="#%s">[%s]</font> %s', c, kind, text))
     if #LOG_ENTRIES > 40 then table.remove(LOG_ENTRIES, 1) end
     consoleLabel.Text = table.concat(LOG_ENTRIES, "\n")
-    task.wait()
-    termScroll.CanvasPosition = Vector2.new(0, math.max(0, termScroll.AbsoluteCanvasSize.Y - termScroll.AbsoluteWindowSize.Y))
+    task.delay(0.03, function()
+        pcall(function()
+            termScroll.CanvasPosition = Vector2.new(0, math.max(0, termScroll.AbsoluteCanvasSize.Y - termScroll.AbsoluteWindowSize.Y))
+        end)
+    end)
 end
 ORBIT.addLog = addLog
 
@@ -1309,6 +1352,31 @@ ORBIT.refreshLoaderStatus = refreshStatus
 -- ============================================================
 --       ЗАГРУЗКА ЧАСТИ
 -- ============================================================
+-- общий загрузчик файла: скачать -> скомпилировать -> выполнить, с повторами
+local function fetchAndRun(file, attempts, tag)
+    for attempt = 1, attempts do
+        local url = BASE_URL .. file .. "?t=" .. os.time() .. "&a=" .. attempt
+        local ok, src = pcall(function() return game:HttpGet(url) end)
+        if not ok or type(src) ~= "string" or #src < 100 then
+            addLog("WARN", tag .. ": попытка " .. attempt .. " (сеть)")
+        elseif type(loadstring) ~= "function" then
+            addLog("ERR", "loadstring недоступен в этом executor")
+            return false
+        else
+            local fn, err = loadstring(src)
+            if not fn then
+                addLog("ERR", tag .. " compile: " .. tostring(err):sub(1, 40))
+            else
+                local runOk, runErr = pcall(fn)
+                if runOk then return true end
+                addLog("ERR", tag .. " runtime: " .. tostring(runErr):sub(1, 40))
+            end
+        end
+        task.wait(0.4)
+    end
+    return false
+end
+
 local loading = {}
 
 local function loadPart(part, onDone)
@@ -1328,31 +1396,7 @@ local function loadPart(part, onDone)
     addLog("INFO", "Downloading " .. part.file .. "...")
 
     task.spawn(function()
-        local success = false
-        local maxRetries = 3
-        for attempt = 1, maxRetries do
-            local url = BASE_URL .. part.file .. "?t=" .. os.time() .. "&a=" .. attempt
-            local ok, src = pcall(function() return game:HttpGet(url) end)
-            if not ok or type(src) ~= "string" or #src < 100 then
-                addLog("WARN", "Попытка " .. attempt .. " (сеть)")
-                task.wait(0.4)
-                continue
-            end
-            local fn, err = loadstring(src)
-            if not fn then
-                addLog("ERR", "Compile: " .. tostring(err):sub(1, 40))
-                task.wait(0.4)
-                continue
-            end
-            local runOk, runErr = pcall(fn)
-            if not runOk then
-                addLog("ERR", "Runtime: " .. tostring(runErr):sub(1, 40))
-                task.wait(0.4)
-                continue
-            end
-            success = true
-            break
-        end
+        local success = fetchAndRun(part.file, 3, part.file)
 
         if not success then
             setPartStatus(part.num, "error")
@@ -1398,22 +1442,8 @@ local function loadExtra(name, file, key, onDone)
     end
     task.spawn(function()
         addLog("INFO", "Downloading " .. file .. "...")
-        local url = BASE_URL .. file .. "?t=" .. os.time()
-        local ok, src = pcall(function() return game:HttpGet(url) end)
-        if not ok or type(src) ~= "string" or #src < 100 then
-            addLog("WARN", name .. " не скачался")
-            if onDone then onDone(false) end
-            return
-        end
-        local fn, err = loadstring(src)
-        if not fn then
-            addLog("ERR", name .. " compile: " .. tostring(err):sub(1, 40))
-            if onDone then onDone(false) end
-            return
-        end
-        local runOk, runErr = pcall(fn)
-        if not runOk then
-            addLog("ERR", name .. " runtime: " .. tostring(runErr):sub(1, 40))
+        if not fetchAndRun(file, 2, name) then
+            addLog("WARN", name .. " не загрузился — продолжаю без него")
             if onDone then onDone(false) end
             return
         end
@@ -1488,7 +1518,7 @@ end
 -- ============================================================
 --       СТАРТ
 -- ============================================================
-startBtn.Activated:Connect(function()
+onTap(startBtn, function()
     if not (ORBIT.loaded.p2 and ORBIT.loaded.p3 and ORBIT.loaded.p4) then
         ORBIT.notify("⏳ Сначала загрузи все части", Color3.fromRGB(255, 200, 100), 3)
         return
@@ -1507,7 +1537,10 @@ end)
 -- ============================================================
 --       ВЫБОР ПЛАТФОРМЫ
 -- ============================================================
+local platformChosen = false
 local function selectPlatform(platform)
+    if platformChosen then return end
+    platformChosen = true
     ORBIT.PLATFORM = platform
     ORBIT.applyPlatformDefaults()
 
@@ -1525,6 +1558,9 @@ local function selectPlatform(platform)
     task.wait(0.28)
     platformScreen.Visible = false
     frame.Visible = true
+    frameScale.Scale = frameScaleTarget * 0.92
+    TweenService:Create(frameScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+        { Scale = frameScaleTarget }):Play()
 
     platformBadge.Text = platform == "mobile" and "📱 MOBILE" or "💻 PC"
 
