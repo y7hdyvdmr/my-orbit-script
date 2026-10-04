@@ -6,6 +6,14 @@
      • Сохранение в ORBIT.SHAPE_PRESETS / ORBIT.CUSTOM_SHAPES (+ writefile, если есть)
      ВАЖНО: все идентификаторы — латиницей, кириллица только в комментариях и текстах.
 ]]
+--[[ ИЗМЕНЕНИЯ (общий релиз v23.5): onClick срабатывает при отпускании пальца внутри ScrollingFrame
+     (прокрутка панелей не нажимает кнопки). Логика редактора не менялась. ]]
+--[[ ФИКСЫ v23.6:
+  🐛 onClick НЕ играл ORBIT.playClick — кнопки редактора молчали, при этом кнопки палитры
+     отдельно вызывали playClick (несогласованность). Теперь клик играется единообразно из onClick.
+  ✅ остальной код проверен построчно: Ed.Conns пуст (но не утечка — все коннекты на Ed.Vp/Ed.Gui,
+     умирают с Destroy), Workspace не пачкается, undo/redo/setGridSize/pickFromScreen — корректны.
+]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit 3D Editor] ORBIT не найден!"); return end
@@ -114,25 +122,46 @@ end
 
 -- Универсальный тап (Delta/Android): Down + Touch + Activated
 -- + защита от двойного срабатывания (Activated приходит после касания)
-local function onClick(btn, fn)
-    local debounce = false
-    local downSeen = false
+-- ============================================================
+--  onClick: Down + Touch + Activated (Android / Delta).
+--  Внутри ScrollingFrame кнопка срабатывает при ОТПУСКАНИИ пальца (если он почти не двигался),
+--  иначе свайп для прокрутки нажимал бы кнопки под пальцем. Атрибут ReleaseOnly = true
+--  включает этот режим принудительно (например, для перетаскиваемых кнопок).
+-- ============================================================
+local function onClick(btn, fn, releaseOnly)
+    local deb = false
+    local touchStart = nil
     local function call()
-        if debounce then return end
-        debounce = true
-        task.delay(0.05, function() debounce = false end)
+        if deb then return end
+        deb = true
+        task.delay(0.12, function() deb = false end)
+        -- 🐛 ФИКС v23.6: играем клик, чтобы кнопки редактора не были «молчаливыми»
+        if ORBIT.playClick then pcall(ORBIT.playClick) end
         local ok, err = pcall(fn)
-        if not ok then warn("[Orbit 3D Editor] " .. tostring(err)) end
+        if not ok then warn("[Orbit] " .. tostring(err)) end
     end
-    btn.MouseButton1Down:Connect(function() downSeen = true; call() end)
+    local function inScroll()
+        return releaseOnly or btn:GetAttribute("ReleaseOnly")
+            or btn:FindFirstAncestorOfClass("ScrollingFrame") ~= nil
+    end
+    btn.MouseButton1Down:Connect(function() if not inScroll() then call() end end)
+    btn.MouseButton1Click:Connect(function() if inScroll() then call() end end)
     btn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then downSeen = true; call() end
+        if input.UserInputType == Enum.UserInputType.Touch then
+            touchStart = input.Position
+            if not inScroll() then call() end
+        end
     end)
-    btn.Activated:Connect(function()
-        if downSeen then downSeen = false; return end
-        call()
+    btn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch and touchStart then
+            local moved = (input.Position - touchStart).Magnitude
+            touchStart = nil
+            if inScroll() and moved < 12 then call() end
+        end
     end)
+    btn.Activated:Connect(call)
 end
+
 
 -- ============================================================
 --       ЛУЧ: rayAABB (своя функция, без Workspace:Raycast)
@@ -782,7 +811,7 @@ local function openEditor3D()
             Ed.Color = i
             refreshPalette()
             buildGrid()
-            if ORBIT.playClick then pcall(ORBIT.playClick) end
+            -- playClick теперь играет сам onClick — отдельный вызов не нужен
         end)
     end
     refreshPalette()
