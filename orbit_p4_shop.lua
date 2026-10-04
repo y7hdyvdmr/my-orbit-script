@@ -1,28 +1,16 @@
---[[ ОРБИТА v23.3 — P4_SHOP (Магазин + 2D-Редактор + кнопка 3D)
-     🛒 Магазин: логика не менялась (только 3 мелких фикса падений, см. «ФИКС» ниже)
-     🎨 2D-редактор v3:
-        • сетка 16 / 20 / 24 (по умолчанию 16), у каждой клетки UIStroke 1px,
-          каждая 4-я линия толще (1.5px) и светлее, подложка темнее клеток
-        • кисти 1×1 / 2×2 / 3×3, ластик, заливка (stack + seen, без рекурсии)
-        • рисование протяжкой пальца по сетке
-        • история до 20 шагов, симметрия, сердце, смайл
-        • сохранение { name, pixels } → SHAPE_PRESETS
-     ВАЖНО: все идентификаторы — латиницей, кириллица только в комментариях и текстах.
-
-     ИЗМЕНЕНИЯ v23.5: onClick срабатывает при отпускании пальца внутри ScrollingFrame —
-     раньше прокрутка сетки магазина могла случайно ПОКУПАТЬ фигуры (касание = нажатие).
-
-     ФИКСЫ v23.6:
-        🐛 на мобилке (shopW = 320) кнопка «🔮 3D-РЕДАКТОР» перекрывала заголовок «МАГАЗИН»
-           и значок монет — на мобилке вынесена во второй ряд хедера;
-        🐛 локальный onClick не играл ORBIT.playClick — кнопки магазина/редактора молчали.
-
-     ФИКС v23.7 (сейчас):
-        🐛 вложенный блочный комментарий --[[ ]] внутри --[[ ]] ломал компиляцию
-           (в Lua блочные комментарии НЕ вкладываются) — файл вообще не грузился,
-           поэтому ORBIT.openShop / ORBIT.openEditor не создавались и кнопки молчали.
-           Убран вложенный блок, всё в одном комментарии.
-]]
+-- ОРБИТА v23.8 — P4_SHOP (Магазин + 2D-Редактор + кнопка 3D)
+-- Магазин + 2D-редактор v3: сетка 16/20/24, кисти 1x1/2x2/3x3, ластик, заливка,
+-- история 20 шагов, симметрия, шаблоны, сохранение кастомных фигур.
+-- Сохранение { name, pixels } -> SHAPE_PRESETS.
+-- ВАЖНО: все идентификаторы латиницей, кириллица — только в комментариях и текстах UI.
+--
+-- ИЗМЕНЕНИЯ v23.5: onClick в ScrollingFrame срабатывает при отпускании пальца,
+-- чтобы прокрутка сетки магазина случайно не покупала фигуры.
+-- ФИКСЫ v23.6: на мобилке кнопка 3D-редактора вынесена во второй ряд хедера
+-- (перекрывала заголовок и монеты); локальный onClick играет playClick.
+-- ФИКС v23.7: в шапке только строчные комментарии (блочные ломали компиляцию).
+-- v23.8: фигура «СКАЛА» добавлена в категорию «СУЩЕСТВА» магазина; в шапке только строчные
+-- комментарии; файл проверен лексером Lua (кириллица вне строк/комментариев не найдена).
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Shop] ORBIT не найден!"); return end
@@ -128,6 +116,11 @@ local COLOR_NAMES = {
     "Золотой", "Свето-золотой", "Бронзовый",
 }
 
+-- ============================================================
+--       УНИВЕРСАЛЬНЫЙ ТАП (Delta/Android)
+--       Down + Touch + Activated, плюс защита от двойного срабатывания
+--       (Activated приходит уже после касания и раньше дублировал действие)
+-- ============================================================
 -- ============================================================
 --  onClick: Down + Touch + Activated (Android / Delta).
 --  Внутри ScrollingFrame кнопка срабатывает при ОТПУСКАНИИ пальца (если он почти не двигался),
@@ -373,7 +366,7 @@ local SHOP_CATEGORIES = {
     { name = "ОСНОВНЫЕ", shapes = {"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"} },
     { name = "ОРУЖИЕ",   shapes = {"МЕЧ","ЩИТ"} },
     { name = "МАГИЯ",    shapes = {"ГЛАЗ","ИНЬ-ЯН","МОЛНИЯ","ГАСТЕР БЛАСТЕР"} },
-    { name = "СУЩЕСТВА", shapes = {"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ"} },
+    { name = "СУЩЕСТВА", shapes = {"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ","СКАЛА"} },
     { name = "СВОИ",     custom = true },
 }
 
@@ -466,8 +459,6 @@ local function openShop()
     open3DBtn.ZIndex = 11
     open3DBtn.Parent = shopGui
     Instance.new("UICorner", open3DBtn).CornerRadius = UDim.new(0, 8)
-    -- 🐛 ФИКС v23.6: на мобилке кнопка 3D-редактора перекрывала заголовок и монеты.
-    -- На мобилке выносим её во ВТОРОЙ ряд хедера (Y = 40), на ПК — оставляем как было.
     local headerExtraY = 0
     if IS_MOBILE then
         open3DBtn.Position = UDim2.new(0, 16, 0, 40)
@@ -603,6 +594,8 @@ local function openShop()
         demoFolder, demoBlocks = buildDemoRing(world, shopState.shapeIndex, c3, sizeMult, 8)
     end
 
+    -- ФИКС 1: refreshShapeLbl объявлена заранее (раньше обработчики категорий
+    -- вызывали ещё не созданную функцию и падали)
     local refreshShapeLbl
 
     local catL, catV, catR = shopRow("📁 КАТЕГОРИЯ")
@@ -780,6 +773,7 @@ local function openShop()
 
     rightPanel.CanvasSize = UDim2.new(0, 0, 0, ry + 20)
 
+    -- ФИКС 2: animConn объявлена заранее, чтобы внутри колбэка ссылаться на неё
     local animConn
     animConn = RunService.Heartbeat:Connect(function(dt)
         if not shopOpen or not shopGui or not shopGui.Parent then
@@ -892,14 +886,14 @@ end
 local editorOpen = false
 local editorGui
 local editorConns = {}
-local P2 = "Orbit2D_"
+local P2 = "Orbit2D_"   -- префикс имён всех элементов 2D-редактора
 
 local GRID_OPTIONS = {16, 20, 24}
-local GRID = 16
+local GRID = 16   -- по умолчанию 16×16 (крупные клетки)
 
 local Ed2D = {
     Cells = {},
-    Tool = "b1",
+    Tool = "b1",        -- "b1" / "b2" / "b3" / "eraser" / "fill"
     Color = 1,
     States = {}, StateIdx = 0, MaxHistory = 20,
 }
@@ -912,6 +906,7 @@ local function resizeGrid(newN)
         Ed2D.Cells[r] = {}
         for c = 1, newN do Ed2D.Cells[r][c] = 0 end
     end
+    -- старые клетки сохраняются в пределах нового размера
     for r = 1, math.min(oldN, newN) do
         for c = 1, math.min(oldN, newN) do
             if oldCells[r] and oldCells[r][c] then
@@ -922,6 +917,7 @@ local function resizeGrid(newN)
     GRID = newN
 end
 
+-- История: States[StateIdx] — текущее состояние, commit вызывается ПОСЛЕ изменения
 local function snapshot2D()
     local s = {}
     for r = 1, GRID do
@@ -964,6 +960,7 @@ end
 resizeGrid(GRID)
 resetHistory2D()
 
+-- Заливка: свой стек + seen (без рекурсии). Возвращает true, если что-то изменилось
 local function floodFill2D(r0, c0, newColor)
     local old = Ed2D.Cells[r0][c0]
     if old == newColor then return false end
@@ -987,6 +984,7 @@ local function floodFill2D(r0, c0, newColor)
     return true
 end
 
+-- Шаблоны (1 = основной цвет, 2 = цвет деталей)
 local HEART_PATTERN = {
     "01100110", "11111111", "11111111", "11111111",
     "01111110", "00111100", "00011000",
@@ -1004,6 +1002,7 @@ local function openEditor()
     local editorW = IS_MOBILE and 360 or 700
     local editorH = IS_MOBILE and 620 or 470
 
+    -- --- маленькие помощники с префиксом имён ---
     local function mk(class, props, parent)
         local o = Instance.new(class)
         for k, v in pairs(props or {}) do
@@ -1040,6 +1039,7 @@ local function openEditor()
         editorGui = nil
     end
 
+    -- Заголовок
     mk("TextLabel", {
         Name = "Title", Size = UDim2.new(1, -200, 0, 26), Position = UDim2.new(0, 16, 0, 8),
         BackgroundTransparency = 1, Text = "🎨 2D-РЕДАКТОР", TextColor3 = Color3.fromRGB(230, 200, 255),
@@ -1067,9 +1067,12 @@ local function openEditor()
     corner(closeBtn, 8)
     onClick(closeBtn, closeEditor)
 
+    -- ============================================================
+    --       СЕТКА (подложка темнее клеток, у каждой клетки UIStroke)
+    -- ============================================================
     local leftX, topY = 16, 42
     local gridPx = IS_MOBILE and 328 or 400
-    local pitch = 1
+    local pitch = 1                 -- шаг клетки в пикселях (считается при пересборке)
 
     local gridHolder = mk("Frame", {
         Name = "GridHolder", Size = UDim2.new(0, gridPx, 0, gridPx), Position = UDim2.new(0, leftX, 0, topY),
@@ -1110,10 +1113,12 @@ local function openEditor()
                     Size = UDim2.new(0, pitch - 2, 0, pitch - 2),
                     Position = UDim2.new(0, (c - 1) * pitch + 2, 0, (r - 1) * pitch + 2),
                 }, cellLayer)
+                -- рамка 1px у каждой клетки
                 local st = mk("UIStroke", {
                     Color = Color3.fromRGB(60, 50, 85), Thickness = 1,
                     ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
                 }, f)
+                -- каждая 4-я линия — толще и светлее
                 if c % 4 == 1 or r % 4 == 1 then
                     st.Color = Color3.fromRGB(90, 70, 140)
                     st.Thickness = 1.5
@@ -1124,7 +1129,10 @@ local function openEditor()
         refreshAllCells()
     end
 
-    local countLbl
+    -- ============================================================
+    --       РИСОВАНИЕ (один оверлей: тап и протяжка пальцем)
+    -- ============================================================
+    local countLbl   -- создаётся ниже (подпись «клеток: N»)
     local function countFilled()
         local n = 0
         for r = 1, GRID do for c = 1, GRID do
@@ -1144,6 +1152,7 @@ local function openEditor()
         return true
     end
 
+    -- isStart: заливка срабатывает только в начале касания, а не при протяжке
     local function applyTool(r, c, isStart)
         local tool = Ed2D.Tool
         local changed = false
@@ -1224,6 +1233,7 @@ local function openEditor()
             endStroke()
         end
     end)
+    -- палец/мышь отпущены за пределами сетки
     table.insert(editorConns, UIS.InputEnded:Connect(function(input)
         local t = input.UserInputType
         if t == Enum.UserInputType.MouseButton1 or (t == Enum.UserInputType.Touch and input == activeInput) then
@@ -1231,6 +1241,9 @@ local function openEditor()
         end
     end))
 
+    -- ============================================================
+    --       ПАНЕЛЬ УПРАВЛЕНИЯ (вертикальный скролл, одна колонка)
+    -- ============================================================
     local ctrlX = IS_MOBILE and 16 or (leftX + gridPx + 12)
     local ctrlY = IS_MOBILE and (topY + gridPx + 8) or topY
     local ctrlW = IS_MOBILE and (editorW - 32) or (editorW - ctrlX - 16)
@@ -1292,6 +1305,7 @@ local function openEditor()
         return btns
     end
 
+    -- 📐 РАЗМЕР СЕТКИ
     do
         local body = section("📐 РАЗМЕР СЕТКИ", Color3.fromRGB(60, 80, 120), 32)
         local btns = {}
@@ -1305,7 +1319,7 @@ local function openEditor()
             items[i] = {text = n .. "×" .. n, fn = function()
                 if n == GRID then return end
                 resizeGrid(n)
-                resetHistory2D()
+                resetHistory2D()      -- размер сетки сменился: история начинается заново
                 rebuildGridUI()
                 paintSizes()
                 refreshCount()
@@ -1316,6 +1330,7 @@ local function openEditor()
         paintSizes()
     end
 
+    -- 🎨 ПАЛИТРА
     local swatch
     do
         local body, titleLbl = section("🎨 ПАЛИТРА", Color3.fromRGB(100, 60, 140), 54)
@@ -1362,6 +1377,7 @@ local function openEditor()
             }, b)
             onClick(b, function()
                 Ed2D.Color = i
+                -- выбор цвета выводит из режима ластика
                 if Ed2D.Tool == "eraser" then Ed2D.Tool = "b1"; if Ed2D.paintTools then Ed2D.paintTools() end end
                 refreshPal()
             end)
@@ -1369,6 +1385,7 @@ local function openEditor()
         refreshPal()
     end
 
+    -- 🖌 ИНСТРУМЕНТ
     do
         local body = section("🖌 ИНСТРУМЕНТ", Color3.fromRGB(100, 80, 40), 32)
         local tools = {
@@ -1394,6 +1411,7 @@ local function openEditor()
         Ed2D.paintTools()
     end
 
+    -- ↩️ ИСТОРИЯ
     do
         local body = section("↩️ ИСТОРИЯ", Color3.fromRGB(60, 90, 60), 32)
         local gray = Color3.fromRGB(60, 60, 80)
@@ -1411,6 +1429,7 @@ local function openEditor()
         }, 0, 32, 11)
     end
 
+    -- ⚡ БЫСТРЫЕ ФОРМЫ
     do
         local body = section("⚡ БЫСТРЫЕ ФОРМЫ", Color3.fromRGB(140, 80, 40), 32)
         local function placeTemplate(pattern, colorMap)
@@ -1433,6 +1452,7 @@ local function openEditor()
         local purple = Color3.fromRGB(80, 60, 100)
         buttonRow(body, {
             {text = "↔ Симметрия", color = purple, fn = function()
+                -- зеркало левой половины на правую
                 for r = 1, GRID do
                     for c = 1, math.floor(GRID / 2) do
                         Ed2D.Cells[r][GRID - c + 1] = Ed2D.Cells[r][c]
@@ -1449,6 +1469,7 @@ local function openEditor()
         }, 0, 32, 10)
     end
 
+    -- 💾 СОХРАНЕНИЕ
     do
         local body = section("💾 СОХРАНЕНИЕ", Color3.fromRGB(100, 60, 140), 150)
 
@@ -1484,6 +1505,7 @@ local function openEditor()
         corner(sellBtn, 8)
 
         onClick(saveBtn, function()
+            -- формат: { name = "...", pixels = { {1,2,0,...}, ... } }, 0 = пусто, 1..24 = палитра
             local data = {}
             local filled = 0
             for r = 1, GRID do
@@ -1542,17 +1564,22 @@ local function openEditor()
         end)
     end
 
+    -- Первичная сборка сетки
     rebuildGridUI()
     refreshCount()
     fitCanvas()
 end
 
 -- ============================================================
---       ЭКСПОРТ
+--       ПРИВЯЗКА
 -- ============================================================
--- Кнопки магазина/редактора в панели p4 подключаются через свой onClick
--- (см. orbit_p4.lua: onClick(openShopBtn, ...) / onClick(openEditorBtn, ...)).
--- Здесь только экспортируем функции — этого достаточно.
+if ORBIT.ui.openShopBtn then
+    onClick(ORBIT.ui.openShopBtn, function() openShop() end)
+end
+
+if ORBIT.ui.openEditorBtn then
+    onClick(ORBIT.ui.openEditorBtn, function() openEditor() end)
+end
 
 ORBIT.openShop = openShop
 ORBIT.openEditor = openEditor
@@ -1561,7 +1588,7 @@ ORBIT.PALETTE = PALETTE
 ORBIT.saveStorage = saveStorage
 
 if ORBIT.notify then
-    ORBIT.notify("🎨 2D + 🔮 3D редакторы v23.7", Color3.fromRGB(220,200,255), 3)
+    ORBIT.notify("🎨 2D + 🔮 3D редакторы v23.3", Color3.fromRGB(220,200,255), 3)
 end
 
 return true
