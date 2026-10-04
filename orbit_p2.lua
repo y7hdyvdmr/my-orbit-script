@@ -1,4 +1,12 @@
---[[ ОРБИТА v22.7 — ЧАСТЬ 2/4: ФИГУРЫ (24 шт.) ]]
+--[[ ОРБИТА v22.9 — ЧАСТЬ 2/4: ФИГУРЫ (25 шт.)
+  ИЗМЕНЕНИЯ v22.8:
+  + новая фигура «СКАЛА» (createRock v2) — крепыш в фиолетовом бархатном костюме по фото:
+    лысая голова с лицом (глаза, бровь, улыбка), V-образный торс, широкие плечи, лацканы,
+    белая рубашка с открытым воротом, кулон, сложенные руки, часы на левом запястье,
+    серые замшевые лоферы. 18 частей (+6 тонких деталей при BlockCount <= 8), visualSize = s*2.2.
+  * костюм (Fabric) красится в цвет кольца; кожа, рубашка, часы и обувь — NoRecolor.
+  * остальные фигуры и реестр не менялись.
+]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -575,7 +583,99 @@ local function create3DBlasterPlaceholder(size, color, name)
 end
 
 -- ============================================================
---              РЕГИСТРАЦИЯ 24 ФИГУР
+--   СКАЛА v2: крепыш в фиолетовом бархатном костюме (по фото)
+--   Лицо смотрит в -Z, как у остальных фигур. Все идентификаторы — латиницей.
+--   Базовая версия — 18 частей; «тонкие детали» (глаза, бровь, улыбка, цепочка, часы)
+--   добавляются, пока BlockCount <= 8 (+6 частей), чтобы не перегружать при большом числе фигур.
+--   Красятся (цвет кольца): пиджак, плечи, рукава, лацканы, брюки.
+--   Не красятся: кожа, рубашка, обувь, глаза, зубы, цепочка, часы.
+-- ============================================================
+local function createRock(size, color, name)
+    local model, root = newModelShell(name); local bodies = {}
+    local s = size
+    local fine = true
+    pcall(function() fine = (ORBIT.SETTINGS.BlockCount or 6) <= 8 end)
+
+    local suit     = color or Color3.fromRGB(70, 22, 92)       -- бархат (красится)
+    local skin     = Color3.fromRGB(190, 140, 106)
+    local shirtCol = Color3.fromRGB(246, 246, 250)
+    local shoeCol  = Color3.fromRGB(168, 170, 180)             -- серая замша
+    local darkCol  = Color3.fromRGB(28, 22, 30)
+    local goldCol  = Color3.fromRGB(232, 192, 92)
+    local watchCol = Color3.fromRGB(30, 48, 90)
+    local plastic, fabric, metal = Enum.Material.SmoothPlastic, Enum.Material.Fabric, Enum.Material.Metal
+
+    local function V(x, y, z) return Vector3.new(x*s, y*s, z*s) end
+    local function P(x, y, z) return CFrame.new(x*s, y*s, z*s) end
+    local function blk(sz, cf, col, nr, mat)
+        local p = newPart(model, "B", sz, cf, col, nr)
+        p.Material = mat or fabric
+        table.insert(bodies, p); return p
+    end
+    local function ell(sz, cf, col, nr, mat)
+        local p = blk(sz, cf, col, nr, mat or plastic)
+        local m = Instance.new("SpecialMesh"); m.MeshType = Enum.MeshType.Sphere; m.Parent = p
+        return p
+    end
+    local function limb(a, b, thick, col, nr, mat)
+        local r = makeRod(model, a, b, thick, thick, col or suit)
+        if mat then r.Material = mat end
+        if nr then r:SetAttribute("NoRecolor", true) end
+        table.insert(bodies, r); return r
+    end
+
+    -- ===== ноги: брюки + серые лоферы =====
+    for _, sd in ipairs({-1, 1}) do
+        limb(V(sd*0.14, -0.02, 0), V(sd*0.165, -0.86, 0), 0.25*s)
+        blk(V(0.25, 0.10, 0.44), P(sd*0.165, -0.91, -0.08), shoeCol, true, fabric)
+    end
+
+    -- ===== корпус: V-образный силуэт (широкая грудь -> узкая талия) =====
+    blk(V(0.60, 0.46, 0.30), P(0, 0.17, 0), suit)                 -- низ пиджака
+    blk(V(0.82, 0.34, 0.34), P(0, 0.52, 0), suit)                 -- грудь и плечевой пояс
+    for _, sd in ipairs({-1, 1}) do                               -- дельты
+        ell(V(0.31, 0.31, 0.31), P(sd*0.44, 0.60, 0), suit, false, fabric)
+    end
+
+    -- ===== шея и голова (лысая) =====
+    blk(V(0.21, 0.14, 0.18), P(0, 0.75, 0), skin, true, plastic)
+    ell(V(0.37, 0.45, 0.39), P(0, 0.97, 0), skin, true)
+
+    -- ===== рубашка с открытым воротом и лацканы =====
+    blk(V(0.21, 0.44, 0.03), P(0, 0.49, -0.175), shirtCol, true, plastic)
+    for _, sd in ipairs({-1, 1}) do
+        local ang = math.rad(-20 * sd)                            -- верх лацкана шире низа
+        blk(V(0.085, 0.47, 0.05), P(sd*0.145, 0.50, -0.19) * CFrame.Angles(0, 0, ang), suit, false, plastic)
+    end
+
+    -- ===== руки: плечо -> локоть -> сложенные перед корпусом кисти =====
+    local hand = V(0, 0.07, -0.34)
+    for _, sd in ipairs({-1, 1}) do
+        local shoulder = V(sd*0.43, 0.56, 0)
+        local elbow    = V(sd*0.54, 0.17, -0.10)
+        limb(shoulder, elbow, 0.25*s)
+        limb(elbow, hand, 0.20*s)
+    end
+    ell(V(0.21, 0.15, 0.17), CFrame.new(hand), skin, true)
+
+    -- ===== тонкие детали =====
+    if fine then
+        for _, sd in ipairs({-1, 1}) do                           -- глаза
+            ell(V(0.05, 0.05, 0.03), P(sd*0.085, 1.00, -0.166), darkCol, true)
+        end
+        blk(V(0.25, 0.025, 0.03), P(0, 1.05, -0.172), darkCol, true, plastic)      -- бровь
+        blk(V(0.17, 0.035, 0.02), P(0, 0.885, -0.178), shirtCol, true, plastic)    -- улыбка
+        ell(V(0.045, 0.06, 0.03), P(0, 0.53, -0.198), goldCol, true, metal)        -- цепочка/кулон
+        -- часы на левом запястье (на фото справа от зрителя = -X у фигуры, смотрящей в -Z)
+        local elbowL = V(-0.54, 0.17, -0.10)
+        local wrist  = elbowL:Lerp(hand, 0.80)
+        blk(V(0.19, 0.19, 0.07), CFrame.lookAt(wrist, hand), watchCol, true, metal)
+    end
+    return model, root, bodies
+end
+
+-- ============================================================
+--              РЕГИСТРАЦИЯ 25 ФИГУР
 -- ============================================================
 ORBIT.SHAPE_PRESETS = {
     { name = "БЛОК", create = function(size, name)
@@ -652,9 +752,12 @@ ORBIT.SHAPE_PRESETS = {
     { name = "ЩУПАЛЬЦЕ", create = function(s, n)
         local m, r, b = createTentacle(s, Color3.fromRGB(150,80,180), n)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.0 } end },
+    { name = "СКАЛА", create = function(s, n)
+        local m, r, b = createRock(s, Color3.fromRGB(70,22,92), n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.2 } end },
 }
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (24 шт.)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (25 шт.)", Color3.fromRGB(180,255,180), 3) end
 
 return true
