@@ -2065,4 +2065,12 @@ end
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
 if ORBIT.notify then ORBIT.notify("P3 v23.4 (логика + оптимизация + появление колец)", Color3.fromRGB(180,255,180), 3) end
 
+-- ==================== ЭКСПОРТ ДЛЯ SHARE-МОДУЛЯ v23.8 ====================
+-- Отдаём наружу три функции, которые раньше были локальными.
+-- Нужны модулю orbit_share.lua для упаковки/распаковки настроек.
+ORBIT.collectSaveDataForShare = collectSaveData
+ORBIT.encodeSettingsForShare  = enc
+ORBIT.decodeSettingsForShare  = dec
+ORBIT.applySaveData           = applySaveData
+
 return true
