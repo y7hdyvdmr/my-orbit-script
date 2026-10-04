@@ -1,10 +1,7 @@
---[[ ОРБИТА v23.0 — P3: ЛОГИКА
-     🆕 Аура: узоры (хаос, восьмёрка и др.) + трейлы с настройкой
-     🆕 Полное копирование на чужих: 5 колец + аура + трейлы + эффекты
-     🆕 Кольца на ботах (ShowPlayerRing)
-     🆕 Мгновенный cleanup при смерти
-     🆕 FPS-данные для верхней панели
-     🐛 Исправлены баги
+--[[ ОРБИТА v23.3 — P3: ЛОГИКА
+     🆕 Свет ауры (PointLight)
+     🆕 Синхронизация цвета
+     🐛 Фикс SESSION
 ]]
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
@@ -24,7 +21,7 @@ local SHAPE_PRESETS = ORBIT.SHAPE_PRESETS
 if not P then warn("[Orbit P3] P не передан"); return end
 if not SHAPE_PRESETS then warn("[Orbit P3] Часть 2 не загружена"); return end
 
--- ==================== СЕССИЯ (гарантированно есть) ====================
+-- ==================== СЕССИЯ ====================
 ORBIT.SESSION = ORBIT.SESSION or {
     botsCollected = 0, cheatersTagged = 0, dodgesMade = 0,
     protectionsTriggered = 0, startTime = tick(), coinsSpent = 0, coinsEarned = 0,
@@ -33,7 +30,7 @@ function ORBIT.addSession(field, amount)
     ORBIT.SESSION[field] = (ORBIT.SESSION[field] or 0) + (amount or 1)
 end
 
--- ==================== КАТЕГОРИИ ФИГУР ====================
+-- ==================== КАТЕГОРИИ ====================
 function ORBIT.getShapeIndicesInCategory()
     local cat = P.SHAPE_CATEGORIES[P.shapeCategoryIndex]
     if not cat or not cat.shapes then
@@ -50,7 +47,7 @@ function ORBIT.getShapeIndicesInCategory()
     return list
 end
 
--- ==================== ПАТТЕРНЫ (общие для колец и ауры) ====================
+-- ==================== ПАТТЕРНЫ ====================
 local function applyPattern(pattern, angle, radius, height, seed)
     seed = seed or 0
     if pattern == "Круг" then
@@ -61,7 +58,7 @@ local function applyPattern(pattern, angle, radius, height, seed)
         return math.cos(angle)*r, height + math.sin(angle*0.5)*3, math.sin(angle)*r
     elseif pattern == "Волна" then
         return math.cos(angle)*radius, height + math.sin(angle*2)*4, math.sin(angle)*radius
-    elseif pattern == "Восьмёрка" then
+    elseif pattern == "Восьмерка" or pattern == "Восьмёрка" then
         return math.sin(angle)*radius, height, math.sin(angle*2)*radius*0.5
     elseif pattern == "Зигзаг" then
         local seg = math.floor(angle/(math.pi/3))
@@ -96,6 +93,7 @@ function ORBIT.setupAura()
     ORBIT.auraFolder.Name = "OrbitAura_" .. tostring(math.random(1, 999999))
     ORBIT.auraFolder.Parent = Workspace
 
+    -- Кольцо
     if SETTINGS.AuraRing then
         local ring = Instance.new("Part")
         ring.Name = "AuraRing"; ring.Shape = Enum.PartType.Cylinder
@@ -107,6 +105,7 @@ function ORBIT.setupAura()
         table.insert(ORBIT.auraParts, ring)
     end
 
+    -- Частицы
     if SETTINGS.AuraParticles then
         local emitter = Instance.new("Part")
         emitter.Name = "AuraEmitter"; emitter.Size = Vector3.new(0.1,0.1,0.1); emitter.Transparency = 1
@@ -140,6 +139,29 @@ function ORBIT.setupAura()
         table.insert(ORBIT.auraParts, emitter)
     end
 
+    -- 🆕 Свет ауры
+    if SETTINGS.AuraLightEnabled then
+        local lightPart = Instance.new("Part")
+        lightPart.Name = "AuraLightHolder"
+        lightPart.Size = Vector3.new(0.1, 0.1, 0.1)
+        lightPart.Transparency = 1
+        lightPart.Anchored = true
+        lightPart.CanCollide = false
+        lightPart.CastShadow = false
+        lightPart.CanQuery = false
+        lightPart.CanTouch = false
+        lightPart.Parent = ORBIT.auraFolder
+        local pl = Instance.new("PointLight")
+        pl.Name = "AuraLight"
+        pl.Color = SETTINGS.AuraColor
+        pl.Range = SETTINGS.AuraLightRange or 8
+        pl.Brightness = SETTINGS.AuraLightBrightness or 2
+        pl.Shadows = false
+        pl.Parent = lightPart
+        table.insert(ORBIT.auraParts, lightPart)
+    end
+
+    -- Фигуры
     if SETTINGS.AuraShapes then
         local folder = Instance.new("Folder"); folder.Name = "AuraShapes"; folder.Parent = ORBIT.auraFolder
         local shape = SHAPE_PRESETS[ORBIT.auraShapeIndex] or SHAPE_PRESETS[1]
@@ -189,6 +211,7 @@ local function updateAura(dt)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     local baseCol = getAuraColor(1, 1)
+
     for _, part in ipairs(ORBIT.auraParts) do
         if part.Name == "AuraRing" then
             part.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 2.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
@@ -200,8 +223,25 @@ local function updateAura(dt)
                     if child:IsA("ParticleEmitter") then child.Color = ColorSequence.new(baseCol) end
                 end
             end
+        elseif part.Name == "AuraLightHolder" then
+            -- 🆕 Свет ауры следует за игроком
+            part.CFrame = hrp.CFrame
+            local pl = part:FindFirstChildOfClass("PointLight")
+            if pl then
+                local col
+                local ac = P.COLORS[P.auraColorIndex]
+                if ac.rainbow then
+                    col = baseCol
+                else
+                    col = ac.c or SETTINGS.AuraColor
+                end
+                pl.Color = col
+                pl.Range = SETTINGS.AuraLightRange or 8
+                pl.Brightness = SETTINGS.AuraLightBrightness or 2
+            end
         end
     end
+
     if SETTINGS.AuraShapes and #ORBIT.auraBlocks > 0 then
         local auraOrbitSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7
             * SETTINGS.AuraSpeedMult * SETTINGS.AuraDirection
@@ -228,13 +268,10 @@ local function updateAura(dt)
             else
                 cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
             end
-
-            -- 🆕 Пульсация ауры
             local pulseScale = 1.0
             if SETTINGS.AuraPulseEnabled then
                 pulseScale = 1.0 + math.sin(t * 4 + data.index) * 0.15
             end
-
             if data.isModel and data.model then
                 data.model:PivotTo(cf)
                 local tgt = pulseScale
@@ -250,7 +287,6 @@ local function updateAura(dt)
                     data.part.Size = Vector3.new(baseSz, baseSz, baseSz)
                 end
             end
-
             local col = getAuraColor(data.index, data.total)
             if data.bodyParts then
                 for _, p in ipairs(data.bodyParts) do
@@ -298,7 +334,7 @@ local function updateFire()
 end
 
 -- ============================================================
---       👁️ ESP ИГРОКОВ
+--       ESP
 -- ============================================================
 ORBIT.ESP = ORBIT.ESP or {
     Enabled = false, MaxDistance = 500, UpdateInterval = 0.1,
@@ -330,7 +366,7 @@ local function makeESPTag(player)
     nameLbl.BackgroundTransparency = 0.3
     nameLbl.BackgroundColor3 = isTagged and Color3.fromRGB(80, 20, 20) or Color3.fromRGB(20, 60, 30)
     nameLbl.BorderSizePixel = 0
-    nameLbl.Text = (isTagged and "🚨 " or "👤 ") .. player.Name
+    nameLbl.Text = player.Name
     nameLbl.TextColor3 = color
     nameLbl.Font = Enum.Font.GothamBold
     nameLbl.TextSize = 12
@@ -407,7 +443,7 @@ function ORBIT.setESPEnabled(state)
         for p in pairs(ORBIT.ESP.Tags) do removeESPTag(p) end
     end
     if ORBIT.notify then
-        ORBIT.notify("👁️ ESP: " .. (state and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(180, 220, 255), 2)
+        ORBIT.notify("ESP: " .. (state and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(180, 220, 255), 2)
     end
 end
 
@@ -466,8 +502,8 @@ function ORBIT.tagCheater(player, enable)
             name = player.Name, time = os.time(), reason = "manual",
         }
         ORBIT.addSession("cheatersTagged")
-        warn("[Orbit v23.0] Помечен: " .. player.Name)
-        if ORBIT.notify then ORBIT.notify("🚩 Помечен: " .. player.Name, Color3.fromRGB(255, 120, 120)) end
+        warn("[Orbit v23.3] Помечен: " .. player.Name)
+        if ORBIT.notify then ORBIT.notify("Помечен: " .. player.Name, Color3.fromRGB(255, 120, 120)) end
         if ORBIT.ESP and ORBIT.ESP.Enabled and ORBIT.ESP.Tags[player] then
             removeESPTag(player); task.wait(0.1); makeESPTag(player)
         end
@@ -489,11 +525,10 @@ function ORBIT.clearAllTags()
 end
 
 -- ============================================================
---  🆕 ПОЛНОЕ КОПИРОВАНИЕ НА ЧУЖИХ (все 5 колец + аура + эффекты)
+--       ПОЛНОЕ КОПИРОВАНИЕ НА ЧУЖИХ
 -- ============================================================
 ORBIT.targetRings = ORBIT.targetRings or {}
 
--- Вспомогательная: создать трейл на part
 local function attachTrail(refPart, span, color, length, width)
     local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span,0,0); a0.Parent = refPart
     local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span,0,0); a1.Parent = refPart
@@ -512,7 +547,6 @@ local function attachTrail(refPart, span, color, length, width)
 end
 
 function ORBIT.buildTargetRings(player, slot)
-    -- slot оставлен для совместимости, но теперь копируем ВСЁ
     if ORBIT.targetRings[player] then
         pcall(function() ORBIT.targetRings[player].folder:Destroy() end)
         ORBIT.targetRings[player] = nil
@@ -526,7 +560,6 @@ function ORBIT.buildTargetRings(player, slot)
     rootFolder.Name = "TargetFull_" .. tostring(math.random(1, 999999))
     rootFolder.Parent = Workspace
 
-    -- Все активные кольца
     local ringData = {}
     for ri = 1, 5 do
         if rings[ri].enabled then
@@ -568,13 +601,10 @@ function ORBIT.buildTargetRings(player, slot)
                     index = i,
                 })
             end
-            table.insert(ringData, {
-                ri = ri, folder = ringFolder, blocks = blocks, angle = 0,
-            })
+            table.insert(ringData, { ri = ri, folder = ringFolder, blocks = blocks, angle = 0 })
         end
     end
 
-    -- Аура
     local auraData = nil
     if SETTINGS.AuraEnabled then
         local auraFolder = Instance.new("Folder")
@@ -658,9 +688,7 @@ function ORBIT.buildTargetRings(player, slot)
         }
     end
 
-    ORBIT.targetRings[player] = {
-        folder = rootFolder, rings = ringData, aura = auraData,
-    }
+    ORBIT.targetRings[player] = { folder = rootFolder, rings = ringData, aura = auraData }
 end
 
 function ORBIT.removeTargetRings(player)
@@ -675,12 +703,12 @@ function ORBIT.addRingsToAll()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then ORBIT.buildTargetRings(player); count = count + 1 end
     end
-    ORBIT.notify("➕ Полное копирование на " .. count .. " игроков", Color3.fromRGB(160, 255, 160), 2)
+    ORBIT.notify("Кольца навешаны на " .. count .. " игроков", Color3.fromRGB(160, 255, 160), 2)
 end
 function ORBIT.removeRingsFromAll()
     local count = 0
     for player in pairs(ORBIT.targetRings) do ORBIT.removeTargetRings(player); count = count + 1 end
-    ORBIT.notify("➖ Убрано у всех (" .. count .. ")", Color3.fromRGB(255, 160, 160), 2)
+    ORBIT.notify("Убрано у всех (" .. count .. ")", Color3.fromRGB(255, 160, 160), 2)
 end
 function ORBIT.toggleAllRings()
     local any = false
@@ -690,10 +718,10 @@ end
 function ORBIT.toggleTargetRings(player)
     if ORBIT.targetRings[player] then
         ORBIT.removeTargetRings(player)
-        ORBIT.notify("➖ Убрано у " .. player.Name, Color3.fromRGB(255,150,150))
+        ORBIT.notify("Убрано у " .. player.Name, Color3.fromRGB(255,150,150))
     else
         ORBIT.buildTargetRings(player)
-        ORBIT.notify("➕ Полное кольцо у " .. player.Name, Color3.fromRGB(200,150,255))
+        ORBIT.notify("Полное кольцо у " .. player.Name, Color3.fromRGB(200,150,255))
     end
 end
 function ORBIT.cleanupAllTargetRings()
@@ -714,7 +742,6 @@ function ORBIT.getPlayerList()
     return list
 end
 
--- 🆕 Обновление всего на чужих
 local function updateTargetRings(dt)
     local t = tick() - ORBIT.startTime
     local baseCol = SETTINGS.FixedColor
@@ -728,7 +755,6 @@ local function updateTargetRings(dt)
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not hrp then continue end
 
-        -- Кольца
         for _, rd in ipairs(data.rings) do
             local ring = rings[rd.ri]
             if not ring then continue end
@@ -749,7 +775,6 @@ local function updateTargetRings(dt)
                     targetCF = CFrame.new(hrp.Position + Vector3.new(px, py, pz)) * CFrame.Angles(0, math.rad(spinAngle), 0)
                 end
                 if b.isModel and b.model then b.model:PivotTo(targetCF) else b.part.CFrame = targetCF end
-                -- 🆕 Одинаковый цвет как у меня
                 local col = baseCol
                 if SETTINGS.Rainbow then
                     col = Color3.fromHSV((t*SETTINGS.RainbowSpeed*SETTINGS.SpeedMultiplier + b.index/SETTINGS.BlockCount + ring.colorShift) % 1, 0.9, 1)
@@ -768,7 +793,6 @@ local function updateTargetRings(dt)
             end
         end
 
-        -- Аура
         if data.aura then
             local aura = data.aura
             local auraSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7
@@ -818,14 +842,14 @@ local function updateTargetRings(dt)
 end
 
 -- ============================================================
---       🤖 БОТЫ
+--       БОТЫ
 -- ============================================================
 ORBIT.bots = {}
 ORBIT.botIdCounter = 0
 ORBIT.botSettings = ORBIT.botSettings or {
     CollectRadius = 12, AutoCollect = true, BotRingRadius = 4, BotRingHeight = 2,
     BotRingBlockCount = 6, BotSpeed = 60, UseMySkin = false, BotYOffset = 1.5,
-    ShowPlayerRing = false,  -- 🆕 Кольцо как у игрока
+    ShowPlayerRing = false,
 }
 ORBIT.botAvatarTemplate = nil
 
@@ -933,7 +957,6 @@ local function createDummyCharacter(position, useSkin)
     return model
 end
 
--- 🆕 Создание кольца "как у игрока" на боте
 local function buildBotPlayerRings(botRoot, botId)
     if not ORBIT.botSettings.ShowPlayerRing then return nil end
     local folder = Instance.new("Folder")
@@ -972,9 +995,7 @@ local function buildBotPlayerRings(botRoot, botId)
                     index = i,
                 })
             end
-            table.insert(ringData, {
-                ri = ri, folder = ringFolder, blocks = blocks, angle = 0,
-            })
+            table.insert(ringData, { ri = ri, folder = ringFolder, blocks = blocks, angle = 0 })
         end
     end
     return { folder = folder, rings = ringData }
@@ -1024,7 +1045,6 @@ function ORBIT.createBot(shapeIndex, position, targetSlot)
     local botId = ORBIT.botIdCounter + 1
     ORBIT.botIdCounter = botId
 
-    -- 🆕 Кольцо как у игрока (если включено)
     local playerRingsData = nil
     local botRoot = model:FindFirstChild("HumanoidRootPart")
     if botRoot and ORBIT.botSettings.ShowPlayerRing then
@@ -1068,7 +1088,7 @@ function ORBIT.createManyBots(count, targetSlot)
     for i = 1, count do
         if not ORBIT.createBot(nil, nil, targetSlot) then
             if ORBIT.notify then
-                ORBIT.notify("🤖 Лимит ботов: " .. MAX_BOTS, Color3.fromRGB(255, 200, 120), 2)
+                ORBIT.notify("Лимит ботов: " .. MAX_BOTS, Color3.fromRGB(255, 200, 120), 2)
             end
             break
         end
@@ -1102,7 +1122,7 @@ local function collectBotRing(botModel, data)
     else
         ORBIT.destroyRing(SLOT); ORBIT.buildRing(SLOT); ORBIT.applyColor(); ORBIT.applyNameVisibility()
     end
-    ORBIT.notify("🎁 " .. shapeName .. " → кольцо " .. SLOT, Color3.fromRGB(255, 220, 100), 3)
+    ORBIT.notify(shapeName .. " - кольцо " .. SLOT, Color3.fromRGB(255, 220, 100), 3)
     ORBIT.addSession("botsCollected")
     if ORBIT.playBotCollect then ORBIT.playBotCollect() end
     task.spawn(function()
@@ -1147,7 +1167,6 @@ local function updateBots(dt)
                 * CFrame.Angles(0, t * 1.2 + data.id, 0)
             )
 
-            -- Оригинальные кольца бота (маленькие цветные)
             data.angle = data.angle + (data.ringSpeed or 60) * dt
             local radius = data.ringRadius or 4
             local height = data.ringHeight or 2
@@ -1174,7 +1193,6 @@ local function updateBots(dt)
                 end
             end
 
-            -- 🆕 Кольца "как у игрока"
             if data.playerRings then
                 for _, rd in ipairs(data.playerRings.rings) do
                     local ring = rings[rd.ri]
@@ -1285,7 +1303,8 @@ function ORBIT.buildRing(ri)
         local visualSize = data.visualSize or size
         if not data.isModel then
             refPart.Material = SETTINGS.Material
-            refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+            refPart.CanCollide = false; refPart.Anchored = true
+            refPart.CastShadow = SETTINGS.CastShadow or false
             refPart.CanQuery = false; refPart.CanTouch = false
             refPart.Transparency = SETTINGS.Transparency
             refPart.Color = SETTINGS.FixedColor
@@ -1305,7 +1324,7 @@ function ORBIT.buildRing(ri)
             light.Name = blockName .. "_Light"
             light.Color = SETTINGS.FixedColor
             light.Range = SETTINGS.LightRange
-            light.Brightness = 1
+            light.Brightness = SETTINGS.GlowIntensity or 1
             light.Parent = refPart
             ORBIT.activeLightCount = ORBIT.activeLightCount + 1
         end
@@ -1398,7 +1417,7 @@ function ORBIT.setEnabled(state)
         end
         ORBIT.applyColor(); ORBIT.applyNameVisibility()
         ORBIT.startUpdateLoop()
-        ORBIT.notify("🟢 Скрипт включён", Color3.fromRGB(100,255,150))
+        ORBIT.notify("Скрипт включён", Color3.fromRGB(100,255,150))
     else
         ORBIT.stopUpdateLoop()
         for ri in pairs(rings) do ORBIT.destroyRing(ri) end
@@ -1408,7 +1427,7 @@ function ORBIT.setEnabled(state)
         ORBIT.cleanupAllTargetRings()
         ORBIT.removeAllBots()
         if ORBIT.ESP and ORBIT.ESP.Enabled then ORBIT.setESPEnabled(false) end
-        ORBIT.notify("🔴 Скрипт выключен", Color3.fromRGB(255,100,100))
+        ORBIT.notify("Скрипт выключен", Color3.fromRGB(255,100,100))
     end
 end
 
@@ -1438,7 +1457,7 @@ function ORBIT.applyShapes()
 end
 
 -- ============================================================
---       🆕 МГНОВЕННЫЙ CLEANUP ПРИ СМЕРТИ + РЕСПАВН
+--       МГНОВЕННЫЙ CLEANUP ПРИ СМЕРТИ
 -- ============================================================
 local function cleanupOnDeath()
     for ri in pairs(rings) do
@@ -1447,19 +1466,16 @@ local function cleanupOnDeath()
     if ORBIT.auraFolder then pcall(function() ORBIT.auraFolder:Destroy() end); ORBIT.auraFolder = nil end
     if ORBIT.fireFolder then pcall(function() ORBIT.fireFolder:Destroy() end); ORBIT.fireFolder = nil end
     ORBIT.activeLightCount = 0
-    -- Небольшая задержка не нужна — сразу удаляем
-    warn("[Orbit] 💀 Смерть — все элементы убраны мгновенно")
+    warn("[Orbit] Смерть - все элементы убраны мгновенно")
 end
 
 function ORBIT.setupRespawnHook()
-    -- Следим за текущим персонажем
     local function hookCurrentChar(char)
         if not char then return end
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
             hum.Died:Connect(function() cleanupOnDeath() end)
         else
-            -- Humanoid может появиться чуть позже
             char.ChildAdded:Connect(function(child)
                 if child:IsA("Humanoid") then
                     child.Died:Connect(function() cleanupOnDeath() end)
@@ -1539,7 +1555,7 @@ local function applyPerformanceLevel(level)
     elseif level == "minimal" then
         setLightsEnabled(false); setTrailsEnabled(false); setAuraTrailsEnabled(false)
     end
-    if ORBIT.notify then ORBIT.notify("⚡ Качество: " .. level:upper(), Color3.fromRGB(180, 220, 255), 1.5) end
+    if ORBIT.notify then ORBIT.notify("Качество: " .. level:upper(), Color3.fromRGB(180, 220, 255), 1.5) end
 end
 function ORBIT.setPerformanceMode(mode)
     if mode == "off" then
@@ -1738,6 +1754,9 @@ local function collectSaveData()
         auraSpinEnabled=SETTINGS.AuraSpinEnabled, auraSpinAxis=SETTINGS.AuraSpinAxis,
         auraSpinSpeedIndex=P.auraSpinSpeedIndex, auraPulseEnabled=SETTINGS.AuraPulseEnabled,
         auraSpeedIndex=P.auraSpeedIndex, auraDirIndex=P.auraDirIndex,
+        auraLightEnabled=SETTINGS.AuraLightEnabled,
+        auraLightRange=SETTINGS.AuraLightRange,
+        auraLightBrightness=SETTINGS.AuraLightBrightness,
         fireEnabled=SETTINGS.FireEnabled, fireSizeIndex=P.fireSizeIndex, fireHeatIndex=P.fireHeatIndex,
         rainbowSpeed=SETTINGS.RainbowSpeed,
         autoShapeSwap=SETTINGS.AutoShapeSwap, autoShapeSwapInterval=SETTINGS.AutoShapeSwapInterval,
@@ -1791,6 +1810,9 @@ local function applySaveData(d)
     if d.auraPulseEnabled ~= nil then SETTINGS.AuraPulseEnabled = d.auraPulseEnabled end
     if d.auraSpeedIndex then P.auraSpeedIndex = d.auraSpeedIndex; SETTINGS.AuraSpeedMult = P.AURA_SPEED[P.auraSpeedIndex].value end
     if d.auraDirIndex then P.auraDirIndex = d.auraDirIndex; SETTINGS.AuraDirection = P.AURA_DIR[P.auraDirIndex].value end
+    if d.auraLightEnabled ~= nil then SETTINGS.AuraLightEnabled = d.auraLightEnabled end
+    if d.auraLightRange then SETTINGS.AuraLightRange = d.auraLightRange end
+    if d.auraLightBrightness then SETTINGS.AuraLightBrightness = d.auraLightBrightness end
     if d.fireEnabled ~= nil then SETTINGS.FireEnabled = d.fireEnabled end
     if d.fireSizeIndex then P.fireSizeIndex = d.fireSizeIndex; SETTINGS.FireSize = P.FIRE_SIZE[P.fireSizeIndex].value end
     if d.fireHeatIndex then P.fireHeatIndex = d.fireHeatIndex; SETTINGS.FireHeat = P.FIRE_HEAT[P.fireHeatIndex].value end
@@ -1893,6 +1915,6 @@ function ORBIT.startLogic()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P3 v23.0 (логика + аура + копирование)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v23.3 (логика + свет ауры)", Color3.fromRGB(180,255,180), 3) end
 
 return true
