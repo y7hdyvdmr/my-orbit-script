@@ -4,7 +4,7 @@
      ✅ Все переменные латиницей (Lua-совместимо)
      ✅ Интерфейс, уведомления, комментарии — на русском
      ✅ НЕ зависит от ОРБИТЫ
-     
+
      🆕 Что нового в v12.0:
      - Anti-Homelander (детект огромных BodyVelocity/LinearVelocity)
      - Anti-Grab (снятие чужих Weld/Motor6D)
@@ -12,13 +12,67 @@
      - Anti-Killaura (резкие удары по мне без ответа)
      - Исправлен баг с текстом уведомлений
      - Все кириллические идентификаторы → латиница
-     
+
      Запуск:
      loadstring(game:HttpGet("https://raw.githubusercontent.com/y7hdyvdmr/orbit_anticheat.lua/refs/heads/main/orbit_anticheat.lua?t=" .. os.time()))()
      ═══════════════════════════════════════════════════════════════ ]]
+--[[ ИЗМЕНЕНИЯ (общий релиз v23.5): все 33 кнопки интерфейса — через onClick (Down + Touch + Activated;
+     в прокрутке срабатывают при отпускании). Логика защит не менялась. ]]
+--[[ ФИКСЫ v23.6:
+  🐛 markCheater вызывал notify(...) ДО её объявления: local notify была объявлена ниже, поэтому
+     внутри markCheater использовался ГЛОБАЛЬНЫЙ notify (nil), а позже notify = function писал
+     в локальную. Итог: уведомления «🚩 Помечен: X» не показывались (ошибка глоталась pcall в
+     protection loop). Forward-declaration local notify перенесена ВЫШЕ markCheater.
+  🐛 Workspace.DescendantAdded (снос Explosion) не отключался в unload — утечка.
+  🐛 UIS.InputBegan (hotkey K) не отключался в unload — после выгрузки клавиша K падала/дергала
+     мёртвый _ORBIT_AC_TOGGLE.
+  🐛 UIS.InputChanged / UIS.InputEnded (перетаскивание главной кнопки) не отключались в unload.
+     Все четыре подключения теперь трекаются в AC_CONNS и disconnect-ятся.
+  🐛 antiSuperRing запускал новый task.spawn при каждом enableProtection (быстрый двойной ВКЛ
+     создавал 2 параллельные петли сканирования Workspace — дорого). Введён флаг superRingRunning.
+]]
 
 -- ==================== ЗАЩИТА ОТ ПОВТОРНОГО ЗАПУСКА ====================
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
+
+-- ============================================================
+--  onClick: Down + Touch + Activated (Android / Delta).
+--  Внутри ScrollingFrame кнопка срабатывает при ОТПУСКАНИИ пальца (если он почти не двигался),
+--  иначе свайп для прокрутки нажимал бы кнопки под пальцем. Атрибут ReleaseOnly = true
+--  включает этот режим принудительно (например, для перетаскиваемых кнопок).
+-- ============================================================
+local function onClick(btn, fn, releaseOnly)
+    local deb = false
+    local touchStart = nil
+    local function call()
+        if deb then return end
+        deb = true
+        task.delay(0.12, function() deb = false end)
+        local ok, err = pcall(fn)
+        if not ok then warn("[Orbit] " .. tostring(err)) end
+    end
+    local function inScroll()
+        return releaseOnly or btn:GetAttribute("ReleaseOnly")
+            or btn:FindFirstAncestorOfClass("ScrollingFrame") ~= nil
+    end
+    btn.MouseButton1Down:Connect(function() if not inScroll() then call() end end)
+    btn.MouseButton1Click:Connect(function() if inScroll() then call() end end)
+    btn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            touchStart = input.Position
+            if not inScroll() then call() end
+        end
+    end)
+    btn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch and touchStart then
+            local moved = (input.Position - touchStart).Magnitude
+            touchStart = nil
+            if inScroll() and moved < 12 then call() end
+        end
+    end)
+    btn.Activated:Connect(call)
+end
+
 if GENV._ORBIT_AC_LOADED then
     warn("[Orbit AC] Уже запущен! Выгружаю старый...")
     pcall(function() GENV._ORBIT_AC_UNLOAD() end)
@@ -60,6 +114,15 @@ local function protectGui(gui)
     if type(protectFn) == "function" then
         pcall(protectFn, gui); return
     end
+end
+
+-- ==================== ТРЕКЕР ПОДКЛЮЧЕНИЙ (ФИКС v23.6) ====================
+-- Все коннекты, которые не живут на UI-элементах (а значит не умирают с Destroy GUI),
+-- пишем сюда и отключаем в _ORBIT_AC_UNLOAD.
+local AC_CONNS = {}
+local function track(conn)
+    if conn then AC_CONNS[#AC_CONNS + 1] = conn end
+    return conn
 end
 
 -- ==================== НАСТРОЙКИ ====================
@@ -485,7 +548,12 @@ local function disableFallDamage(char)
     end)
 end
 
--- ==================== ПОМЕТКА ЧИТЕРА (глобально, вызывается из функций) ====================
+-- ==================== FORWARD DECLARATIONS (ФИКС v23.6) ====================
+-- 🐛 Раньше local notify была объявлена ПОСЛЕ markCheater — markCheater звала глобальный nil.
+--    Переносим forward-декларацию сюда, чтобы markCheater видел именно эту локальную переменную.
+local notify
+
+-- ==================== ПОМЕТКА ЧИТЕРА ====================
 function markCheater(plr, enable)
     if not plr or plr == LocalPlayer then return false end
     if enable then
@@ -494,16 +562,15 @@ function markCheater(plr, enable)
         SESSION.cheatersMarked = SESSION.cheatersMarked + 1
         warn("[OrbitAC] Помечен: " .. plr.Name)
         sfxMarkCheater()
-        notify("🚩 Помечен: " .. plr.Name, Color3.fromRGB(255, 120, 120))
+        if notify then
+            notify("🚩 Помечен: " .. plr.Name, Color3.fromRGB(255, 120, 120))
+        end
     else
         MARKED[plr] = nil
         CHEATER_LOG[plr.UserId] = nil
     end
     return true
 end
-
--- Forward declaration (для вызова из функций защиты)
-local notify
 
 -- ==================== ФУНКЦИИ ЗАЩИТЫ ====================
 local function antiDropKick(char, hrp, now)
@@ -725,28 +792,35 @@ local function lockPosition(char, hrp)
     if STATE.lastSafeCFrame then pcall(function() char:PivotTo(STATE.lastSafeCFrame) end) end
 end
 
--- ==================== АНТИ-СУПЕРКОЛЬЦО ====================
+-- ==================== АНТИ-СУПЕРКОЛЬЦО (ФИКС v23.6) ====================
+-- 🐛 Раньше каждый вызов antiSuperRing() запускал новый task.spawn. При быстром двойном ВКЛ
+--    появлялись две параллельные петли сканирования Workspace:GetDescendants() каждые 0.2 сек.
+--    Теперь цикл один на весь модуль, флаг superRingRunning.
+local superRingRunning = false
 local function antiSuperRing()
-    if not SETTINGS.AntiSuperRing then return end
+    if superRingRunning then return end
+    superRingRunning = true
     task.spawn(function()
-        while SETTINGS.Enabled do
+        while true do
             task.wait(0.2)
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("BasePart") and not obj.Anchored then
-                    local parent = obj.Parent
-                    if parent and parent:IsA("Model") then
-                        local hum = parent:FindFirstChildOfClass("Humanoid")
-                        if not hum then
+            if SETTINGS.Enabled and SETTINGS.AntiSuperRing then
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") and not obj.Anchored then
+                        local parent = obj.Parent
+                        if parent and parent:IsA("Model") then
+                            local hum = parent:FindFirstChildOfClass("Humanoid")
+                            if not hum then
+                                for _, ch in ipairs(obj:GetChildren()) do
+                                    if ch:IsA("AlignPosition") or ch:IsA("Torque") then
+                                        pcall(function() ch:Destroy() end)
+                                    end
+                                end
+                            end
+                        else
                             for _, ch in ipairs(obj:GetChildren()) do
                                 if ch:IsA("AlignPosition") or ch:IsA("Torque") then
                                     pcall(function() ch:Destroy() end)
                                 end
-                            end
-                        end
-                    else
-                        for _, ch in ipairs(obj:GetChildren()) do
-                            if ch:IsA("AlignPosition") or ch:IsA("Torque") then
-                                pcall(function() ch:Destroy() end)
                             end
                         end
                     end
@@ -756,10 +830,9 @@ local function antiSuperRing()
     end)
 end
 
--- ==================== АНТИ-HOMELANDER 🆕 ====================
+-- ==================== АНТИ-HOMELANDER ====================
 local function antiHomelander(char, hrp)
     if not SETTINGS.AntiHomelander then return end
-    -- 1) Огромные BodyVelocity/LinearVelocity на себе
     for _, v in ipairs(hrp:GetChildren()) do
         if v:IsA("BodyVelocity") or v:IsA("LinearVelocity") then
             local vel = v.Velocity or v.LineVelocity
@@ -769,7 +842,6 @@ local function antiHomelander(char, hrp)
             end
         end
     end
-    -- 2) Резкие чужие части рядом со мной с огромной скоростью
     local parts = Workspace:GetPartBoundsInRadius(hrp.Position, 6, OverlapParams.new())
     for _, obj in ipairs(parts) do
         if obj:IsA("BasePart") and obj ~= hrp then
@@ -787,7 +859,7 @@ local function antiHomelander(char, hrp)
     end
 end
 
--- ==================== АНТИ-GRAB 🆕 ====================
+-- ==================== АНТИ-GRAB ====================
 local function antiGrab(char, hrp)
     if not SETTINGS.AntiGrab then return end
     for _, v in ipairs(hrp:GetChildren()) do
@@ -809,7 +881,7 @@ local function antiGrab(char, hrp)
     end
 end
 
--- ==================== АНТИ-RAGDOLL 🆕 ====================
+-- ==================== АНТИ-RAGDOLL ====================
 local function antiRagdoll(char)
     if not SETTINGS.AntiRagdoll then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -826,7 +898,7 @@ local function antiRagdoll(char)
     end
 end
 
--- ==================== АНТИ-KILLAURA 🆕 ====================
+-- ==================== АНТИ-KILLAURA ====================
 local function antiKillaura(char, hrp)
     if not SETTINGS.AntiKillaura then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1059,10 +1131,10 @@ local function handleProtection(dt, char, hrp)
     end
 
     antiVoid(char, hrp, dt)
-    antiHomelander(char, hrp)   -- 🆕
-    antiGrab(char, hrp)         -- 🆕
-    antiRagdoll(char)           -- 🆕
-    antiKillaura(char, hrp)     -- 🆕
+    antiHomelander(char, hrp)
+    antiGrab(char, hrp)
+    antiRagdoll(char)
+    antiKillaura(char, hrp)
 
     local inGrace = (now - STATE.spawnGrace) < 5.0
     if not inGrace and not airFlag then
@@ -1182,12 +1254,13 @@ local function disableProtection()
     STATE.lastSafeCFrame = nil
 end
 
-Workspace.DescendantAdded:Connect(function(obj)
+-- 🐛 ФИКС v23.6: этот коннект теперь трекается и отключается в unload
+track(Workspace.DescendantAdded:Connect(function(obj)
     if not SETTINGS.Enabled or not SETTINGS.AntiExplosion then return end
     if obj:IsA("Explosion") then
         task.defer(function() pcall(function() obj:Destroy() end) end)
     end
-end)
+end))
 
 -- ==================== UI ====================
 local screen = Instance.new("ScreenGui")
@@ -1211,6 +1284,7 @@ mainButton.TextSize = 24
 mainButton.Text = "🛡"
 mainButton.AutoButtonColor = false
 mainButton.Parent = screen
+mainButton:SetAttribute("ReleaseOnly", true)
 Instance.new("UICorner", mainButton).CornerRadius = UDim.new(0, 14)
 local btnStroke = Instance.new("UIStroke", mainButton)
 btnStroke.Color = Color3.fromRGB(255, 100, 100)
@@ -1377,6 +1451,7 @@ notifyLayout.Parent = notifyContainer
 
 local notifyCounter = 0
 
+-- 🐛 ФИКС v23.6: присваиваем ЛОКАЛЬНОЙ notify (forward-declared выше markCheater).
 notify = function(msg, color, duration)
     duration = duration or 2
     color = color or Color3.fromRGB(140, 255, 200)
@@ -1411,7 +1486,7 @@ notify = function(msg, color, duration)
     textLabel.Size = UDim2.new(1, -16, 1, 0)
     textLabel.Position = UDim2.new(0, 8, 0, 0)
     textLabel.BackgroundTransparency = 1
-    textLabel.Text = msg                 -- ← исправлено: было `текст.Text = текст`
+    textLabel.Text = msg
     textLabel.TextColor3 = color
     textLabel.Font = Enum.Font.GothamBold
     textLabel.TextSize = 13
@@ -1446,7 +1521,8 @@ mainButton.InputBegan:Connect(function(input)
     end
 end)
 
-UIS.InputChanged:Connect(function(input)
+-- 🐛 ФИКС v23.6: InputChanged / InputEnded теперь трекаются в AC_CONNS и отключаются в unload
+track(UIS.InputChanged:Connect(function(input)
     if not dragging then return end
     if input.UserInputType == Enum.UserInputType.Touch
        or input.UserInputType == Enum.UserInputType.MouseMovement then
@@ -1460,14 +1536,14 @@ UIS.InputChanged:Connect(function(input)
             )
         end
     end
-end)
+end))
 
-UIS.InputEnded:Connect(function(input)
+track(UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch
        or input.UserInputType == Enum.UserInputType.MouseButton1 then
         dragging = false
     end
-end)
+end))
 
 local panelOpen = false
 local function setPanel(open)
@@ -1489,12 +1565,12 @@ local function setPanel(open)
     end
 end
 
-mainButton.Activated:Connect(function()
+onClick(mainButton, function()
     if moved then moved = false; return end
     setPanel(not panelOpen)
 end)
 
-btnToggle.Activated:Connect(function()
+onClick(btnToggle, function()
     SETTINGS.Enabled = not SETTINGS.Enabled
     sfxSwitch()
     if SETTINGS.Enabled then
@@ -1524,27 +1600,27 @@ local function toggleBtn(button, field, prefix, colorOn, colorOff)
     end
 end
 
-btnFling.Activated:Connect(function()      toggleBtn(btnFling, "AntiFling", "🛡️ Анти-Флинг") end)
-btnVoid.Activated:Connect(function()       toggleBtn(btnVoid, "AntiVoid", "🛡️ Анти-Пустота") end)
-btnTeleport.Activated:Connect(function()   toggleBtn(btnTeleport, "AntiTeleport", "🛡️ Анти-Телепорт") end)
-btnKnockback.Activated:Connect(function()  toggleBtn(btnKnockback, "AntiKnockback", "🛡️ Анти-Отбрасывание") end)
-btnFreeze.Activated:Connect(function()     toggleBtn(btnFreeze, "AntiFreeze", "🛡️ Анти-Заморозка") end)
-btnDropKick.Activated:Connect(function()   toggleBtn(btnDropKick, "AntiDropKick", "🛡️ Анти-ДропКик") end)
-btnInstant.Activated:Connect(function()    toggleBtn(btnInstant, "AntiInstantKill", "🛡️ Анти-МгновСмерть") end)
-btnExplosion.Activated:Connect(function()  toggleBtn(btnExplosion, "AntiExplosion", "🛡️ Анти-Взрыв") end)
-btnSuperRing.Activated:Connect(function()  toggleBtn(btnSuperRing, "AntiSuperRing", "🛡️ Анти-СуперКольцо") end)
-btnHomelander.Activated:Connect(function() toggleBtn(btnHomelander, "AntiHomelander", "🛡️ Анти-Homelander") end)
-btnGrab.Activated:Connect(function()       toggleBtn(btnGrab, "AntiGrab", "🛡️ Анти-Grab") end)
-btnRagdoll.Activated:Connect(function()    toggleBtn(btnRagdoll, "AntiRagdoll", "🛡️ Анти-Ragdoll") end)
-btnKillaura.Activated:Connect(function()   toggleBtn(btnKillaura, "AntiKillaura", "🛡️ Анти-Killaura") end)
-btnNoFall.Activated:Connect(function()     toggleBtn(btnNoFall, "NoFallDamage", "🛡️ Убрать урон падения") end)
-btnHeal.Activated:Connect(function()       toggleBtn(btnHeal, "AutoHeal", "💚 Авто-Лечение") end)
-btnLock.Activated:Connect(function()       toggleBtn(btnLock, "LockPosition", "📍 Блокировка позиции") end)
-btnIntrusion.Activated:Connect(function()  toggleBtn(btnIntrusion, "IntrusionDetect", "🚨 Детект вторжения") end)
-btnSpeed.Activated:Connect(function()      toggleBtn(btnSpeed, "DetectSpeed", "⚡ Детект скорости") end)
-btnGodMode.Activated:Connect(function()    toggleBtn(btnGodMode, "DetectGodMode", "👁️ Детект GodMode") end)
+onClick(btnFling, function()      toggleBtn(btnFling, "AntiFling", "🛡️ Анти-Флинг") end)
+onClick(btnVoid, function()       toggleBtn(btnVoid, "AntiVoid", "🛡️ Анти-Пустота") end)
+onClick(btnTeleport, function()   toggleBtn(btnTeleport, "AntiTeleport", "🛡️ Анти-Телепорт") end)
+onClick(btnKnockback, function()  toggleBtn(btnKnockback, "AntiKnockback", "🛡️ Анти-Отбрасывание") end)
+onClick(btnFreeze, function()     toggleBtn(btnFreeze, "AntiFreeze", "🛡️ Анти-Заморозка") end)
+onClick(btnDropKick, function()   toggleBtn(btnDropKick, "AntiDropKick", "🛡️ Анти-ДропКик") end)
+onClick(btnInstant, function()    toggleBtn(btnInstant, "AntiInstantKill", "🛡️ Анти-МгновСмерть") end)
+onClick(btnExplosion, function()  toggleBtn(btnExplosion, "AntiExplosion", "🛡️ Анти-Взрыв") end)
+onClick(btnSuperRing, function()  toggleBtn(btnSuperRing, "AntiSuperRing", "🛡️ Анти-СуперКольцо") end)
+onClick(btnHomelander, function() toggleBtn(btnHomelander, "AntiHomelander", "🛡️ Анти-Homelander") end)
+onClick(btnGrab, function()       toggleBtn(btnGrab, "AntiGrab", "🛡️ Анти-Grab") end)
+onClick(btnRagdoll, function()    toggleBtn(btnRagdoll, "AntiRagdoll", "🛡️ Анти-Ragdoll") end)
+onClick(btnKillaura, function()   toggleBtn(btnKillaura, "AntiKillaura", "🛡️ Анти-Killaura") end)
+onClick(btnNoFall, function()     toggleBtn(btnNoFall, "NoFallDamage", "🛡️ Убрать урон падения") end)
+onClick(btnHeal, function()       toggleBtn(btnHeal, "AutoHeal", "💚 Авто-Лечение") end)
+onClick(btnLock, function()       toggleBtn(btnLock, "LockPosition", "📍 Блокировка позиции") end)
+onClick(btnIntrusion, function()  toggleBtn(btnIntrusion, "IntrusionDetect", "🚨 Детект вторжения") end)
+onClick(btnSpeed, function()      toggleBtn(btnSpeed, "DetectSpeed", "⚡ Детект скорости") end)
+onClick(btnGodMode, function()    toggleBtn(btnGodMode, "DetectGodMode", "👁️ Детект GodMode") end)
 
-btnSphere.Activated:Connect(function()
+onClick(btnSphere, function()
     SETTINGS.VisualSphere = not SETTINGS.VisualSphere
     btnSphere.Text = "🔵 Сфера: " .. (SETTINGS.VisualSphere and "ВКЛ" or "ВЫКЛ")
     if not SETTINGS.VisualSphere then
@@ -1553,7 +1629,7 @@ btnSphere.Activated:Connect(function()
         createSphere()
     end
 end)
-btnSize.Activated:Connect(function()
+onClick(btnSize, function()
     local sizes = {4, 6, 8, 12, 16, 20, 25, 30}
     local idx = 1
     for i, v in ipairs(sizes) do if v == SETTINGS.SphereSize then idx = i; break end end
@@ -1564,22 +1640,22 @@ btnSize.Activated:Connect(function()
     end
 end)
 
-btnDodge.Activated:Connect(function()
+onClick(btnDodge, function()
     DODGE.Enabled = not DODGE.Enabled
     btnDodge.Text = "🥷 Уклонение: " .. (DODGE.Enabled and "ВКЛ" or "ВЫКЛ")
     btnDodge.BackgroundColor3 = DODGE.Enabled and Color3.fromRGB(60,80,50) or Color3.fromRGB(50,50,50)
 end)
-btnTroll.Activated:Connect(function()
+onClick(btnTroll, function()
     TROLLING.Enabled = not TROLLING.Enabled
     btnTroll.Text = "👁️ Детект троллинга: " .. (TROLLING.Enabled and "ВКЛ" or "ВЫКЛ")
 end)
-btnReverse.Activated:Connect(function()
+onClick(btnReverse, function()
     REVERSE.Enabled = not REVERSE.Enabled
     btnReverse.Text = "🚨 Ответный флинг: " .. (REVERSE.Enabled and "ВКЛ" or "ВЫКЛ")
     btnReverse.BackgroundColor3 = REVERSE.Enabled and Color3.fromRGB(100,30,30) or Color3.fromRGB(60,30,30)
 end)
 
-btnList.Activated:Connect(function()
+onClick(btnList, function()
     local list = {}
     for p in pairs(MARKED) do
         if p and p.Parent then table.insert(list, p.Name) end
@@ -1591,13 +1667,13 @@ btnList.Activated:Connect(function()
     end
 end)
 
-btnSounds.Activated:Connect(function()
+onClick(btnSounds, function()
     SETTINGS.Sounds = not SETTINGS.Sounds
     btnSounds.Text = "🔊 Звуки: " .. (SETTINGS.Sounds and "ВКЛ" or "ВЫКЛ")
     if SETTINGS.Sounds then sfxSwitch() end
 end)
 
-btnTestSnd.Activated:Connect(function()
+onClick(btnTestSnd, function()
     btnTestSnd.Text = "⏳ Проигрываю..."
     task.wait(0.1)
     sfxClick()
@@ -1613,7 +1689,7 @@ end)
 local SAVE_FILE = "orbit_ac_settings.json"
 local HAS_FS = (writefile and readfile and isfile and type(writefile) == "function")
 
-btnSave.Activated:Connect(function()
+onClick(btnSave, function()
     if not HAS_FS then
         notify("❌ Нет файловой системы", Color3.fromRGB(255, 100, 100), 2)
         return
@@ -1637,7 +1713,7 @@ btnSave.Activated:Connect(function()
     end
 end)
 
-btnLoad.Activated:Connect(function()
+onClick(btnLoad, function()
     if not HAS_FS or not isfile(SAVE_FILE) then
         notify("❌ Нет сохранения", Color3.fromRGB(255, 100, 100), 2)
         return
@@ -1651,7 +1727,7 @@ btnLoad.Activated:Connect(function()
     end)
 end)
 
-btnReset.Activated:Connect(function()
+onClick(btnReset, function()
     SETTINGS.AntiFling      = true
     SETTINGS.AntiVoid       = true
     SETTINGS.AntiTeleport   = true
@@ -1678,13 +1754,18 @@ btnReset.Activated:Connect(function()
     notify("🔄 Сброс выполнен", Color3.fromRGB(255, 180, 180), 2)
 end)
 
-btnUnload.Activated:Connect(function()
+onClick(btnUnload, function()
     pcall(function() GENV._ORBIT_AC_UNLOAD() end)
 end)
 
--- ==================== ВЫГРУЗКА ====================
+-- ==================== ВЫГРУЗКА (ФИКС v23.6) ====================
 GENV._ORBIT_AC_UNLOAD = function()
     disableProtection()
+
+    -- 🐛 ФИКС v23.6: отключаем все трекнутые коннекты (DescendantAdded, UIS.*)
+    for _, c in ipairs(AC_CONNS) do pcall(function() c:Disconnect() end) end
+    AC_CONNS = {}
+
     if sphereModel then pcall(function() sphereModel:Destroy() end) end
     if screen then pcall(function() screen:Destroy() end) end
     if soundFolder then pcall(function() soundFolder:Destroy() end) end
@@ -1715,12 +1796,13 @@ task.spawn(function()
 end)
 
 -- ==================== ГОРЯЧАЯ КЛАВИША ====================
-UIS.InputBegan:Connect(function(input, processed)
+-- 🐛 ФИКС v23.6: коннект трекается и отключается в unload
+track(UIS.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.K then
         if GENV._ORBIT_AC_TOGGLE then GENV._ORBIT_AC_TOGGLE() end
     end
-end)
+end))
 
 GENV._ORBIT_AC_TOGGLE = function()
     SETTINGS.Enabled = not SETTINGS.Enabled
