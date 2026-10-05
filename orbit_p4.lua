@@ -1,21 +1,20 @@
--- ОРБИТА v23.6 — P4: UI
+-- ОРБИТА v23.7 — P4: UI
 -- ИЗМЕНЕНИЯ v23.5 (относительно v23.4):
--- 🎨 ИНТЕРФЕЙС: панель переделана — шапка, ПОИСК по функциям, 9 вкладок (ГЛАВНАЯ / ВИД /
---    ДВИЖЕНИЕ / АУРА / ЭФФЕКТЫ / БОТЫ / ИГРОКИ / ЕЩЁ / СИСТЕМА), сворачиваемые разделы,
---    кнопки в 2 столбца, градиенты, скруглённая рамка, тень, плавное открытие.
--- 🎨 ПАЛИТРА: цвет колец и цвет ауры выбираются из сетки 50 цветов.
--- ⭐ НОВОЕ: раздел «СТИЛИ» — 6 готовых образов + «Случайный стиль»; кнопки
---    «Появление колец», «Вспышка при вкл», «FPS-панель».
+-- 🎨 ИНТЕРФЕЙС: панель переделана — шапка, ПОИСК по функциям, 9 вкладок
+--    (ГЛАВНАЯ / ВИД / ДВИЖЕНИЕ / АУРА / ЭФФЕКТЫ / БОТЫ / ИГРОКИ / ЕЩЁ / СИСТЕМА),
+--    сворачиваемые разделы, кнопки в 2 столбца, градиенты, тень, плавное открытие.
+-- 🎨 ПАЛИТРА: цвет колец и цвет ауры — из сетки 50 цветов.
+-- ⭐ НОВОЕ: раздел «СТИЛИ» — 6 образов + «Случайный стиль»; кнопки «Появление
+--    колец», «Вспышка при вкл», «FPS-панель».
 -- 🐛 все кнопки через onClick (Down + Touch + Activated).
 -- 🐛 после загрузки сохранения / сброса — refreshAllLabels().
 -- 🐛 «Свечение» реально включает/выключает свет у колец.
--- 🐛 FPS-панель с кнопкой /showfps.
--- 🐛 античит запускался второй раз — теперь определяется.
--- 🐛 повторный запуск скрипта оставлял подключения UIS/Players — теперь все через UIK.connect.
--- 🐛 магазин и мини-игра подгружались без повторов — исправлено.
+-- 🐛 повторный запуск скрипта оставлял подключения UIS/Players — все через UIK.connect.
 -- API для модулей: ORBIT.ui.window, ORBIT.ui.addSection, ORBIT.ui.addControl,
 --    ORBIT.ui.makeButton, ORBIT.ui.onClick, ORBIT.ui.setTab, ORBIT.ui.relayout.
--- ФИКС v23.6: добавлены share-кнопки в раздел СОХРАНЕНИЯ и кнопка «🔗 Поделиться» в СИСТЕМУ.
+--
+-- v23.6: добавлена секция SHARE и кнопки 📤 в сохранениях + 📥 импорт.
+-- v23.7: в разделе СИСТЕМА добавлена кнопка «🤖 Помощник» (orbit_helper.lua).
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
@@ -94,7 +93,7 @@ end
 local NB = {}
 
 -- ============================================================
---       🆕 FPS-СЧЁТЧИК
+--       FPS-СЧЁТЧИК
 -- ============================================================
 local myFps = 60
 local myFpsFrames = 0
@@ -183,7 +182,7 @@ do
 end
 mainBtn:SetAttribute("ReleaseOnly", true)
 
--- ==================== ПАНЕЛЬ: шапка + поиск + вкладки + контент ====================
+-- ==================== ПАНЕЛЬ ====================
 local PANEL_W = IS_MOBILE and 340 or 368
 local BTN_H = IS_MOBILE and 40 or 32
 local BTN_H_BIG = IS_MOBILE and 46 or 38
@@ -613,6 +612,7 @@ local ring3Btn      = makeButton("➕ Кольцо 3", yCursor); yCursor = yCurs
 local ring4Btn      = makeButton("➕ Кольцо 4", yCursor); yCursor = yCursor + BTN_H + S_STEP
 local ring5Btn      = makeButton("➕ Кольцо 5", yCursor); yCursor = yCursor + BTN_H + S_STEP + 6
 
+-- ============ СТИЛИ ============
 NB.styleDefs = {
     { name = "🌈 Радуга-вихрь", bg = Color3.fromRGB(70,40,95), fg = Color3.fromRGB(255,200,255),
       color = "РАДУГА", pattern = "Спираль", speed = 2.0, orbit = "L", size = "M", shape = "ЗВЕЗДА",
@@ -747,13 +747,13 @@ local auraSpinSpeedBtn  = makeButton("🌀 Скорость кручения: " 
 
 local auraPulseBtn      = makeButton("💓 Пульсация ауры: ВЫКЛ", yCursor, BTN_H, Color3.fromRGB(35,35,50)); yCursor = yCursor + BTN_H + S_STEP + 6
 
--- 🆕 СВЕТ АУРЫ
+-- СВЕТ АУРЫ
 makeBigSection("💡  СВЕТ АУРЫ", yCursor, Color3.fromRGB(140, 120, 60)); yCursor = yCursor + 30
 local auraLightBtn      = makeButton("💡 Свет ауры: ВЫКЛ", yCursor, BTN_H_BIG, Color3.fromRGB(70,60,30), Color3.fromRGB(255,230,140)); yCursor = yCursor + BTN_H_BIG + S_STEP
 local auraLightRangeBtn = makeButton("📏 Дальность: 8", yCursor, BTN_H, Color3.fromRGB(60,50,25), Color3.fromRGB(255,220,140)); yCursor = yCursor + BTN_H + S_STEP
 local auraLightBrightBtn= makeButton("✨ Яркость: 2", yCursor, BTN_H, Color3.fromRGB(60,50,25), Color3.fromRGB(255,220,140)); yCursor = yCursor + BTN_H + S_STEP + 6
 
--- 🆕 ГРАФИКА
+-- ГРАФИКА
 makeBigSection("🎨  ГРАФИКА И МАТЕРИАЛЫ", yCursor, Color3.fromRGB(60, 100, 130)); yCursor = yCursor + 30
 local materialBtn   = makeButton("🎨 Материал: NEON", yCursor, BTN_H_BIG, Color3.fromRGB(50,80,110), Color3.fromRGB(180,230,255)); yCursor = yCursor + BTN_H_BIG + S_STEP
 local transparencyBtn = makeButton("👁️ Прозрачность: 10%", yCursor, BTN_H, Color3.fromRGB(60,70,90), Color3.fromRGB(200,220,255)); yCursor = yCursor + BTN_H + S_STEP
@@ -835,9 +835,9 @@ local perfBtn = makeButton("⚡ Качество: АВТО", yCursor, BTN_H, Col
 makeBigSection("💗  ДОПОЛНИТЕЛЬНО", yCursor, Color3.fromRGB(100, 50, 80)); yCursor = yCursor + 30
 local heartSizeBtn = makeButton("💗 Размер сердца: 100%", yCursor, BTN_H, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200)); yCursor = yCursor + BTN_H + S_STEP + 6
 
--- ============ 🆕 SHARE (PODELITSYA) ============
+-- ============ SHARE ============
 makeBigSection("🔗  SHARE — ПОДЕЛИТЬСЯ", yCursor, Color3.fromRGB(90, 100, 160)); yCursor = yCursor + 30
-local openShareBtn       = makeButton("🔗 Панель SHARE (отдать/принять)", yCursor, BTN_H_BIG, Color3.fromRGB(70,90,150), Color3.fromRGB(220,235,255)); yCursor = yCursor + BTN_H_BIG + S_STEP
+local openShareBtn        = makeButton("🔗 Панель SHARE (отдать/принять)", yCursor, BTN_H_BIG, Color3.fromRGB(70,90,150), Color3.fromRGB(220,235,255)); yCursor = yCursor + BTN_H_BIG + S_STEP
 local shareCurSettingsBtn = makeButton("📤 Поделиться настройками", yCursor, BTN_H, Color3.fromRGB(60,110,80), Color3.fromRGB(200,255,220)); yCursor = yCursor + BTN_H + S_STEP
 local importSettingsBtn   = makeButton("📥 Импорт настроек из буфера", yCursor, BTN_H, Color3.fromRGB(100,80,60), Color3.fromRGB(255,225,190)); yCursor = yCursor + BTN_H + S_STEP + 6
 
@@ -861,7 +861,6 @@ Instance.new("UICorner", saveNameInput).CornerRadius = UDim.new(0, 8)
 yCursor = yCursor + 36
 
 local createSaveBtn = makeButton("💾 СОЗДАТЬ СОХРАНЕНИЕ", yCursor, BTN_H_BIG, Color3.fromRGB(35,60,45), Color3.fromRGB(160,255,180)); yCursor = yCursor + BTN_H_BIG + S_STEP
--- 🆕 кнопка импорта сохранения
 local importSaveBtn = makeButton("📥 ИМПОРТ СОХРАНЕНИЯ ИЗ БУФЕРА", yCursor, BTN_H, Color3.fromRGB(55, 75, 105), Color3.fromRGB(190, 220, 255)); yCursor = yCursor + BTN_H + S_STEP + 4
 
 local savesContainer = Instance.new("ScrollingFrame")
@@ -891,6 +890,7 @@ local saveBtn   = makeButton("💾 Сохранить в автослот", yCur
 local loadBtn   = makeButton("📂 Загрузить из автослота", yCursor, BTN_H, Color3.fromRGB(35,50,60), Color3.fromRGB(180,220,255)); yCursor = yCursor + BTN_H + S_STEP
 local resetBtn  = makeButton("🔄 Сбросить всё", yCursor, BTN_H, Color3.fromRGB(50,30,30), Color3.fromRGB(255,180,180)); yCursor = yCursor + BTN_H + S_STEP
 NB.fpsToggle = makeButton("📊 FPS-панель: ВКЛ", yCursor, BTN_H, Color3.fromRGB(35,50,75), Color3.fromRGB(180,220,255)); yCursor = yCursor + BTN_H + S_STEP
+local helperBtn = makeButton("🤖 Помощник (понимает фразы)", yCursor, BTN_H, Color3.fromRGB(70,60,130), Color3.fromRGB(220,210,255)); yCursor = yCursor + BTN_H + S_STEP
 local unloadBtn = makeButton("❌ ВЫГРУЗИТЬ СКРИПТ", yCursor, BTN_H_BIG, Color3.fromRGB(80,30,30), Color3.fromRGB(255,140,140)); yCursor = yCursor + BTN_H_BIG + S_STEP + 6
 
 -- ============ МУЗЫКА ============
@@ -1737,7 +1737,7 @@ onClick(openShopBtn, function() if ORBIT.openShop then ORBIT.openShop() end end)
 onClick(openEditorBtn, function() if ORBIT.openEditor then ORBIT.openEditor() end end)
 onClick(openGameBtn, function() if ORBIT.openMiniGame then ORBIT.openMiniGame() end end)
 
--- 🆕 SHARE
+-- SHARE
 onClick(openShareBtn, function()
     if not ORBIT.share or not ORBIT.share.open then
         ORBIT.notify("❌ Модуль шаринга не загружен (orbit_share.lua)", Color3.fromRGB(255,150,150), 3)
@@ -1763,7 +1763,6 @@ onClick(importSettingsBtn, function()
         ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
         return
     end
-    -- читаем буфер
     local txt, err = ORBIT.share.paste()
     if not txt then
         ORBIT.share.open()
@@ -1777,6 +1776,15 @@ onClick(importSettingsBtn, function()
         return
     end
     ORBIT.share.applyDecoded(dec)
+end)
+
+-- ПОМОЩНИК
+onClick(helperBtn, function()
+    if ORBIT.helperOpen then
+        ORBIT.helperOpen()
+    else
+        ORBIT.notify("❌ orbit_helper.lua не загружен", Color3.fromRGB(255,150,150), 3)
+    end
 end)
 
 -- ПРОИЗВОДИТЕЛЬНОСТЬ
@@ -1903,7 +1911,7 @@ local function refreshAllLabels()
 end
 
 -- ============================================================
---       ПАЛИТРА ЦВЕТОВ (50 цветов)
+--       ПАЛИТРА (50 цветов)
 -- ============================================================
 local paletteGui = nil
 local function closePalette()
@@ -2077,6 +2085,18 @@ for i, b in ipairs(NB.styleBtns) do
     onClick(b, function() applyStyle(NB.styleDefs[i]) end)
 end
 
+-- Экспорт applyStyleByName для помощника (rule-based)
+ORBIT.ui.applyStyleByName = function(name)
+    if not name then return false end
+    for _, st in ipairs(NB.styleDefs) do
+        if st.name == name then
+            applyStyle(st)
+            return true
+        end
+    end
+    return false
+end
+
 onClick(NB.spawnAnim, function()
     SETTINGS.SpawnAnim = not (SETTINGS.SpawnAnim ~= false)
     NB.spawnAnim.Text = "🎆 Появление колец: " .. onOff(SETTINGS.SpawnAnim)
@@ -2122,7 +2142,6 @@ local function rebuildSavesList()
         nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
         nameLbl.Parent = row
 
-        -- 📤 Поделиться (share)
         local shareB = Instance.new("TextButton")
         shareB.Size = UDim2.new(0, 55, 0, 24); shareB.Position = UDim2.new(1, -180, 0, 4)
         shareB.BackgroundColor3 = Color3.fromRGB(70, 70, 130); shareB.TextColor3 = Color3.fromRGB(220, 220, 255)
@@ -2158,7 +2177,6 @@ local function rebuildSavesList()
                 rebuildSavesList()
             end
         end)
-        -- 🆕 share
         onClick(shareB, function()
             if not ORBIT.share or not ORBIT.share.encodeSave then
                 ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
@@ -2187,7 +2205,6 @@ onClick(createSaveBtn, function()
     end
 end)
 
--- 🆕 кнопка импорта сохранения из буфера
 onClick(importSaveBtn, function()
     if not ORBIT.share or not ORBIT.share.paste then
         ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
@@ -2206,7 +2223,6 @@ onClick(importSaveBtn, function()
         return
     end
     if dec.kind == "SH" then
-        -- это фигура, а не сохранение — предупредим
         ORBIT.notify("⚠️ В буфере фигура, а не сохранение. Открываю SHARE...", Color3.fromRGB(255,220,140), 3)
         if ORBIT.share.openImport then ORBIT.share.openImport(txt) end
         return
@@ -2214,7 +2230,7 @@ onClick(importSaveBtn, function()
     local ok = ORBIT.share.applyDecoded(dec)
     if ok then
         task.wait(0.15)
-        rebuildSavesList()   -- покажем новый сейв в списке
+        rebuildSavesList()
     end
 end)
 
@@ -2390,7 +2406,7 @@ ORBIT.start = function()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4 v23.6 (вкладки + поиск + палитра + стили + SHARE)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4 v23.7 (вкладки + поиск + палитра + стили + SHARE + помощник)", Color3.fromRGB(180,255,180), 3) end
 
 -- ПОДГРУЗКА МАГАЗИНА И МИНИ-ИГРЫ
 do
