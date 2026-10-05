@@ -1,21 +1,10 @@
--- ОРБИТА v23.8 — P4: UI
--- ИЗМЕНЕНИЯ v23.5:
--- 🎨 ИНТЕРФЕЙС: панель переделана — шапка, ПОИСК по функциям, 9 вкладок
---    (ГЛАВНАЯ / ВИД / ДВИЖЕНИЕ / АУРА / ЭФФЕКТЫ / БОТЫ / ИГРОКИ / ЕЩЁ / СИСТЕМА),
---    сворачиваемые разделы, кнопки в 2 столбца, градиенты, тень, плавное открытие.
--- 🎨 ПАЛИТРА: цвет колец и цвет ауры — из сетки 50 цветов.
--- ⭐ НОВОЕ: раздел «СТИЛИ» — 6 образов + «Случайный стиль»; кнопки «Появление
---    колец», «Вспышка при вкл», «FPS-панель».
--- 🐛 все кнопки через onClick (Down + Touch + Activated).
--- 🐛 после загрузки сохранения / сброса — refreshAllLabels().
--- 🐛 «Свечение» реально включает/выключает свет у колец.
--- 🐛 повторный запуск скрипта оставлял подключения UIS/Players — все через UIK.connect.
---
--- v23.6: секция SHARE + кнопки 📤 в сохранениях + 📥 импорт.
--- v23.7: в раздел СИСТЕМА добавлена кнопка «🤖 Помощник».
--- v23.8: ФИКС — блок ORBIT.ui.applyStyleByName был объявлен ДО создания ORBIT.ui
---        (attempt to index nil with 'applyStyleByName' на строке ~2089).
---        Перенесён в самый низ, после ORBIT.ui = ORBIT.ui or {}.
+-- ОРБИТА v23.9 — P4: UI
+-- v23.5: переделан UI — шапка, поиск, 9 вкладок, сворачиваемые секции, 2 столбца.
+-- v23.6: секция SHARE + кнопки 📤 у сохранений + 📥 импорт.
+-- v23.7: добавлена кнопка «🤖 Помощник».
+-- v23.8: ФИКС — applyStyleByName был объявлен до создания ORBIT.ui. Перенесён вниз.
+-- v23.9: SHARE упрощён — одно большое поле + кнопка ЗАГРУЗИТЬ. Одна кнопка
+--        разбирается сама: фигура / сохранение / настройки / ссылка.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
@@ -834,11 +823,37 @@ local perfBtn = makeButton("⚡ Качество: АВТО", yCursor, BTN_H, Col
 makeBigSection("💗  ДОПОЛНИТЕЛЬНО", yCursor, Color3.fromRGB(100, 50, 80)); yCursor = yCursor + 30
 local heartSizeBtn = makeButton("💗 Размер сердца: 100%", yCursor, BTN_H, Color3.fromRGB(70, 30, 55), Color3.fromRGB(255, 160, 200)); yCursor = yCursor + BTN_H + S_STEP + 6
 
--- ============ SHARE ============
-makeBigSection("🔗  SHARE — ПОДЕЛИТЬСЯ", yCursor, Color3.fromRGB(90, 100, 160)); yCursor = yCursor + 30
-local openShareBtn        = makeButton("🔗 Панель SHARE (отдать/принять)", yCursor, BTN_H_BIG, Color3.fromRGB(70,90,150), Color3.fromRGB(220,235,255)); yCursor = yCursor + BTN_H_BIG + S_STEP
-local shareCurSettingsBtn = makeButton("📤 Поделиться настройками", yCursor, BTN_H, Color3.fromRGB(60,110,80), Color3.fromRGB(200,255,220)); yCursor = yCursor + BTN_H + S_STEP
-local importSettingsBtn   = makeButton("📥 Импорт настроек из буфера", yCursor, BTN_H, Color3.fromRGB(100,80,60), Color3.fromRGB(255,225,190)); yCursor = yCursor + BTN_H + S_STEP + 6
+-- ============ SHARE (упрощённый) ============
+makeBigSection("🔗  SHARE — ВСТАВЬ СТРОКУ И ЗАГРУЗИ", yCursor, Color3.fromRGB(90, 100, 160)); yCursor = yCursor + 30
+
+local shareInputBox = Instance.new("TextBox")
+shareInputBox.Name = "ShareInput"
+shareInputBox.Size = UDim2.new(1, -20, 0, 80)
+shareInputBox.Position = UDim2.new(0, 10, 0, yCursor)
+shareInputBox.BackgroundColor3 = Color3.fromRGB(15, 12, 24)
+shareInputBox.TextColor3 = Color3.fromRGB(200, 220, 255)
+shareInputBox.Font = Enum.Font.Code
+shareInputBox.TextSize = 10
+shareInputBox.Text = ""
+shareInputBox.PlaceholderText = "Тут твоя строка для друга. Или вставь чужую и нажми ЗАГРУЗИТЬ"
+shareInputBox.PlaceholderColor3 = Color3.fromRGB(120, 110, 160)
+shareInputBox.TextWrapped = true
+shareInputBox.TextXAlignment = Enum.TextXAlignment.Left
+shareInputBox.TextYAlignment = Enum.TextYAlignment.Top
+shareInputBox.ClearTextOnFocus = false
+shareInputBox.MultiLine = true
+shareInputBox.ZIndex = 2
+shareInputBox.Parent = panel
+Instance.new("UICorner", shareInputBox).CornerRadius = UDim.new(0, 8)
+local sbPad = Instance.new("UIPadding", shareInputBox)
+sbPad.PaddingLeft = UDim.new(0, 6); sbPad.PaddingRight = UDim.new(0, 6)
+sbPad.PaddingTop = UDim.new(0, 4); sbPad.PaddingBottom = UDim.new(0, 4)
+yCursor = yCursor + 86
+
+local shareLoadBtn  = makeButton("📥 ЗАГРУЗИТЬ (вставил от друга)", yCursor, BTN_H_BIG, Color3.fromRGB(60, 120, 80), Color3.fromRGB(200, 255, 220)); yCursor = yCursor + BTN_H_BIG + S_STEP
+local shareCopyBtn  = makeButton("📋 ВЫДАТЬ МОИ НАСТРОЙКИ", yCursor, BTN_H, Color3.fromRGB(70, 90, 150), Color3.fromRGB(220, 235, 255)); yCursor = yCursor + BTN_H + S_STEP
+local sharePasteBtn = makeButton("📋 Вставить из буфера в поле", yCursor, BTN_H, Color3.fromRGB(70, 90, 130), Color3.fromRGB(220, 235, 255)); yCursor = yCursor + BTN_H + S_STEP
+local shareClearBtn = makeButton("🗑 Очистить поле", yCursor, BTN_H, Color3.fromRGB(80, 50, 60), Color3.fromRGB(255, 180, 200)); yCursor = yCursor + BTN_H + S_STEP + 6
 
 -- ============ СОХРАНЕНИЯ ============
 makeBigSection("💾  СОХРАНЕНИЯ", yCursor, Color3.fromRGB(60, 60, 90)); yCursor = yCursor + 30
@@ -1736,45 +1751,77 @@ onClick(openShopBtn, function() if ORBIT.openShop then ORBIT.openShop() end end)
 onClick(openEditorBtn, function() if ORBIT.openEditor then ORBIT.openEditor() end end)
 onClick(openGameBtn, function() if ORBIT.openMiniGame then ORBIT.openMiniGame() end end)
 
--- SHARE
-onClick(openShareBtn, function()
-    if not ORBIT.share or not ORBIT.share.open then
-        ORBIT.notify("❌ Модуль шаринга не загружен (orbit_share.lua)", Color3.fromRGB(255,150,150), 3)
+-- ============================================================
+--       SHARE (упрощённый, v23.9) — обработчики
+-- ============================================================
+onClick(shareLoadBtn, function()
+    local txt = shareInputBox.Text or ""
+    txt = txt:gsub("^%s+", ""):gsub("%s+$", "")
+    if txt == "" then
+        ORBIT.notify("📥 Поле пустое — вставь строку от друга", Color3.fromRGB(255, 200, 120), 3)
         return
     end
-    ORBIT.share.open()
+    if txt:match("^https?://") then
+        ORBIT.notify("🌐 Загружаю по ссылке...", Color3.fromRGB(200, 220, 255), 2)
+        task.spawn(function()
+            local ok, body = pcall(function() return game:HttpGet(txt, true) end)
+            if ok and type(body) == "string" and #body > 10 then
+                shareInputBox.Text = body:gsub("^%s+", ""):gsub("%s+$", "")
+                ORBIT.notify("✅ Скачал — нажми ЗАГРУЗИТЬ ещё раз", Color3.fromRGB(180, 255, 180), 3)
+            else
+                ORBIT.notify("❌ Не удалось скачать ссылку", Color3.fromRGB(255, 150, 150), 3)
+            end
+        end)
+        return
+    end
+    if not ORBIT.share or not ORBIT.share.decode then
+        ORBIT.notify("❌ orbit_share.lua не загружен", Color3.fromRGB(255, 150, 150), 3)
+        return
+    end
+    local dec, err = ORBIT.share.decode(txt)
+    if not dec then
+        ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255, 150, 150), 4)
+        return
+    end
+    local ok = ORBIT.share.applyDecoded(dec)
+    if ok then shareInputBox.Text = "" end
 end)
-onClick(shareCurSettingsBtn, function()
+
+onClick(shareCopyBtn, function()
     if not ORBIT.share or not ORBIT.share.encodeCurrentSettings then
-        ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
+        ORBIT.notify("❌ orbit_share.lua не загружен", Color3.fromRGB(255, 150, 150), 3)
         return
     end
     local str, err = ORBIT.share.encodeCurrentSettings()
     if not str then
-        ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255,150,150), 3)
+        ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255, 150, 150), 3)
         return
     end
-    ORBIT.share.open(str)
-    ORBIT.notify("📤 Строка настроек готова — скопируй или создай ссылку", Color3.fromRGB(180,220,255), 3)
+    shareInputBox.Text = str
+    local ok = ORBIT.share.copy(str)
+    if ok then
+        ORBIT.notify("📤 Готово и скопировано — отправь другу", Color3.fromRGB(180, 255, 180), 3)
+    else
+        ORBIT.notify("📤 Готово — выдели строку и скопируй вручную", Color3.fromRGB(255, 220, 140), 4)
+    end
 end)
-onClick(importSettingsBtn, function()
-    if not ORBIT.share or not ORBIT.share.open then
-        ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
+
+onClick(sharePasteBtn, function()
+    if not ORBIT.share or not ORBIT.share.paste then
+        ORBIT.notify("❌ orbit_share.lua не загружен", Color3.fromRGB(255, 150, 150), 3)
         return
     end
     local txt, err = ORBIT.share.paste()
     if not txt then
-        ORBIT.share.open()
-        ORBIT.notify("📋 " .. tostring(err) .. " — вставь вручную", Color3.fromRGB(255,200,120), 3)
+        ORBIT.notify("📋 " .. tostring(err) .. " — вставь вручную", Color3.fromRGB(255, 200, 120), 3)
         return
     end
-    local dec, err2 = ORBIT.share.decode(txt)
-    if not dec then
-        ORBIT.share.openImport(txt)
-        ORBIT.notify("❌ " .. tostring(err2) .. " — проверь в панели", Color3.fromRGB(255,150,150), 3)
-        return
-    end
-    ORBIT.share.applyDecoded(dec)
+    shareInputBox.Text = txt
+    ORBIT.notify("📋 Вставлено (" .. #txt .. " симв.)", Color3.fromRGB(180, 220, 255), 2)
+end)
+
+onClick(shareClearBtn, function()
+    shareInputBox.Text = ""
 end)
 
 -- ПОМОЩНИК
@@ -2174,8 +2221,10 @@ local function rebuildSavesList()
                 ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255,150,150), 3)
                 return
             end
-            ORBIT.share.open(str)
-            ORBIT.notify("📤 Строка сохранения готова", Color3.fromRGB(180,220,255), 2)
+            shareInputBox.Text = str
+            ORBIT.share.copy(str)
+            ORBIT.notify("📤 Строка «" .. name .. "» готова", Color3.fromRGB(180,220,255), 3)
+            setTab("sys")
         end)
     end
 end
@@ -2199,26 +2248,13 @@ onClick(importSaveBtn, function()
     end
     local txt, err = ORBIT.share.paste()
     if not txt then
-        ORBIT.notify("📋 " .. tostring(err) .. " — открой SHARE вручную", Color3.fromRGB(255,200,120), 3)
-        if ORBIT.share.open then ORBIT.share.open() end
+        ORBIT.notify("📋 " .. tostring(err) .. " — вставь в поле SHARE", Color3.fromRGB(255,200,120), 3)
+        setTab("sys")
         return
     end
-    local dec, err2 = ORBIT.share.decode(txt)
-    if not dec then
-        if ORBIT.share.openImport then ORBIT.share.openImport(txt) end
-        ORBIT.notify("❌ " .. tostring(err2), Color3.fromRGB(255,150,150), 3)
-        return
-    end
-    if dec.kind == "SH" then
-        ORBIT.notify("⚠️ В буфере фигура, а не сохранение. Открываю SHARE...", Color3.fromRGB(255,220,140), 3)
-        if ORBIT.share.openImport then ORBIT.share.openImport(txt) end
-        return
-    end
-    local ok = ORBIT.share.applyDecoded(dec)
-    if ok then
-        task.wait(0.15)
-        rebuildSavesList()
-    end
+    shareInputBox.Text = txt
+    ORBIT.notify("📋 Вставлено в поле SHARE — нажми ЗАГРУЗИТЬ", Color3.fromRGB(180,220,255), 3)
+    setTab("sys")
 end)
 
 onClick(saveBtn, function()
@@ -2355,8 +2391,6 @@ ORBIT.ui.topBar = topBar
 ORBIT.ui.openShopBtn = openShopBtn
 ORBIT.ui.openEditorBtn = openEditorBtn
 
--- ФИКС v23.8: applyStyleByName создаётся ЗДЕСЬ, после того как ORBIT.ui уже существует.
--- Раньше он был объявлен раньше (стр. ~2089) и падал с attempt to index nil.
 ORBIT.ui.applyStyleByName = function(name)
     if not name then return false end
     for _, st in ipairs(NB.styleDefs) do
@@ -2406,7 +2440,7 @@ ORBIT.start = function()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4 v23.8 (вкладки + поиск + палитра + стили + SHARE + помощник)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4 v23.9 (SHARE упрощён — одно поле + ЗАГРУЗИТЬ)", Color3.fromRGB(180,255,180), 3) end
 
 -- ПОДГРУЗКА МАГАЗИНА И МИНИ-ИГРЫ
 do
