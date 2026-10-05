@@ -1,5 +1,5 @@
--- ОРБИТА v23.7 — P4: UI
--- ИЗМЕНЕНИЯ v23.5 (относительно v23.4):
+-- ОРБИТА v23.8 — P4: UI
+-- ИЗМЕНЕНИЯ v23.5:
 -- 🎨 ИНТЕРФЕЙС: панель переделана — шапка, ПОИСК по функциям, 9 вкладок
 --    (ГЛАВНАЯ / ВИД / ДВИЖЕНИЕ / АУРА / ЭФФЕКТЫ / БОТЫ / ИГРОКИ / ЕЩЁ / СИСТЕМА),
 --    сворачиваемые разделы, кнопки в 2 столбца, градиенты, тень, плавное открытие.
@@ -10,11 +10,12 @@
 -- 🐛 после загрузки сохранения / сброса — refreshAllLabels().
 -- 🐛 «Свечение» реально включает/выключает свет у колец.
 -- 🐛 повторный запуск скрипта оставлял подключения UIS/Players — все через UIK.connect.
--- API для модулей: ORBIT.ui.window, ORBIT.ui.addSection, ORBIT.ui.addControl,
---    ORBIT.ui.makeButton, ORBIT.ui.onClick, ORBIT.ui.setTab, ORBIT.ui.relayout.
 --
--- v23.6: добавлена секция SHARE и кнопки 📤 в сохранениях + 📥 импорт.
--- v23.7: в разделе СИСТЕМА добавлена кнопка «🤖 Помощник» (orbit_helper.lua).
+-- v23.6: секция SHARE + кнопки 📤 в сохранениях + 📥 импорт.
+-- v23.7: в раздел СИСТЕМА добавлена кнопка «🤖 Помощник».
+-- v23.8: ФИКС — блок ORBIT.ui.applyStyleByName был объявлен ДО создания ORBIT.ui
+--        (attempt to index nil with 'applyStyleByName' на строке ~2089).
+--        Перенесён в самый низ, после ORBIT.ui = ORBIT.ui or {}.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
@@ -89,7 +90,6 @@ local function onClick(btn, fn, releaseOnly)
     btn.Activated:Connect(call)
 end
 
--- ============================================================
 local NB = {}
 
 -- ============================================================
@@ -612,7 +612,6 @@ local ring3Btn      = makeButton("➕ Кольцо 3", yCursor); yCursor = yCurs
 local ring4Btn      = makeButton("➕ Кольцо 4", yCursor); yCursor = yCursor + BTN_H + S_STEP
 local ring5Btn      = makeButton("➕ Кольцо 5", yCursor); yCursor = yCursor + BTN_H + S_STEP + 6
 
--- ============ СТИЛИ ============
 NB.styleDefs = {
     { name = "🌈 Радуга-вихрь", bg = Color3.fromRGB(70,40,95), fg = Color3.fromRGB(255,200,255),
       color = "РАДУГА", pattern = "Спираль", speed = 2.0, orbit = "L", size = "M", shape = "ЗВЕЗДА",
@@ -2085,18 +2084,6 @@ for i, b in ipairs(NB.styleBtns) do
     onClick(b, function() applyStyle(NB.styleDefs[i]) end)
 end
 
--- Экспорт applyStyleByName для помощника (rule-based)
-ORBIT.ui.applyStyleByName = function(name)
-    if not name then return false end
-    for _, st in ipairs(NB.styleDefs) do
-        if st.name == name then
-            applyStyle(st)
-            return true
-        end
-    end
-    return false
-end
-
 onClick(NB.spawnAnim, function()
     SETTINGS.SpawnAnim = not (SETTINGS.SpawnAnim ~= false)
     NB.spawnAnim.Text = "🎆 Появление колец: " .. onOff(SETTINGS.SpawnAnim)
@@ -2368,6 +2355,19 @@ ORBIT.ui.topBar = topBar
 ORBIT.ui.openShopBtn = openShopBtn
 ORBIT.ui.openEditorBtn = openEditorBtn
 
+-- ФИКС v23.8: applyStyleByName создаётся ЗДЕСЬ, после того как ORBIT.ui уже существует.
+-- Раньше он был объявлен раньше (стр. ~2089) и падал с attempt to index nil.
+ORBIT.ui.applyStyleByName = function(name)
+    if not name then return false end
+    for _, st in ipairs(NB.styleDefs) do
+        if st.name == name then
+            applyStyle(st)
+            return true
+        end
+    end
+    return false
+end
+
 ORBIT.ui.open = function() setPanel(true) end
 ORBIT.ui.close = function() setPanel(false) end
 ORBIT.ui.toggle = function() setPanel(not panelOpen) end
@@ -2406,7 +2406,7 @@ ORBIT.start = function()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4 v23.7 (вкладки + поиск + палитра + стили + SHARE + помощник)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4 v23.8 (вкладки + поиск + палитра + стили + SHARE + помощник)", Color3.fromRGB(180,255,180), 3) end
 
 -- ПОДГРУЗКА МАГАЗИНА И МИНИ-ИГРЫ
 do
