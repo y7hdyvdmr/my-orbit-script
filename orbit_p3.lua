@@ -1,32 +1,21 @@
---[[ ОРБИТА v23.4 — P3: ЛОГИКА
-  ИЗМЕНЕНИЯ v23.4 (относительно v23.3):
-  🐛 FPS всегда показывал 60: statsData.fpsLastCheck хранил абсолютный tick(), а t — относительное
-     время => условие «прошла секунда» не срабатывало никогда. Из-за этого авто-режим
-     производительности не работал. Теперь счётчик сбрасывается в startUpdateLoop.
-  🐛 ESP пропадал после респавна цели (старый тег оставался в таблице) — теперь пересоздаётся.
-  🐛 кольца на игроке, который вышел, оставались в Workspace и в таблице — добавлен PlayerRemoving
-     и авто-очистка; у умершего игрока кольца прячутся (не висят в воздухе).
-  🐛 боты: при внешнем удалении модели оставалась папка колец (утечка) — теперь removeBot;
-     createBot падал при неверном индексе фигуры — добавлен запасной вариант;
-     кольца ботов теперь CanQuery=false (на них не «вставал» луч поиска земли).
-  🐛 сбор кольца у бота: activeLightCount раздувался (свет у колец переставал создаваться) —
-     добавлен countActiveLights перед buildRing.
-  🐛 повторный запуск скрипта оставлял старые подключения (Died/CharacterAdded) => дубли колец.
-     Теперь все подключения отслеживаются и отключаются в unload (обёртка над ORBIT.unload).
-  🐛 поток авто-производительности умирал при выключении/включении скрипта и не останавливался
-     при unload — исправлено флагом alive.
-  🐛 загрузка сохранений: индекс вне диапазона списка ронял applySaveData — добавлена валидация;
-     autoShapeSwapInterval не применялся — исправлено.
-  🐛 getgenv() вызывался без проверки — теперь безопасный GENV.
-  ⭐ перекраска блоков ограничена ~30 Гц и кэширует список перекрашиваемых частей
-     (раньше GetAttribute на каждую часть каждый кадр) — заметно легче при 5 кольцах и ботах.
-  ⭐ ScaleTo реже (порог 0.01) и под pcall.
-  ⭐ эффект появления кольца: фигуры «вылетают» из игрока с отскоком (SETTINGS.SpawnAnim)
-     + вспышка искр при включении кольца (SETTINGS.SpawnFlash, ORBIT.ringFlash).
-  ⭐ ORBIT.paintBlock(block, color) — общий быстрый способ перекраски блока.
-  🐛 (v23.4b) «Материал» из вкладки ВИД не применялся к фигурам-моделям — теперь применяется к
-     перекрашиваемым частям; «Свечение» теперь реально включает/выключает PointLight колец.
-]]
+-- ОРБИТА v23.5 — P3: ЛОГИКА
+-- ИЗМЕНЕНИЯ v23.4 (относительно v23.3):
+--   fix: FPS всегда показывал 60 — statsData.fpsLastCheck хранил абсолютный tick(),
+--        а t — относительное время. Теперь счётчик сбрасывается в startUpdateLoop.
+--   fix: ESP пропадал после респавна цели — пересоздаётся.
+--   fix: кольца на игроке, который вышел, оставались в Workspace — PlayerRemoving.
+--   fix: боты: при внешнем удалении модели оставалась папка колец — removeBot.
+--   fix: сбор кольца у бота: activeLightCount раздувался — countActiveLights.
+--   fix: повторный запуск скрипта оставлял старые подключения — все через conns.
+--   fix: загрузка сохранений: валидация индексов.
+--   new: перекраска блоков ограничена ~30 Гц + кэш.
+--   new: ScaleTo реже, эффект появления кольца, ORBIT.paintBlock.
+--   fix (v23.4b): материал применяется к моделям; «Свечение» управляет PointLight.
+--
+-- ИЗМЕНЕНИЯ v23.5:
+--   new: экспорт ORBIT.collectSaveDataForShare / ORBIT.encodeSettingsForShare /
+--        ORBIT.decodeSettingsForShare / ORBIT.applySaveData — нужны модулю
+--        orbit_share.lua (кнопки ВЫДАТЬ / ЗАГРУЗИТЬ в панели SHARE).
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
@@ -216,7 +205,7 @@ function ORBIT.setupAura()
         table.insert(ORBIT.auraParts, emitter)
     end
 
-    -- 🆕 Свет ауры
+    -- Свет ауры
     if SETTINGS.AuraLightEnabled then
         local lightPart = Instance.new("Part")
         lightPart.Name = "AuraLightHolder"
@@ -302,7 +291,6 @@ local function updateAura(dt)
                 end
             end
         elseif part.Name == "AuraLightHolder" then
-            -- 🆕 Свет ауры следует за игроком
             part.CFrame = hrp.CFrame
             local pl = part:FindFirstChildOfClass("PointLight")
             if pl then
@@ -496,7 +484,7 @@ local function updateESP()
         if char and hrp then
             local tag = ORBIT.ESP.Tags[player]
             if tag and (not tag.bb or not tag.bb.Parent or not tag.hl or tag.hl.Parent ~= char) then
-                removeESPTag(player); tag = nil   -- цель респавнилась: старый тег мёртв
+                removeESPTag(player); tag = nil
             end
             if not tag then makeESPTag(player) end
             local data = ORBIT.ESP.Tags[player]
@@ -835,10 +823,10 @@ local function updateTargetRings(dt)
         local char = player.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not player.Parent then
-            ORBIT.removeTargetRings(player); continue   -- игрок вышел
+            ORBIT.removeTargetRings(player); continue
         end
         if not hrp then
-            if data.folder and data.folder.Parent then data.folder.Parent = nil end   -- мёртв: прячем
+            if data.folder and data.folder.Parent then data.folder.Parent = nil end
             continue
         end
         if data.folder and not data.folder.Parent then data.folder.Parent = Workspace end
@@ -1389,7 +1377,6 @@ function ORBIT.buildRing(ri)
                 pcall(function()
                     bp.Transparency = SETTINGS.Transparency
                     bp.CanQuery = false; bp.CanTouch = false
-                    -- материал из «Графики» раньше не применялся к моделям (большинство фигур)
                     if SETTINGS.Material ~= Enum.Material.Neon and not bp:GetAttribute("NoRecolor") then
                         bp.Material = SETTINGS.Material
                     end
@@ -1404,7 +1391,7 @@ function ORBIT.buildRing(ri)
             light.Color = SETTINGS.FixedColor
             light.Range = SETTINGS.LightRange
             light.Brightness = SETTINGS.GlowIntensity or 1
-            light.Enabled = (SETTINGS.GlowEnabled ~= false)    -- кнопка «Свечение»
+            light.Enabled = (SETTINGS.GlowEnabled ~= false)
             light.Parent = refPart
             ORBIT.activeLightCount = ORBIT.activeLightCount + 1
         end
@@ -1596,7 +1583,6 @@ function ORBIT.setupRespawnHook()
         end
     end))
 
-    -- чистим всё, что связано с вышедшим игроком
     track(Players.PlayerRemoving:Connect(function(p)
         pcall(ORBIT.removeTargetRings, p)
         pcall(removeESPTag, p)
@@ -1699,7 +1685,7 @@ end)
 function ORBIT.startUpdateLoop()
     if ORBIT.updateConn then return end
     ORBIT.startTime = tick()
-    statsData.fpsLastCheck = 0; statsData.fpsFrames = 0   -- t относительное, счётчик тоже
+    statsData.fpsLastCheck = 0; statsData.fpsFrames = 0
     ORBIT.updateConn = RunService.Heartbeat:Connect(function(dt)
         if not ORBIT.enabled then return end
         local character = LocalPlayer.Character
@@ -1884,7 +1870,6 @@ local function collectSaveData()
     }
 end
 
--- проверка индексов: сохранение могло быть сделано в другой версии (списки менялись)
 local function sanitizeSave(d)
     local lists = {
         spreadIndex = P.SPREAD, speedIndex = P.SPEED, orbitIndex = P.ORBIT, shapeSizeIndex = P.SHAPE_SIZE,
@@ -2062,15 +2047,15 @@ function ORBIT.startLogic()
     end
 end
 
-if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v23.4 (логика + оптимизация + появление колец)", Color3.fromRGB(180,255,180), 3) end
-
--- ==================== ЭКСПОРТ ДЛЯ SHARE-МОДУЛЯ v23.8 ====================
--- Отдаём наружу три функции, которые раньше были локальными.
--- Нужны модулю orbit_share.lua для упаковки/распаковки настроек.
+-- ==================== ЭКСПОРТ ДЛЯ SHARE-МОДУЛЯ (v23.5) ====================
+-- Отдаём наружу приватные функции, которые нужны orbit_share.lua.
+-- Без них кнопка «ВЫДАТЬ МОИ НАСТРОЙКИ» падает с ошибкой (поле остаётся пустым).
 ORBIT.collectSaveDataForShare = collectSaveData
 ORBIT.encodeSettingsForShare  = enc
 ORBIT.decodeSettingsForShare  = dec
 ORBIT.applySaveData           = applySaveData
+
+if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
+if ORBIT.notify then ORBIT.notify("P3 v23.5 (логика + экспорт для SHARE)", Color3.fromRGB(180,255,180), 3) end
 
 return true
