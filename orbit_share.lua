@@ -1,4 +1,4 @@
--- ОРБИТА v23.8 — SHARE MODULE (orbit_share.lua)
+-- ОРБИТА v23.11 — SHARE MODULE (orbit_share.lua)
 -- Модуль обмена фигурами, сохранениями и настройками между игроками.
 --
 -- ФОРМАТ строки:
@@ -46,15 +46,68 @@ local MAX_NAME_LEN = 32
 -- ============================================================
 --       БАЗА64 (встроенная в HttpService)
 -- ============================================================
-local function b64Encode(str)
-    local ok, res = pcall(function() return HttpService:Base64Encode(str) end)
-    if ok then return res end
-    return nil
+-- v23.11: HttpService:Base64Encode в обычном Roblox НЕ СУЩЕСТВУЕТ — pcall молча
+-- возвращал nil, и поле «ВЫДАТЬ МОИ НАСТРОЙКИ» оставалось пустым (баг B2).
+-- Поэтому кодируем сами: чистый Lua, без зависимостей от executor.
+local B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local B64_ENC, B64_DEC = {}, {}
+for i = 1, 64 do
+    local ch = B64_CHARS:sub(i, i)
+    B64_ENC[i - 1] = ch
+    B64_DEC[ch:byte()] = i - 1
 end
+
+local function b64Encode(str)
+    if type(str) ~= "string" then return nil end
+    local out, n = {}, 0
+    local len = #str
+    for i = 1, len, 3 do
+        local a, b, c = str:byte(i, i + 2)
+        local v = a * 65536 + (b or 0) * 256 + (c or 0)
+        local c1 = math.floor(v / 262144) % 64
+        local c2 = math.floor(v / 4096) % 64
+        local c3 = math.floor(v / 64) % 64
+        local c4 = v % 64
+        n = n + 1
+        if b == nil then
+            out[n] = B64_ENC[c1] .. B64_ENC[c2] .. "=="
+        elseif c == nil then
+            out[n] = B64_ENC[c1] .. B64_ENC[c2] .. B64_ENC[c3] .. "="
+        else
+            out[n] = B64_ENC[c1] .. B64_ENC[c2] .. B64_ENC[c3] .. B64_ENC[c4]
+        end
+    end
+    return table.concat(out)
+end
+
 local function b64Decode(str)
-    local ok, res = pcall(function() return HttpService:Base64Decode(str) end)
-    if ok then return res end
-    return nil
+    if type(str) ~= "string" then return nil end
+    -- выкидываем всё лишнее (пробелы, переводы строк), паддинг считаем сами
+    str = str:gsub("[^%w%+/]", "")
+    local out, n = {}, 0
+    local len = #str
+    if len == 0 or len % 4 == 1 then return nil end
+    for i = 1, len, 4 do
+        local c1 = B64_DEC[str:byte(i)]
+        local c2 = B64_DEC[str:byte(i + 1)]
+        local b3, b4 = str:byte(i + 2), str:byte(i + 3)
+        local c3 = b3 and B64_DEC[b3]
+        local c4 = b4 and B64_DEC[b4]
+        if not c1 or not c2 then return nil end
+        local v = c1 * 262144 + c2 * 4096 + (c3 or 0) * 64 + (c4 or 0)
+        local x1 = math.floor(v / 65536) % 256
+        local x2 = math.floor(v / 256) % 256
+        local x3 = v % 256
+        n = n + 1
+        if c3 == nil then
+            out[n] = string.char(x1)
+        elseif c4 == nil then
+            out[n] = string.char(x1, x2)
+        else
+            out[n] = string.char(x1, x2, x3)
+        end
+    end
+    return table.concat(out)
 end
 
 -- ============================================================
@@ -187,6 +240,12 @@ end
 function S.decode(text)
     if type(text) ~= "string" then return nil, "Не строка" end
     text = text:gsub("^%s+", ""):gsub("%s+$", "")
+    -- v23.11: если вставили ссылку paste.rs — сначала скачиваем содержимое
+    if text:match("^https?://") then
+        local body, derr = S.download(text)
+        if not body then return nil, "Ссылка: " .. tostring(derr) end
+        text = body
+    end
     if #text < 12 or #text > MAX_LEN then return nil, "Неверная длина" end
     if text:sub(1, #PREFIX) ~= PREFIX then
         return nil, "Это не строка ОРБИТЫ (нет метки)"
@@ -259,29 +318,50 @@ end
 -- ============================================================
 --       ЗАГРУЗКА НА paste.rs (опционально)
 -- ============================================================
-local function httpPost(url, body)
-    -- Пробуем разные API: request (syn/Delta), http_request, HttpService (редко для POST)
-    if type(request) == "function" then
-        local ok, res = pcall(request, {
-            Url = url, Method = "POST", Body = body,
-            Headers = { ["Content-Type"] = "text/plain" },
-        })
+-- Универсальный HTTP-запрос: пробуем все известные API executor'ов
+local function httpRequest(opts)
+    local fns = {}
+    if type(request) == "function" then fns[#fns + 1] = request end
+    if type(http_request) == "function" then fns[#fns + 1] = http_request end
+    if type(syn) == "table" and type(syn.request) == "function" then fns[#fns + 1] = syn.request end
+    if type(http) == "table" and type(http.request) == "function" then fns[#fns + 1] = http.request end
+    if type(fluxus) == "table" and type(fluxus.request) == "function" then fns[#fns + 1] = fluxus.request end
+    if #fns == 0 then return nil, "Нет HTTP-API (нужен request или http_request)" end
+    local lastErr = "Нет ответа"
+    for _, fn in ipairs(fns) do
+        local ok, res = pcall(fn, opts)
         if ok and type(res) == "table" then
-            if res.StatusCode and res.StatusCode >= 200 and res.StatusCode < 300 then
+            local code = res.StatusCode or res.Status
+            if code == nil or (code >= 200 and code < 300) then
                 return res.Body or ""
             end
-            return nil, "HTTP " .. tostring(res.StatusCode)
+            lastErr = "HTTP " .. tostring(code)
+        elseif not ok then
+            lastErr = tostring(res):sub(1, 40)
         end
     end
-    if type(http_request) == "function" then
-        local ok, res = pcall(http_request, {
-            Url = url, Method = "POST", Body = body,
-        })
-        if ok and type(res) == "table" then
-            return res.Body or ""
-        end
+    return nil, lastErr
+end
+
+local function httpPost(url, body)
+    return httpRequest({
+        Url = url, Method = "POST", Body = body,
+        Headers = { ["Content-Type"] = "text/plain" },
+    })
+end
+
+-- Скачать текст по ссылке (для приёма «короткой ссылки» paste.rs)
+function S.download(url)
+    if type(url) ~= "string" or not url:match("^https?://") then return nil, "Не ссылка" end
+    local body, err = httpRequest({ Url = url, Method = "GET" })
+    if not body and type(game) == "userdata" then
+        local ok, res = pcall(function() return game:HttpGet(url) end)
+        if ok and type(res) == "string" then body, err = res, nil end
     end
-    return nil, "Нет HTTP-API (нужен request или http_request)"
+    if not body then return nil, err or "Не удалось скачать" end
+    body = body:gsub("^%s+", ""):gsub("%s+$", "")
+    if #body < 12 then return nil, "Пустой ответ" end
+    return body
 end
 
 function S.upload(text)
@@ -634,7 +714,13 @@ function S.applyDecoded(decoded)
             ORBIT.notify("❌ p3 не экспортирует applySaveData", Color3.fromRGB(255,150,150), 3)
             return false
         end
-        local ok, err = pcall(apply, decoded.data)
+        -- v23.11: данные пришли в «кодированном» виде (как их отдаёт p3 enc) — расшифровываем перед применением
+        local data = decoded.data
+        if type(ORBIT.decodeSettingsForShare) == "function" then
+            local okD, res = pcall(ORBIT.decodeSettingsForShare, data)
+            if okD and type(res) == "table" then data = res end
+        end
+        local ok, err = pcall(apply, data)
         if ok then
             ORBIT.notify("✅ Пресет применён", Color3.fromRGB(180, 255, 180), 3)
             if ORBIT.rebuildAllRings then pcall(ORBIT.rebuildAllRings) end
@@ -688,7 +774,7 @@ end
 
 ORBIT.notify = ORBIT.notify or function(msg) print("[ORBIT]", msg) end
 if ORBIT.notify then
-    ORBIT.notify("🔗 Share-модуль v23.8 загружен", Color3.fromRGB(180, 220, 255), 2)
+    ORBIT.notify("🔗 Share-модуль v23.11 загружен", Color3.fromRGB(180, 220, 255), 2)
 end
-warn("[Orbit Share v23.8] Загружен ✅")
+warn("[Orbit Share v23.11] Загружен ✅")
 return true
