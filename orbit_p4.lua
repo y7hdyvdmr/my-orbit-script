@@ -280,11 +280,11 @@ local TABS = {
     { id = "sys",     name = "💾 СИСТЕМА" },
 }
 local SECTION_TAB = {
-    { "ОСНОВНОЕ", "main" }, { "СТИЛИ", "main" }, { "ПРОИЗВОДИТЕЛЬНОСТЬ", "main" },
+    { "ОСНОВНОЕ", "main" }, { "СТИЛИ", "main" }, { "СТИХИИ", "main" }, { "ПРОИЗВОДИТЕЛЬНОСТЬ", "main" },
     { "ВНЕШНИЙ ВИД", "look" }, { "ГРАФИКА", "look" }, { "ДОПОЛНИТЕЛЬНО", "look" },
     { "ДВИЖЕНИЕ", "motion" }, { "КРУЧЕНИЕ", "motion" },
     { "СВЕТ АУРЫ", "aura" }, { "АУРА", "aura" },
-    { "ЭФФЕКТЫ", "fx" }, { "ОГОНЬ", "fx" },
+    { "ЭФФЕКТЫ", "fx" }, { "ЭМОЦИИ", "fx" }, { "ОГОНЬ", "fx" },
     { "БОТЫ", "bots" },
     { "ESP", "players" }, { "ЛЮДИ", "players" }, { "ЗАЩИТА", "players" },
     { "ЗВУКИ", "more" }, { "МУЗЫКА", "more" }, { "МАГАЗИН", "more" },
@@ -488,7 +488,9 @@ do
                     if a.half and b and b.half then
                         local la = utf8.len(a.inst.Text) or 99
                         local lb = utf8.len(b.inst.Text) or 99
-                        pair = la <= 30 and lb <= 30
+                        -- v23.6 (I2): на узких экранах (≈320 px) половинки уже — порог короче
+                        local maxLen = (window.AbsoluteSize.X < 340) and 20 or 30
+                        pair = la <= maxLen and lb <= maxLen
                     end
                     if pair then
                         local h = math.max(a.h, b.h)
@@ -631,6 +633,93 @@ for i, st in ipairs(NB.styleDefs) do
 end
 yCursor = yCursor + 6
 
+-- ============ СТИХИИ (v23.6, ST1) ============
+-- Каждая стихия за одно нажатие меняет: цвет + материал + атмосферу + ауру + огонь.
+NB.elementDefs = {
+    { name = "🔥 Огонь", bg = Color3.fromRGB(105,40,10), fg = Color3.fromRGB(255,200,130), search = "огонь пламя жар fire",
+      color = "ОГОНЬ", pattern = "Хаос", speed = 1.5, orbit = "M", size = "M", shape = "МОЛНИЯ",
+      rings = {true,true,true,false,false}, material = "Neon", trail = true, pulse = true,
+      aura = true, auraColor = "ЛАВА", auraMaterial = "Neon", fire = true,
+      atmo = {type = "Пепел", intensity = "Средняя", size = "Мелкий"} },
+    { name = "🌍 Земля", bg = Color3.fromRGB(70,50,30), fg = Color3.fromRGB(220,200,150), search = "земля камень скала earth",
+      color = "ТЕРРАКОТА", pattern = "Круг", speed = 0.5, orbit = "M", size = "L", shape = "СКАЛА",
+      rings = {true,true,false,false,false}, material = "Slate", transparency = 0,
+      aura = true, auraColor = "ХАКИ", auraMaterial = "Slate", fire = false,
+      atmo = {type = "Лепестки", intensity = "Слабая", size = "Средний"} },
+    { name = "💧 Вода", bg = Color3.fromRGB(25,60,100), fg = Color3.fromRGB(170,225,255), search = "вода море капля water",
+      color = "ЛАЗУРЬ", pattern = "Волна", speed = 1.0, orbit = "L", size = "M", shape = "СЕРДЦЕ",
+      rings = {true,true,true,false,false}, material = "Glass", transparency = 0.2, trail = true,
+      aura = true, auraColor = "БИРЮЗОВЫЙ", auraMaterial = "Glass", fire = false,
+      atmo = {type = "Пузыри", intensity = "Средняя", size = "Средний"} },
+    { name = "❄️ Лёд", bg = Color3.fromRGB(35,65,95), fg = Color3.fromRGB(200,240,255), search = "лёд лед снег холод ice",
+      color = "ЛЁД", pattern = "Круг", speed = 1.0, orbit = "M", size = "M", shape = "РОМБ",
+      rings = {true,true,false,false,false}, material = "Ice", transparency = 0.1,
+      aura = true, auraColor = "ЛЁД", auraMaterial = "Ice", fire = false,
+      atmo = {type = "Снег", intensity = "Сильная", size = "Мелкий"} },
+    { name = "⚡ Молния", bg = Color3.fromRGB(70,65,20), fg = Color3.fromRGB(255,250,150), search = "молния гроза электро lightning",
+      color = "ЖЁЛТЫЙ", pattern = "Зигзаг", speed = 3.0, orbit = "M", size = "M", shape = "МОЛНИЯ",
+      rings = {true,true,true,false,false}, material = "Neon", trail = true, pulse = true,
+      aura = true, auraColor = "ЖЁЛТЫЙ", auraMaterial = "Neon", fire = false,
+      atmo = {type = "Искры", intensity = "Сильная", size = "Мелкий"} },
+    { name = "✨ Телепорт", bg = Color3.fromRGB(65,35,100), fg = Color3.fromRGB(235,200,255), search = "телепорт портал магия teleport",
+      color = "ФИОЛЕТОВЫЙ", pattern = "Лиссажу", speed = 2.0, orbit = "L", size = "M", shape = "ИНЬ-ЯН",
+      rings = {true,true,false,false,false}, material = "ForceField", trail = true,
+      aura = true, auraColor = "АМЕТИСТ", auraMaterial = "ForceField", fire = false,
+      atmo = {type = "Звёзды", intensity = "Средняя", size = "Мелкий"} },
+    { name = "💨 Скорость", bg = Color3.fromRGB(35,70,70), fg = Color3.fromRGB(190,255,245), search = "скорость быстро ускорение speed",
+      color = "БИРЮЗОВЫЙ", pattern = "Спираль", speed = 5.0, orbit = "L", size = "S", shape = "КЛИН",
+      rings = {true,true,true,true,false}, material = "Neon", trail = true,
+      aura = true, auraColor = "МЯТА", auraMaterial = "Neon", fire = false,
+      atmo = {type = "Дождь", intensity = "Слабая", size = "Крошка"} },
+    { name = "🌪️ Ветер", bg = Color3.fromRGB(55,65,75), fg = Color3.fromRGB(215,230,245), search = "ветер вихрь торнадо wind",
+      color = "СЕРЕБРЯНЫЙ", pattern = "Спираль", speed = 3.0, orbit = "XL", size = "M", shape = "СПИРАЛЬ",
+      rings = {true,true,true,false,false}, material = "SmoothPlastic", transparency = 0.3, trail = true,
+      aura = true, auraColor = "БЕЛЫЙ", auraMaterial = "SmoothPlastic", fire = false,
+      atmo = {type = "Лепестки", intensity = "Сильная", size = "Средний"} },
+    { name = "☠️ Яд", bg = Color3.fromRGB(40,70,25), fg = Color3.fromRGB(200,255,130), search = "яд токсин отрава ядовитый poison",
+      color = "ЛАЙМ", pattern = "Хаос", speed = 1.0, orbit = "M", size = "M", shape = "ЧЕРЕП",
+      rings = {true,true,true,false,false}, material = "Neon", trail = true, pulse = true,
+      aura = true, auraColor = "ЗЕЛЁНЫЙ", auraMaterial = "Neon", fire = false,
+      atmo = {type = "Пузыри", intensity = "Слабая", size = "Средний"} },
+}
+makeBigSection("🌋  СТИХИИ — ОДНО НАЖАТИЕ", yCursor, Color3.fromRGB(150, 80, 60)); yCursor = yCursor + 30
+NB.elementBtns = {}
+for i, st in ipairs(NB.elementDefs) do
+    NB.elementBtns[i] = makeButton(st.name, yCursor, BTN_H, st.bg, st.fg)
+    NB.elementBtns[i]:SetAttribute("Search", "стихия стихии " .. (st.search or ""))
+    yCursor = yCursor + BTN_H + S_STEP
+end
+yCursor = yCursor + 6
+
+-- ============ ЭМОЦИИ (v23.6, EM1) ============
+-- Работают и в обычном режиме, и в режиме античита (общий модуль orbit_sfx.lua).
+makeBigSection("🎭  ЭМОЦИИ", yCursor, Color3.fromRGB(140, 90, 160)); yCursor = yCursor + 30
+NB.emoteDefs = {
+    { "🎤 Санс говорит", "sans",  Color3.fromRGB(35,45,70),  Color3.fromRGB(190,220,255), "санс говорит голос" },
+    { "😂 Смех",         "laugh", Color3.fromRGB(60,50,30),  Color3.fromRGB(255,230,150), "смех смеяться хаха" },
+    { "💃 Танец",        "dance", Color3.fromRGB(70,35,70),  Color3.fromRGB(255,190,255), "танец танцевать" },
+    { "👋 Приветствие",  "greet", Color3.fromRGB(35,70,55),  Color3.fromRGB(180,255,210), "привет помахать" },
+    { "💨 Уворот",       "dodge", Color3.fromRGB(45,45,75),  Color3.fromRGB(200,200,255), "уворот звук" },
+}
+NB.emoteBtns = {}
+for i, e in ipairs(NB.emoteDefs) do
+    NB.emoteBtns[i] = makeButton(e[1], yCursor, BTN_H, e[3], e[4])
+    NB.emoteBtns[i]:SetAttribute("Search", "эмоция эмоции " .. e[5])
+    yCursor = yCursor + BTN_H + S_STEP
+end
+yCursor = yCursor + 6
+for i, b in ipairs(NB.emoteBtns) do
+    onClick(b, function()
+        if ORBIT.emote then
+            if not ORBIT.emote(NB.emoteDefs[i][2]) then
+                ORBIT.notify("🎭 Подожди секунду...", Color3.fromRGB(255, 220, 140), 1.5)
+            end
+        else
+            ORBIT.notify("❌ orbit_sfx.lua не загружен", Color3.fromRGB(255, 150, 150), 3)
+        end
+    end)
+end
+
 -- ============ БОТЫ ============
 makeBigSection("🤖  БОТЫ — ФАРМ КОЛЕЦ", yCursor, Color3.fromRGB(110, 70, 150)); yCursor = yCursor + 30
 local botCreateNearBtn = makeButton("📍 Создать бота РЯДОМ", yCursor, BTN_H_BIG, Color3.fromRGB(45,80,65), Color3.fromRGB(170,255,200)); yCursor = yCursor + BTN_H_BIG + S_STEP
@@ -714,6 +803,14 @@ local auraFigBtn    = makeButton("🔷 Фигуры: ВКЛ", yCursor, BTN_H, Co
 
 local auraShapeBtn  = makeButton("🔷 Форма ауры: " .. SHAPE_PRESETS[ORBIT.auraShapeIndex].name, yCursor, BTN_H, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255)); yCursor = yCursor + BTN_H + S_STEP
 local auraColorBtn  = makeButton("🎨 Цвет ауры: " .. P.COLORS[P.auraColorIndex].name, yCursor, BTN_H, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255)); yCursor = yCursor + BTN_H + S_STEP
+NB.AURA_MATERIALS = {"Neon", "Glass", "ForceField", "Metal", "SmoothPlastic", "Ice", "Foil", "Marble"}
+NB.auraMatBtn = makeButton("🧱 Материал ауры: NEON", yCursor, BTN_H, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255)); yCursor = yCursor + BTN_H + S_STEP
+NB.auraMatBtn:SetAttribute("Search", "материал ауры стекло металл неон лёд")
+-- v23.7 (A2): стиль частиц ауры (искры / дым / звёзды) и сила свечения
+NB.auraPartStyleBtn = makeButton("✨ Частицы ауры: ИСКРЫ", yCursor, BTN_H, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255)); yCursor = yCursor + BTN_H + S_STEP
+NB.auraPartStyleBtn:SetAttribute("Search", "частицы ауры искры дым звезды стиль")
+NB.auraGlowBtn = makeButton("💡 Свечение ауры: ×1", yCursor, BTN_H, Color3.fromRGB(60,40,80), Color3.fromRGB(220,180,255)); yCursor = yCursor + BTN_H + S_STEP
+NB.auraGlowBtn:SetAttribute("Search", "свечение ауры glow блеск")
 
 local auraSizeBtn   = makeButton("📐 Размер: " .. P.AURA_SIZE[P.auraSizeIndex].name, yCursor, BTN_H, Color3.fromRGB(50,40,70), Color3.fromRGB(200,180,255)); yCursor = yCursor + BTN_H + S_STEP
 local auraThickBtn  = makeButton("🎚️ Толщина: " .. P.AURA_THICK[P.auraThickIndex].name, yCursor, BTN_H, Color3.fromRGB(50,40,70), Color3.fromRGB(200,180,255)); yCursor = yCursor + BTN_H + S_STEP
@@ -1917,6 +2014,8 @@ local function refreshAllLabels()
     auraFigBtn.Text = "🔷 Фигуры: " .. onOff(SETTINGS.AuraShapes)
     auraShapeBtn.Text = "🔷 Форма ауры: " .. SHAPE_PRESETS[ORBIT.auraShapeIndex].name
     auraColorBtn.Text = "🎨 Цвет ауры: " .. P.COLORS[P.auraColorIndex].name
+    NB.auraMatBtn.Text = "🧱 Материал ауры: " .. string.upper((tostring(SETTINGS.AuraMaterial):gsub("Enum%.Material%.", "")))
+    if NB.refreshAuraFx then NB.refreshAuraFx() end   -- v23.7 (A2): подписи стиля частиц и свечения
     auraSizeBtn.Text = "📐 Размер: " .. P.AURA_SIZE[P.auraSizeIndex].name
     auraThickBtn.Text = "🎚️ Толщина: " .. P.AURA_THICK[P.auraThickIndex].name
     auraHeightBtn.Text = "⬆️ Высота: " .. P.AURA_HEIGHT[P.auraHeightIndex].name
@@ -2120,6 +2219,16 @@ local function applyStyle(st)
         end
     end
     SETTINGS.FireEnabled = st.fire == true
+    -- v23.6: материал ауры и атмосфера (для стихий)
+    SETTINGS.AuraMaterial = Enum.Material[st.auraMaterial or "Neon"] or Enum.Material.Neon
+    pcall(function() NB.auraMatBtn.Text = "🧱 Материал ауры: " .. string.upper(tostring(SETTINGS.AuraMaterial):gsub("Enum%.Material%.", "")) end)
+    if ORBIT.extras and ORBIT.extras.setAtmo then
+        if st.atmo then
+            pcall(ORBIT.extras.setAtmo, true, st.atmo.type, st.atmo.intensity, st.atmo.size)
+        elseif st.fire ~= nil or st.aura ~= nil then
+            pcall(ORBIT.extras.setAtmo, false)
+        end
+    end
     ORBIT.applyColor()
     ORBIT.rebuildAllRings()
     ORBIT.setupAura()
@@ -2130,6 +2239,51 @@ end
 for i, b in ipairs(NB.styleBtns) do
     onClick(b, function() applyStyle(NB.styleDefs[i]) end)
 end
+for i, b in ipairs(NB.elementBtns) do
+    onClick(b, function() applyStyle(NB.elementDefs[i]) end)
+end
+do
+    local amIdx = 1
+    for i, m in ipairs(NB.AURA_MATERIALS) do
+        if m == tostring(SETTINGS.AuraMaterial):gsub("Enum%.Material%.", "") then amIdx = i; break end
+    end
+    onClick(NB.auraMatBtn, function()
+        amIdx = amIdx % #NB.AURA_MATERIALS + 1
+        local mName = NB.AURA_MATERIALS[amIdx]
+        SETTINGS.AuraMaterial = Enum.Material[mName] or Enum.Material.Neon
+        NB.auraMatBtn.Text = "🧱 Материал ауры: " .. string.upper(mName)
+        ORBIT.setupAura()
+    end)
+    NB.auraMatBtn.Text = "🧱 Материал ауры: " .. string.upper((tostring(SETTINGS.AuraMaterial):gsub("Enum%.Material%.", "")))
+end
+
+-- v23.7 (A2): стиль частиц и свечение ауры
+NB.AURA_GLOW_STEPS = {0, 0.5, 1, 2}
+NB.refreshAuraFx = function()
+    local st = ORBIT.AURA_PARTICLE_STYLES and ORBIT.AURA_PARTICLE_STYLES[SETTINGS.AuraParticleStyle or 1]
+    NB.auraPartStyleBtn.Text = "✨ Частицы ауры: " .. (st and st.name or "ИСКРЫ")
+    local g = SETTINGS.AuraGlow
+    if g == nil then g = 1 end
+    NB.auraGlowBtn.Text = "💡 Свечение ауры: " .. (g <= 0 and "ВЫКЛ" or ("×" .. tostring(g)))
+end
+onClick(NB.auraPartStyleBtn, function()
+    local n = ORBIT.AURA_PARTICLE_STYLES and #ORBIT.AURA_PARTICLE_STYLES or 3
+    SETTINGS.AuraParticleStyle = ((SETTINGS.AuraParticleStyle or 1) % n) + 1
+    NB.refreshAuraFx()
+    ORBIT.setupAura()
+end)
+onClick(NB.auraGlowBtn, function()
+    local cur = SETTINGS.AuraGlow
+    if cur == nil then cur = 1 end
+    local nextVal = NB.AURA_GLOW_STEPS[1]
+    for i, v in ipairs(NB.AURA_GLOW_STEPS) do
+        if math.abs(v - cur) < 0.01 then nextVal = NB.AURA_GLOW_STEPS[i % #NB.AURA_GLOW_STEPS + 1]; break end
+    end
+    SETTINGS.AuraGlow = nextVal
+    NB.refreshAuraFx()
+    ORBIT.setupAura()
+end)
+NB.refreshAuraFx()
 
 onClick(NB.spawnAnim, function()
     SETTINGS.SpawnAnim = not (SETTINGS.SpawnAnim ~= false)
@@ -2399,7 +2553,33 @@ ORBIT.ui.applyStyleByName = function(name)
             return true
         end
     end
+    for _, st in ipairs(NB.elementDefs or {}) do
+        if st.name == name then
+            applyStyle(st)
+            return true
+        end
+    end
     return false
+end
+
+-- v23.8 (Y5): экспорты для помощника — подписи стиля частиц / свечения и свечение колец
+ORBIT.ui.refreshAuraFx = function()
+    if NB.refreshAuraFx then NB.refreshAuraFx() end
+end
+ORBIT.ui.setGlow = function(on)
+    on = on and true or false
+    SETTINGS.GlowEnabled = on
+    glowBtn.Text = "✨ Свечение: " .. (on and "ВКЛ" or "ВЫКЛ")
+    if on then
+        glowBtn.BackgroundColor3 = Color3.fromRGB(35,60,50); glowBtn.TextColor3 = Color3.fromRGB(180,255,220)
+    else
+        glowBtn.BackgroundColor3 = Color3.fromRGB(45,45,65); glowBtn.TextColor3 = Color3.fromRGB(200,200,220)
+    end
+    for _, ring in pairs(rings) do
+        for _, d in ipairs(ring.blocks) do
+            if d.light then d.light.Enabled = on end
+        end
+    end
 end
 
 ORBIT.ui.open = function() setPanel(true) end
