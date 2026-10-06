@@ -792,7 +792,31 @@ do
     end
 end
 
+-- v23.6: пересчитать локальные индексы из SETTINGS (после загрузки сохранения / пресета стихии)
+local function syncFromSettings()
+    for i, t in ipairs(ATMO_TYPES) do if t.name == SETTINGS.AtmoType then atmoTypeIndex = i; break end end
+    for i, t in ipairs(ATMO_INTENSITY) do if t.name == SETTINGS.AtmoIntensity then atmoIntensityIndex = i; break end end
+    for i, t in ipairs(ATMO_SIZE) do if t.name == SETTINGS.AtmoSize then atmoSizeIndex = i; break end end
+    for i, m in ipairs(ATMO_COLOR_MODES) do if m == SETTINGS.AtmoColorMode then atmoColorModeIndex = i; break end end
+    for i, m in ipairs(TRAIL_STREAM_COLOR_MODES) do if m == SETTINGS.TrailStreamColorMode then trailStreamColorIndex = i; break end end
+    pcall(setupAtmo)
+    pcall(setupTrailStream)
+    pcall(setupReactSparks)
+end
+
+-- Включить атмосферу одной командой (используется пресетами стихий): nil/false в enabled — выключить
+local function setAtmo(enabled, typeName, intensityName, sizeName)
+    SETTINGS.AtmoEnabled = enabled == true
+    if typeName then SETTINGS.AtmoType = typeName end
+    if intensityName then SETTINGS.AtmoIntensity = intensityName end
+    if sizeName then SETTINGS.AtmoSize = sizeName end
+    SETTINGS.AtmoColorMode = "Авто"
+    syncFromSettings()
+end
+
 ORBIT.extras = {
+    syncFromSettings = syncFromSettings,
+    setAtmo = setAtmo,
     setupAtmo = setupAtmo,
     setupTrailStream = setupTrailStream,
     setupReactSparks = setupReactSparks,
