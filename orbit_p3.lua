@@ -151,9 +151,62 @@ local function getAuraColor(i, total)
 end
 local function getAuraShapeSize() return ORBIT.getCurrentShapeSize() * SETTINGS.AuraShapeScale end
 
+-- ==================== ТРЕЙЛЫ: ЕДИНАЯ НАСТРОЙКА (v23.6, фикс B3) ====================
+-- Причина пропадания шлейфов: ширина Trail = расстояние между attachment * WidthScale,
+-- поэтому у маленьких фигур + тонкого шлейфа реальная ширина ~0, а Lifetime < 0.1 с
+-- короче кадра, из-за чего сегмент гаснет, не успев отрисоваться. Здесь задаём
+-- безопасные минимумы и общие свойства для ВСЕХ трейлов проекта.
+local TRAIL_MIN_LIFETIME = 0.12   -- сек, меньше не видно на 30 FPS
+local TRAIL_MIN_WORLD_WIDTH = 0.09 -- студы, минимальная реальная ширина
+
+function ORBIT.configureTrail(trail, lifetime, widthScale, span)
+    if not trail then return end
+    if span then trail:SetAttribute("OrbitSpan", span) end
+    local sp = trail:GetAttribute("OrbitSpan") or 0.5
+    local base = math.max(2 * sp, 0.05)               -- дистанция между attachment
+    local minScale = TRAIL_MIN_WORLD_WIDTH / base      -- минимальный WidthScale
+    local w = math.max(widthScale or 0.5, minScale)
+    trail.Lifetime = math.max(lifetime or 0.25, TRAIL_MIN_LIFETIME)
+    trail.WidthScale = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, w), NumberSequenceKeypoint.new(1, 0),
+    })
+    trail.MinLength = 0.02
+    trail.MaxLength = 0
+    trail.FaceCamera = true
+    trail.LightEmission = 0.6
+end
+
+-- ==================== АУРА: ГРАДИЕНТ И СВЕЧЕНИЕ (v23.7, A2) ====================
+-- Сдвиг оттенка даёт «градиент» между кольцом, гало и внутренним кольцом.
+local function shiftHue(c, d)
+    local h, sa, v = c:ToHSV()
+    return Color3.fromHSV((h + d) % 1, sa, v)
+end
+-- Градиент для частиц: цвет → соседний оттенок → цвет
+local function auraGradient(c)
+    return ColorSequence.new({
+        ColorSequenceKeypoint.new(0, c),
+        ColorSequenceKeypoint.new(0.5, shiftHue(c, 0.07)),
+        ColorSequenceKeypoint.new(1, shiftHue(c, -0.07)),
+    })
+end
+
+-- Плавная кривая «sine ease-in-out» для пульсации: вход 0..1 -> выход 0..1
+local function easeSine(x)
+    return -(math.cos(math.pi * x) - 1) / 2
+end
+-- Три стиля частиц ауры: 1 — искры, 2 — дым, 3 — звёзды
+ORBIT.AURA_PARTICLE_STYLES = {
+    { name = "ИСКРЫ",  tex = "rbxasset://textures/particles/sparkles_main.dds", emission = 0.6, sizeMul = 1.0, spin = false },
+    { name = "ДЫМ",    tex = "rbxasset://textures/particles/smoke_main.dds",    emission = 0.1, sizeMul = 1.9, spin = false },
+    { name = "ЗВЁЗДЫ", tex = "rbxasset://textures/particles/sparkles_main.dds", emission = 1.0, sizeMul = 1.4, spin = true  },
+}
+local AURA_SEG_COUNT = 24
+
 function ORBIT.setupAura()
     if ORBIT.auraFolder then ORBIT.auraFolder:Destroy(); ORBIT.auraFolder = nil end
     ORBIT.auraParts = {}; ORBIT.auraBlocks = {}
+    ORBIT.auraSmoothCol = nil   -- v23.7 (A2): сглаженный цвет пересчитается заново
     if not SETTINGS.AuraEnabled then return end
     ORBIT.auraFolder = Instance.new("Folder")
     ORBIT.auraFolder.Name = "OrbitAura_" .. tostring(math.random(1, 999999))
@@ -166,9 +219,35 @@ function ORBIT.setupAura()
         ring.Size = Vector3.new(SETTINGS.AuraThickness, SETTINGS.AuraSize*2, SETTINGS.AuraSize*2)
         ring.Anchored = true; ring.CanCollide = false; ring.CastShadow = false
         ring.CanQuery = false; ring.CanTouch = false
-        ring.Material = Enum.Material.Neon; ring.Color = getAuraColor(1, 1); ring.Transparency = 0.3
+        ring.Material = SETTINGS.AuraMaterial or Enum.Material.Neon; ring.Color = getAuraColor(1, 1); ring.Transparency = 0.3
         ring.Parent = ORBIT.auraFolder
         table.insert(ORBIT.auraParts, ring)
+        -- v23.7 (A2): широкое прозрачное гало и узкое внутреннее кольцо (другие оттенки = градиент)
+        local ringCol = getAuraColor(1, 1)
+        local function extraRing(nm, mult, thickMult, transp, hueShift)
+            local r = Instance.new("Part")
+            r.Name = nm; r.Shape = Enum.PartType.Cylinder
+            r.Size = Vector3.new(SETTINGS.AuraThickness * thickMult, SETTINGS.AuraSize * 2 * mult, SETTINGS.AuraSize * 2 * mult)
+            r.Anchored = true; r.CanCollide = false; r.CastShadow = false
+            r.CanQuery = false; r.CanTouch = false
+            r.Material = SETTINGS.AuraMaterial or Enum.Material.Neon; r.Color = shiftHue(ringCol, hueShift); r.Transparency = transp
+            r.Parent = ORBIT.auraFolder
+            table.insert(ORBIT.auraParts, r)
+        end
+        extraRing("AuraHalo", 1.28, 0.45, 0.65, 0.07)
+        extraRing("AuraInner", 0.72, 0.6, 0.55, -0.07)
+        -- градиент ПО КРУГУ: кольцо из сегментов, оттенок плавно «бежит» вдоль окружности (позиции — в updateAura)
+        local arc = (2 * math.pi * SETTINGS.AuraSize / AURA_SEG_COUNT) * 0.95
+        for i = 1, AURA_SEG_COUNT do
+            local sg = Instance.new("Part")
+            sg.Name = "AuraSeg"; sg.Size = Vector3.new(arc, SETTINGS.AuraThickness * 1.15, math.max(0.25, SETTINGS.AuraThickness * 1.6))
+            sg.Anchored = true; sg.CanCollide = false; sg.CastShadow = false
+            sg.CanQuery = false; sg.CanTouch = false
+            sg.Material = SETTINGS.AuraMaterial or Enum.Material.Neon; sg.Color = ringCol; sg.Transparency = 0.15
+            sg:SetAttribute("SegIndex", i)
+            sg.Parent = ORBIT.auraFolder
+            table.insert(ORBIT.auraParts, sg)
+        end
     end
 
     -- Частицы
@@ -179,28 +258,53 @@ function ORBIT.setupAura()
         emitter.CanQuery = false; emitter.CanTouch = false
         emitter.Parent = ORBIT.auraFolder
         local col = getAuraColor(1, 1)
+        local pstyle = ORBIT.AURA_PARTICLE_STYLES[SETTINGS.AuraParticleStyle or 1] or ORBIT.AURA_PARTICLE_STYLES[1]
         for _, cfg in ipairs({
             { rate=150, life={1.0,2.0}, spd={3,6}, spread=Vector2.new(180,180), size={0.4,0.7,0.2}, tr=0.1 },
             { rate=100, life={0.6,1.2}, spd={5,9}, spread=Vector2.new(20,20),   size={0.5,0.5,0.5}, tr=0.3 },
             { rate=80,  life={1.2,2.5}, spd={1,3}, spread=Vector2.new(180,180), size={0.8,0.8,0.3}, tr=0.4 },
         }) do
             local pe = Instance.new("ParticleEmitter")
-            pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+            pe.Texture = pstyle.tex
+            if pstyle.spin then pe.RotSpeed = NumberRange.new(-90, 90); pe.Rotation = NumberRange.new(0, 360) end
             pe.Rate = cfg.rate
             pe.Lifetime = NumberRange.new(cfg.life[1], cfg.life[2])
             pe.Speed = NumberRange.new(cfg.spd[1], cfg.spd[2])
             pe.SpreadAngle = cfg.spread
             pe.Size = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, cfg.size[1]),
-                NumberSequenceKeypoint.new(0.5, cfg.size[2]),
-                NumberSequenceKeypoint.new(1, cfg.size[3]),
+                NumberSequenceKeypoint.new(0, cfg.size[1] * pstyle.sizeMul),
+                NumberSequenceKeypoint.new(0.5, cfg.size[2] * pstyle.sizeMul),
+                NumberSequenceKeypoint.new(1, cfg.size[3] * pstyle.sizeMul),
             })
-            pe.Color = ColorSequence.new(col)
+            pe.Color = auraGradient(col)
+            pe.LightEmission = pstyle.emission
             pe.Transparency = NumberSequence.new({
                 NumberSequenceKeypoint.new(0, cfg.tr),
                 NumberSequenceKeypoint.new(1, 1),
             })
             pe.Parent = emitter
+        end
+        -- v23.7 (A2): мягкое свечение — крупные полупрозрачные частицы; сила = SETTINGS.AuraGlow (0 = выкл)
+        local glow = SETTINGS.AuraGlow
+        if glow == nil then glow = 1 end
+        if glow > 0 then
+            local ge = Instance.new("ParticleEmitter")
+            ge.Name = "AuraGlowEmitter"
+            ge.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+            ge.Rate = 14 * glow
+            ge.Lifetime = NumberRange.new(1.2, 2.2)
+            ge.Speed = NumberRange.new(0.3, 1.2)
+            ge.SpreadAngle = Vector2.new(180, 180)
+            ge.Size = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 2.5 * glow), NumberSequenceKeypoint.new(0.5, 4 * glow), NumberSequenceKeypoint.new(1, 1),
+            })
+            ge.Color = auraGradient(col)
+            ge.LightEmission = 1
+            ge.LightInfluence = 0
+            ge.Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.85), NumberSequenceKeypoint.new(0.4, 0.7), NumberSequenceKeypoint.new(1, 1),
+            })
+            ge.Parent = emitter
         end
         table.insert(ORBIT.auraParts, emitter)
     end
@@ -237,11 +341,18 @@ function ORBIT.setupAura()
             local data = shape.create(size, "Aura_" .. i)
             local refPart = data.part
             if not data.isModel then
-                refPart.Material = SETTINGS.Material
+                refPart.Material = SETTINGS.AuraMaterial or SETTINGS.Material
                 refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
                 refPart.CanQuery = false; refPart.CanTouch = false
                 refPart.Transparency = SETTINGS.Transparency
                 refPart.Color = getAuraColor(i, count)
+            elseif SETTINGS.AuraMaterial and SETTINGS.AuraMaterial ~= Enum.Material.Neon and data.bodyParts then
+                -- v23.6 (A1): материал ауры для частей модели (кроме помеченных NoRecolor)
+                for _, bp in ipairs(data.bodyParts) do
+                    pcall(function()
+                        if not bp:GetAttribute("NoRecolor") then bp.Material = SETTINGS.AuraMaterial end
+                    end)
+                end
             end
             if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
             local trail = nil
@@ -252,11 +363,7 @@ function ORBIT.setupAura()
                 trail = Instance.new("Trail")
                 trail.Attachment0 = a0; trail.Attachment1 = a1
                 trail.Color = ColorSequence.new(getAuraColor(i, count))
-                trail.Lifetime = SETTINGS.AuraTrailLength
-                trail.WidthScale = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, SETTINGS.AuraTrailWidth),
-                    NumberSequenceKeypoint.new(1, 0),
-                })
+                ORBIT.configureTrail(trail, SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth, span)
                 trail.Transparency = NumberSequence.new({
                     NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
                 })
@@ -278,29 +385,56 @@ local function updateAura(dt)
     if not hrp then return end
     local baseCol = getAuraColor(1, 1)
     local recolor = auraRecolorDue(tick())
+    -- v23.7 (A2): плавная интерполяция цвета ауры (без рывков при смене цвета / радуге)
+    local acfg = P.COLORS[P.auraColorIndex]
+    local targetCol = acfg.rainbow and baseCol or (acfg.c or SETTINGS.AuraColor)
+    if not ORBIT.auraSmoothCol then ORBIT.auraSmoothCol = targetCol end
+    ORBIT.auraSmoothCol = ORBIT.auraSmoothCol:Lerp(targetCol, 1 - math.exp(-dt * 6))
+    local smoothCol = ORBIT.auraSmoothCol
+    local nowT = tick()
 
     for _, part in ipairs(ORBIT.auraParts) do
-        if part.Name == "AuraRing" then
-            part.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 2.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
-            part.Color = P.COLORS[P.auraColorIndex].rainbow and baseCol or (P.COLORS[P.auraColorIndex].c or SETTINGS.AuraColor)
+        if part.Name == "AuraRing" or part.Name == "AuraHalo" or part.Name == "AuraInner" then
+            -- v23.7 (A2): плавное следование (экспоненциальное сглаживание) и «дыхание» прозрачности/размера
+            local target = CFrame.new(hrp.Position - Vector3.new(0, 2.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
+            local alpha = 1 - math.exp(-dt * 22)
+            part.CFrame = part.CFrame:Lerp(target, alpha)
+            local ringCol = smoothCol
+            local tt = nowT
+            if part.Name == "AuraRing" then
+                part.Color = ringCol
+                part.Transparency = 0.3 + math.sin(tt * 2) * 0.08
+            elseif part.Name == "AuraHalo" then
+                part.Color = shiftHue(ringCol, 0.07)
+                part.Transparency = 0.65 + math.sin(tt * 1.4 + 1) * 0.15
+                local k = 1.28 + math.sin(tt * 1.4) * 0.05
+                part.Size = Vector3.new(SETTINGS.AuraThickness * 0.45, SETTINGS.AuraSize * 2 * k, SETTINGS.AuraSize * 2 * k)
+            else
+                part.Color = shiftHue(ringCol, -0.07)
+                part.Transparency = 0.55 + math.sin(tt * 2.6 + 2) * 0.12
+            end
+        elseif part.Name == "AuraSeg" then
+            -- сегмент градиентного кольца: бежит по окружности, оттенок меняется плавно вдоль круга
+            local i = part:GetAttribute("SegIndex") or 1
+            local a = (i - 1) / AURA_SEG_COUNT * math.pi * 2 + nowT * 0.6
+            local R = SETTINGS.AuraSize
+            local pos = hrp.Position + Vector3.new(math.cos(a) * R, -2.5, math.sin(a) * R)
+            local target = CFrame.lookAt(pos, pos + Vector3.new(-math.sin(a), 0, math.cos(a)))
+            part.CFrame = part.CFrame:Lerp(target, 1 - math.exp(-dt * 22))
+            part.Color = shiftHue(smoothCol, 0.1 * math.sin(a * 1 - nowT * 0.8))
+            part.Transparency = 0.15 + 0.1 * math.sin(a * 2 + nowT * 1.5)
         elseif part.Name == "AuraEmitter" then
             part.CFrame = hrp.CFrame
             if recolor and P.COLORS[P.auraColorIndex].rainbow then
                 for _, child in ipairs(part:GetChildren()) do
-                    if child:IsA("ParticleEmitter") then child.Color = ColorSequence.new(baseCol) end
+                    if child:IsA("ParticleEmitter") then child.Color = auraGradient(baseCol) end
                 end
             end
         elseif part.Name == "AuraLightHolder" then
             part.CFrame = hrp.CFrame
             local pl = part:FindFirstChildOfClass("PointLight")
             if pl then
-                local col
-                local ac = P.COLORS[P.auraColorIndex]
-                if ac.rainbow then
-                    col = baseCol
-                else
-                    col = ac.c or SETTINGS.AuraColor
-                end
+                local col = smoothCol
                 pl.Color = col
                 pl.Range = SETTINGS.AuraLightRange or 8
                 pl.Brightness = SETTINGS.AuraLightBrightness or 2
@@ -336,7 +470,10 @@ local function updateAura(dt)
             end
             local pulseScale = 1.0
             if SETTINGS.AuraPulseEnabled then
-                pulseScale = 1.0 + math.sin(t * 4 + data.index) * 0.15
+                -- v23.7 (A2): плавная кривая sine ease-in-out вместо «острой» синусоиды
+                local ph = (t * 0.64 + data.index * 0.17) % 1
+                local tri = ph < 0.5 and ph * 2 or (1 - ph) * 2
+                pulseScale = 1.0 + (easeSine(tri) * 2 - 1) * 0.15
             end
             if data.isModel and data.model then
                 data.model:PivotTo(cf)
@@ -603,10 +740,7 @@ local function attachTrail(refPart, span, color, length, width)
     local trail = Instance.new("Trail")
     trail.Attachment0 = a0; trail.Attachment1 = a1
     trail.Color = ColorSequence.new(color)
-    trail.Lifetime = length
-    trail.WidthScale = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, width), NumberSequenceKeypoint.new(1, 0),
-    })
+    ORBIT.configureTrail(trail, length, width, span)
     trail.Transparency = NumberSequence.new({
         NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
     })
@@ -1315,10 +1449,7 @@ end
 -- ============================================================
 function ORBIT.applyTrailSettings(trail)
     if not trail then return end
-    trail.Lifetime = SETTINGS.TrailLength
-    trail.WidthScale = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, SETTINGS.TrailWidth), NumberSequenceKeypoint.new(1, 0),
-    })
+    ORBIT.configureTrail(trail, SETTINGS.TrailLength, SETTINGS.TrailWidth)
 end
 
 function ORBIT.refreshAllTrails()
@@ -1329,11 +1460,7 @@ function ORBIT.refreshAllTrails()
     end
     for _, data in ipairs(ORBIT.auraBlocks or {}) do
         if data.trail then
-            data.trail.Lifetime = SETTINGS.AuraTrailLength
-            data.trail.WidthScale = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, SETTINGS.AuraTrailWidth),
-                NumberSequenceKeypoint.new(1, 0),
-            })
+            ORBIT.configureTrail(data.trail, SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth)
         end
     end
 end
@@ -1619,13 +1746,13 @@ end
 local function setTrailsEnabled(on)
     for _, ring in pairs(rings) do
         for _, data in ipairs(ring.blocks) do
-            if data.trail then data.trail.Enabled = on end
+            if data.trail then data.trail.Enabled = on and SETTINGS.TrailEnabled end
         end
     end
 end
 local function setAuraTrailsEnabled(on)
     for _, data in ipairs(ORBIT.auraBlocks or {}) do
-        if data.trail then data.trail.Enabled = on end
+        if data.trail then data.trail.Enabled = on and SETTINGS.AuraTrailEnabled end
     end
 end
 local function applyPerformanceLevel(level)
@@ -1867,6 +1994,23 @@ local function collectSaveData()
         soundEnabled=ORBIT.SOUNDS and ORBIT.SOUNDS.Enabled,
         soundVolume=ORBIT.SOUNDS and ORBIT.SOUNDS.Volume,
         spawnAnim=SETTINGS.SpawnAnim, spawnFlash=SETTINGS.SpawnFlash,
+        -- v23.6: поля, которые раньше терялись при перезагрузке
+        material=(tostring(SETTINGS.Material):gsub("Enum%.Material%.", "")),
+        transparency=SETTINGS.Transparency, glowEnabled=SETTINGS.GlowEnabled,
+        glowIntensity=SETTINGS.GlowIntensity, castShadow=SETTINGS.CastShadow,
+        blockCount=SETTINGS.BlockCount,
+        auraRing=SETTINGS.AuraRing, auraParticles=SETTINGS.AuraParticles, auraShapes=SETTINGS.AuraShapes,
+        auraSpinAxisIndex=P.auraSpinAxisIndex,
+        atmoEnabled=SETTINGS.AtmoEnabled, atmoType=SETTINGS.AtmoType,
+        atmoIntensity=SETTINGS.AtmoIntensity, atmoSize=SETTINGS.AtmoSize,
+        atmoColorMode=SETTINGS.AtmoColorMode, atmoColorIndex=SETTINGS.AtmoColorIndex,
+        trailStreamEnabled=SETTINGS.TrailStreamEnabled, trailStreamColorMode=SETTINGS.TrailStreamColorMode,
+        trailStreamColorIndex=SETTINGS.TrailStreamColorIndex,
+        reactSparksEnabled=SETTINGS.ReactSparksEnabled, reactSparksColorIndex=SETTINGS.ReactSparksColorIndex,
+        gradientSpeed=SETTINGS.GradientSpeed,
+        auraMaterial=(tostring(SETTINGS.AuraMaterial):gsub("Enum%.Material%.", "")),
+        auraGlow=SETTINGS.AuraGlow,
+        auraParticleStyle=SETTINGS.AuraParticleStyle,
     }
 end
 
@@ -1882,6 +2026,8 @@ local function sanitizeSave(d)
         auraPatternIndex = P.AURA_PATTERNS, auraSpinSpeedIndex = P.AURA_SPIN_SPEED, auraSpeedIndex = P.AURA_SPEED,
         auraDirIndex = P.AURA_DIR, fireSizeIndex = P.FIRE_SIZE, fireHeatIndex = P.FIRE_HEAT,
         shapeIndex = SHAPE_PRESETS, auraShapeIndex = SHAPE_PRESETS,
+        auraSpinAxisIndex = P.AURA_SPIN_AXIS, atmoColorIndex = P.COLORS,
+        trailStreamColorIndex = P.COLORS, reactSparksColorIndex = P.COLORS,
     }
     for key, list in pairs(lists) do
         local v = d[key]
@@ -1974,6 +2120,55 @@ local function applySaveData(d)
     if d.soundVolume ~= nil and ORBIT.SOUNDS then ORBIT.SOUNDS.Volume = d.soundVolume end
     if d.spawnAnim ~= nil then SETTINGS.SpawnAnim = d.spawnAnim end
     if d.spawnFlash ~= nil then SETTINGS.SpawnFlash = d.spawnFlash end
+
+    -- v23.6: восстановление полей, которые раньше не сохранялись
+    local needRebuild = false
+    if type(d.material) == "string" then
+        local okM, mat = pcall(function() return Enum.Material[d.material] end)
+        if okM and mat then SETTINGS.Material = mat; needRebuild = true end
+    end
+    if type(d.transparency) == "number" then SETTINGS.Transparency = math.clamp(d.transparency, 0, 0.95); needRebuild = true end
+    if d.glowEnabled ~= nil then SETTINGS.GlowEnabled = d.glowEnabled end
+    if type(d.glowIntensity) == "number" then SETTINGS.GlowIntensity = math.clamp(d.glowIntensity, 0.1, 10); needRebuild = true end
+    if d.castShadow ~= nil then SETTINGS.CastShadow = d.castShadow; needRebuild = true end
+    if type(d.blockCount) == "number" then SETTINGS.BlockCount = math.clamp(math.floor(d.blockCount), 1, 40); needRebuild = true end
+    if d.auraRing ~= nil then SETTINGS.AuraRing = d.auraRing end
+    if d.auraParticles ~= nil then SETTINGS.AuraParticles = d.auraParticles end
+    if d.auraShapes ~= nil then SETTINGS.AuraShapes = d.auraShapes end
+    if d.auraSpinAxisIndex then
+        P.auraSpinAxisIndex = d.auraSpinAxisIndex
+        SETTINGS.AuraSpinAxis = P.AURA_SPIN_AXIS[P.auraSpinAxisIndex].value
+    end
+    -- цвет ауры: индекс сохранялся, а сам цвет не пересчитывался
+    local ac = P.COLORS[P.auraColorIndex]
+    if ac and ac.c then SETTINGS.AuraColor = ac.c end
+    -- атмосфера / шлейф-поток / искры (читаются модулем extras напрямую из SETTINGS)
+    if type(d.atmoEnabled) == "boolean" then SETTINGS.AtmoEnabled = d.atmoEnabled end
+    if type(d.atmoType) == "string" then SETTINGS.AtmoType = d.atmoType end
+    if type(d.atmoIntensity) == "string" then SETTINGS.AtmoIntensity = d.atmoIntensity end
+    if type(d.atmoSize) == "string" then SETTINGS.AtmoSize = d.atmoSize end
+    if type(d.atmoColorMode) == "string" then SETTINGS.AtmoColorMode = d.atmoColorMode end
+    if d.atmoColorIndex then SETTINGS.AtmoColorIndex = d.atmoColorIndex end
+    if type(d.trailStreamEnabled) == "boolean" then SETTINGS.TrailStreamEnabled = d.trailStreamEnabled end
+    if type(d.trailStreamColorMode) == "string" then SETTINGS.TrailStreamColorMode = d.trailStreamColorMode end
+    if d.trailStreamColorIndex then SETTINGS.TrailStreamColorIndex = d.trailStreamColorIndex end
+    if type(d.reactSparksEnabled) == "boolean" then SETTINGS.ReactSparksEnabled = d.reactSparksEnabled end
+    if d.reactSparksColorIndex then SETTINGS.ReactSparksColorIndex = d.reactSparksColorIndex end
+    if type(d.auraParticleStyle) == "number" then SETTINGS.AuraParticleStyle = math.clamp(math.floor(d.auraParticleStyle), 1, 3) end
+    if type(d.auraGlow) == "number" then SETTINGS.AuraGlow = math.clamp(d.auraGlow, 0, 3) end
+    if type(d.auraMaterial) == "string" then
+        local okA, am = pcall(function() return Enum.Material[d.auraMaterial] end)
+        if okA and am then SETTINGS.AuraMaterial = am end
+    end
+    if type(d.gradientSpeed) == "number" then SETTINGS.GradientSpeed = math.clamp(d.gradientSpeed, 0.05, 5) end
+
+    pcall(function() if ORBIT.extras and ORBIT.extras.syncFromSettings then ORBIT.extras.syncFromSettings() end end)
+    -- цвет колец: пересчитать Rainbow/FixedColor из colorIndex
+    pcall(function() if ORBIT.applyColor then ORBIT.applyColor() end end)
+    if needRebuild then pcall(function() if ORBIT.rebuildAllRings then ORBIT.rebuildAllRings() end end) end
+    -- обновить ауру и огонь, если они уже созданы
+    pcall(function() if ORBIT.enabled and ORBIT.setupAura then ORBIT.setupAura() end end)
+    pcall(function() if ORBIT.enabled and ORBIT.setupFire then ORBIT.setupFire() end end)
 end
 
 function ORBIT.saveSettings()
