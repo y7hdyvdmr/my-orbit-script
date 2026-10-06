@@ -1,28 +1,26 @@
--- ОРБИТА v23.7 — CORE + LOADER
+-- ОРБИТА v23.8 — CORE + LOADER (orbit_p1.lua)
 -- Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗАГРУЗЧИК
 --
--- ИЗМЕНЕНИЯ v23.5:
---   fix: кнопка «ЗАПУСТИТЬ ОРБИТУ» — now через onTap (Down + Touch + Activated).
---   fix: UIScale + центрирование окон загрузчика под мобильный экран.
---   fix: защита от двойного тапа по выбору платформы.
---   fix: addLog без task.wait() на каждую строку.
---   fix: LogService-подключение отключается при перезапуске.
---   fix: очередь уведомлений — лимит 30.
---   fix: ORBIT.HAS_FS — строгий boolean.
---   fix: в P.SHAPE_CATEGORIES добавлена «СКАЛА».
---   new: helper fetchAndRun с повторами (3 для частей, 2 для модулей).
---   new: playBuy / playWin звучат по-разному.
---   new: плавное появление окон загрузчика.
---
--- ИЗМЕНЕНИЯ v23.6:
---   new: перед античитом грузится orbit_share.lua — модуль обмена фигурами и сохранениями.
---   new: индикатор SHARE в полосе прогресса (9 этапов вместо 8).
---   new: в конце грузится orbit_helper.lua (rule-based помощник).
---
--- ИЗМЕНЕНИЯ v23.7:
---   fix: в лог ошибок добавлено больше текста — sub(1, 60) → sub(1, 300).
---        Раньше сообщение вида «attempt to index nil with 'm'» было обрезано и не
---        показывало имя свойства. Теперь видно полностью.
+-- ИСТОРИЯ:
+--   v23.5: кнопка «ЗАПУСТИТЬ ОРБИТУ» — через onTap (Down + Touch + Activated);
+--          UIScale + центрирование окон загрузчика под мобильный экран;
+--          защита от двойного тапа по выбору платформы; addLog без task.wait();
+--          LogService-подключение отключается при перезапуске; лимит очереди
+--          уведомлений 30; ORBIT.HAS_FS — строгий boolean; в P.SHAPE_CATEGORIES
+--          добавлена «СКАЛА»; fetchAndRun с повторами; playBuy / playWin различаются;
+--          плавное появление окон загрузчика.
+--   v23.6: перед античитом грузится orbit_share.lua; в полосе прогресса 9 этапов
+--          вместо 8; в конце грузится orbit_helper.lua.
+--   v23.7: в лог ошибок добавлено больше текста (sub(1, 60) → sub(1, 300)) —
+--          теперь видно полное сообщение (имя свойства и т.п.).
+--   v23.8: I1 — прогресс по каждому файлу (имя + попытка в статус-строке);
+--          новая настройка AuraMaterial; категория «СУЩЕСТВА» включает ДРАКОНА.
+--   v23.8-fix1: 🐛 ORBIT.version синхронизирован с шапкой (было v23.7 → стало v23.8);
+--          🐛 countLoaded() больше не считает shop и minigame (они грузятся из p4
+--             ПОСЛЕ закрытия загрузчика, поэтому прогресс раньше застревал на 10/12);
+--          🐛 local total = 12 → 10 (9 модулей + p1), теперь прогресс доходит до 100%;
+--          🐛 начальные значения (0.111 / «11%» / «1/9 ЭТАПОВ») приведены к 10 файлам;
+--          🐛 в шапке уточнено «12 файлов в счётчике» → 10.
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 local OLD = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (GENV and GENV.ORBIT)
@@ -33,7 +31,7 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v23.7"
+ORBIT.version = "v23.8"
 ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, share = false, sfx = false, ac = false, extras = false, editor3d = false, helper = false }
 ORBIT.started = false
 ORBIT.PLATFORM = nil
@@ -137,6 +135,7 @@ ORBIT.DEFAULT_SETTINGS = {
     AuraPulseEnabled = false,
     AuraPattern = "Круг",
     AuraLightEnabled = false, AuraLightRange = 8, AuraLightBrightness = 2,
+    AuraMaterial = Enum.Material.Neon, AuraGlow = 1.0, AuraParticleStyle = 1,
 
     FireEnabled = false, FireColor = Color3.fromRGB(255, 120, 0),
     FireSize = 6, FireHeat = 8,
@@ -224,7 +223,7 @@ P.SHAPE_CATEGORIES = {
     {name="ОСНОВНЫЕ",  shapes={"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"}},
     {name="ОРУЖИЕ",    shapes={"МЕЧ","ЩИТ"}},
     {name="МАГИЯ",     shapes={"ГЛАЗ","ИНЬ-ЯН","МОЛНИЯ","ГАСТЕР БЛАСТЕР"}},
-    {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ","СКАЛА"}},
+    {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ","СКАЛА","ДРАКОН","ЦВЕТОК ФЛАУИ","ОМЕГА ФЛАУИ"}},
 }
 P.shapeCategoryIndex = 1
 
@@ -1063,7 +1062,7 @@ local function stopPulse()
 end
 
 setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "части 2 → 3 → 4 → share → защита → звуки → extras → 3D", C_GREEN)
-updateRingProgress(0.111)
+updateRingProgress(0.1)  -- v23.8-fix1: 1/10 файлов
 refreshSteps()
 
 -- ============================================================
@@ -1263,7 +1262,7 @@ local progStroke = Instance.new("UIStroke", progHolder)
 progStroke.Color = C_BORDER; progStroke.Thickness = 1; progStroke.Transparency = 0.4
 
 local progFill = Instance.new("Frame")
-progFill.Size = UDim2.new(0.111, 0, 1, 0)
+progFill.Size = UDim2.new(0.1, 0, 1, 0)  -- v23.8-fix1: 1/10 файлов
 progFill.BackgroundColor3 = C_GREEN
 progFill.BorderSizePixel = 0
 progFill.ZIndex = 4
@@ -1280,7 +1279,7 @@ fillGradient.Color = ColorSequence.new({
 local progText = Instance.new("TextLabel")
 progText.Size = UDim2.new(1, 0, 1, 0)
 progText.BackgroundTransparency = 1
-progText.Text = "LOADING 11%  •  1/9 ЭТАПОВ"
+progText.Text = "LOADING 10%  •  1/10 ФАЙЛОВ"  -- v23.8-fix1
 progText.TextColor3 = Color3.fromRGB(20, 40, 28)
 progText.Font = Enum.Font.GothamBold
 progText.TextSize = 11
@@ -1318,8 +1317,10 @@ statusBar.Parent = frame
 -- ============================================================
 --       ПОДСЧЁТ ПРОГРЕССА
 -- ============================================================
+-- v23.8-fix1: shop и minigame грузятся ИЗ p4 ПОСЛЕ закрытия загрузчика — их не считаем.
+-- Итого 10 файлов: p1 + p2 + p3 + p4 + share + ac + sfx + extras + editor3d + helper.
 local function countLoaded()
-    local n = 1
+    local n = 1  -- p1 всегда загружен (мы в нём)
     if ORBIT.loaded.p2 then n = n + 1 end
     if ORBIT.loaded.p3 then n = n + 1 end
     if ORBIT.loaded.p4 then n = n + 1 end
@@ -1334,11 +1335,13 @@ end
 
 local function refreshStatus()
     local n = countLoaded()
-    local total = 10
-    local percent = n / total
+    local total = 10  -- v23.8-fix1: было 12 (shop и minigame не считаем)
+    local percent = math.min(n / total, 1)
 
     TweenService:Create(progFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), { Size = UDim2.new(percent, 0, 1, 0) }):Play()
-    progText.Text = string.format("LOADING %d%%  •  %d/%d ЭТАПОВ", math.floor(percent * 100 + 0.5), n, total)
+    -- показываем, какой именно файл качается сейчас
+    local cur = ORBIT.currentFile and ("  •  " .. ORBIT.currentFile) or ""
+    progText.Text = string.format("LOADING %d%%  •  %d/%d ФАЙЛОВ%s", math.floor(percent * 100 + 0.5), math.min(n, total), total, cur)
     updateRingProgress(percent)
     refreshSteps()
 
@@ -1359,6 +1362,13 @@ ORBIT.refreshLoaderStatus = refreshStatus
 -- v23.7: sub(1, 60) → sub(1, 300), чтобы видеть полный текст ошибки
 local function fetchAndRun(file, attempts, tag)
     for attempt = 1, attempts do
+        -- v23.8 (I1): прогресс по каждому файлу — имя и номер попытки
+        ORBIT.currentFile = file
+        pcall(function()
+            statusBar.Text = "> ⬇ " .. file .. "  (попытка " .. attempt .. "/" .. attempts .. ")"
+            statusBar.TextColor3 = C_GREEN
+            if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
+        end)
         local url = BASE_URL .. file .. "?t=" .. os.time() .. "&a=" .. attempt
         local ok, src = pcall(function() return game:HttpGet(url) end)
         if not ok or type(src) ~= "string" or #src < 100 then
@@ -1373,13 +1383,18 @@ local function fetchAndRun(file, attempts, tag)
                 addLog("ERR", tag .. " compile: " .. tostring(err):sub(1, 300))
             else
                 local runOk, runErr = pcall(fn)
-                if runOk then return true end
+                if runOk then
+                    pcall(function() statusBar.Text = "> ✔ " .. file .. " — готово" end)
+                    return true
+                end
                 -- v23.7: показываем больше символов из сообщения рантайма
                 addLog("ERR", tag .. " runtime: " .. tostring(runErr):sub(1, 300))
             end
         end
+        pcall(function() statusBar.Text = "> ⚠ " .. file .. " — повтор..."; statusBar.TextColor3 = C_ORANGE end)
         task.wait(0.4)
     end
+    ORBIT.currentFile = nil
     return false
 end
 
