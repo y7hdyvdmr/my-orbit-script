@@ -1,4 +1,8 @@
--- ОРБИТА v23.9 — P4_SHOP (Магазин + 2D-Редактор + кнопка 3D)
+-- ОРБИТА v23.12 — P4_SHOP (Магазин + 2D-Редактор + кнопка 3D)
+-- v23.12 (Y5): экспорт ORBIT.Editor2D (Open, SetBrush, SetGridSize) для команд помощника.
+-- v23.11 (L3): кнопки +12%, яркие заголовки, отступы 12 px, активный инструмент с обводкой и «✓», палитра сразу под сеткой,
+--    Отмена/Вернуть серые когда нечего делать, яркие когда можно.
+-- v23.10 (I3): 2D-редактор — кисти 1×1…5×5 (и для ластика), пипетка, кнопки 38 px, секции «РАЗМЕР КИСТИ» / «ИНСТРУМЕНТ».
 -- Магазин + 2D-редактор v3: сетка 16/20/24, кисти 1x1/2x2/3x3, ластик, заливка,
 -- история 20 шагов, симметрия, шаблоны, сохранение кастомных фигур.
 -- Сохранение { name, pixels } -> SHAPE_PRESETS.
@@ -885,7 +889,8 @@ local GRID = 16   -- по умолчанию 16×16 (крупные клетки
 
 local Ed2D = {
     Cells = {},
-    Tool = "b1",        -- "b1" / "b2" / "b3" / "eraser" / "fill"
+    Tool = "paint",     -- "paint" / "eraser" / "fill" / "pick"  (v23.10: размер кисти вынесен в Brush)
+    Brush = 1,          -- размер кисти 1..5 (для кисти и ластика)
     Color = 1,
     States = {}, StateIdx = 0, MaxHistory = 20,
 }
@@ -926,6 +931,7 @@ end
 local function resetHistory2D()
     Ed2D.States = {snapshot2D()}
     Ed2D.StateIdx = 1
+    if Ed2D.OnHistory then pcall(Ed2D.OnHistory) end
 end
 local function commit2D()
     while #Ed2D.States > Ed2D.StateIdx do table.remove(Ed2D.States) end
@@ -935,17 +941,20 @@ local function commit2D()
         table.remove(Ed2D.States, 1)
         Ed2D.StateIdx = Ed2D.StateIdx - 1
     end
+    if Ed2D.OnHistory then pcall(Ed2D.OnHistory) end
 end
 local function do2DUndo()
     if Ed2D.StateIdx <= 1 then return false end
     Ed2D.StateIdx = Ed2D.StateIdx - 1
     restore2D(Ed2D.States[Ed2D.StateIdx])
+    if Ed2D.OnHistory then pcall(Ed2D.OnHistory) end
     return true
 end
 local function do2DRedo()
     if Ed2D.StateIdx >= #Ed2D.States then return false end
     Ed2D.StateIdx = Ed2D.StateIdx + 1
     restore2D(Ed2D.States[Ed2D.StateIdx])
+    if Ed2D.OnHistory then pcall(Ed2D.OnHistory) end
     return true
 end
 
@@ -989,6 +998,7 @@ local SMILE_PATTERN = {
 local function openEditor()
     if editorOpen and editorGui and editorGui.Parent then return end
     editorOpen = true
+    Ed2D.Open = true
     editorConns = {}
 
     local editorW = IS_MOBILE and 360 or 700
@@ -1025,8 +1035,11 @@ local function openEditor()
 
     local function closeEditor()
         editorOpen = false
+        Ed2D.Open = false
+        Ed2D.SetGridSize = nil
         for _, cn in ipairs(editorConns) do pcall(function() cn:Disconnect() end) end
         editorConns = {}
+        Ed2D.OnHistory = nil   -- кнопки уничтожены
         if editorGui then pcall(function() editorGui:Destroy() end) end
         editorGui = nil
     end
@@ -1142,6 +1155,20 @@ local function openEditor()
         return true
     end
 
+    -- v23.10 (I3): кисти 1×1 … 5×5 работают и для кисти, и для ластика; добавлена пипетка
+    local function stampBrush(r, c, color)
+        local n = Ed2D.Brush or 1
+        local lo = -math.floor((n - 1) / 2)
+        local hi = lo + n - 1
+        local changed = false
+        for dr = lo, hi do
+            for dc = lo, hi do
+                if paintCell(r + dr, c + dc, color) then changed = true end
+            end
+        end
+        return changed
+    end
+
     local function applyTool(r, c, isStart)
         local tool = Ed2D.Tool
         local changed = false
@@ -1150,17 +1177,21 @@ local function openEditor()
                 changed = true
                 refreshAllCells()
             end
-        elseif tool == "eraser" then
-            changed = paintCell(r, c, 0)
-        else
-            local size = tonumber(tool:sub(2)) or 1
-            local lo, hi = 0, size - 1
-            if size == 3 then lo, hi = -1, 1 end
-            for dr = lo, hi do
-                for dc = lo, hi do
-                    if paintCell(r + dr, c + dc, Ed2D.Color) then changed = true end
+        elseif tool == "pick" then
+            if isStart then
+                local row = Ed2D.Cells[r]
+                local idx = row and row[c] or 0
+                if idx > 0 then
+                    Ed2D.Color = idx
+                    if Ed2D.refreshPal then Ed2D.refreshPal() end
+                    Ed2D.Tool = "paint"
+                    if Ed2D.paintTools then Ed2D.paintTools() end
                 end
             end
+        elseif tool == "eraser" then
+            changed = stampBrush(r, c, 0)
+        else
+            changed = stampBrush(r, c, Ed2D.Color)
         end
         return changed
     end
@@ -1244,7 +1275,7 @@ local function openEditor()
         ScrollBarThickness = 5, ScrollBarImageColor3 = Color3.fromRGB(160, 130, 255),
     }, editorGui)
     corner(ctrl, 10)
-    local list = mk("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, ctrl)
+    local list = mk("UIListLayout", {Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder}, ctrl)
     mk("UIPadding", {
         PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 10),
         PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 10),
@@ -1255,33 +1286,56 @@ local function openEditor()
     list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(fitCanvas)
 
     local secOrder = 0
+    -- v23.11 (L3): единый масштаб кнопок +12% (мобилка); высоты секций масштабируются так же
+    local BTN_SCALE = 1.12
+    local function sc(v) return math.floor(v * BTN_SCALE + 0.5) end
+
     local function section(txt, color, bodyH)
         secOrder = secOrder + 1
+        bodyH = sc(bodyH)
         local f = mk("Frame", {
-            Name = "Sec", Size = UDim2.new(1, 0, 0, 22 + bodyH), BackgroundTransparency = 1,
+            Name = "Sec", Size = UDim2.new(1, 0, 0, 28 + bodyH), BackgroundTransparency = 1,
             LayoutOrder = secOrder,
         }, ctrl)
         local l = mk("TextLabel", {
-            Name = "SecTitle", Size = UDim2.new(1, 0, 0, 18), BackgroundColor3 = color,
-            BackgroundTransparency = 0.45, BorderSizePixel = 0, Text = " " .. txt,
-            TextColor3 = Color3.fromRGB(240, 240, 255), Font = Enum.Font.GothamBold, TextSize = 11,
+            Name = "SecTitle", Size = UDim2.new(1, 0, 0, 22),
+            BackgroundColor3 = color:Lerp(Color3.fromRGB(255, 255, 255), 0.25),
+            BackgroundTransparency = 0.05, BorderSizePixel = 0, Text = "  " .. txt,
+            TextColor3 = Color3.fromRGB(255, 250, 255), Font = Enum.Font.GothamBold, TextSize = 13,
             TextXAlignment = Enum.TextXAlignment.Left,
         }, f)
-        corner(l, 4)
+        corner(l, 5)
         return mk("Frame", {
-            Name = "Body", Size = UDim2.new(1, 0, 0, bodyH), Position = UDim2.new(0, 0, 0, 22),
+            Name = "Body", Size = UDim2.new(1, 0, 0, bodyH), Position = UDim2.new(0, 0, 0, 28),
             BackgroundTransparency = 1,
         }, f), l
     end
 
     local BTN = Color3.fromRGB(45, 38, 65)
+    local BTN_OFF = Color3.fromRGB(34, 30, 46)
+
+    -- Активная кнопка: белая обводка + «✓» перед текстом
+    local function markActive(b, on)
+        if not b then return end
+        local base = b:GetAttribute("BaseText")
+        if not base then base = b.Text; b:SetAttribute("BaseText", base) end
+        local st = b:FindFirstChild("ActiveStroke")
+        if not st then
+            st = Instance.new("UIStroke"); st.Name = "ActiveStroke"; st.Thickness = 2.5
+            st.Color = Color3.fromRGB(255, 255, 255); st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            st.Parent = b
+        end
+        st.Enabled = on and true or false
+        b.Text = on and ("✓ " .. base) or base
+    end
+
     local function buttonRow(body, items, y, h, textSize)
         local btns = {}
         local n = #items
         for i, it in ipairs(items) do
             local b = mk("TextButton", {
-                Name = "Btn", Size = UDim2.new(1 / n, -4, 0, h or 32),
-                Position = UDim2.new((i - 1) / n, 2, 0, y or 0),
+                Name = "Btn", Size = UDim2.new(1 / n, -4, 0, sc(h or 32)),
+                Position = UDim2.new((i - 1) / n, 2, 0, sc(y or 0)),
                 BackgroundColor3 = it.color or BTN, TextColor3 = Color3.fromRGB(225, 215, 255),
                 Font = Enum.Font.GothamBold, TextSize = textSize or 11, Text = it.text,
                 TextWrapped = true, AutoButtonColor = false, BorderSizePixel = 0,
@@ -1300,28 +1354,38 @@ local function openEditor()
         local function paintSizes()
             for i, n in ipairs(GRID_OPTIONS) do
                 btns[i].BackgroundColor3 = (n == GRID) and Color3.fromRGB(80, 120, 180) or BTN
+                markActive(btns[i], n == GRID)
             end
+        end
+        local function setSize(n)
+            if n == GRID then return end
+            resizeGrid(n)
+            resetHistory2D()
+            rebuildGridUI()
+            paintSizes()
+            refreshCount()
+            ORBIT.notify("📐 Сетка: " .. n .. "×" .. n, Color3.fromRGB(180, 220, 255), 1.5)
         end
         local items = {}
         for i, n in ipairs(GRID_OPTIONS) do
-            items[i] = {text = n .. "×" .. n, fn = function()
-                if n == GRID then return end
-                resizeGrid(n)
-                resetHistory2D()
-                rebuildGridUI()
-                paintSizes()
-                refreshCount()
-                ORBIT.notify("📐 Сетка: " .. n .. "×" .. n, Color3.fromRGB(180, 220, 255), 1.5)
-            end}
+            items[i] = {text = n .. "×" .. n, fn = function() setSize(n) end}
         end
         btns = buttonRow(body, items, 0, 32, 12)
         paintSizes()
+        -- v23.12 (Y5): вызывается помощником («размер сетки 20»); возвращает true, если размер допустим
+        Ed2D.SetGridSize = function(n)
+            for _, g in ipairs(GRID_OPTIONS) do
+                if g == n then setSize(n); return true end
+            end
+            return false
+        end
     end
 
     -- 🎨 ПАЛИТРА
     local swatch
     do
         local body, titleLbl = section("🎨 ПАЛИТРА", Color3.fromRGB(100, 60, 140), 54)
+        body.Parent.LayoutOrder = 0   -- v23.11 (L3): палитра — первая секция, сразу под сеткой
         swatch = mk("Frame", {
             Name = "Swatch", Size = UDim2.new(0, 26, 0, 12), Position = UDim2.new(1, -30, 0, 3),
             BackgroundColor3 = PALETTE[Ed2D.Color], BorderSizePixel = 0,
@@ -1365,48 +1429,68 @@ local function openEditor()
             }, b)
             onClick(b, function()
                 Ed2D.Color = i
-                if Ed2D.Tool == "eraser" then Ed2D.Tool = "b1"; if Ed2D.paintTools then Ed2D.paintTools() end end
+                if Ed2D.Tool == "eraser" or Ed2D.Tool == "pick" then Ed2D.Tool = "paint"; if Ed2D.paintTools then Ed2D.paintTools() end end
                 refreshPal()
             end)
         end
         refreshPal()
+        Ed2D.refreshPal = refreshPal
     end
 
-    -- 🖌 ИНСТРУМЕНТ
+    -- 🔲 РАЗМЕР КИСТИ (v23.10: крупные кисти до 5×5, кнопки по 38 px)
     do
-        local body = section("🖌 ИНСТРУМЕНТ", Color3.fromRGB(100, 80, 40), 32)
+        local body = section("🔲 РАЗМЕР КИСТИ", Color3.fromRGB(100, 80, 40), 38)
+        local btns = {}
+        Ed2D.paintBrush = function()
+            for i = 1, 5 do
+                btns[i].BackgroundColor3 = (Ed2D.Brush == i) and Color3.fromRGB(100, 80, 160) or BTN
+                markActive(btns[i], Ed2D.Brush == i)
+            end
+        end
+        local items = {}
+        for i = 1, 5 do
+            items[i] = {text = i .. "×" .. i, fn = function() Ed2D.Brush = i; Ed2D.paintBrush() end}
+        end
+        btns = buttonRow(body, items, 0, 38, 13)
+        Ed2D.paintBrush()
+    end
+
+    -- 🛠 ИНСТРУМЕНТ (кисть / ластик / заливка / пипетка)
+    do
+        local body = section("🛠 ИНСТРУМЕНТ", Color3.fromRGB(120, 90, 50), 38)
         local tools = {
-            {key = "b1", text = "1×1"}, {key = "b2", text = "2×2"}, {key = "b3", text = "3×3"},
-            {key = "eraser", text = "🧽"}, {key = "fill", text = "🪣"},
+            {key = "paint",  text = "🖌 Кисть"},
+            {key = "eraser", text = "🧽 Ластик"},
+            {key = "fill",   text = "🪣 Заливка"},
+            {key = "pick",   text = "💧 Пипетка"},
         }
         local onColor = {
-            b1 = Color3.fromRGB(100, 80, 160), b2 = Color3.fromRGB(100, 80, 160),
-            b3 = Color3.fromRGB(100, 80, 160), eraser = Color3.fromRGB(150, 60, 60),
-            fill = Color3.fromRGB(80, 130, 80),
+            paint = Color3.fromRGB(100, 80, 160), eraser = Color3.fromRGB(150, 60, 60),
+            fill = Color3.fromRGB(80, 130, 80), pick = Color3.fromRGB(70, 120, 150),
         }
         local btns = {}
         Ed2D.paintTools = function()
             for i, t in ipairs(tools) do
                 btns[i].BackgroundColor3 = (Ed2D.Tool == t.key) and onColor[t.key] or BTN
+                markActive(btns[i], Ed2D.Tool == t.key)
             end
         end
         local items = {}
         for i, t in ipairs(tools) do
             items[i] = {text = t.text, fn = function() Ed2D.Tool = t.key; Ed2D.paintTools() end}
         end
-        btns = buttonRow(body, items, 0, 32, 12)
+        btns = buttonRow(body, items, 0, 38, 11)
         Ed2D.paintTools()
     end
 
     -- ↩️ ИСТОРИЯ
     do
         local body = section("↩️ ИСТОРИЯ", Color3.fromRGB(60, 90, 60), 32)
-        local gray = Color3.fromRGB(60, 60, 80)
-        buttonRow(body, {
-            {text = "↶ Отмена", color = gray, fn = function()
+        local hb = buttonRow(body, {
+            {text = "↶ Отмена", color = BTN_OFF, fn = function()
                 if do2DUndo() then refreshAllCells(); refreshCount() end
             end},
-            {text = "↷ Вернуть", color = gray, fn = function()
+            {text = "↷ Вернуть", color = BTN_OFF, fn = function()
                 if do2DRedo() then refreshAllCells(); refreshCount() end
             end},
             {text = "🗑 Очистить", color = Color3.fromRGB(120, 45, 45), fn = function()
@@ -1414,6 +1498,16 @@ local function openEditor()
                 commit2D(); refreshAllCells(); refreshCount()
             end},
         }, 0, 32, 11)
+        -- серые, когда нечего отменять/возвращать; яркие, когда можно
+        Ed2D.OnHistory = function()
+            local canUndo = Ed2D.StateIdx > 1
+            local canRedo = Ed2D.StateIdx < #Ed2D.States
+            hb[1].BackgroundColor3 = canUndo and Color3.fromRGB(70, 150, 220) or BTN_OFF
+            hb[1].TextTransparency = canUndo and 0 or 0.55
+            hb[2].BackgroundColor3 = canRedo and Color3.fromRGB(70, 190, 130) or BTN_OFF
+            hb[2].TextTransparency = canRedo and 0 or 0.55
+        end
+        Ed2D.OnHistory()
     end
 
     -- ⚡ БЫСТРЫЕ ФОРМЫ
@@ -1634,6 +1728,15 @@ end
 
 ORBIT.openShop = openShop
 ORBIT.openEditor = openEditor
+-- v23.12 (Y5): доступ помощника к состоянию 2D-редактора
+Ed2D.GridOptions = GRID_OPTIONS
+Ed2D.SetBrush = function(n)
+    n = math.clamp(math.floor(tonumber(n) or 1), 1, 5)
+    Ed2D.Brush = n
+    if Ed2D.paintBrush then pcall(Ed2D.paintBrush) end
+    return n
+end
+ORBIT.Editor2D = Ed2D
 ORBIT.SHAPE_PRICES = SHAPE_PRICES
 ORBIT.PALETTE = PALETTE
 ORBIT.saveStorage = saveStorage
