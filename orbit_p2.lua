@@ -1,12 +1,30 @@
---[[ ОРБИТА v22.9 — ЧАСТЬ 2/4: ФИГУРЫ (25 шт.)
-  ИЗМЕНЕНИЯ v22.8:
-  + новая фигура «СКАЛА» (createRock v2) — крепыш в фиолетовом бархатном костюме по фото:
-    лысая голова с лицом (глаза, бровь, улыбка), V-образный торс, широкие плечи, лацканы,
-    белая рубашка с открытым воротом, кулон, сложенные руки, часы на левом запястье,
-    серые замшевые лоферы. 18 частей (+6 тонких деталей при BlockCount <= 8), visualSize = s*2.2.
-  * костюм (Fabric) красится в цвет кольца; кожа, рубашка, часы и обувь — NoRecolor.
-  * остальные фигуры и реестр не менялись.
-]]
+-- ОРБИТА v23.7 — ЧАСТЬ 2/4: ФИГУРЫ (28 шт.)
+--
+-- ИСТОРИЯ:
+--   v22.8 — новая фигура «СКАЛА» (createRock v2) — крепыш в фиолетовом бархатном костюме
+--           по фото: лысая голова с лицом (глаза, бровь, улыбка), V-образный торс,
+--           широкие плечи, лацканы, белая рубашка с открытым воротом, кулон,
+--           сложенные руки, часы на левом запястье, серые замшевые лоферы.
+--           18 частей (+6 тонких деталей при BlockCount <= 8), visualSize = s*2.2.
+--           Костюм (Fabric) красится в цвет кольца; кожа, рубашка, часы и обувь — NoRecolor.
+--   v23.6 — + фигура №26 «ДРАКОН» (createDragon): блочный дракон в стиле Ender Dragon,
+--           23 части + 8 деталей.
+--   v23.7 (F2) — детали у 11 фигур:
+--           +ГЛАЗ ресницы/прожилки/лимб, +ЩУПАЛЬЦЕ наконечник, +ИНЬ-ЯН точки+обод;
+--           у 8 основных:
+--           — КРЕСТ (торцы+камень), ТРЕУГОЛЬНИК (вершины+ядро), РОМБ (огранка),
+--           — КОСТЬ (муфты+трещина), ПИРАМИДА (плита+вход+«око»), СПИРАЛЬ (шары+ось+вторая нить),
+--           — ГОЛОВА (нимб), МОЛНИЯ (ядро+искры).
+--           Часть деталей только при BlockCount <= 8.
+--           + фигура №27 «ЦВЕТОК ФЛАУИ» (createFlowey) — стебель из 4 сегментов,
+--             голова, 6 лепестков, лицо смотрит в -Z.
+--           + фигура №28 «ОМЕГА ФЛАУИ» (createOmegaFlowey) — TV-экран, плоть, глаза,
+--             пасть, лозы, трубы.
+--   v23.7-fix1 — шапка синхронизирована (было v23.6); объединены 3 подряд идущих
+--                блочных комментария в один (правило #5: --[[ ]] в Lua не вкладываются);
+--                в шапке уточнено, что фигур теперь 28, а не 26.
+--
+-- ВАЖНО: все идентификаторы латиницей, кириллица только в комментариях и текстах.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -19,6 +37,21 @@ local SETTINGS      = ORBIT.SETTINGS
 -- ============================================================
 --                  ХЕЛПЕРЫ ФИГУР
 -- ============================================================
+-- ============================================================
+--       v23.7 (F2): общие помощники деталей
+-- ============================================================
+-- «Подробный» режим (+детали) включается при малом числе блоков, чтобы не грузить мобильные.
+local function isDetailed()
+    return (SETTINGS.BlockCount or 8) <= 8
+end
+local function addBall(model, bodies, diameter, pos, color, noRecolor)
+    local p = newPart(model, "Ball", Vector3.new(diameter, diameter, diameter), CFrame.new(pos), color, noRecolor)
+    p.Material = Enum.Material.SmoothPlastic
+    local m = Instance.new("SpecialMesh"); m.MeshType = Enum.MeshType.Sphere; m.Parent = p
+    table.insert(bodies, p)
+    return p
+end
+
 local function create3DStar(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local R, r = size*0.85, size*0.85*0.382
@@ -31,6 +64,20 @@ local function create3DStar(size, color, name)
     end
     for k = 1, 10 do table.insert(bodies, makeRod(model, verts[k], verts[(k%10)+1], t, d, color)) end
     table.insert(bodies, newPart(model, "C", Vector3.new(size*0.15, size*0.15, d*0.6), CFrame.new(), color))
+    -- v23.7 (F2): объёмная звезда — лучи-рёбра от центра к 5 вершинам (толще контура) + бугор в центре спереди и сзади
+    for k = 0, 4 do
+        table.insert(bodies, makeRod(model, Vector3.new(0, 0, 0), verts[k*2 + 1] * 0.92, t*0.8, d*1.5, color))
+    end
+    for _, zs in ipairs({-1, 1}) do
+        local bump = newPart(model, "Bump", Vector3.new(size*0.34, size*0.34, d*0.5), CFrame.new(0, 0, zs*d*0.55), color)
+        local bm = Instance.new("SpecialMesh"); bm.MeshType = Enum.MeshType.Sphere; bm.Parent = bump
+        table.insert(bodies, bump)
+    end
+    for k = 0, 4 do   -- шарики-скругления на вершинах
+        local ball = newPart(model, "Tip", Vector3.new(t*1.5, t*1.5, t*1.5), CFrame.new(verts[k*2 + 1]), color)
+        local bm = Instance.new("SpecialMesh"); bm.MeshType = Enum.MeshType.Sphere; bm.Parent = ball
+        table.insert(bodies, ball)
+    end
     return model, root, bodies
 end
 
@@ -39,6 +86,19 @@ local function create3DCross(size, color, name)
     local bt, bd = size*0.32, size*0.28
     table.insert(bodies, newPart(model, "V", Vector3.new(bt, size*2.0, bd), CFrame.new(), color))
     table.insert(bodies, newPart(model, "H", Vector3.new(size*1.3, bt, bd), CFrame.new(0, size*0.35, 0), color))
+    -- v23.7 (F2): утолщённые торцы на всех 4 концах + камень в центре
+    local capW, capD = bt*1.35, bd*1.25
+    local capH = bt*0.35
+    table.insert(bodies, newPart(model, "CapT", Vector3.new(capW, capH, capD), CFrame.new(0,  size*1.0 - capH*0.5, 0), color))
+    table.insert(bodies, newPart(model, "CapB", Vector3.new(capW, capH, capD), CFrame.new(0, -size*1.0 + capH*0.5, 0), color))
+    table.insert(bodies, newPart(model, "CapL", Vector3.new(capH, capW, capD), CFrame.new(-size*0.65 + capH*0.5, size*0.35, 0), color))
+    table.insert(bodies, newPart(model, "CapR", Vector3.new(capH, capW, capD), CFrame.new( size*0.65 - capH*0.5, size*0.35, 0), color))
+    addBall(model, bodies, bt*0.9, Vector3.new(0, size*0.35, bd*0.45), Color3.fromRGB(255, 235, 150), true)
+    if isDetailed() then
+        -- светлая полоса-блик вдоль вертикали
+        local gl = newPart(model, "Shine", Vector3.new(bt*0.18, size*1.5, bd*1.05), CFrame.new(-bt*0.25, -size*0.15, 0), Color3.fromRGB(255,255,255), true)
+        gl.Transparency = 0.55; table.insert(bodies, gl)
+    end
     return model, root, bodies
 end
 
@@ -82,6 +142,27 @@ local function create3DSkull(size, color, name)
         blk(Vector3.new(0.08*s,0.13*s,0.09*s), CFrame.new(x,-0.40*s,(-0.37+k*k*0.08)*s), toothColor, true)
         blk(Vector3.new(0.075*s,0.12*s,0.09*s), CFrame.new(x,-0.53*s,(-0.35+k*k*0.08)*s), toothColor, true)
     end
+    -- v23.7 (F2): скулы, трещины, клыки и зазоры между зубами
+    for _, side in ipairs({-1, 1}) do
+        ell(Vector3.new(0.26*s,0.14*s,0.22*s), CFrame.new(side*0.47*s,-0.10*s,-0.22*s), bone)          -- скуловая дуга
+        ell(Vector3.new(0.14*s,0.20*s,0.10*s), CFrame.new(side*0.50*s, 0.18*s,-0.12*s), socketShade, true) -- впадина виска
+        blk(Vector3.new(0.065*s,0.17*s,0.10*s), CFrame.new(side*0.20*s,-0.38*s,-0.38*s), toothColor, true)  -- верхний клык
+        blk(Vector3.new(0.06*s,0.15*s,0.10*s),  CFrame.new(side*0.20*s,-0.56*s,-0.36*s), toothColor, true)  -- нижний клык
+    end
+    -- зигзаг-трещина на лбу (3 сегмента) и короткая трещина у правой глазницы
+    local crackCol = Color3.fromRGB(60, 52, 44)
+    local function crack(pos, w, h, rotDeg)
+        local c = newPart(model, "Crack", Vector3.new(w, h, 0.03*s), CFrame.new(pos) * CFrame.Angles(0, 0, math.rad(rotDeg)), crackCol, true)
+        c.Material = Enum.Material.SmoothPlastic; table.insert(bodies, c)
+    end
+    crack(Vector3.new(0.10*s, 0.72*s, -0.466*s), 0.025*s, 0.18*s, 20)
+    crack(Vector3.new(0.17*s, 0.62*s, -0.466*s), 0.025*s, 0.14*s, -25)
+    crack(Vector3.new(0.13*s, 0.52*s, -0.466*s), 0.025*s, 0.10*s, 35)
+    crack(Vector3.new(0.42*s, 0.16*s, -0.45*s), 0.02*s, 0.12*s, -30)
+    for i = 1, 7 do   -- тёмные щели между зубами
+        local x = (i-4)*0.085*s
+        blk(Vector3.new(0.01*s,0.24*s,0.06*s), CFrame.new(x,-0.46*s,-0.36*s), dark, true)
+    end
     return model, root, bodies
 end
 
@@ -115,6 +196,20 @@ local function create3DLightning(size, color, name)
     addTriangle(model, p7, p3, p1, depth, color, bodies)
     addTriangle(model, p1, p3, p2, depth, color, bodies)
     addTriangle(model, p6, p4, p5, depth, color, bodies)
+    -- v23.7 (F2): белое ядро — те же треугольники, уменьшенные к центру и чуть толще (не перекрашивается)
+    local c = (Pt(0, 115) + Pt(0, -112)) * 0.5
+    local function shrink(v) return c + (v - c) * 0.55 end
+    local before = #bodies
+    local core = depth * 1.25
+    addTriangle(model, shrink(p7), shrink(p3), shrink(p1), core, Color3.fromRGB(255,255,255), bodies)
+    addTriangle(model, shrink(p1), shrink(p3), shrink(p2), core, Color3.fromRGB(255,255,255), bodies)
+    addTriangle(model, shrink(p6), shrink(p4), shrink(p5), core, Color3.fromRGB(255,255,255), bodies)
+    for i = before + 1, #bodies do
+        pcall(function() bodies[i]:SetAttribute("NoRecolor", true); bodies[i].Transparency = 0.2 end)
+    end
+    -- искры на остриях
+    addBall(model, bodies, size*0.16, p5, Color3.fromRGB(255,255,200), true)
+    addBall(model, bodies, size*0.16, p2, Color3.fromRGB(255,255,200), true)
     return model, root, bodies
 end
 
@@ -127,6 +222,10 @@ local function createHead(size, color, name)
     local face = Instance.new("Decal"); face.Face = Enum.NormalId.Front
     face.Texture = "rbxasset://textures/face.png"; face.Parent = head
     table.insert(bodies, head)
+    -- v23.7 (F2): светящийся нимб над головой (тонкий цилиндр, не перекрашивается)
+    local halo = newPart(model, "Halo", Vector3.new(size*0.06, size*0.85, size*0.85), CFrame.new(0, size*0.78, 0) * CFrame.Angles(0, 0, math.rad(90)),
+        Color3.fromRGB(255, 235, 140), true)
+    halo.Shape = Enum.PartType.Cylinder; halo.Transparency = 0.25; table.insert(bodies, halo)
     return model, root, bodies
 end
 
@@ -139,6 +238,17 @@ local function create3DTriangle(size, color, name)
     table.insert(bodies, makeRod(model, v1, v2, t, d, color))
     table.insert(bodies, makeRod(model, v2, v3, t, d, color))
     table.insert(bodies, makeRod(model, v3, v1, t, d, color))
+    -- v23.7 (F2): шары в вершинах (скрывают стыки), светящееся ядро в центре
+    for _, v in ipairs({v1, v2, v3}) do addBall(model, bodies, t*1.6, v, color) end
+    addBall(model, bodies, size*0.22, Vector3.new(0, 0, 0), Color3.fromRGB(255, 255, 255), true)
+    if isDetailed() then
+        -- вложенный тонкий треугольник + три «спицы» к ядру
+        local k = 0.5
+        local w1, w2, w3 = v1*k, v2*k, v3*k
+        table.insert(bodies, makeRod(model, w1, w2, t*0.5, d*0.7, color))
+        table.insert(bodies, makeRod(model, w2, w3, t*0.5, d*0.7, color))
+        table.insert(bodies, makeRod(model, w3, w1, t*0.5, d*0.7, color))
+    end
     return model, root, bodies
 end
 
@@ -163,6 +273,30 @@ local function createPixelHeart(sizeStuds, color, name)
             else c = c + 1 end
         end
     end
+    -- v23.7 (F2): фаска — «подушка» поверх каждого ряда (чуть уже и толще), затем блик
+    for r = 1, rows do
+        local row = HEART_PATTERN[r]
+        local c = 1
+        while c <= cols do
+            if row:sub(c,c) == "1" then
+                local sc = c
+                while c <= cols and row:sub(c,c) == "1" do c = c + 1 end
+                local ec = c - 1
+                local width = (ec-sc+1)*pixel - pixel*0.35
+                local cc = (sc+ec)/2
+                local x = (cc-(cols+1)/2)*pixel
+                local y = ((rows+1)/2 - r)*pixel
+                local pad = newPart(model, "Bevel", Vector3.new(width, pixel*0.7, pixel*1.35), CFrame.new(x, y, 0), color)
+                table.insert(bodies, pad)
+            else c = c + 1 end
+        end
+    end
+    local hx = (1.5 - (cols+1)/2)*pixel
+    local hy = ((rows+1)/2 - 1)*pixel
+    local shine = newPart(model, "Shine", Vector3.new(pixel*0.55, pixel*0.25, pixel*0.12), CFrame.new(hx, hy + pixel*0.12, -pixel*0.72), Color3.fromRGB(255,255,255), true)
+    shine.Transparency = 0.15; table.insert(bodies, shine)
+    local shine2 = newPart(model, "Shine", Vector3.new(pixel*0.2, pixel*0.2, pixel*0.12), CFrame.new(hx + pixel*0.45, hy - pixel*0.15, -pixel*0.72), Color3.fromRGB(255,255,255), true)
+    shine2.Transparency = 0.3; table.insert(bodies, shine2)
     return model, root, bodies
 end
 
@@ -255,6 +389,16 @@ local function create3DDiamond(size, color, name)
     table.insert(bodies, makeRod(model, vR, vB, t, d, color))
     table.insert(bodies, makeRod(model, vB, vL, t, d, color))
     table.insert(bodies, makeRod(model, vL, vT, t, d, color))
+    -- v23.7 (F2): грани огранки (пояс + вертикаль) и шарики в вершинах
+    table.insert(bodies, makeRod(model, vL, vR, t*0.55, d*0.8, color))
+    for _, v in ipairs({vT, vR, vB, vL}) do addBall(model, bodies, t*1.5, v, color) end
+    addBall(model, bodies, size*0.2, Vector3.new(0, 0, 0), Color3.fromRGB(255, 255, 255), true)
+    if isDetailed() then
+        table.insert(bodies, makeRod(model, vT, vB, t*0.55, d*0.8, color))
+        local mT, mB = Vector3.new(0, R*0.5, 0), Vector3.new(0, -R*0.5, 0)
+        table.insert(bodies, makeRod(model, mT + Vector3.new(-R*0.37, 0, 0), mT + Vector3.new(R*0.37, 0, 0), t*0.4, d*0.7, color))
+        table.insert(bodies, makeRod(model, mB + Vector3.new(-R*0.37, 0, 0), mB + Vector3.new(R*0.37, 0, 0), t*0.4, d*0.7, color))
+    end
     return model, root, bodies
 end
 
@@ -287,6 +431,34 @@ local function createSword(size, color, name)
     end
     local pommel = mp("Pommel", Vector3.new(s*0.30, s*0.30, s*0.30), CFrame.new(0, -s*1.72, 0), color)
     local pm = Instance.new("SpecialMesh"); pm.MeshType = Enum.MeshType.Sphere; pm.Parent = pommel
+    -- v23.7 (F2): гравировка на клинке (руны) и грани-кромки
+    local runeCol = Color3.fromRGB(55, 62, 78)
+    for i = 1, 6 do
+        local y = s*(0.05 + i*0.38)
+        local w = s*(0.05 + (i % 2) * 0.03)
+        local rune = mp("Rune", Vector3.new(w, s*0.025, s*0.02), CFrame.new(0, y, s*0.048), runeCol, true)
+        rune.Material = Enum.Material.SmoothPlastic
+        if i % 2 == 0 then
+            local r2 = mp("RuneV", Vector3.new(s*0.025, s*0.09, s*0.02), CFrame.new(0, y + s*0.06, s*0.048), runeCol, true)
+            r2.Material = Enum.Material.SmoothPlastic
+        end
+    end
+    for _, sd in ipairs({-1, 1}) do
+        local edge = mp("Edge", Vector3.new(s*0.025, s*2.9, s*0.095), CFrame.new(sd*s*0.07, s*0.75, 0), Color3.fromRGB(215, 222, 235), true)
+        edge.Material = Enum.Material.Metal
+    end
+    -- рукоять из сегментов: чередование светлых и тёмных колец + металлические кольца
+    for i = 0, 3 do
+        local seg = newPart(model, "GripSeg", Vector3.new(s*0.21, s*0.1, s*0.21), CFrame.new(0, -s*(0.88 + i*0.2), 0),
+            (i % 2 == 0) and Color3.fromRGB(110, 78, 52) or Color3.fromRGB(70, 46, 30), true)
+        seg.Material = Enum.Material.Fabric; table.insert(bodies, seg)
+    end
+    for _, y in ipairs({-0.83, -1.6}) do
+        mp("GripRing", Vector3.new(s*0.25, s*0.05, s*0.25), CFrame.new(0, s*y, 0), color)
+    end
+    local gem = newPart(model, "Gem", Vector3.new(s*0.2, s*0.2, s*0.14), CFrame.new(0, -s*0.75, -s*0.1), Color3.fromRGB(255, 60, 80), true)
+    local gm = Instance.new("SpecialMesh"); gm.MeshType = Enum.MeshType.Sphere; gm.Parent = gem
+    table.insert(bodies, gem)
     return model, root, bodies
 end
 
@@ -318,6 +490,35 @@ local function createShield(size, color, name)
     boss.Material = Enum.Material.Metal
     local bm = Instance.new("SpecialMesh"); bm.MeshType = Enum.MeshType.Sphere; bm.Parent = boss
     table.insert(bodies, boss)
+    -- v23.7 (F2): заклёпки по краю (по ширине каждого 3-го ряда) и орнамент в центре
+    local function rivet(x, y)
+        local rv = newPart(model, "Rivet", Vector3.new(s*0.09, s*0.09, s*0.09), CFrame.new(x, y, -depth*0.55), goldAccent, true)
+        rv.Material = Enum.Material.Metal
+        local rm = Instance.new("SpecialMesh"); rm.MeshType = Enum.MeshType.Sphere; rm.Parent = rv
+        table.insert(bodies, rv)
+    end
+    for r = 2, rows - 3, 3 do
+        local t = (r-0.5)/rows; local y = H*0.5 - t*H
+        local width
+        if t < roundFrac then
+            local k = 1 - (t/roundFrac); width = maxW*math.sqrt(math.max(0, 1-k*k))
+        else
+            local k = (t-roundFrac)/(1-roundFrac); width = maxW*(1-k)
+        end
+        if width > s*0.3 then
+            rivet(-width*0.5 + s*0.08, y); rivet(width*0.5 - s*0.08, y)
+        end
+    end
+    rivet(0, H*0.5 - s*0.1)
+    -- ромб-орнамент в нижней части (внешний золотой + внутренний тёмный) и полоски
+    local dia = newPart(model, "Diamond", Vector3.new(s*0.34, s*0.34, depth*1.5), CFrame.new(0, -s*0.4, -depth*0.45) * CFrame.Angles(0, 0, math.rad(45)), goldAccent, true)
+    dia.Material = Enum.Material.Metal; table.insert(bodies, dia)
+    local dia2 = newPart(model, "DiamondIn", Vector3.new(s*0.18, s*0.18, depth*1.7), CFrame.new(0, -s*0.4, -depth*0.5) * CFrame.Angles(0, 0, math.rad(45)), Color3.fromRGB(150, 30, 40), true)
+    dia2.Material = Enum.Material.SmoothPlastic; table.insert(bodies, dia2)
+    for _, sd in ipairs({-1, 1}) do
+        local st = newPart(model, "Stripe", Vector3.new(s*0.06, s*0.45, depth*1.5), CFrame.new(sd*s*0.38, s*0.0, -depth*0.42), goldAccent, true)
+        st.Material = Enum.Material.Metal; table.insert(bodies, st)
+    end
     return model, root, bodies
 end
 
@@ -332,6 +533,17 @@ local function createBone(size, color, name)
         local bot = newPart(model, "Bot", Vector3.new(s*0.5, s*0.4, s*0.5), CFrame.new(side*s*0.25, -s*1.0, 0), color)
         local m2 = Instance.new("SpecialMesh"); m2.MeshType = Enum.MeshType.Sphere; m2.Parent = bot
         table.insert(bodies, bot)
+    end
+    -- v23.7 (F2): суставные муфты у концов и тёмная трещина на стержне
+    for _, y in ipairs({s*0.78, -s*0.78}) do
+        table.insert(bodies, newPart(model, "Joint", Vector3.new(s*0.42, s*0.14, s*0.42), CFrame.new(0, y, 0), color))
+    end
+    local crack = newPart(model, "Crack", Vector3.new(s*0.08, s*0.5, s*0.32), CFrame.new(s*0.1, s*0.12, 0) * CFrame.Angles(0, 0, math.rad(12)),
+        Color3.fromRGB(40, 36, 30), true)
+    crack.Material = Enum.Material.SmoothPlastic; table.insert(bodies, crack)
+    if isDetailed() then
+        local w = newPart(model, "Wear", Vector3.new(s*0.22, s*0.1, s*0.34), CFrame.new(-s*0.02, -s*0.4, 0), Color3.fromRGB(40, 36, 30), true)
+        w.Material = Enum.Material.SmoothPlastic; table.insert(bodies, w)
     end
     return model, root, bodies
 end
@@ -354,6 +566,13 @@ local function createPyramid(size, color, name)
     cap.Material = Enum.Material.Metal
     local cm = Instance.new("SpecialMesh"); cm.MeshType = Enum.MeshType.Pyramid; cm.Parent = cap
     table.insert(bodies, cap)
+    -- v23.7 (F2): плита-основание, вход и светящееся «око» на лицевой грани (-Z)
+    local plinth = newPart(model, "Plinth", Vector3.new(baseW*1.12, tierH*0.3, baseW*1.12), CFrame.new(0, -totalH*0.5 - tierH*0.12, 0), color)
+    plinth.Material = Enum.Material.Sand; table.insert(bodies, plinth)
+    local door = newPart(model, "Door", Vector3.new(s*0.28, tierH*0.8, s*0.12), CFrame.new(0, -totalH*0.5 + tierH*0.4, -baseW*0.5 - s*0.02),
+        Color3.fromRGB(30, 22, 15), true)
+    door.Material = Enum.Material.SmoothPlastic; table.insert(bodies, door)
+    addBall(model, bodies, s*0.2, Vector3.new(0, totalH*0.1, -baseW*0.3), Color3.fromRGB(120, 255, 255), true)
     return model, root, bodies
 end
 
@@ -396,6 +615,24 @@ local function createYinYang(size, color, name)
             else c = c + 1 end
         end
     end
+    -- v23.7 (F2): две «точки» (белая в чёрной половине и наоборот) и тонкий золотой обод
+    local function dot(y, col)
+        local d = newPart(model, "Dot", Vector3.new(R*0.26, R*0.26, depth*1.25), CFrame.new(0, y, 0), col, true)
+        d.Material = Enum.Material.SmoothPlastic
+        local dm = Instance.new("SpecialMesh"); dm.MeshType = Enum.MeshType.Sphere; dm.Parent = d   -- сплюснутая сфера по Z = «точка»
+        table.insert(bodies, d)
+    end
+    dot( R*0.5, whiteColor)
+    dot(-R*0.5, blackColor)
+    local rimN = 36
+    local prevRim = Vector3.new(R*1.03, 0, 0)
+    for k = 1, rimN do
+        local a = k/rimN*math.pi*2
+        local cur = Vector3.new(math.cos(a)*R*1.03, math.sin(a)*R*1.03, 0)
+        local rim = makeRod(model, prevRim, cur, pixel*0.7, depth*1.2, Color3.fromRGB(215, 185, 90))
+        rim.Material = Enum.Material.Metal; rim:SetAttribute("NoRecolor", true)
+        table.insert(bodies, rim); prevRim = cur
+    end
     return model, root, bodies
 end
 
@@ -427,6 +664,29 @@ local function createEye(size, color, name)
         lid.Material = Enum.Material.SmoothPlastic
         table.insert(bodies, lid)
     end
+    -- v23.7 (F2): тёмный лимб вокруг радужки, второй блик, красные прожилки на белке и ресницы
+    local limbus = newPart(model, "Limbus", Vector3.new(s*0.72, s*0.72, s*0.12),
+        CFrame.new(0, 0, s*0.30)*CFrame.Angles(math.rad(90), 0, 0), Color3.fromRGB(25, 30, 45), true)
+    limbus.Material = Enum.Material.SmoothPlastic
+    local lm = Instance.new("SpecialMesh"); lm.MeshType = Enum.MeshType.Cylinder; lm.Parent = limbus
+    table.insert(bodies, limbus)
+    local glint2 = newPart(model, "Glint", Vector3.new(s*0.05, s*0.05, s*0.04), CFrame.new(-s*0.1, -s*0.1, s*0.45), Color3.fromRGB(255,255,255), true)
+    glint2.Material = Enum.Material.Neon
+    local g2m = Instance.new("SpecialMesh"); g2m.MeshType = Enum.MeshType.Sphere; g2m.Parent = glint2
+    table.insert(bodies, glint2)
+    if (SETTINGS.BlockCount or 8) <= 8 then
+        local veinCol = Color3.fromRGB(215, 90, 90)
+        for i, v in ipairs({{-0.55, 0.12, 20}, {-0.5, -0.15, -25}, {0.55, 0.1, -20}, {0.5, -0.18, 28}}) do
+            local vein = newPart(model, "Vein", Vector3.new(s*0.28, s*0.015, s*0.015),
+                CFrame.new(v[1]*s, v[2]*s, s*0.30) * CFrame.Angles(0, 0, math.rad(v[3])), veinCol, true)
+            vein.Material = Enum.Material.SmoothPlastic; table.insert(bodies, vein)
+        end
+        for k = -2, 2 do
+            local lash = newPart(model, "Lash", Vector3.new(s*0.03, s*0.16, s*0.03),
+                CFrame.new(k*s*0.28, s*0.62, s*0.2) * CFrame.Angles(0, 0, math.rad(-k*10)), Color3.fromRGB(35, 28, 28), true)
+            lash.Material = Enum.Material.SmoothPlastic; table.insert(bodies, lash)
+        end
+    end
     return model, root, bodies
 end
 
@@ -442,6 +702,23 @@ local function createSpiral(size, color, name)
         local cur = Vector3.new(math.cos(angle)*radius, -height*0.5+t*height, math.sin(angle)*radius)
         table.insert(bodies, makeRod(model, prev, cur, thickness, thickness, color))
         prev = cur
+    end
+    -- v23.7 (F2): шары на концах и светящаяся ось
+    addBall(model, bodies, thickness*2.2, Vector3.new(radius, -height*0.5, 0), color)
+    addBall(model, bodies, thickness*2.2, prev, color)
+    local axis = newPart(model, "Axis", Vector3.new(thickness*0.5, height*0.98, thickness*0.5), CFrame.new(), Color3.fromRGB(255,255,255), true)
+    axis.Transparency = 0.5; table.insert(bodies, axis)
+    if (SETTINGS.BlockCount or 8) <= 6 then
+        -- вторая нить (двойная спираль) на 180° — только при малом числе блоков (спираль и так тяжёлая)
+        local seg2 = 24
+        local prev2 = Vector3.new(-radius, -height*0.5, 0)
+        for i = 1, seg2 do
+            local t = i/seg2
+            local angle = t*math.pi*2*turns + math.pi
+            local cur = Vector3.new(math.cos(angle)*radius, -height*0.5+t*height, math.sin(angle)*radius)
+            table.insert(bodies, makeRod(model, prev2, cur, thickness*0.8, thickness*0.8, color))
+            prev2 = cur
+        end
     end
     return model, root, bodies
 end
@@ -486,6 +763,19 @@ local function createWings(size, color, name)
             local by = (math.cos(arcAngle)*s*0.25 + t*s*0.15)*0.4 + s*0.15
             feather(bx, by, side, s*0.75, s*0.22, 10+t*20, t*10)
         end
+        -- v23.7 (F2): третий слой — мелкие кроющие перья у основания (плавный переход от кости к маховым)
+        for i = 1, 9 do
+            local t = (i-1)/8
+            local arcAngle = t*math.rad(62)
+            local bx = side*(s*0.15 + math.sin(arcAngle)*s*1.15)
+            local by = math.cos(arcAngle)*s*0.33 + t*s*0.24 + s*0.07
+            feather(bx, by, side, s*(0.55 - t*0.18), s*(0.18 - t*0.05), 14 + t*34, 4 + t*14)
+        end
+        -- и слой пуха у самого плеча
+        for i = 1, 4 do
+            local t = (i-1)/3
+            feather(side*(s*0.18 + t*s*0.25), s*(0.18 + t*0.02), side, s*0.32, s*0.12, 4 + t*10, 2)
+        end
     end
     return model, root, bodies
 end
@@ -517,7 +807,16 @@ local function createTentacle(size, color, name)
             table.insert(bodies, rod)
         end
         prevPos = pos
+        if i == segments then
+            -- v23.7 (F2): светлый наконечник-бусина (не перекрашивается) и тёмное кольцо у основания
+            local tipBall = newPart(model, "TipBulb", Vector3.new(thickness*1.5, thickness*1.5, thickness*1.5), CFrame.new(pos), Color3.fromRGB(255, 215, 225), true)
+            tipBall.Material = Enum.Material.SmoothPlastic
+            local tm = Instance.new("SpecialMesh"); tm.MeshType = Enum.MeshType.Sphere; tm.Parent = tipBall
+            table.insert(bodies, tipBall)
+        end
     end
+    local baseRing = newPart(model, "BaseRing", Vector3.new(s*0.62, s*0.14, s*0.62), CFrame.new(0, -s*0.95, 0), Color3.fromRGB(80, 40, 60), true)
+    baseRing.Material = Enum.Material.SmoothPlastic; table.insert(bodies, baseRing)
     return model, root, bodies
 end
 
@@ -675,8 +974,205 @@ local function createRock(size, color, name)
 end
 
 -- ============================================================
---              РЕГИСТРАЦИЯ 25 ФИГУР
+--                  ДРАКОН (фигура №26)
 -- ============================================================
+-- Блочный дракон в стиле Minecraft Ender Dragon: тёмное тело, фиолетовые глаза,
+-- шипы на спине, крылья из костей и перепонок, хвост из 4 сегментов.
+-- Основа — 23 части; при BlockCount <= 8 добавляются ещё 8 деталей (рога, шипы, челюсть).
+-- Тело красится в цвет кольца, глаза — NoRecolor.
+local function createDragon(size, color, name)
+    local model, root = newModelShell(name); local bodies = {}
+    local s = size
+    local detailed = (SETTINGS.BlockCount or 8) <= 8
+    local eyeColor = Color3.fromRGB(235, 70, 255)
+    local function blk(sz, pos, col, nr)
+        local p = newPart(model, "D", sz, CFrame.new(pos), col or color, nr)
+        p.Material = Enum.Material.SmoothPlastic
+        table.insert(bodies, p); return p
+    end
+    local function rod(a, b, th, dp, col)
+        local r = makeRod(model, a, b, th, dp, col or color)
+        r.Material = Enum.Material.SmoothPlastic
+        table.insert(bodies, r); return r
+    end
+    -- тело, шея, голова (голова смотрит в -Z)
+    blk(Vector3.new(s*0.70, s*0.60, s*1.40), Vector3.new(0, 0, 0))
+    blk(Vector3.new(s*0.42, s*0.42, s*0.55), Vector3.new(0, s*0.28, -s*0.90))
+    blk(Vector3.new(s*0.34, s*0.34, s*0.50), Vector3.new(0, s*0.52, -s*1.25))
+    blk(Vector3.new(s*0.50, s*0.40, s*0.52), Vector3.new(0, s*0.70, -s*1.62))
+    blk(Vector3.new(s*0.30, s*0.20, s*0.50), Vector3.new(0, s*0.62, -s*2.02))
+    blk(Vector3.new(s*0.08, s*0.08, s*0.04), Vector3.new(-s*0.24, s*0.80, -s*1.89), eyeColor, true)
+    blk(Vector3.new(s*0.08, s*0.08, s*0.04), Vector3.new( s*0.24, s*0.80, -s*1.89), eyeColor, true)
+    -- хвост: 4 сегмента, сужается и чуть опускается
+    for i = 1, 4 do
+        local k = 1 - (i-1)*0.2
+        blk(Vector3.new(s*0.46*k, s*0.40*k, s*0.55), Vector3.new(0, -s*0.04*i, s*(0.85 + 0.5*i)))
+    end
+    -- крылья
+    for _, side in ipairs({-1, 1}) do
+        local sh = Vector3.new(side*s*0.30, s*0.26, -s*0.20)
+        local el = Vector3.new(side*s*1.10, s*0.78, -s*0.05)
+        local wr = Vector3.new(side*s*1.90, s*0.50,  s*0.30)
+        rod(sh, el, s*0.13, s*0.13)
+        rod(el, wr, s*0.11, s*0.11)
+        local t1 = Vector3.new(side*s*2.60, s*0.18, s*1.00)
+        local t2 = Vector3.new(side*s*1.90, s*0.05, s*1.60)
+        rod(wr, t1, s*0.07, s*0.07)
+        rod(wr, t2, s*0.07, s*0.07)
+        -- перепонки (тонкие широкие панели)
+        rod(Vector3.new(side*s*1.1, s*0.45, s*0.25), Vector3.new(side*s*2.0, s*0.28, s*0.85), s*0.035, s*0.75)
+        rod(Vector3.new(side*s*0.5, s*0.30, s*0.45), Vector3.new(side*s*1.3, s*0.12, s*1.35), s*0.035, s*0.7)
+        -- передние лапы
+        blk(Vector3.new(s*0.20, s*0.42, s*0.20), Vector3.new(side*s*0.24, -s*0.46, -s*0.42))
+    end
+    if detailed then
+        blk(Vector3.new(s*0.26, s*0.07, s*0.44), Vector3.new(0, s*0.48, -s*1.96))          -- нижняя челюсть
+        blk(Vector3.new(s*0.07, s*0.20, s*0.07), Vector3.new(-s*0.18, s*1.00, -s*1.50))    -- рога
+        blk(Vector3.new(s*0.07, s*0.20, s*0.07), Vector3.new( s*0.18, s*1.00, -s*1.50))
+        for i = 1, 3 do                                                                      -- шипы на спине
+            blk(Vector3.new(s*0.10, s*0.22, s*0.14), Vector3.new(0, s*0.40, -s*0.35 + (i-1)*s*0.45))
+        end
+        blk(Vector3.new(s*0.20, s*0.42, s*0.20), Vector3.new(-s*0.24, -s*0.46, s*0.48))    -- задние лапы
+        blk(Vector3.new(s*0.20, s*0.42, s*0.20), Vector3.new( s*0.24, -s*0.46, s*0.48))
+    end
+    return model, root, bodies
+end
+
+-- ============================================================
+--  №27 ЦВЕТОК ФЛАУИ (по fbx: стебель из 4 сегментов, голова, 6 лепестков, лицо смотрит в -Z)
+-- ============================================================
+local function createFlowey(size, color, name)
+    local model, root = newModelShell(name); local bodies = {}
+    local u = size * 0.42
+    local detailed = (SETTINGS.BlockCount or 8) <= 8
+    local cream = Color3.fromRGB(255, 255, 225)
+    local green = Color3.fromRGB(130, 215, 95)
+    local black = Color3.fromRGB(15, 15, 18)
+    local function blk(nm, sz, cf, col, nr, mesh)
+        local p = newPart(model, nm, sz, cf, col, nr)
+        p.Material = Enum.Material.SmoothPlastic
+        if mesh then local m = Instance.new("SpecialMesh"); m.MeshType = mesh; m.Parent = p end
+        table.insert(bodies, p); return p
+    end
+    -- стебель: 4 сегмента с лёгким изгибом (не перекрашивается)
+    local stemX = {0.0, 0.12, -0.10, 0.0}
+    for i = 1, 4 do
+        local y = -2.3*u + (i-1)*0.5*u
+        blk("Stem", Vector3.new(0.34*u, 0.55*u, 0.34*u), CFrame.new(stemX[i]*u, y, 0.05*u), green, true)
+    end
+    -- листики на стебле
+    if detailed then
+        blk("Leaf", Vector3.new(0.7*u, 0.12*u, 0.34*u), CFrame.new(-0.45*u, -1.6*u, 0.05*u) * CFrame.Angles(0, 0, math.rad(25)), green, true, Enum.MeshType.Sphere)
+        blk("Leaf", Vector3.new(0.6*u, 0.12*u, 0.3*u),  CFrame.new(0.42*u, -1.95*u, 0.05*u) * CFrame.Angles(0, 0, math.rad(-20)), green, true, Enum.MeshType.Sphere)
+    end
+    -- шесть лепестков позади головы: 3 справа, 3 слева (как petal_1..3 .r/.l); перекрашиваются
+    local angles = {20, 55, 90, 160, 125, 90}
+    local dirs = {{1, 25}, {1, 65}, {1, 105}, {-1, 25}, {-1, 65}, {-1, 105}}
+    for i = 1, 6 do
+        local side, ang = dirs[i][1], dirs[i][2]
+        local a = math.rad(ang)
+        local dir = Vector3.new(side * math.cos(a), math.sin(a), 0)
+        local center = Vector3.new(0, 0.35*u, 0.15*u) + dir * 1.45*u
+        local rot = math.atan2(dir.Y, dir.X)
+        local petal = blk("Petal", Vector3.new(1.55*u, 0.85*u, 0.22*u), CFrame.new(center) * CFrame.Angles(0, 0, rot), color, false, Enum.MeshType.Sphere)
+        petal.Material = Enum.Material.Neon
+    end
+    -- голова
+    blk("Head", Vector3.new(1.5*u, 1.4*u, 1.0*u), CFrame.new(0, 0.35*u, 0), cream, true, Enum.MeshType.Sphere)
+    -- глаза (вертикальные овалы с бликом)
+    for _, sx in ipairs({-1, 1}) do
+        blk("Eye", Vector3.new(0.26*u, 0.5*u, 0.12*u), CFrame.new(sx*0.3*u, 0.62*u, -0.46*u), black, true, Enum.MeshType.Sphere)
+        local gl = blk("Glint", Vector3.new(0.08*u, 0.12*u, 0.06*u), CFrame.new(sx*0.3*u + 0.04*u, 0.75*u, -0.53*u), Color3.fromRGB(255,255,255), true)
+    end
+    -- улыбка: дуга из 5 чёрных блоков + два клыка
+    local smile = {{-0.52, 0.02}, {-0.28, -0.08}, {0, -0.12}, {0.28, -0.08}, {0.52, 0.02}}
+    for _, sp in ipairs(smile) do
+        blk("Mouth", Vector3.new(0.26*u, 0.1*u, 0.1*u), CFrame.new(sp[1]*u, (0.05 + sp[2])*u, -0.47*u), black, true)
+    end
+    if detailed then
+        for _, sx in ipairs({-0.14, 0.14}) do
+            blk("Tooth", Vector3.new(0.1*u, 0.12*u, 0.06*u), CFrame.new(sx*u, -0.02*u, -0.5*u), Color3.fromRGB(255,255,255), true)
+        end
+        -- румяна
+        for _, sx in ipairs({-1, 1}) do
+            blk("Cheek", Vector3.new(0.22*u, 0.1*u, 0.05*u), CFrame.new(sx*0.58*u, 0.3*u, -0.43*u), Color3.fromRGB(255, 190, 170), true, Enum.MeshType.Sphere)
+        end
+    end
+    return model, root, bodies
+end
+
+-- ============================================================
+--  №28 ОМЕГА ФЛАУИ (стилизация по текстурам: TV-экран, плоть, глаза, пасть, лозы, трубы)
+-- ============================================================
+local function createOmegaFlowey(size, color, name)
+    local model, root = newModelShell(name); local bodies = {}
+    local s = size
+    local detailed = (SETTINGS.BlockCount or 8) <= 8
+    local flesh = Color3.fromRGB(225, 135, 140)
+    local vine  = Color3.fromRGB(95, 160, 50)
+    local metal = Color3.fromRGB(80, 90, 105)
+    local black = Color3.fromRGB(12, 12, 16)
+    local function blk(nm, sz, cf, col, nr, mesh)
+        local p = newPart(model, nm, sz, cf, col, nr)
+        p.Material = Enum.Material.SmoothPlastic
+        if mesh then local m = Instance.new("SpecialMesh"); m.MeshType = mesh; m.Parent = p end
+        table.insert(bodies, p); return p
+    end
+    -- туловище (плоть) — перекрашивается
+    blk("Body", Vector3.new(1.5*s, 1.3*s, 1.1*s), CFrame.new(0, 0, 0), color or flesh, false, Enum.MeshType.Sphere)
+    -- TV-экран: рамка, стекло, лицо Флауи на экране
+    blk("TvFrame", Vector3.new(1.0*s, 0.78*s, 0.2*s), CFrame.new(0, 0.05*s, -0.5*s), metal, true)
+    local scr = blk("TvScreen", Vector3.new(0.86*s, 0.64*s, 0.06*s), CFrame.new(0, 0.05*s, -0.62*s), Color3.fromRGB(25, 70, 55), true)
+    scr.Material = Enum.Material.Neon
+    blk("TvEyeL", Vector3.new(0.1*s, 0.2*s, 0.04*s), CFrame.new(-0.18*s, 0.14*s, -0.66*s), black, true, Enum.MeshType.Sphere)
+    blk("TvEyeR", Vector3.new(0.1*s, 0.2*s, 0.04*s), CFrame.new( 0.18*s, 0.14*s, -0.66*s), black, true, Enum.MeshType.Sphere)
+    for i = -2, 2 do
+        blk("TvSmile", Vector3.new(0.12*s, 0.05*s, 0.04*s), CFrame.new(i*0.12*s, -0.08*s - (2 - math.abs(i))*0.01*s, -0.66*s), black, true)
+    end
+    -- два больших глаза (белок, красная радужка, зрачок)
+    for _, sx in ipairs({-1, 1}) do
+        local ex = sx * 0.62 * s
+        blk("EyeRed",   Vector3.new(0.5*s, 0.5*s, 0.26*s),  CFrame.new(ex, 0.62*s, -0.38*s), Color3.fromRGB(215, 40, 50), true, Enum.MeshType.Sphere)
+        blk("EyeWhite", Vector3.new(0.38*s, 0.38*s, 0.22*s), CFrame.new(ex, 0.62*s, -0.47*s), Color3.fromRGB(250, 240, 235), true, Enum.MeshType.Sphere)
+        blk("EyeIris",  Vector3.new(0.2*s, 0.2*s, 0.1*s),   CFrame.new(ex, 0.62*s, -0.55*s), (sx < 0) and Color3.fromRGB(120, 130, 40) or Color3.fromRGB(150, 30, 60), true, Enum.MeshType.Sphere)
+        blk("EyePupil", Vector3.new(0.09*s, 0.09*s, 0.06*s), CFrame.new(ex, 0.62*s, -0.6*s), black, true, Enum.MeshType.Sphere)
+    end
+    -- пасть: нижняя челюсть и два ряда зубов
+    blk("Jaw", Vector3.new(0.95*s, 0.22*s, 0.5*s), CFrame.new(0, -0.62*s, -0.35*s), Color3.fromRGB(150, 50, 70), true)
+    local teeth = detailed and 7 or 5
+    for i = 1, teeth do
+        local x = (i - (teeth + 1) / 2) * (0.9 * s / teeth)
+        blk("Tooth", Vector3.new(0.09*s, 0.14*s, 0.08*s), CFrame.new(x, -0.5*s, -0.58*s), Color3.fromRGB(250, 245, 225), true, Enum.MeshType.Pyramid)
+    end
+    -- зелёные лозы-руки (по 3 сегмента на сторону) — перекрашиваются вместе с кольцом
+    for _, sx in ipairs({-1, 1}) do
+        local p0 = Vector3.new(sx*0.65*s, -0.1*s, 0)
+        local p1 = Vector3.new(sx*1.1*s,  0.1*s, -0.1*s)
+        local p2 = Vector3.new(sx*1.45*s, -0.2*s, -0.2*s)
+        local p3 = Vector3.new(sx*1.7*s,  0.15*s, -0.3*s)
+        for _, seg in ipairs({{p0, p1, 0.2}, {p1, p2, 0.16}, {p2, p3, 0.12}}) do
+            local r = makeRod(model, seg[1], seg[2], seg[3]*s, seg[3]*s, vine)
+            r.Material = Enum.Material.SmoothPlastic; table.insert(bodies, r)
+        end
+        blk("VineTip", Vector3.new(0.2*s, 0.2*s, 0.2*s), CFrame.new(p3), Color3.fromRGB(255, 230, 40), true, Enum.MeshType.Sphere)
+    end
+    -- металлические трубы и клапаны по бокам тела
+    for _, sx in ipairs({-1, 1}) do
+        blk("Pipe", Vector3.new(0.14*s, 1.0*s, 0.14*s), CFrame.new(sx*0.42*s, -0.1*s, 0.5*s), metal, true)
+        if detailed then
+            blk("Bolt", Vector3.new(0.2*s, 0.08*s, 0.2*s), CFrame.new(sx*0.42*s, 0.3*s, 0.5*s), Color3.fromRGB(150, 160, 175), true)
+        end
+    end
+    -- верхние листья-венчик (как лозы на текстуре)
+    if detailed then
+        for k = -1, 1 do
+            local a = math.rad(k * 28)
+            blk("Leaf", Vector3.new(0.18*s, 0.7*s, 0.1*s), CFrame.new(math.sin(a)*0.5*s, 1.0*s, 0.1*s) * CFrame.Angles(0, 0, -a), vine, false, Enum.MeshType.Sphere)
+        end
+    end
+    return model, root, bodies
+end
+
 ORBIT.SHAPE_PRESETS = {
     { name = "БЛОК", create = function(size, name)
         local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Block; p.Size = Vector3.new(size,size,size)
@@ -755,9 +1251,18 @@ ORBIT.SHAPE_PRESETS = {
     { name = "СКАЛА", create = function(s, n)
         local m, r, b = createRock(s, Color3.fromRGB(70,22,92), n)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.2 } end },
+    { name = "ДРАКОН", create = function(s, n)
+        local m, r, b = createDragon(s, Color3.fromRGB(45,35,60), n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.4 } end },
+    { name = "ЦВЕТОК ФЛАУИ", create = function(s, n)
+        local m, r, b = createFlowey(s, Color3.fromRGB(255, 230, 20), n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.4 } end },
+    { name = "ОМЕГА ФЛАУИ", create = function(s, n)
+        local m, r, b = createOmegaFlowey(s, Color3.fromRGB(225, 135, 140), n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.2 } end },
 }
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (25 шт.)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (28 шт.)", Color3.fromRGB(180,255,180), 3) end
 
 return true
