@@ -1,4 +1,4 @@
--- ОРБИТА v1.0 — HELPER (orbit_helper.lua)
+-- ОРБИТА v1.2 — HELPER (orbit_helper.lua)
 -- Rule-based помощник: понимает простые русские фразы и сразу применяет настройки.
 -- Не требует интернета, API-ключей, LLM. Работает офлайн за 1 кадр.
 --
@@ -12,6 +12,23 @@
 --   «стиль огонь» / «стиль призрак» / «случайный стиль»
 --   «все кольца» / «5 колец» / «только 1 кольцо»
 --   «помощь» — показать список
+--   v1.1: «сделай огонь», «включи дракона», «стиль лёд», «5 колец», «покажи ботов», «танцуй»,
+--         «снег», «материал стекло», «12 фигур», «сохрани», «поделись»
+--
+--   v1.2 (Y5): «частицы дым» / «частицы звёзды» / «частицы искры» / «частицы выкл»,
+--         «свечение ауры сильно» / «свечение ауры выкл» / «свечение выкл» (свечение колец),
+--         «включи флауи» / «омега флауи», «открой редактор» / «3d редактор»,
+--         «размер сетки 16» и «кисть 3» (в открытом редакторе — 2D или 3D).
+--         Исправлено: «омега флауи» больше не путается с «цветок флауи» (берётся самый длинный корень).
+--
+--   v1.2-fix1: 🐛 fallback ORBIT.ui.applyStyleByName использовал pairs() по массиву STYLE_KEYWORDS
+--              (после переноса в массив пар это ломалось). Теперь ipairs + reentrancy guard,
+--              чтобы не словить рекурсию с H.interpret. Основной путь в p4 всё равно перекрывает
+--              этот fallback — оставлен только на случай, если p4 ещё не подгрузился.
+--              🐛 команда «помощь» теперь РЕАЛЬНО вызывает H.showHelp() (раньше просто возвращала
+--              строку «Список команд открыт», окно не открывалось).
+--              🐛 версия в notify/warn поднята с «v1.0» до «v1.2» — синхронизация с шапкой.
+--              🐛 добавлен ORBIT.helperClose (p1.unload его ищет и зовёт pcall).
 --
 -- Автор: ОРБИТА. Все идентификаторы латиницей.
 
@@ -30,6 +47,10 @@ local H = {}
 ORBIT.helper = H
 ORBIT.helperOpen = function()
     if H.open then H.open() end
+end
+-- v1.2-fix1: p1.unload зовёт ORBIT.helperClose — отдаём безопасный хэндлер.
+ORBIT.helperClose = function()
+    if H.close then pcall(H.close) end
 end
 
 -- ============================================================
@@ -72,18 +93,47 @@ local COLOR_KEYWORDS = {
     ["радуг"]     = "РАДУГА",
 }
 
--- Стили
+-- Стили и стихии. v1.1: список УПОРЯДОЧЕН (раньше pairs() давал случайный порядок,
+-- и «огненный» мог совпасть с «огн»). Более длинные корни стоят выше коротких.
 local STYLE_KEYWORDS = {
-    ["огн"]      = "🔥 Огненный",
-    ["лед"]      = "❄️ Ледяной",
-    ["лёд"]      = "❄️ Ледяной",
-    ["королев"]  = "👑 Королевский",
-    ["золот"]    = "👑 Королевский",
-    ["радуг"]    = "🌈 Радуга-вихрь",
-    ["призрак"]  = "👻 Призрак",
-    ["скал"]     = "🪨 Скала-шоу",
-    ["случайн"]  = "🎲 Случайный стиль",
-    ["рандом"]   = "🎲 Случайный стиль",
+    { "огненн",   "🔥 Огненный" },
+    { "ледян",    "❄️ Ледяной" },
+    { "королев",  "👑 Королевский" },
+    { "золот",    "👑 Королевский" },
+    { "радуг",    "🌈 Радуга-вихрь" },
+    { "призрак",  "👻 Призрак" },
+    { "скал",     "🪨 Скала-шоу" },
+    { "случайн",  "🎲 Случайный стиль" },
+    { "рандом",   "🎲 Случайный стиль" },
+    -- стихии (одним нажатием: цвет + материал + атмосфера + аура + огонь)
+    { "огн",      "🔥 Огонь" },
+    { "пламя",    "🔥 Огонь" },
+    { "земл",     "🌍 Земля" },
+    { "камен",    "🌍 Земля" },
+    { "вод",      "💧 Вода" },
+    { "лёд",      "❄️ Лёд" },
+    { "лед",      "❄️ Лёд" },
+    { "молни",    "⚡ Молния" },
+    { "гроз",     "⚡ Молния" },
+    { "телепорт", "✨ Телепорт" },
+    { "скорост",  "💨 Скорость" },
+    { "ветер",    "🌪️ Ветер" },
+    { "ветр",     "🌪️ Ветер" },
+    { "вихр",     "🌪️ Ветер" },
+    { "яд",       "☠️ Яд" },
+}
+
+-- Атмосфера (имена как в orbit_extras.lua)
+local ATMO_KEYWORDS = {
+    { "снег", "Снег" }, { "дожд", "Дождь" }, { "лепест", "Лепестки" }, { "искр", "Искры" },
+    { "звёзд", "Звёзды" }, { "звезд", "Звёзды" }, { "пузыр", "Пузыри" }, { "пепел", "Пепел" },
+}
+
+-- Материалы колец
+local MATERIAL_KEYWORDS = {
+    { "стекл", "Glass" }, { "метал", "Metal" }, { "неон", "Neon" }, { "пластик", "SmoothPlastic" },
+    { "лёд", "Ice" }, { "лед", "Ice" }, { "силов", "ForceField" }, { "мрамор", "Marble" },
+    { "фольг", "Foil" }, { "камен", "Slate" },
 }
 
 -- Фигуры (корень → имя в SHAPE_PRESETS)
@@ -108,6 +158,12 @@ local SHAPE_KEYWORDS = {
     ["крыл"]     = "КРЫЛЬЯ",
     ["щупал"]    = "ЩУПАЛЬЦЕ",
     ["скал"]     = "СКАЛА",
+    ["дракон"]   = "ДРАКОН",
+    ["драк"]     = "ДРАКОН",
+    ["омега"]    = "ОМЕГА ФЛАУИ",
+    ["омега флауи"] = "ОМЕГА ФЛАУИ",
+    ["флауи"]    = "ЦВЕТОК ФЛАУИ",
+    ["цветок"]   = "ЦВЕТОК ФЛАУИ",
     ["меч"]      = "МЕЧ",
     ["щит"]      = "ЩИТ",
     ["глаз"]     = "ГЛАЗ",
@@ -164,20 +220,35 @@ local function findColor(text)
 end
 
 local function findStyle(text)
-    for root, name in pairs(STYLE_KEYWORDS) do
-        if containsWord(text, root) then return name end
+    for _, pair in ipairs(STYLE_KEYWORDS) do
+        if containsWord(text, pair[1]) then
+            -- «х2 скорость» — это ускорение, а не стихия
+            if not (pair[1] == "скорост" and (text:match("[хx]%s*%d") or containsWord(text, "быстр") or containsWord(text, "медлен"))) then
+                return pair[2]
+            end
+        end
+    end
+    return nil
+end
+
+local function findFromList(text, list)
+    for _, pair in ipairs(list) do
+        if containsWord(text, pair[1]) then return pair[2] end
     end
     return nil
 end
 
 local function findShape(text)
+    -- v1.2: pairs() даёт случайный порядок, поэтому выбираем САМЫЙ ДЛИННЫЙ подходящий корень
+    -- («омега флауи» важнее, чем «флауи» или «омега»).
+    local bestIdx, bestName, bestLen = nil, nil, 0
     for root, name in pairs(SHAPE_KEYWORDS) do
-        if containsWord(text, root) then
+        if #root > bestLen and containsWord(text, root) then
             local idx = idxByShapeName(name)
-            if idx then return idx, name end
+            if idx then bestIdx, bestName, bestLen = idx, name, #root end
         end
     end
-    return nil
+    return bestIdx, bestName
 end
 
 local function applyColorByName(name)
@@ -211,8 +282,211 @@ function H.interpret(rawText)
     if #t < 2 then return false, "Слишком коротко" end
 
     -- ---------- СПРАВКА ----------
+    -- v1.2-fix1: реально открываем окно помощника (раньше просто возвращали строку).
     if containsWord(t, "помощь") or containsWord(t, "команд") or t == "help" or t == "?" then
-        return true, H.showHelp and "📖 Список команд открыт" or "помощь"
+        if H.showHelp then pcall(H.showHelp) end
+        return true, "📖 Открыл окно помощника"
+    end
+
+    -- ---------- v1.1: ЭМОЦИИ ----------
+    do
+        local emo
+        if containsWord(t, "танц") or containsWord(t, "станцуй") then emo = "dance"
+        elseif containsWord(t, "привет") or containsWord(t, "поздоров") or containsWord(t, "помаш") then emo = "greet"
+        elseif containsWord(t, "смей") or containsWord(t, "смех") or containsWord(t, "хаха") then emo = "laugh"
+        elseif containsWord(t, "санс") or containsWord(t, "скажи что") then emo = "sans"
+        elseif containsWord(t, "уворот") then emo = "dodge" end
+        if emo then
+            if ORBIT.emote and ORBIT.emote(emo) then return true, "🎭 Эмоция: " .. emo end
+            return false, "🎭 Эмоции недоступны (нет orbit_sfx) или кулдаун"
+        end
+    end
+
+    -- ---------- v1.1: БОТЫ / ВКЛАДКИ / СОХРАНЕНИЕ / SHARE ----------
+    if containsWord(t, "бот") then
+        if containsWord(t, "покажи") or containsWord(t, "открой") or containsWord(t, "где") then
+            if ORBIT.ui and ORBIT.ui.setTab then ORBIT.ui.setTab("bots"); if ORBIT.ui.open then ORBIT.ui.open() end end
+            return true, "🤖 Открыта вкладка БОТЫ"
+        elseif containsWord(t, "удал") or containsWord(t, "убери") then
+            if ORBIT.removeAllBots then ORBIT.removeAllBots() end
+            return true, "🗑 Боты удалены"
+        else
+            local n = tonumber(t:match("(%d+)")) or 1
+            if n <= 1 and ORBIT.createBotNear then ORBIT.createBotNear()
+            elseif n <= 10 and ORBIT.createMultipleBots then ORBIT.createMultipleBots(n)
+            elseif ORBIT.createManyBots then ORBIT.createManyBots(math.min(n, 100)) end
+            return true, "🤖 Ботов создано: " .. n
+        end
+    end
+    if containsWord(t, "вкладк") or containsWord(t, "покажи") or containsWord(t, "открой") then
+        local tabs = { {"глав","main"}, {"вид","look"}, {"движен","motion"}, {"аур","aura"}, {"эффект","fx"},
+            {"игрок","players"}, {"ещё","more"}, {"еще","more"}, {"систем","sys"} }
+        for _, pr in ipairs(tabs) do
+            if containsWord(t, pr[1]) and ORBIT.ui and ORBIT.ui.setTab then
+                ORBIT.ui.setTab(pr[2]); if ORBIT.ui.open then ORBIT.ui.open() end
+                return true, "📂 Вкладка: " .. pr[2]
+            end
+        end
+    end
+    if containsWord(t, "сохрани") then
+        local ok = ORBIT.saveSettings and ORBIT.saveSettings()
+        return true, ok and "💾 Сохранено" or "💾 Сохранено в памяти"
+    end
+    if containsWord(t, "загруз") and not containsWord(t, "строк") then
+        if ORBIT.loadSettings then ORBIT.loadSettings() end
+        return true, "📂 Настройки загружены"
+    end
+    if containsWord(t, "поделись") or containsWord(t, "выдай настройки") or containsWord(t, "обмен") then
+        if ORBIT.share and ORBIT.share.open then ORBIT.share.open(); return true, "🔗 Окно SHARE открыто" end
+        return false, "🔗 orbit_share.lua не загружен"
+    end
+
+    -- ---------- v1.2 (Y5): РЕДАКТОРЫ ----------
+    if containsWord(t, "редактор") then
+        local is3d = containsWord(t, "3d") or containsWord(t, "3д") or containsWord(t, "объём") or containsWord(t, "объем")
+            or containsWord(t, "трёхмер") or containsWord(t, "трехмер")
+        if is3d then
+            if ORBIT.openEditor3D then pcall(ORBIT.openEditor3D); return true, "🔮 3D-редактор открыт" end
+            return false, "🔮 orbit_editor3d.lua не загружен"
+        end
+        if ORBIT.openEditor then pcall(ORBIT.openEditor); return true, "🎨 2D-редактор открыт" end
+        return false, "🎨 orbit_p4_shop.lua не загружен"
+    end
+    do
+        local sizeNum = t:match("сетк%S*%s*[^%d]-(%d+)") or t:match("(%d+)%s*[хx×]%s*%d+%s*сетк")
+        local brushNum = t:match("кист%S*%s*[^%d]-(%d+)")
+        local ed3 = ORBIT.Editor3D
+        local ed2 = ORBIT.Editor2D
+        local open3 = ed3 and ed3.Open
+        local open2 = ed2 and ed2.Open
+        if sizeNum or brushNum then
+            if not (open3 or open2) then
+                return false, "📐 Сначала открой редактор: «открой редактор» или «3d редактор»"
+            end
+        end
+        if sizeNum then
+            local n = tonumber(sizeNum)
+            if open3 and ed3.SetGridSize then
+                if ed3.SetGridSize(n) then
+                    return true, "📐 3D-сетка: " .. n .. (n >= 64 and " ⚠ огромная, может тормозить" or "")
+                end
+                return false, "📐 В 3D доступны размеры: 4, 5, 6, 7, 8, 16, 32, 64"
+            elseif open2 and ed2.SetGridSize then
+                if ed2.SetGridSize(n) then return true, "📐 2D-сетка: " .. n .. "×" .. n end
+                return false, "📐 В 2D доступны размеры: 16, 20, 24"
+            end
+        end
+        if brushNum then
+            local n = tonumber(brushNum)
+            if open3 and ed3.SetBrush then
+                if ed3.SetBrush(n) then return true, "🔲 3D-кисть: " .. n .. "×" .. n .. "×" .. n end
+                return false, "🔲 В 3D доступны кисти: 1–5"
+            elseif open2 and ed2.SetBrush then
+                if n >= 1 and n <= 5 then
+                    ed2.SetBrush(n)
+                    return true, "🔲 2D-кисть: " .. n .. "×" .. n
+                end
+                return false, "🔲 В 2D доступны кисти: 1–5"
+            end
+        end
+    end
+
+    -- ---------- v1.2 (Y5): ЧАСТИЦЫ АУРЫ (искры / дым / звёзды) ----------
+    -- Идёт ДО атмосферы: «частицы звёзды» — это аура, а не «звёзды» атмосферы.
+    if containsWord(t, "частиц") or (containsWord(t, "аур") and (containsWord(t, "дым") or containsWord(t, "звёзд") or containsWord(t, "звезд") or containsWord(t, "искр"))) then
+        local offWords = containsWord(t, "выкл") or containsWord(t, "убери") or containsWord(t, "отключ") or containsWord(t, "без ")
+        if offWords then
+            SETTINGS.AuraParticles = false
+            if ORBIT.setupAura then pcall(ORBIT.setupAura) end
+            return true, "✨ Частицы ауры: ВЫКЛ"
+        end
+        local style
+        if containsWord(t, "дым") then style = 2
+        elseif containsWord(t, "звёзд") or containsWord(t, "звезд") then style = 3
+        elseif containsWord(t, "искр") then style = 1 end
+        if style then
+            SETTINGS.AuraParticleStyle = style
+            SETTINGS.AuraParticles = true
+            SETTINGS.AuraEnabled = true
+            if ORBIT.setupAura then pcall(ORBIT.setupAura) end
+            if ORBIT.ui and ORBIT.ui.refreshAuraFx then pcall(ORBIT.ui.refreshAuraFx) end
+            local names = ORBIT.AURA_PARTICLE_STYLES and ORBIT.AURA_PARTICLE_STYLES[style]
+            return true, "✨ Частицы ауры: " .. (names and names.name or tostring(style))
+        end
+        if containsWord(t, "вкл") or containsWord(t, "включ") then
+            SETTINGS.AuraParticles = true
+            SETTINGS.AuraEnabled = true
+            if ORBIT.setupAura then pcall(ORBIT.setupAura) end
+            return true, "✨ Частицы ауры: ВКЛ"
+        end
+        return false, "✨ Частицы ауры: скажи «частицы дым», «частицы звёзды» или «частицы искры»"
+    end
+
+    -- ---------- v1.2 (Y5): СВЕЧЕНИЕ ----------
+    -- «свечение ауры …» — мягкие светящиеся частицы ауры (0 / 0.5 / 1 / 2); «свечение …» без «ауры» — свет колец.
+    if containsWord(t, "свеч") then
+        local off = containsWord(t, "выкл") or containsWord(t, "убери") or containsWord(t, "отключ") or containsWord(t, "без ")
+        if containsWord(t, "аур") then
+            local level = 1
+            if off then level = 0
+            elseif containsWord(t, "мало") or containsWord(t, "слаб") or containsWord(t, "чуть") or containsWord(t, "тих") then level = 0.5
+            elseif containsWord(t, "сильн") or containsWord(t, "макс") or containsWord(t, "ярк") or containsWord(t, "много") or containsWord(t, "больш") then level = 2 end
+            SETTINGS.AuraGlow = level
+            if ORBIT.setupAura then pcall(ORBIT.setupAura) end
+            if ORBIT.ui and ORBIT.ui.refreshAuraFx then pcall(ORBIT.ui.refreshAuraFx) end
+            return true, "💡 Свечение ауры: " .. (level <= 0 and "ВЫКЛ" or ("×" .. tostring(level)))
+        end
+        local on = not off
+        if ORBIT.ui and ORBIT.ui.setGlow then
+            pcall(ORBIT.ui.setGlow, on)
+        else
+            SETTINGS.GlowEnabled = on
+            for _, ring in pairs(rings) do
+                for _, d in ipairs(ring.blocks) do
+                    if d.light then d.light.Enabled = on end
+                end
+            end
+        end
+        return true, "✨ Свечение колец: " .. (on and "ВКЛ" or "ВЫКЛ")
+    end
+
+    -- ---------- v1.1: АТМОСФЕРА ----------
+    do
+        local atmoOff = containsWord(t, "без атмосфер") or containsWord(t, "убери атмосфер")
+            or (containsWord(t, "убери") and findFromList(t, ATMO_KEYWORDS) ~= nil)
+        if atmoOff and ORBIT.extras and ORBIT.extras.setAtmo then
+            ORBIT.extras.setAtmo(false); return true, "❄️ Атмосфера: ВЫКЛ"
+        end
+        local atmo = findFromList(t, ATMO_KEYWORDS)
+        if atmo and not containsWord(t, "стиль") and ORBIT.extras and ORBIT.extras.setAtmo then
+            ORBIT.extras.setAtmo(true, atmo); return true, "❄️ Атмосфера: " .. atmo
+        end
+    end
+
+    -- ---------- v1.1: МАТЕРИАЛ / КОЛИЧЕСТВО ФИГУР ----------
+    if containsWord(t, "материал") then
+        local mname = findFromList(t, MATERIAL_KEYWORDS)
+        if mname then
+            local okM, mat = pcall(function() return Enum.Material[mname] end)
+            if okM and mat then
+                if containsWord(t, "аур") then
+                    SETTINGS.AuraMaterial = mat
+                    if ORBIT.setupAura then pcall(ORBIT.setupAura) end
+                    return true, "🧱 Материал ауры: " .. mname
+                end
+                SETTINGS.Material = mat
+                if ORBIT.rebuildAllRings then pcall(ORBIT.rebuildAllRings) end
+                return true, "🧱 Материал: " .. mname
+            end
+        end
+    end
+    do
+        local n = t:match("(%d+)%s*фигур") or t:match("(%d+)%s*блок")
+        if n then
+            SETTINGS.BlockCount = math.clamp(tonumber(n) or 8, 1, 40)
+            if ORBIT.rebuildAllRings then pcall(ORBIT.rebuildAllRings) end
+            return true, "🔷 Фигур в кольце: " .. SETTINGS.BlockCount
+        end
     end
 
     -- ---------- СТИЛЬ ----------
@@ -397,6 +671,18 @@ function H.helpText()
         "🔥 Эффекты: огонь / трейлы вкл / пульсация / волна / взрыв",
         "⭕ Кольца: все кольца / 3 кольца / только 1 кольцо",
         "💡 Свет / тени / имена — прямо так",
+        "🌋 Стихии: сделай огонь / земля / вода / лёд / молния / телепорт / ветер / яд",
+        "🐉 Фигуры: включи дракона / череп / крылья / флауи",
+        "❄️ Атмосфера: снег / дождь / лепестки / убери атмосферу",
+        "🧱 Материал: материал стекло / материал ауры металл",
+        "✨ Частицы ауры: частицы дым / частицы звёзды / частицы искры / частицы выкл",
+        "💡 Свечение: свечение ауры сильно / мало / выкл; свечение выкл (кольца)",
+        "🌼 Флауи: включи флауи / омега флауи",
+        "🎨 Редакторы: открой редактор / 3d редактор / размер сетки 16 / кисть 3",
+        "🔷 Количество: 12 фигур",
+        "🎭 Эмоции: танцуй / привет / смейся / санс / уворот",
+        "🤖 Боты: покажи ботов / создай 5 ботов / удали ботов",
+        "📂 Прочее: открой ауру / сохрани / загрузи / поделись",
         "",
         "Просто напиши фразу целиком:",
         "«хочу огненный стиль»  «сделай радугу»  «поставь череп»",
@@ -612,6 +898,11 @@ function H.open()
     end
 end
 
+-- v1.2-fix1: публичный close для ORBIT.helperClose
+function H.close()
+    if panel and panel.Parent then panel.Visible = false end
+end
+
 -- ============================================================
 --       ЭКСПОРТ
 -- ============================================================
@@ -623,18 +914,22 @@ H.showHelp = function()
 end
 
 -- Хук для того, чтобы p4 мог вызвать applyStyleByName
+-- v1.2-fix1: 🔧 раньше здесь был for root, styleName in pairs(STYLE_KEYWORDS) — но
+-- STYLE_KEYWORDS уже МАССИВ пар (после v1.1). Исправлено на ipairs + pair[1]/pair[2].
+-- Плюс reentrancy guard: если fallback всё же вызван из H.interpret (внутри
+-- обработки «стиль X»), то повторный вызов applyStyleByName НЕ уходит в рекурсию.
+-- Основной путь всё равно в p4 (NB.styleDefs + NB.elementDefs); этот fallback — страховка.
 if not ORBIT.ui then ORBIT.ui = {} end
 if not ORBIT.ui.applyStyleByName then
-    -- простая реализация: применяем через интерпретатор
+    local applyingFallback = false
     ORBIT.ui.applyStyleByName = function(name)
-        if not name then return false end
+        if not name or applyingFallback then return false end
         local t = lower(name)
-        -- найдём в STYLE_KEYWORDS
-        for root, styleName in pairs(STYLE_KEYWORDS) do
-            if containsWord(t, root) then
-                -- вместо полного applyStyle — эмулируем через стилевые ключи
-                -- (в p4 уже есть applyStyle, но он приватен; здесь — общий путь через интерпретатор)
-                H.interpret("стиль " .. tostring(styleName))
+        for _, pair in ipairs(STYLE_KEYWORDS) do
+            if containsWord(t, pair[1]) then
+                applyingFallback = true
+                pcall(H.interpret, "стиль " .. tostring(pair[2]))
+                applyingFallback = false
                 return true
             end
         end
@@ -643,7 +938,7 @@ if not ORBIT.ui.applyStyleByName then
 end
 
 if ORBIT.notify then
-    ORBIT.notify("🤖 Помощник v1.0 загружен (команда «помощь»)", Color3.fromRGB(200, 220, 255), 3)
+    ORBIT.notify("🤖 Помощник v1.2 загружен (команда «помощь»)", Color3.fromRGB(200, 220, 255), 3)
 end
-warn("[Orbit Helper v1.0] Загружен ✅")
+warn("[Orbit Helper v1.2] Загружен ✅")
 return true
