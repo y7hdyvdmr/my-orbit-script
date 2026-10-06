@@ -1,25 +1,30 @@
---[[ ОРБИТА v22.7 — SFX (ФИНАЛЬНЫЙ с Сансом и смехом)
-     Загружается из orbit_p1.lua
-     Подменяет ORBIT.playClick / playDodge / playBotCollect / playWin / playBuy
-
-     Звуки:
-     - 135692693675195 — 🎤 голос Санса
-     - 113650760423588 — 😂 смех
-     - 140721035016341 — 💨 звук уворота
-     - 6325779988      — 💨 после уворота
-     - 12221967        — 🎁 сбор бота
-
-     + Эмоция Laugh при увороте
-]]
---[[ ИЗМЕНЕНИЯ (общий релиз v23.5):
-  🐛 при повторном запуске скрипта старая папка со звуками оставалась в SoundService — теперь удаляется;
-  🐛 ORBIT.unload не убирал папку и не возвращал оригинальные функции звуков — добавлено;
-  🐛 _origPlayClick/_origPlayDodge/... перезаписывались уже подменёнными функциями при повторной
-     загрузке — оригиналы запоминаются только один раз.
-]]
---[[ ПРОВЕРКА v23.6: багов не найдено. Логика / коннекты / unload — корректны.
-     Файл возвращён без изменений.
-]]
+-- ОРБИТА v23.6 — SFX (звуки + эмоции)
+-- Загружается из orbit_p1.lua (или из orbit_anticheat.lua).
+-- Подменяет ORBIT.playClick / playDodge / playBotCollect / playWin / playBuy.
+--
+-- Звуки:
+--   - 135692693675195 — 🎤 голос Санса
+--   - 113650760423588 — 😂 смех
+--   - 140721035016341 — 💨 звук уворота
+--   - 6325779988      — 💨 после уворота
+--   - 12221967        — 🎁 сбор бота
+--
+-- Публичный API:
+--   ORBIT.emote("sans" | "laugh" | "dance" | "greet" | "dodge")
+--   ORBIT.Sfx.play(name, vol, pitch) — низкоуровневый проигрыватель
+--   ORBIT.playDodge() — звук уворота + (Санс ИЛИ смех), максимум 2 звука
+--
+-- ИСТОРИЯ:
+--   v22.7 — финальный SFX с Сансом и смехом, эмоция Laugh при увороте.
+--   v23.5 — при повторном запуске старая папка со звуками удаляется;
+--           ORBIT.unload убирает папку и возвращает оригинальные функции;
+--           _origPlayClick/... запоминаются только один раз.
+--   v23.6 — ORBIT.emote("sans"|"laugh"|"dance"|"greet"|"dodge"); один голос за раз;
+--           уворот = звук уворота + (Санс ИЛИ смех), максимум 2 звука; победа — 1 звук.
+--   v23.6-fix1 — шапка синхронизирована (было v22.7); удалён устаревший комментарий
+--                «ПРОВЕРКА v23.6: багов не найдено»; добавлен warn с версией в конце.
+--
+-- ВАЖНО: все идентификаторы латиницей.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit SFX] ORBIT не найден!"); return end
@@ -122,7 +127,7 @@ local function playLaughEmote()
         local ok = pcall(function() hum:PlayEmote("Laugh") end)
         if not ok then return end
 
-        -- 🆕 Через 2 секунды сбрасываем застрявшую анимацию
+        -- Через 2 секунды сбрасываем застрявшую анимацию
         task.delay(2, function()
             pcall(function()
                 local animator = hum:FindFirstChildOfClass("Animator")
@@ -138,6 +143,109 @@ local function playLaughEmote()
             end)
         end)
     end)
+end
+
+-- ============================================================
+--              ЭМОЦИИ (v23.6, EM1/EM2)
+-- ============================================================
+-- Единая точка для обычного режима и режима античита.
+-- Правила: голос играет ОДИН за раз; на событие — максимум 2 звука; у каждой эмоции свой кулдаун.
+local voiceUntil = 0
+local emoteCooldown = {}
+
+local SANS_PHRASES = {
+    "ну и денёк...", "птички поют, цветочки цветут...", "ты выбрал не тот день.",
+    "у тебя плохое предчувствие?", "а я тут просто стою.",
+}
+
+local function voiceFree()
+    return os.clock() >= voiceUntil
+end
+local function takeVoice(sec)
+    voiceUntil = os.clock() + (sec or 1.5)
+end
+
+-- проиграть встроенную эмоцию Roblox и гарантированно остановить её
+local function playRobloxEmote(emoteName, stopAfter)
+    local okAll = false
+    pcall(function()
+        local char = ORBIT.LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        okAll = pcall(function() hum:PlayEmote(emoteName) end)
+        task.delay(stopAfter or 2.5, function()
+            pcall(function()
+                local animator = hum:FindFirstChildOfClass("Animator")
+                if not animator then return end
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                    local nm = (track.Animation and track.Animation.Name or ""):lower()
+                    if nm:find("laugh") or nm:find("emote") or nm:find("dance") or nm:find("wave")
+                       or nm:find("cheer") or nm:find("point") then
+                        track:Stop(0.2)
+                    end
+                end
+            end)
+        end)
+    end)
+    return okAll
+end
+
+-- облачко с текстом над головой (речь Санса)
+local function sayBubble(text, sec)
+    pcall(function()
+        local char = ORBIT.LocalPlayer.Character
+        local head = char and char:FindFirstChild("Head")
+        if not head then return end
+        local old = head:FindFirstChild("_OrbitSay")
+        if old then old:Destroy() end
+        local g = Instance.new("BillboardGui")
+        g.Name = "_OrbitSay"; g.Size = UDim2.new(0, 220, 0, 40); g.StudsOffset = Vector3.new(0, 3, 0)
+        g.AlwaysOnTop = true; g.Adornee = head; g.Parent = head
+        local l = Instance.new("TextLabel")
+        l.Size = UDim2.new(1, 0, 1, 0); l.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        l.BackgroundTransparency = 0.2; l.TextColor3 = Color3.fromRGB(255, 255, 255)
+        l.Font = Enum.Font.Code; l.TextScaled = true; l.Text = text; l.Parent = g
+        Instance.new("UICorner", l).CornerRadius = UDim.new(0, 8)
+        Debris:AddItem(g, sec or 2.5)
+    end)
+end
+
+-- name: "sans" | "laugh" | "dance" | "greet" | "dodge"
+function Sfx.emote(name)
+    local now = os.clock()
+    local cd = emoteCooldown[name] or 0
+    if now < cd then return false end
+    emoteCooldown[name] = now + 1.2
+
+    if name == "sans" then
+        if not voiceFree() then return false end
+        takeVoice(1.8)
+        Sfx.play("sans", 1, 1)
+        sayBubble(SANS_PHRASES[math.random(1, #SANS_PHRASES)], 3)
+        return true
+    elseif name == "laugh" then
+        if not voiceFree() then return false end
+        takeVoice(1.8)
+        playRobloxEmote("Laugh", 2)
+        Sfx.play("laugh", 0.8, 1)
+        return true
+    elseif name == "dance" then
+        local dances = {"dance", "dance2", "dance3"}
+        playRobloxEmote(dances[math.random(1, #dances)], 6)
+        return true
+    elseif name == "greet" then
+        playRobloxEmote("wave", 2.5)
+        sayBubble("привет!", 2)
+        return true
+    elseif name == "dodge" then
+        Sfx.play("dodge", 1, 1)
+        task.delay(0.45, function()
+            -- второй звук: ЛИБО Санс, ЛИБО смех (никогда оба сразу)
+            if math.random() < 0.5 then Sfx.emote("sans") else Sfx.emote("laugh") end
+        end)
+        return true
+    end
+    return false
 end
 
 -- ============================================================
@@ -162,37 +270,15 @@ ORBIT.playBotCollect = function()
     Sfx.play("botCollect", 1, 1.2)
 end
 
--- 💨 Уворот от античита — полная последовательность
+-- 💨 Уворот от античита: звук уворота + (Санс ИЛИ смех). Максимум 2 звука, без наложения (AC1)
 ORBIT.playDodge = function()
-    -- 1. Звук уворота (сразу)
-    Sfx.play("dodge", 1, 1)
-
-    -- 2. После уворота (через 0.3 сек)
-    task.delay(0.3, function()
-        Sfx.play("afterDodge", 1, 1)
-    end)
-
-    -- 3. Санс + смех + эмоция (через 0.6 сек)
-    task.delay(0.6, function()
-        -- Эмоция Laugh (с авто-сбросом)
-        playLaughEmote()
-
-        -- 🎤 Голос Санса
-        Sfx.play("sans", 1, 1)
-
-        -- 😂 Смех (накладывается чуть позже)
-        task.delay(0.15, function()
-            Sfx.play("laugh", 0.8, 1)
-        end)
-    end)
+    Sfx.emote("dodge")
 end
+ORBIT.emote = function(name) return Sfx.emote(name) end
 
 -- 🏆 Победа в мини-игре
 ORBIT.playWin = function()
     Sfx.play("ping", 1, 1.6)
-    task.delay(0.2, function()
-        Sfx.play("laugh", 0.6, 1.1)
-    end)
 end
 
 -- 💰 Покупка в магазине
@@ -229,14 +315,15 @@ do
     end
 end
 
-print("[Orbit SFX] ═══════════════════════════════════")
-print("[Orbit SFX] Загружен ✅")
-print("[Orbit SFX] Звуки:")
-print("[Orbit SFX]   💨 Уворот: 140721035016341")
-print("[Orbit SFX]   💨 После:  6325779988")
-print("[Orbit SFX]   🎤 Санс:   135692693675195")
-print("[Orbit SFX]   😂 Смех:   113650760423588")
-print("[Orbit SFX]   🎁 Бот:    12221967")
-print("[Orbit SFX] ═══════════════════════════════════")
+print("[Orbit SFX v23.6] ═══════════════════════════════════")
+print("[Orbit SFX v23.6] Загружен ✅")
+print("[Orbit SFX v23.6] Звуки:")
+print("[Orbit SFX v23.6]   💨 Уворот: 140721035016341")
+print("[Orbit SFX v23.6]   💨 После:  6325779988")
+print("[Orbit SFX v23.6]   🎤 Санс:   135692693675195")
+print("[Orbit SFX v23.6]   😂 Смех:   113650760423588")
+print("[Orbit SFX v23.6]   🎁 Бот:    12221967")
+print("[Orbit SFX v23.6] ═══════════════════════════════════")
+warn("[Orbit SFX v23.6] Загружен ✅")
 
 return true
