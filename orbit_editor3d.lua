@@ -1,14 +1,27 @@
--- ОРБИТА v23.10 — 3D-РЕДАКТОР ФИГУР (orbit_editor3d.lua)
--- Открывается через ORBIT.openEditor3D()
+-- ОРБИТА v23.13 — 3D-РЕДАКТОР ФИГУР (orbit_editor3d.lua)
+-- Открывается через ORBIT.openEditor3D().
 -- Сетка N×N×N: 4..8 (легко), 16 (средне), 32 (тяжело), 64 (крайне тяжело).
 -- Слои Z, симметрия X/Y/Z, история 20 (10 для N>=16) шагов.
 -- Камера: свайп — вращение, пинч — зум, кнопки сброса/зума.
 -- Выбор клетки: свой луч + rayAABB.
 -- Сохранение в ORBIT.SHAPE_PRESETS / ORBIT.CUSTOM_SHAPES (+ writefile, если есть).
--- v23.9: добавлены кнопки «Поделиться» и «Импорт» через orbit_share.lua.
--- v23.10: добавлены размеры 16/32/64. Для больших сеток — упрощённая визуализация
---    (иначе ViewportFrame захлёбывается). Лимит блоков = 5000 (предупреждение при
---    превышении). История шагов = 20 для N<16, 10 для N>=16 (память).
+--
+-- ИСТОРИЯ:
+--   v23.9  — добавлены кнопки «Поделиться» и «Импорт» через orbit_share.lua.
+--   v23.10 — добавлены размеры 16/32/64. Для больших сеток — упрощённая визуализация
+--            (иначе ViewportFrame захлёбывается). Лимит блоков = 5000 (предупреждение при
+--            превышении). История шагов = 20 для N<16, 10 для N>=16 (память).
+--   v23.11 (I3) — кисть-куб 1/2/3/4/5 (Ed.Brush), кнопка размера кисти 36 px,
+--            секция «РАЗМЕР КИСТИ».
+--   v23.12 (L3) — кнопки +12%, яркие заголовки, отступы между блоками 12 px,
+--            активный инструмент с обводкой и «✓», размеры сетки по категориям
+--            (Малый/Средний/Большой/Огромный) с мини-иконками; Отмена/Вернуть серые,
+--            когда нечего делать.
+--   v23.13 (Y5) — Ed.SetBrush / Ed.SetGridSize для команд помощника.
+--   v23.13-fix1 — 🐛 warn в конце синхронизирован (было v23.10 → стало v23.13);
+--                 🐛 notify в конце синхронизирован (было v23.10 → стало v23.13);
+--                 📝 шапка переписана в единый -- блок (правило #5: --[[ ]] не вкладываются).
+--
 -- ВАЖНО: все идентификаторы латиницей, кириллица только в комментариях и текстах.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
@@ -56,7 +69,8 @@ local C = {
     btn    = Color3.fromRGB(45, 38, 65),
     btnOn  = Color3.fromRGB(80, 140, 200),
     text   = Color3.fromRGB(225, 215, 255),
-    title  = Color3.fromRGB(48, 38, 76),
+    title  = Color3.fromRGB(98, 66, 178),
+    btnOff = Color3.fromRGB(34, 30, 46),
     accent = Color3.fromRGB(180, 130, 255),
 }
 
@@ -76,7 +90,7 @@ local MAX_HISTORY_STD = 20      -- обычная
 local Ed = {
     Open = false, Gui = nil, Vp = nil, World = nil, Cam = nil,
     BlockFolder = nil, GridFolder = nil,
-    N = 6, ActiveZ = 1, Mode = "place",
+    N = 6, ActiveZ = 1, Mode = "place", Brush = 1,
     SymX = false, SymY = false, SymZ = false,
     Color = 1,
     Cells = {},
@@ -272,7 +286,6 @@ local function buildGrid()
     -- HUGE (N >= 32): только рамка куба + активный слой — сетка не рисуется
     if isHuge() then
         local zc = Ed.ActiveZ - o
-        -- плоскость активного слоя: тонкая рамка
         gridSeg(Vector3.new(-h, -h, zc), Vector3.new(h, -h, zc), accent, 0.4, 0.02)
         gridSeg(Vector3.new(-h, h, zc),  Vector3.new(h, h, zc),  accent, 0.4, 0.02)
         gridSeg(Vector3.new(-h, -h, zc), Vector3.new(-h, h, zc), accent, 0.4, 0.02)
@@ -368,6 +381,7 @@ local function resetHistory()
     Ed.MaxHistory = isBig() and MAX_HISTORY_BIG or MAX_HISTORY_STD
     Ed.States = {snapshot()}
     Ed.StateIdx = 1
+    if Ed.OnHistory then pcall(Ed.OnHistory) end
 end
 local function commit()
     while #Ed.States > Ed.StateIdx do table.remove(Ed.States) end
@@ -377,18 +391,21 @@ local function commit()
         table.remove(Ed.States, 1)
         Ed.StateIdx = Ed.StateIdx - 1
     end
+    if Ed.OnHistory then pcall(Ed.OnHistory) end
 end
 local function doUndo()
     if Ed.StateIdx <= 1 then return end
     Ed.StateIdx = Ed.StateIdx - 1
     restore(Ed.States[Ed.StateIdx])
     refreshView()
+    if Ed.OnHistory then pcall(Ed.OnHistory) end
 end
 local function doRedo()
     if Ed.StateIdx >= #Ed.States then return end
     Ed.StateIdx = Ed.StateIdx + 1
     restore(Ed.States[Ed.StateIdx])
     refreshView()
+    if Ed.OnHistory then pcall(Ed.OnHistory) end
 end
 resetHistory()
 
@@ -413,32 +430,48 @@ local function mirrored(x, y, z)
     return pts
 end
 
+-- v23.11 (I3): кисть-куб 1 / 2 / 3 / 5 клеток; зеркала считаются для каждой клетки куба
 local function applyAt(x, y, z)
     local col = PALETTE[Ed.Color]
     local changed = false
     local warned = false
-    for _, p in ipairs(mirrored(x, y, z)) do
-        local k = key(p[1], p[2], p[3])
-        local cur = Ed.Cells[k]
-        if Ed.Mode == "place" then
-            if not cur then
-                if countCells() >= MAX_CELLS then
-                    if not warned then
-                        warned = true
-                        ORBIT.notify("⚠️ Лимит блоков: " .. MAX_CELLS, Color3.fromRGB(255,200,120), 3)
+    local n = Ed.Brush or 1
+    local lo = -math.floor((n - 1) / 2)
+    local hi = lo + n - 1
+    local N = Ed.N
+    local total = countCells()
+    for dx = lo, hi do
+        for dy = lo, hi do
+            for dz = lo, hi do
+                local cx, cy, cz = x + dx, y + dy, z + dz
+                if cx >= 1 and cx <= N and cy >= 1 and cy <= N and cz >= 1 and cz <= N then
+                    for _, p in ipairs(mirrored(cx, cy, cz)) do
+                        local k = key(p[1], p[2], p[3])
+                        local cur = Ed.Cells[k]
+                        if Ed.Mode == "place" then
+                            if not cur then
+                                if total >= MAX_CELLS then
+                                    if not warned then
+                                        warned = true
+                                        ORBIT.notify("⚠️ Лимит блоков: " .. MAX_CELLS, Color3.fromRGB(255,200,120), 3)
+                                    end
+                                else
+                                    Ed.Cells[k] = {x = p[1], y = p[2], z = p[3], color = col}
+                                    total = total + 1
+                                    changed = true
+                                end
+                            elseif cur.color ~= col then
+                                cur.color = col
+                                changed = true
+                            end
+                        elseif Ed.Mode == "remove" then
+                            if cur then Ed.Cells[k] = nil; changed = true end
+                        else
+                            if cur and cur.color ~= col then cur.color = col; changed = true end
+                        end
                     end
-                else
-                    Ed.Cells[k] = {x = p[1], y = p[2], z = p[3], color = col}
-                    changed = true
                 end
-            elseif cur.color ~= col then
-                cur.color = col
-                changed = true
             end
-        elseif Ed.Mode == "remove" then
-            if cur then Ed.Cells[k] = nil; changed = true end
-        else
-            if cur and cur.color ~= col then cur.color = col; changed = true end
         end
     end
     if changed then commit(); refreshView() end
@@ -627,6 +660,8 @@ local function closeEditor()
     Ed.BlockFolder, Ed.GridFolder = nil, nil
     Ed.Parts = {}
     Ed.UI = {}
+    Ed.OnHistory = nil
+    Ed.PaintBrush, Ed.PaintSizes = nil, nil
 end
 
 -- ============================================================
@@ -869,7 +904,7 @@ local function openEditor3D()
         ScrollBarImageColor3 = C.accent,
     }, Ed.Gui)
     corner(ctrl, 10)
-    local list = mk("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, ctrl)
+    local list = mk("UIListLayout", {Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder}, ctrl)
     mk("UIPadding", {
         PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 10),
         PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 10),
@@ -880,22 +915,42 @@ local function openEditor3D()
     list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(fitCanvas)
 
     local secOrder = 0
+    -- v23.12 (L3): единый масштаб кнопок +12% (для мобилки); высоты секций масштабируются так же
+    local BTN_SCALE = 1.12
+    local function sc(v) return math.floor(v * BTN_SCALE + 0.5) end
+
     local function section(title, bodyH)
         secOrder = secOrder + 1
+        bodyH = sc(bodyH)
         local f = mk("Frame", {
-            Name = "Sec", Size = UDim2.new(1, 0, 0, 22 + bodyH), BackgroundTransparency = 1,
+            Name = "Sec", Size = UDim2.new(1, 0, 0, 28 + bodyH), BackgroundTransparency = 1,
             LayoutOrder = secOrder,
         }, ctrl)
         local t = mk("TextLabel", {
-            Name = "SecTitle", Size = UDim2.new(1, 0, 0, 18), BackgroundColor3 = C.title,
-            BorderSizePixel = 0, Text = "  " .. title, TextColor3 = C.text,
-            Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
+            Name = "SecTitle", Size = UDim2.new(1, 0, 0, 22), BackgroundColor3 = C.title,
+            BorderSizePixel = 0, Text = "  " .. title, TextColor3 = Color3.fromRGB(255, 248, 255),
+            Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
         }, f)
-        corner(t, 4)
+        corner(t, 5)
         return mk("Frame", {
-            Name = "Body", Size = UDim2.new(1, 0, 0, bodyH), Position = UDim2.new(0, 0, 0, 22),
+            Name = "Body", Size = UDim2.new(1, 0, 0, bodyH), Position = UDim2.new(0, 0, 0, 28),
             BackgroundTransparency = 1,
         }, f)
+    end
+
+    -- Активная кнопка: белая обводка + «✓» перед текстом
+    local function markActive(b, on)
+        if not b then return end
+        local base = b:GetAttribute("BaseText")
+        if not base then base = b.Text; b:SetAttribute("BaseText", base) end
+        local st = b:FindFirstChild("ActiveStroke")
+        if not st then
+            st = Instance.new("UIStroke"); st.Name = "ActiveStroke"; st.Thickness = 2.5
+            st.Color = Color3.fromRGB(255, 255, 255); st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            st.Parent = b
+        end
+        st.Enabled = on and true or false
+        b.Text = on and ("✓ " .. base) or base
     end
 
     local function buttonRow(body, items, y, h, textSize)
@@ -903,8 +958,8 @@ local function openEditor3D()
         local n = #items
         for i, it in ipairs(items) do
             local b = mk("TextButton", {
-                Name = "Btn", Size = UDim2.new(1 / n, -4, 0, h or 32),
-                Position = UDim2.new((i - 1) / n, 2, 0, y or 0),
+                Name = "Btn", Size = UDim2.new(1 / n, -4, 0, sc(h or 32)),
+                Position = UDim2.new((i - 1) / n, 2, 0, sc(y or 0)),
                 BackgroundColor3 = it.color or C.btn, TextColor3 = C.text,
                 Font = Enum.Font.GothamBold, TextSize = textSize or 11, Text = it.text,
                 TextWrapped = true, AutoButtonColor = false, BorderSizePixel = 0,
@@ -929,6 +984,7 @@ local function openEditor3D()
         local function paintModes()
             for i, m in ipairs(modes) do
                 btns[i].BackgroundColor3 = (Ed.Mode == m.key) and m.on or C.btn
+                markActive(btns[i], Ed.Mode == m.key)
             end
         end
         local items = {}
@@ -939,15 +995,40 @@ local function openEditor3D()
         paintModes()
     end
 
-    -- 📐 РАЗМЕР СЕТКИ — теперь два ряда
-    -- Ряд 1: 4 5 6 7 8 (стандарт)
-    -- Ряд 2: 16 32 64 (большие)
+    -- 🔲 РАЗМЕР КИСТИ (v23.11, I3): куб из N×N×N клеток, кнопки 36 px
     do
-        local body = section("📐 РАЗМЕР СЕТКИ", 68)
-        local row1 = {4, 5, 6, 7, 8}
-        local row2 = {16, 32, 64}
+        local body = section("🔲 РАЗМЕР КИСТИ (куб)", 36)
+        local sizes = {1, 2, 3, 4, 5}
+        local btns = {}
+        local function paintBrush()
+            Ed.PaintBrush = paintBrush
+            for i, n in ipairs(sizes) do
+                btns[i].BackgroundColor3 = (Ed.Brush == n) and C.btnOn or C.btn
+                markActive(btns[i], Ed.Brush == n)
+            end
+        end
+        local items = {}
+        for i, n in ipairs(sizes) do
+            items[i] = {text = n .. "×" .. n .. "×" .. n, fn = function() Ed.Brush = n; paintBrush() end}
+        end
+        btns = buttonRow(body, items, 0, 36, 11)
+        paintBrush()
+    end
+
+    -- 📐 РАЗМЕР СЕТКИ — две строки с категориями и мини-иконками
+    do
+        local body = section("📐 РАЗМЕР СЕТКИ", 84)
+        local GRID_ITEMS1 = {
+            {n = 4, label = "▪ Малый\n4"}, {n = 5, label = "▪ Малый\n5"},
+            {n = 6, label = "◽ Средний\n6"}, {n = 7, label = "◽ Средний\n7"}, {n = 8, label = "◽ Средний\n8"},
+        }
+        local GRID_ITEMS2 = {
+            {n = 16, label = "◼ Большой\n16"}, {n = 32, label = "◼ Большой\n32"},
+            {n = 64, label = "⬛ Огромный\n64 ⚠"},
+        }
         local btnsBySize = {}
         local function paintSizes()
+            Ed.PaintSizes = paintSizes
             for n, b in pairs(btnsBySize) do
                 if n == Ed.N then
                     b.BackgroundColor3 = C.btnOn
@@ -958,29 +1039,23 @@ local function openEditor3D()
                 else
                     b.BackgroundColor3 = C.btn
                 end
+                markActive(b, n == Ed.N)
             end
         end
 
-        local items1 = {}
-        for i, n in ipairs(row1) do
-            items1[i] = {text = tostring(n), fn = function()
-                if Ed.N ~= n then setGridSize(n) end
-                paintSizes()
-            end}
+        local function build(list, y)
+            local items = {}
+            for i, it in ipairs(list) do
+                items[i] = {text = it.label, fn = function()
+                    if Ed.N ~= it.n then setGridSize(it.n) end
+                    paintSizes()
+                end}
+            end
+            local btns = buttonRow(body, items, y, 36, 10)
+            for i, it in ipairs(list) do btnsBySize[it.n] = btns[i] end
         end
-        local btns1 = buttonRow(body, items1, 0, 32, 12)
-        for i, n in ipairs(row1) do btnsBySize[n] = btns1[i] end
-
-        local items2 = {}
-        for i, n in ipairs(row2) do
-            items2[i] = {text = tostring(n) .. (n >= HUGE_THRESHOLD and " ⚠" or ""), fn = function()
-                if Ed.N ~= n then setGridSize(n) end
-                paintSizes()
-            end}
-        end
-        local btns2 = buttonRow(body, items2, 36, 30, 12)
-        for i, n in ipairs(row2) do btnsBySize[n] = btns2[i] end
-
+        build(GRID_ITEMS1, 0)
+        build(GRID_ITEMS2, 40)
         paintSizes()
     end
 
@@ -1049,11 +1124,19 @@ local function openEditor3D()
     -- ↩️ ИСТОРИЯ
     do
         local body = section("↩️ ИСТОРИЯ", 70)
-        local gray = Color3.fromRGB(60, 60, 80)
-        buttonRow(body, {
-            {text = "↩ Отмена",  fn = doUndo, color = gray},
-            {text = "↪ Вернуть", fn = doRedo, color = gray},
+        local hb = buttonRow(body, {
+            {text = "↩ Отмена",  fn = doUndo, color = C.btnOff},
+            {text = "↪ Вернуть", fn = doRedo, color = C.btnOff},
         }, 0, 32, 11)
+        Ed.OnHistory = function()
+            local canUndo = Ed.StateIdx > 1
+            local canRedo = Ed.StateIdx < #Ed.States
+            hb[1].BackgroundColor3 = canUndo and Color3.fromRGB(70, 150, 220) or C.btnOff
+            hb[1].TextTransparency = canUndo and 0 or 0.55
+            hb[2].BackgroundColor3 = canRedo and Color3.fromRGB(70, 190, 130) or C.btnOff
+            hb[2].TextTransparency = canRedo and 0 or 0.55
+        end
+        Ed.OnHistory()
         buttonRow(body, {
             {text = "🗑 Очистить слой", fn = clearLayer, color = Color3.fromRGB(100, 55, 55)},
             {text = "🗑 Очистить всё",  fn = clearAll,   color = Color3.fromRGB(120, 45, 45)},
@@ -1076,7 +1159,6 @@ local function openEditor3D()
 
     -- 💾 СОХРАНЕНИЕ (+ share/import)
     do
-        -- bodyH: nameInput(0-32) saveBtn(38-72) shareBtn(78-112) importBtn(118-152)
         local body = section("💾 СОХРАНЕНИЕ И ОБМЕН", 160)
 
         local nameInput = mk("TextBox", {
@@ -1114,7 +1196,6 @@ local function openEditor3D()
             end
         end)
 
-        -- 📤 Поделиться
         local shareBtn = mk("TextButton", {
             Name = "Share", Size = UDim2.new(1, -4, 0, 34), Position = UDim2.new(0, 2, 0, 78),
             BackgroundColor3 = Color3.fromRGB(70, 60, 130), TextColor3 = Color3.fromRGB(220, 210, 255),
@@ -1131,7 +1212,6 @@ local function openEditor3D()
                 ORBIT.notify("🧱 Поставь хотя бы 2 блока", Color3.fromRGB(255, 200, 120), 2)
                 return
             end
-            -- нормализуем координаты (как в registerShape) и упакуем
             local minX, minY, minZ = math.huge, math.huge, math.huge
             local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
             for _, c in pairs(Ed.Cells) do
@@ -1163,7 +1243,6 @@ local function openEditor3D()
             ORBIT.share.open(str)
         end)
 
-        -- 📥 Импорт
         local importBtn = mk("TextButton", {
             Name = "Import", Size = UDim2.new(1, -4, 0, 34), Position = UDim2.new(0, 2, 0, 118),
             BackgroundColor3 = Color3.fromRGB(50, 80, 110), TextColor3 = Color3.fromRGB(200, 230, 255),
@@ -1212,11 +1291,34 @@ end
 --       ЭКСПОРТ
 -- ============================================================
 Ed.Close = closeEditor
+-- v23.13 (Y5): методы для помощника («кисть 3», «размер сетки 16»)
+Ed.BrushSizes = {1, 2, 3, 4, 5}
+Ed.GridSizes = {4, 5, 6, 7, 8, 16, 32, 64}
+Ed.SetBrush = function(n)
+    for _, b in ipairs(Ed.BrushSizes) do
+        if b == n then
+            Ed.Brush = n
+            if Ed.PaintBrush then pcall(Ed.PaintBrush) end
+            return true
+        end
+    end
+    return false
+end
+Ed.SetGridSize = function(n)
+    for _, g in ipairs(Ed.GridSizes) do
+        if g == n then
+            if Ed.N ~= n then setGridSize(n) end
+            if Ed.PaintSizes then pcall(Ed.PaintSizes) end
+            return true
+        end
+    end
+    return false
+end
 ORBIT.openEditor3D = openEditor3D
 ORBIT.Editor3D = Ed
 
 if ORBIT.notify then
-    ORBIT.notify("🔮 3D-Редактор v23.10 (до 64×64)", Color3.fromRGB(200, 180, 255), 3)
+    ORBIT.notify("🔮 3D-Редактор v23.13 (до 64×64)", Color3.fromRGB(200, 180, 255), 3)
 end
-warn("[Orbit 3D Editor v23.10] Загружен ✅")
+warn("[Orbit 3D Editor v23.13] Загружен ✅")
 return true
