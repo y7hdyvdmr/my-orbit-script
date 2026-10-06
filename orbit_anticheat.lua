@@ -1,5 +1,5 @@
 --[[ ═══════════════════════════════════════════════════════════════
-     ОРБИТА АНТИ-ЧИТ v12.0 — ПОЛНАЯ ВЕРСИЯ НА РУССКОМ
+     ОРБИТА АНТИ-ЧИТ v12.1 — ПОЛНАЯ ВЕРСИЯ НА РУССКОМ
      ═══════════════════════════════════════════════════════════════
      ✅ Все переменные латиницей (Lua-совместимо)
      ✅ Интерфейс, уведомления, комментарии — на русском
@@ -18,6 +18,9 @@
      ═══════════════════════════════════════════════════════════════ ]]
 --[[ ИЗМЕНЕНИЯ (общий релиз v23.5): все 33 кнопки интерфейса — через onClick (Down + Touch + Activated;
      в прокрутке срабатывают при отпускании). Логика защит не менялась. ]]
+--[[ v12.1: AC1 — звук уворота ≤2 (уворот + Санс ИЛИ смех) через ORBIT.playDodge, антиспам 1.5 с;
+     AC2 — троллинг: пороги 70/35 + серия из 3 проверок + игнор падения/сидения; киллаура: игнор падения,
+     порог урона 20, дистанция 10; друзья не считаются нарушителями (вторжение/троллинг/киллаура). ]]
 --[[ ФИКСЫ v23.6:
   🐛 markCheater вызывал notify(...) ДО её объявления: local notify была объявлена ниже, поэтому
      внутри markCheater использовался ГЛОБАЛЬНЫЙ notify (nil), а позже notify = function писал
@@ -266,34 +269,24 @@ local function sfxClick()       playSound("click", 0.5) end
 local function sfxSwitch()      playSound("switch", 0.5) end
 local function sfxSignal()      playSound("signal", 0.5) end
 
--- Полная последовательность уворота: уворот → после → Санс → смех
+-- v12.1 (AC1): уворот = максимум 2 звука (уворот + Санс ИЛИ смех), без наложения.
+-- Вся логика звука и эмоций живёт в orbit_sfx.lua (ORBIT.playDodge / ORBIT.emote),
+-- чтобы обычный режим и режим античита использовали один и тот же код (EM2).
+local lastDodgeSfx = 0
 local function sfxDodgeSans()
     if not SETTINGS.Sounds then return end
+    local now = tick()
+    if now - lastDodgeSfx < 1.5 then return end   -- антиспам: не чаще раза в 1.5 с
+    lastDodgeSfx = now
+    -- античит автономный: ORBIT может не существовать — ищем безопасно
+    local okO, O = pcall(function() return rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or GENV.ORBIT end)
+    if okO and type(O) == "table" and type(O.playDodge) == "function" then
+        pcall(O.playDodge)
+        return
+    end
+    -- запасной вариант, если sfx ещё не загружен: только 2 звука
     playSound("dodge", 1, 1)
-    playSound("afterDodge", 1, 1)
-    playSound("sans", 1, 1)
-    playSound("laugh", 0.8, 1)
-
-    pcall(function()
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum:PlayEmote("Laugh")
-            task.delay(2, function()
-                pcall(function()
-                    local animator = hum:FindFirstChildOfClass("Animator")
-                    if animator then
-                        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                            local nm = track.Animation and track.Animation.Name or ""
-                            if nm:lower():find("laugh") or nm:lower():find("emote") then
-                                track:Stop(0)
-                            end
-                        end
-                    end
-                end)
-            end)
-        end
-    end)
+    playSound(math.random() < 0.5 and "sans" or "laugh", 0.8, 1)
 end
 
 local function sfxSmartFloor()
@@ -358,6 +351,17 @@ local INTRUSION_TRACK = {
     WasInside = {},
 }
 
+-- v12.1 (AC2): друзей не считаем нарушителями; результат кэшируется
+local friendCache = {}
+local function isFriendOf(plr)
+    local c = friendCache[plr]
+    if c ~= nil then return c end
+    local ok, res = pcall(function() return LocalPlayer:IsFriendsWith(plr.UserId) end)
+    friendCache[plr] = (ok and res) == true
+    return friendCache[plr]
+end
+local trollStrikes = {}
+
 local function checkIntrusion()
     if not SETTINGS.Enabled or not SETTINGS.IntrusionDetect then return end
     local char = LocalPlayer.Character
@@ -375,7 +379,7 @@ local function checkIntrusion()
         if not otherHrp then continue end
 
         local dist = (otherHrp.Position - hrp.Position).Magnitude
-        local inside = dist <= radius
+        local inside = dist <= radius and not isFriendOf(plr)
 
         if inside and not INTRUSION_TRACK.WasInside[plr] then
             INTRUSION_TRACK.WasInside[plr] = true
@@ -903,18 +907,22 @@ local function antiKillaura(char, hrp)
     if not SETTINGS.AntiKillaura then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hum then return end
-    if hum.Health < (STATE.lastHealth or 100) - 15 then
+    -- v12.1 (AC2): падение с высоты и посадка не считаются атакой; порог урона выше
+    local hst = hum:GetState()
+    local fallish = (hst == Enum.HumanoidStateType.Freefall or hst == Enum.HumanoidStateType.Landed
+        or hst == Enum.HumanoidStateType.FallingDown or hst == Enum.HumanoidStateType.Dead)
+    if not fallish and hum.Health < (STATE.lastHealth or 100) - 20 then
         local closest, closestDist = nil, math.huge
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer and plr.Character then
                 local oHrp = plr.Character:FindFirstChild("HumanoidRootPart")
-                if oHrp then
+                if oHrp and not isFriendOf(plr) then
                     local d = (oHrp.Position - hrp.Position).Magnitude
                     if d < closestDist then closest, closestDist = plr, d end
                 end
             end
         end
-        if closest and closestDist < 15 then
+        if closest and closestDist < 10 then
             markCheater(closest, true)
             local away = (hrp.Position - closest.Character.HumanoidRootPart.Position).Unit
             pcall(function() char:PivotTo(CFrame.new(hrp.Position + away * 5)) end)
@@ -1038,15 +1046,24 @@ local function detectTrolling()
         if not otherHrp then continue end
 
         local dist = (otherHrp.Position - hrp.Position).Magnitude
-        if dist < 8 then
+        if dist < 8 and not isFriendOf(plr) then
             local spd = otherHrp.AssemblyLinearVelocity.Magnitude
             local rot = otherHrp.AssemblyAngularVelocity.Magnitude
-            if spd > 40 or rot > 20 then
-                if not TROLLING.Cooldown[plr] or now - TROLLING.Cooldown[plr] > 3 then
+            -- v12.1 (AC2): пороги выше (бег/падение/эмоции не считаются) и нужна серия из 3 проверок подряд
+            local otherHum = other:FindFirstChildOfClass("Humanoid")
+            local st = otherHum and otherHum:GetState()
+            local innocent = (st == Enum.HumanoidStateType.Freefall or st == Enum.HumanoidStateType.Seated
+                or st == Enum.HumanoidStateType.Landed or st == Enum.HumanoidStateType.Dead)
+            if (spd > 70 or rot > 35) and not innocent then
+                trollStrikes[plr] = (trollStrikes[plr] or 0) + 1
+                if trollStrikes[plr] >= 3 and (not TROLLING.Cooldown[plr] or now - TROLLING.Cooldown[plr] > 4) then
                     TROLLING.Cooldown[plr] = now
+                    trollStrikes[plr] = 0
                     sfxDodgeSans()
                     notify("⚠️ Троллинг: " .. plr.Name, Color3.fromRGB(255, 150, 150), 2)
                 end
+            else
+                trollStrikes[plr] = 0
             end
         end
     end
