@@ -1,21 +1,21 @@
---[[ ОРБИТА v23.0 — МИНИ-ИГРА «ЛОВЛЯ ЗВЁЗД» v3.0
-     🆕 3 сложности: ОБЫЧНАЯ / СЛОЖНАЯ / ХАРДКОР
-     🆕 УЛЬТРА-НАГРАДА на Хардкоре — 24 кольца с разными фигурами
-     🆕 Разные награды за каждую сложность
-     🐛 Фикс math.random с дробными, убран task.wait в Heartbeat
-]]
---[[ ИЗМЕНЕНИЯ (общий релиз v23.5): кнопки закрытия / сложности / старта теперь через onClick
-     (на Android .Activated мог не срабатывать). Логика игры не менялась. ]]
---[[ ФИКСЫ v23.6:
-  🐛 onClick не играл ORBIT.playClick — кнопки мини-игры молчали. Добавлено.
-  🐛 minigameGui:FindFirstChild("_PlayField", true) вызывался при КАЖДОМ спавне звезды,
-     а FindFirstChild("_TimerLbl", true) — в КАЖДОМ кадре Heartbeat. Рекурсивный обход всего
-     дерева GUI на мобилке заметно просаживал FPS. Ссылки на _PlayField / _ProgressLbl /
-     _TimerLbl / _WinBanner теперь кэшируются в MINIGAME.Fields.
-  🐛 при быстром перезапуске (СТАРТ → СТАРТ) отложенный task.delay(diff.TimeLimit + 1)
-     от ПЕРВОЙ игры срабатывал во время ВТОРОЙ и менял текст кнопки на «ИГРАТЬ СНОВА».
-     Введён RunId: обработчик проверяет, что игра та же самая, иначе молчит.
-]]
+-- ОРБИТА v23.6 — МИНИ-ИГРА «ЛОВЛЯ ЗВЁЗД»
+-- Внутренняя версия игры: v3.1
+--
+-- Сложности: ОБЫЧНАЯ / СЛОЖНАЯ / ХАРДКОР.
+-- Хардкор даёт УЛЬТРА-НАГРАДУ — 24 кольца с разными фигурами на 60 секунд.
+-- Типы звёзд: обычные / золотые (3 очка, +1.5с) / бомбы (−2 звезды, −2с).
+-- Комбо до ×5, рекорд сессии по каждой сложности, RunId защищает от гонок.
+--
+-- ИСТОРИЯ:
+--   v23.0 (игра v3.0) — 3 сложности, ультра-награда, фикс math.random с дробными.
+--   v23.5 — все кнопки через onClick (на Android .Activated мог не срабатывать).
+--   v23.6 — onClick теперь играет ORBIT.playClick; ссылки _PlayField / _ProgressLbl /
+--           _TimerLbl / _WinBanner кэшируются в MINIGAME.Fields (раньше FindFirstChild
+--           recursive=true дёргался в каждом кадре Heartbeat — просадка FPS на мобилке);
+--           RunId защищает от «зависшего» task.delay при быстром перезапуске.
+--   v23.6-fix1 — объединены три подряд идущих блочных комментария в один
+--                (правило #5: --[[ ]] не вкладываются), синхронизированы версии
+--                в notify и warn (были v23.0 / v3.1, стали v23.6).
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit MiniGame] ORBIT не найден!"); return end
@@ -33,7 +33,7 @@ local function onClick(btn, fn, releaseOnly)
         if deb then return end
         deb = true
         task.delay(0.12, function() deb = false end)
-        -- 🐛 ФИКС v23.6: играем клик, чтобы кнопки не были «молчаливыми»
+        -- играем клик, чтобы кнопки не были «молчаливыми»
         if ORBIT.playClick then pcall(ORBIT.playClick) end
         local ok, err = pcall(fn)
         if not ok then warn("[Orbit] " .. tostring(err)) end
@@ -129,12 +129,24 @@ local DIFFICULTIES = {
         StarMaxSize  = 44,
         SpawnRate    = 1.6,
         CoinsReward  = 2000,
-        GiveUltra    = true,   -- 🆕 запускает 24-кольцевую орбиту
+        GiveUltra    = true,   -- запускает 24-кольцевую орбиту
         Color = Color3.fromRGB(255, 90, 120),
     },
 }
 local difficultyIndex = 1
 local function getDifficulty() return DIFFICULTIES[difficultyIndex] end
+
+-- v3.1 (M1-M3): типы звёзд, комбо и рекорд сессии
+-- шанс {золотая, бомба} по сложностям (индекс = номер сложности)
+local TYPE_CHANCE = { {0.12, 0.08}, {0.12, 0.12}, {0.10, 0.16}, {0.10, 0.20} }
+local COMBO_WINDOW = 1.3     -- сек между пойманными звёздами, чтобы серия не прервалась
+local COMBO_STEP   = 3       -- сколько звёзд подряд для +1 к множителю
+local COMBO_MAX    = 5       -- максимальный множитель
+local GOLD_POINTS  = 3       -- золотая считается как 3 звезды
+local GOLD_BONUS_TIME = 1.5  -- +секунд за золотую
+local BOMB_PENALTY    = 2    -- -звёзд и -секунд за бомбу
+-- рекорд живёт, пока скрипт не перезапущен (сессия)
+ORBIT.minigameRecord = ORBIT.minigameRecord or {}
 
 -- Старая награда «25 фигур × 5 волн» (для совместимости)
 local REWARD = {
@@ -232,7 +244,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
---  🆕 УЛЬТРА-НАГРАДА: 24 КОЛЬЦА С РАЗНЫМИ ФИГУРАМИ
+--  УЛЬТРА-НАГРАДА: 24 КОЛЬЦА С РАЗНЫМИ ФИГУРАМИ
 -- ============================================================
 local ULTRA = {
     Active = false,
@@ -389,9 +401,11 @@ ORBIT.stopUltra = stopUltra
 -- ============================================================
 --              ВЫДАЧА НАГРАДЫ
 -- ============================================================
-local function giveReward()
+local function giveReward(bonus)
     local diff = getDifficulty()
-    ORBIT.COINS = (ORBIT.COINS or 0) + diff.CoinsReward
+    bonus = math.max(0, math.floor(bonus or 0))
+    local total = diff.CoinsReward + bonus
+    ORBIT.COINS = (ORBIT.COINS or 0) + total
 
     if ORBIT.HAS_FS then
         pcall(function()
@@ -400,7 +414,7 @@ local function giveReward()
     end
     pcall(function() if ORBIT.saveSettings then ORBIT.saveSettings() end end)
 
-    ORBIT.notify("💰 +" .. diff.CoinsReward .. " монет", Color3.fromRGB(255, 220, 120), 4)
+    ORBIT.notify("💰 +" .. total .. " монет" .. (bonus > 0 and (" (бонус за комбо +" .. bonus .. ")") or ""), Color3.fromRGB(255, 220, 120), 4)
 
     if diff.GiveUltra then
         startUltra()
@@ -419,28 +433,58 @@ local MINIGAME = {
     Open     = false,
     Playing  = false,
     Caught   = 0,
+    Score    = 0,      -- очки (с учётом комбо)
+    Combo    = 0,      -- текущая серия
+    MaxCombo = 0,
+    LastCatch = 0,
     TimeLeft = 20,
     Stars    = {},
     Conn     = nil,
-    -- 🐛 ФИКС v23.6: кэш ссылок на элементы GUI (не дёргаем FindFirstChild с recursive=true)
+    -- кэш ссылок на элементы GUI (не дёргаем FindFirstChild с recursive=true)
     Fields   = {
         playField   = nil,
         progressLbl = nil,
         timerLbl    = nil,
         winBanner   = nil,
+        statsLbl    = nil,
     },
-    -- 🐛 ФИКС v23.6: идентификатор текущей игры — защита от «зависшего» task.delay
+    -- идентификатор текущей игры — защита от «зависшего» task.delay
     RunId    = 0,
 }
 
 local minigameGui
+
+local function comboMult()
+    return math.min(COMBO_MAX, 1 + math.floor(math.max(0, MINIGAME.Combo - 1) / COMBO_STEP))
+end
+
+local function refreshStats()
+    local lbl = MINIGAME.Fields.statsLbl
+    if not lbl or not lbl.Parent then return end
+    local rec = ORBIT.minigameRecord[getDifficulty().name]
+    local recTxt = rec and rec.score or 0
+    lbl.Text = "🔥 ×" .. comboMult() .. (MINIGAME.Combo > 1 and (" (" .. MINIGAME.Combo .. ")") or "")
+        .. "   ⭐ " .. MINIGAME.Score .. "   🏅 " .. recTxt
+end
+
+-- сохраняет рекорд сессии; возвращает true, если побит
+local function updateRecord()
+    local name = getDifficulty().name
+    local rec = ORBIT.minigameRecord[name]
+    if not rec then rec = { score = 0, combo = 0 }; ORBIT.minigameRecord[name] = rec end
+    local broken = MINIGAME.Score > rec.score
+    if broken then rec.score = MINIGAME.Score end
+    if MINIGAME.MaxCombo > rec.combo then rec.combo = MINIGAME.MaxCombo end
+    refreshStats()
+    return broken
+end
 
 -- ============================================================
 --              СПАВН ЗВЁЗД
 -- ============================================================
 local function spawnStar()
     if not minigameGui or not MINIGAME.Playing then return end
-    -- 🐛 ФИКС v23.6: используем кэш, не ищем рекурсивно
+    -- используем кэш, не ищем рекурсивно
     local field = MINIGAME.Fields.playField
     if not field or not field.Parent then return end
     local diff = getDifficulty()
@@ -451,10 +495,20 @@ local function spawnStar()
     btn.Name = "_Star"
     btn.Size = UDim2.new(0, starSize, 0, starSize)
     btn.BackgroundTransparency = 1
-    btn.Text = "⭐"
+    -- тип звезды: обычная / золотая / бомба
+    local kind = "normal"
+    local ch = TYPE_CHANCE[difficultyIndex] or TYPE_CHANCE[1]
+    local roll = math.random()
+    if roll < ch[2] then kind = "bomb"
+    elseif roll < ch[2] + ch[1] then kind = "gold" end
+    if kind == "gold" then starSize = math.floor(starSize * 1.15) end
+    btn.Size = UDim2.new(0, starSize, 0, starSize)
+    btn.Text = (kind == "bomb") and "💣" or (kind == "gold" and "🌟" or "⭐")
     btn.TextScaled = true
     btn.Font = Enum.Font.GothamBold
-    btn.TextColor3 = Color3.fromHSV(math.random(), 0.8, 1)
+    btn.TextColor3 = (kind == "gold") and Color3.fromRGB(255, 215, 0)
+        or (kind == "bomb") and Color3.fromRGB(255, 120, 120)
+        or Color3.fromHSV(math.random(), 0.8, 1)
     btn.AutoButtonColor = false
     btn.ZIndex = 15
 
@@ -477,16 +531,43 @@ local function spawnStar()
         born = tick(),
         duration = diff.StarLifetime + math.random() * 0.6,
         caught = false,
+        kind = kind,
     }
     table.insert(MINIGAME.Stars, data)
 
     local function catch()
         if data.caught or not MINIGAME.Playing then return end
         data.caught = true
-        MINIGAME.Caught = MINIGAME.Caught + 1
+        local now = tick()
 
-        btn.Text = "✨"
-        btn.TextColor3 = Color3.fromRGB(255, 255, 100)
+        if kind == "bomb" then
+            -- 💣 штраф: -2 звезды, -2 секунды, серия сбрасывается
+            MINIGAME.Caught = math.max(0, MINIGAME.Caught - BOMB_PENALTY)
+            MINIGAME.TimeLeft = MINIGAME.TimeLeft - BOMB_PENALTY
+            MINIGAME.Combo = 0
+            MINIGAME.Score = math.max(0, MINIGAME.Score - 50)
+            btn.Text = "💥"
+            btn.TextColor3 = Color3.fromRGB(255, 80, 60)
+            ORBIT.notify("💣 БОМБА! −" .. BOMB_PENALTY .. " звезды, −" .. BOMB_PENALTY .. " с", Color3.fromRGB(255, 120, 100), 2)
+        else
+            -- серия: звезда пойманна вовремя — комбо растёт
+            if now - MINIGAME.LastCatch <= COMBO_WINDOW and MINIGAME.Combo > 0 then
+                MINIGAME.Combo = MINIGAME.Combo + 1
+            else
+                MINIGAME.Combo = 1
+            end
+            MINIGAME.LastCatch = now
+            if MINIGAME.Combo > MINIGAME.MaxCombo then MINIGAME.MaxCombo = MINIGAME.Combo end
+            local points = (kind == "gold") and GOLD_POINTS or 1
+            MINIGAME.Caught = MINIGAME.Caught + points
+            MINIGAME.Score = MINIGAME.Score + points * 10 * comboMult()
+            if kind == "gold" then
+                MINIGAME.TimeLeft = math.min(MINIGAME.TimeLeft + GOLD_BONUS_TIME, diff.TimeLimit + 5)
+            end
+            btn.Text = "✨"
+            btn.TextColor3 = Color3.fromRGB(255, 255, 100)
+        end
+
         TweenService:Create(btn, TweenInfo.new(0.2), {
             Size = UDim2.new(0, starSize * 2, 0, starSize * 2),
             TextTransparency = 1,
@@ -495,26 +576,32 @@ local function spawnStar()
 
         if ORBIT.playClick then ORBIT.playClick() end
 
-        -- 🐛 ФИКС v23.6: прогресс-лейбл из кэша
         local progressLbl = MINIGAME.Fields.progressLbl
         if progressLbl and progressLbl.Parent then
             progressLbl.Text = "⭐ " .. MINIGAME.Caught .. " / " .. diff.TargetCount
         end
+        refreshStats()
 
         task.delay(0.3, function() pcall(function() btn:Destroy() end) end)
 
         if MINIGAME.Caught >= diff.TargetCount then
             MINIGAME.Playing = false
             if ORBIT.playDodge then ORBIT.playDodge() end
+            local runId = MINIGAME.RunId
             task.delay(0.5, function()
-                local rewarded = giveReward()
-                -- 🐛 ФИКС v23.6: win-banner из кэша
+                if MINIGAME.RunId ~= runId then return end
+                local broken = updateRecord()
+                local bonus = math.floor(MINIGAME.Score * 0.1)   -- бонус монет за очки
+                local rewarded = giveReward(bonus)
                 local winBanner = MINIGAME.Fields.winBanner
                 if winBanner and winBanner.Parent and rewarded then
                     winBanner.Visible = true
-                    winBanner.Text = diff.GiveUltra
-                        and "💀 ХАРДКОР ПРОЙДЕН!\n🌈 24 КОЛЬЦА + " .. diff.CoinsReward .. " МОНЕТ"
-                        or ("🏆 ПОБЕДА! 🏆\n" .. diff.CoinsReward .. " МОНЕТ")
+                    local total = diff.CoinsReward + bonus
+                    winBanner.Text = (diff.GiveUltra
+                        and ("💀 ХАРДКОР ПРОЙДЕН!\n🌈 24 КОЛЬЦА + " .. total .. " МОНЕТ")
+                        or ("🏆 ПОБЕДА! 🏆\n" .. total .. " МОНЕТ"))
+                        .. "\n⭐ " .. MINIGAME.Score .. "  🔥 макс ×" .. math.min(COMBO_MAX, 1 + math.floor(math.max(0, MINIGAME.MaxCombo - 1) / COMBO_STEP))
+                        .. (broken and "  🏅 НОВЫЙ РЕКОРД!" or "")
                     winBanner.TextColor3 = diff.GiveUltra
                         and Color3.fromRGB(255, 120, 160)
                         or Color3.fromRGB(255, 215, 0)
@@ -539,7 +626,7 @@ local function startGameLoop()
         local diff = getDifficulty()
 
         MINIGAME.TimeLeft = MINIGAME.TimeLeft - dt
-        -- 🐛 ФИКС v23.6: таймер-лейбл из кэша (раньше искали каждый кадр)
+        -- таймер-лейбл из кэша (раньше искали каждый кадр)
         local timerLbl = MINIGAME.Fields.timerLbl
         if timerLbl and timerLbl.Parent then
             timerLbl.Text = "⏱️ " .. string.format("%.1f", math.max(0, MINIGAME.TimeLeft)) .. "с"
@@ -548,13 +635,21 @@ local function startGameLoop()
                 or Color3.fromRGB(255, 220, 120)
         end
 
+        -- серия сгорает, если долго не ловим
+        if MINIGAME.Combo > 0 and tick() - MINIGAME.LastCatch > COMBO_WINDOW then
+            MINIGAME.Combo = 0
+            refreshStats()
+        end
+
         if MINIGAME.TimeLeft <= 0 then
             MINIGAME.Playing = false
-            -- 🐛 ФИКС v23.6: win-banner из кэша
+            local brokenT = updateRecord()
+            -- win-banner из кэша
             local winBanner = MINIGAME.Fields.winBanner
             if winBanner and winBanner.Parent then
                 winBanner.Visible = true
                 winBanner.Text = "⏰ ВРЕМЯ ВЫШЛО! Поймано: " .. MINIGAME.Caught .. "/" .. diff.TargetCount
+                    .. "\n⭐ Очки: " .. MINIGAME.Score .. (brokenT and "  🏅 НОВЫЙ РЕКОРД!" or "")
                 winBanner.TextColor3 = Color3.fromRGB(255, 100, 100)
             end
             return
@@ -571,6 +666,11 @@ local function startGameLoop()
             elseif now - s.born > s.duration then
                 pcall(function() s.frame:Destroy() end)
                 table.remove(MINIGAME.Stars, i)
+                -- пропущенная звезда (не бомба) обрывает серию
+                if s.kind ~= "bomb" and MINIGAME.Combo > 0 then
+                    MINIGAME.Combo = 0
+                    refreshStats()
+                end
             else
                 activeStars = activeStars + 1
             end
@@ -588,17 +688,18 @@ end
 local function closeMiniGame()
     MINIGAME.Open = false
     MINIGAME.Playing = false
-    MINIGAME.RunId = MINIGAME.RunId + 1      -- 🐛 ФИКС v23.6: гасим отложенные колбэки
+    MINIGAME.RunId = MINIGAME.RunId + 1      -- гасим отложенные колбэки
     if MINIGAME.Conn then MINIGAME.Conn:Disconnect(); MINIGAME.Conn = nil end
     for _, s in ipairs(MINIGAME.Stars) do
         pcall(function() if s.frame then s.frame:Destroy() end end)
     end
     MINIGAME.Stars = {}
-    -- 🐛 ФИКС v23.6: чистим кэш ссылок
+    -- чистим кэш ссылок
     MINIGAME.Fields.playField   = nil
     MINIGAME.Fields.progressLbl = nil
     MINIGAME.Fields.timerLbl    = nil
     MINIGAME.Fields.winBanner   = nil
+    MINIGAME.Fields.statsLbl    = nil
     if minigameGui then
         pcall(function() minigameGui:Destroy() end)
         minigameGui = nil
@@ -681,7 +782,7 @@ local function openMiniGame()
 
     local progressLbl = Instance.new("TextLabel")
     progressLbl.Name = "_ProgressLbl"
-    progressLbl.Size = UDim2.new(0, 200, 0, 24)
+    progressLbl.Size = UDim2.new(0.5, -20, 0, 24)
     progressLbl.Position = UDim2.new(0, 16, 0, 120)
     progressLbl.BackgroundColor3 = Color3.fromRGB(40, 60, 45)
     progressLbl.BorderSizePixel = 0
@@ -695,8 +796,8 @@ local function openMiniGame()
 
     local timerLbl = Instance.new("TextLabel")
     timerLbl.Name = "_TimerLbl"
-    timerLbl.Size = UDim2.new(0, 200, 0, 24)
-    timerLbl.Position = UDim2.new(1, -216, 0, 120)
+    timerLbl.Size = UDim2.new(0.5, -20, 0, 24)
+    timerLbl.Position = UDim2.new(0.5, 4, 0, 120)
     timerLbl.BackgroundColor3 = Color3.fromRGB(60, 45, 30)
     timerLbl.BorderSizePixel = 0
     timerLbl.Text = "⏱️ 20.0с"
@@ -722,6 +823,20 @@ local function openMiniGame()
     fieldStroke.Color = Color3.fromRGB(120, 80, 200)
     fieldStroke.Thickness = 1.5
     fieldStroke.Transparency = 0.3
+
+    -- строка комбо / очков / рекорда (поверх игрового поля)
+    local statsLbl = Instance.new("TextLabel")
+    statsLbl.Name = "_StatsLbl"
+    statsLbl.Size = UDim2.new(1, -12, 0, 20)
+    statsLbl.Position = UDim2.new(0, 6, 0, 4)
+    statsLbl.BackgroundTransparency = 1
+    statsLbl.Text = ""
+    statsLbl.TextColor3 = Color3.fromRGB(255, 225, 150)
+    statsLbl.Font = Enum.Font.GothamBold
+    statsLbl.TextSize = 12
+    statsLbl.TextXAlignment = Enum.TextXAlignment.Left
+    statsLbl.ZIndex = 26
+    statsLbl.Parent = playField
 
     local winBanner = Instance.new("TextLabel")
     winBanner.Name = "_WinBanner"
@@ -755,11 +870,12 @@ local function openMiniGame()
     startBtn.Parent = minigameGui
     Instance.new("UICorner", startBtn).CornerRadius = UDim.new(0, 10)
 
-    -- 🐛 ФИКС v23.6: сохраняем ссылки в кэш (используются в spawnStar / startGameLoop)
+    -- сохраняем ссылки в кэш (используются в spawnStar / startGameLoop)
     MINIGAME.Fields.playField   = playField
     MINIGAME.Fields.progressLbl = progressLbl
     MINIGAME.Fields.timerLbl    = timerLbl
     MINIGAME.Fields.winBanner   = winBanner
+    MINIGAME.Fields.statsLbl    = statsLbl
 
     -- Функции обновления текстов по сложности
     local function refreshDifficultyUI()
@@ -775,6 +891,7 @@ local function openMiniGame()
             .. (diff.GiveUltra and " + 🌈 24 КОЛЬЦА" or "")
         progressLbl.Text = "⭐ 0 / " .. diff.TargetCount
         timerLbl.Text = "⏱️ " .. diff.TimeLimit .. ".0с"
+        refreshStats()
     end
 
     onClick(diffBtn, function()
@@ -794,8 +911,9 @@ local function openMiniGame()
         local diff = getDifficulty()
         MINIGAME.Playing = true
         MINIGAME.Caught = 0
+        MINIGAME.Score = 0; MINIGAME.Combo = 0; MINIGAME.MaxCombo = 0; MINIGAME.LastCatch = 0
         MINIGAME.TimeLeft = diff.TimeLimit
-        -- 🐛 ФИКС v23.6: новая игра = новый RunId — старые отложенные колбэки перестанут срабатывать
+        -- новая игра = новый RunId — старые отложенные колбэки перестанут срабатывать
         MINIGAME.RunId = MINIGAME.RunId + 1
         local myRunId = MINIGAME.RunId
 
@@ -807,6 +925,7 @@ local function openMiniGame()
         winBanner.Visible = false
         progressLbl.Text = "⭐ 0 / " .. diff.TargetCount
         timerLbl.Text = "⏱️ " .. diff.TimeLimit .. ".0с"
+        refreshStats()
         timerLbl.TextColor3 = Color3.fromRGB(255, 220, 120)
 
         startBtn.Text = "🎯 ИГРА ИДЁТ..."
@@ -815,8 +934,11 @@ local function openMiniGame()
 
         startGameLoop()
 
-        task.delay(diff.TimeLimit + 1, function()
-            -- 🐛 ФИКС v23.6: если запустилась новая игра или окно закрыто — молчим
+        -- ждём конца раунда (золотые звёзды продлевают время, поэтому не фиксированный таймер)
+        task.spawn(function()
+            while MINIGAME.RunId == myRunId and MINIGAME.Playing do task.wait(0.25) end
+            task.wait(0.8)
+            -- если запустилась новая игра или окно закрыто — молчим
             if MINIGAME.RunId ~= myRunId then return end
             if startBtn and startBtn.Parent then
                 startBtn.Text = "▶  ИГРАТЬ СНОВА"
@@ -830,7 +952,7 @@ local function openMiniGame()
     tip.Size = UDim2.new(1, -32, 0, 18)
     tip.Position = UDim2.new(0, 16, 1, -20)
     tip.BackgroundTransparency = 1
-    tip.Text = "💀 Хардкор → 24 кольца вокруг тебя на 60 сек"
+    tip.Text = "🌟 золотая = 3 звезды +1.5с · 💣 бомба = −2 звезды −2с · комбо до ×5"
     tip.TextColor3 = Color3.fromRGB(255, 150, 180)
     tip.Font = Enum.Font.Gotham
     tip.TextSize = 10
@@ -848,9 +970,9 @@ ORBIT.startRewardAnimation = startRewardAnimation
 ORBIT.DIFFICULTIES = DIFFICULTIES
 
 if ORBIT.notify then
-    ORBIT.notify("🎮 Мини-игра v3.0 загружена (3 сложности)", Color3.fromRGB(220, 200, 255), 3)
+    ORBIT.notify("🎮 Мини-игра v3.1 загружена (комбо, золотые, бомбы, рекорд)", Color3.fromRGB(220, 200, 255), 3)
 end
 
-warn("[Orbit MiniGame] Загружена ✅")
+warn("[Orbit MiniGame v23.6] Загружена ✅")
 
 return true
