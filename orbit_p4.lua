@@ -1,3 +1,7 @@
+-- ORBIT v24.0 | orbit_p4.lua
+-- v24.0: вкладка «ЕЩЁ» — кнопки «Собери Гастера», «Гастер-оружие», «Режим: Санс/Обычный»;
+--        подгрузка shop/minigame пропускается, если запущено через v24-загрузчик.
+--        (новые кнопки лежат в таблице UIK, а не в local — у файла почти исчерпан лимит 200 локальных)
 -- ОРБИТА v23.9 — P4: UI
 -- v23.5: переделан UI — шапка, поиск, 9 вкладок, сворачиваемые секции, 2 столбца.
 -- v23.6: секция SHARE + кнопки 📤 у сохранений + 📥 импорт.
@@ -910,7 +914,12 @@ local soundTestBtn   = makeButton("🔍 Проверка звуков", yCursor,
 makeBigSection("🛒  МАГАЗИН / РЕДАКТОР / ИГРА", yCursor, Color3.fromRGB(110, 60, 150)); yCursor = yCursor + 30
 local openShopBtn    = makeButton("🛒 Открыть МАГАЗИН", yCursor, BTN_H_BIG, Color3.fromRGB(90,50,130), Color3.fromRGB(255,210,255)); yCursor = yCursor + BTN_H_BIG + S_STEP
 local openEditorBtn  = makeButton("🎨 Редактор 2D фигуры", yCursor, BTN_H, Color3.fromRGB(70,60,110), Color3.fromRGB(220,210,255)); yCursor = yCursor + BTN_H + S_STEP
-local openGameBtn    = makeButton("🎮 МИНИ-ИГРА «Ловля звёзд»", yCursor, BTN_H_BIG, Color3.fromRGB(130,80,180), Color3.fromRGB(255,230,255)); yCursor = yCursor + BTN_H_BIG + S_STEP + 6
+local openGameBtn    = makeButton("🎮 МИНИ-ИГРА «Ловля звёзд»", yCursor, BTN_H_BIG, Color3.fromRGB(130,80,180), Color3.fromRGB(255,230,255)); yCursor = yCursor + BTN_H_BIG + S_STEP
+do -- v24.0
+    UIK.openGasterBtn   = makeButton("🎮 Собери Гастера", yCursor, BTN_H_BIG, Color3.fromRGB(70,40,120), Color3.fromRGB(230,210,255)); yCursor = yCursor + BTN_H_BIG + S_STEP
+    UIK.gasterWeaponBtn = makeButton("👁 Гастер-оружие", yCursor, BTN_H, Color3.fromRGB(60,35,100), Color3.fromRGB(220,200,255)); yCursor = yCursor + BTN_H + S_STEP
+    UIK.modeBtn         = makeButton("🎭 Режим: Санс", yCursor, BTN_H, Color3.fromRGB(50,50,80), Color3.fromRGB(200,220,255)); yCursor = yCursor + BTN_H + S_STEP + 6
+end
 
 -- ============ ПРОИЗВОДИТЕЛЬНОСТЬ ============
 makeBigSection("⚡  ПРОИЗВОДИТЕЛЬНОСТЬ", yCursor, Color3.fromRGB(60, 80, 110)); yCursor = yCursor + 30
@@ -1847,6 +1856,23 @@ end)
 onClick(openShopBtn, function() if ORBIT.openShop then ORBIT.openShop() end end)
 onClick(openEditorBtn, function() if ORBIT.openEditor then ORBIT.openEditor() end end)
 onClick(openGameBtn, function() if ORBIT.openMiniGame then ORBIT.openMiniGame() end end)
+do -- v24.0: Гастер и режим игрока
+    local function modeBtnLabel() return (ORBIT.mode == "normal") and "🎭 Режим: Обычный" or "🎭 Режим: Санс" end
+    UIK.modeLabel = modeBtnLabel
+    onClick(UIK.openGasterBtn, function()
+        if ORBIT.gaster and ORBIT.gaster.open then ORBIT.gaster.open()
+        else ORBIT.notify("⚠️ Модуль Гастера не загружен", Color3.fromRGB(255,200,120), 3) end
+    end)
+    onClick(UIK.gasterWeaponBtn, function()
+        local W = ORBIT.gaster and ORBIT.gaster.weapon
+        if W and W.equip then W.equip()
+        else ORBIT.notify("⚠️ Гастер-оружие не загружено", Color3.fromRGB(255,200,120), 3) end
+    end)
+    onClick(UIK.modeBtn, function()
+        if ORBIT.setMode then ORBIT.setMode((ORBIT.mode == "normal") and "sans" or "normal") end
+        UIK.modeBtn.Text = modeBtnLabel()
+    end)
+end
 
 -- ============================================================
 --       SHARE (упрощённый, v23.9) — обработчики
@@ -1967,6 +1993,7 @@ end)
 local function onOff(v) return v and "ВКЛ" or "ВЫКЛ" end
 
 local function refreshAllLabels()
+    pcall(function() if UIK.modeBtn and UIK.modeLabel then UIK.modeBtn.Text = UIK.modeLabel() end end)
     if ORBIT.enabled then
         toggleBtn.Text = "🟢 ВКЛЮЧЕНО"; toggleBtn.TextColor3 = Color3.fromRGB(0,255,120); toggleBtn.BackgroundColor3 = Color3.fromRGB(40,50,40)
     else
@@ -2620,7 +2647,7 @@ ORBIT.start = function()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4 v23.9 (SHARE упрощён — одно поле + ЗАГРУЗИТЬ)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4 v24.0 (+ Гастер, режимы)", Color3.fromRGB(180,255,180), 3) end
 
 -- ПОДГРУЗКА МАГАЗИНА И МИНИ-ИГРЫ
 do
@@ -2643,8 +2670,11 @@ do
         if ORBIT.notify then ORBIT.notify("⚠️ Не загрузился " .. file, Color3.fromRGB(255,200,120), 3) end
         return false
     end
-    task.spawn(function() fetchRun("orbit_p4_shop.lua", "shop", 3) end)
-    task.spawn(function() task.wait(0.5); fetchRun("orbit_minigame.lua", "minigame", 3) end)
+    local ext = (rawget(_G, "getgenv") and getgenv() or _G)._OrbitV24Loader
+    if not ext then -- v24-загрузчик грузит shop/minigame сам (шаги 11 и 13)
+        task.spawn(function() fetchRun("orbit_p4_shop.lua", "shop", 3) end)
+        task.spawn(function() task.wait(0.5); fetchRun("orbit_minigame.lua", "minigame", 3) end)
+    end
 end
 
 return true
