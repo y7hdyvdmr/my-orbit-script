@@ -588,6 +588,7 @@ do
     UIK.setTab = function(id) setTab(id) end
     UIK.relayout = function() relayout() end
 end
+
 -- ============ ОСНОВНОЕ ============
 local yCursor = 40
 
@@ -1033,6 +1034,7 @@ NB.btn.resetSession = makeButton("🔄 Сбросить статистику", y
 yCursor = yCursor + BTN_H + S_STEP + 6
 
 UIK.finishBuild()
+
 -- ============================================================
 --       ЭКСПОРТ ДЛЯ orbit_p4b.lua
 -- ============================================================
