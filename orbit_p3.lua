@@ -1553,7 +1553,10 @@ function ORBIT.buildRing(ri)
             angleOffset = (i-1)*(360/SETTINGS.BlockCount) + ring.angleShift,
         }
         table.insert(ring.blocks, newBlock)
-        if ORBIT.animations and ORBIT.animations.attach then pcall(ORBIT.animations.attach, newBlock, shape.name) end
+        -- v24.0: подключаем анимации фигуры (если модуль загружен)
+        if ORBIT.animations and ORBIT.animations.attach then
+            pcall(ORBIT.animations.attach, newBlock, shape.name)
+        end
     end
     statsData.totalShapes = statsData.totalShapes + #ring.blocks
     if SETTINGS.SpawnAnim ~= false then ring.spawnTime = tick() else ring.spawnTime = nil end
