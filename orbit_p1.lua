@@ -1,30 +1,17 @@
 -- ORBIT v24.0 | orbit_p1.lua
 -- ОРБИТА v24.0 — CORE + LOADER (orbit_p1.lua)
--- v24.0: ORBIT.saveData (gasterUnlocked, gasterWeaponUnlocked, playerMode, theme, achievements);
---        ORBIT.mode = "sans" | "normal" (читается из файла сохранения заранее);
+-- v24.0: ORBIT.saveData (+ rigType), ORBIT.mode, ORBIT.RigType;
 --        ORBIT.loaded + флаги новых модулей; ORBIT.unload чистит новые модули через pcall.
 -- Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗАГРУЗЧИК
 --
 -- ИСТОРИЯ:
---   v23.5: кнопка «ЗАПУСТИТЬ ОРБИТУ» — через onTap (Down + Touch + Activated);
---          UIScale + центрирование окон загрузчика под мобильный экран;
---          защита от двойного тапа по выбору платформы; addLog без task.wait();
---          LogService-подключение отключается при перезапуске; лимит очереди
---          уведомлений 30; ORBIT.HAS_FS — строгий boolean; в P.SHAPE_CATEGORIES
---          добавлена «СКАЛА»; fetchAndRun с повторами; playBuy / playWin различаются;
---          плавное появление окон загрузчика.
---   v23.6: перед античитом грузится orbit_share.lua; в полосе прогресса 9 этапов
---          вместо 8; в конце грузится orbit_helper.lua.
---   v23.7: в лог ошибок добавлено больше текста (sub(1, 60) → sub(1, 300)) —
---          теперь видно полное сообщение (имя свойства и т.п.).
---   v23.8: I1 — прогресс по каждому файлу (имя + попытка в статус-строке);
---          новая настройка AuraMaterial; категория «СУЩЕСТВА» включает ДРАКОНА.
---   v23.8-fix1: 🐛 ORBIT.version синхронизирован с шапкой (было v23.7 → стало v23.8);
---          🐛 countLoaded() больше не считает shop и minigame (они грузятся из p4
---             ПОСЛЕ закрытия загрузчика, поэтому прогресс раньше застревал на 10/12);
---          🐛 local total = 12 → 10 (9 модулей + p1), теперь прогресс доходит до 100%;
---          🐛 начальные значения (0.111 / «11%» / «1/9 ЭТАПОВ») приведены к 10 файлам;
---          🐛 в шапке уточнено «12 файлов в счётчике» → 10.
+--   v23.5: кнопка «ЗАПУСТИТЬ ОРБИТУ» — через onTap; UIScale; LogService-подключение
+--          отключается при перезапуске; лимит очереди уведомлений 30; fetchAndRun с повторами.
+--   v23.6: перед античитом грузится orbit_share.lua; в конце orbit_helper.lua.
+--   v23.7: sub(1, 60) → sub(1, 300) — видно полный текст ошибки.
+--   v23.8: I1 — прогресс по каждому файлу.
+--   v24.0: saveData c gasterUnlocked, playerMode, theme, achievements, rigType;
+--          ORBIT.mode = "sans" | "normal"; ORBIT.RigType = "R15" | "R6".
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 local OLD = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (GENV and GENV.ORBIT)
@@ -40,10 +27,8 @@ ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, share = false, s
     sans = false, abilities = false, animations = false, deathfx = false, gaster = false, newfigures = false, tools = false, anticheat = false, shop = false, minigame = false }
 ORBIT.started = false
 ORBIT.PLATFORM = nil
--- v24.0: кэш сохраняемых флагов + режим игрока
-ORBIT.saveData = { gasterUnlocked = false, gasterWeaponUnlocked = false, playerMode = "sans", theme = "dark", achievements = {} }
+ORBIT.saveData = { gasterUnlocked = false, gasterWeaponUnlocked = false, playerMode = "sans", theme = "dark", achievements = {}, rigType = "R15" }
 do
-    -- читаем режим/флаги из файла настроек заранее (полная загрузка делается позже в p3)
     local okR, raw = pcall(function()
         if type(isfile) == "function" and type(readfile) == "function" and isfile("orbit_v21_settings.json") then
             return readfile("orbit_v21_settings.json")
@@ -57,10 +42,12 @@ do
             if d.gasterWeaponUnlocked == true then ORBIT.saveData.gasterWeaponUnlocked = true end
             if type(d.theme) == "string" then ORBIT.saveData.theme = d.theme end
             if type(d.achievements) == "table" then ORBIT.saveData.achievements = d.achievements end
+            if d.rigType == "R6" or d.rigType == "R15" then ORBIT.saveData.rigType = d.rigType end
         end
     end
 end
 ORBIT.mode = ORBIT.saveData.playerMode or "sans"
+ORBIT.RigType = ORBIT.saveData.rigType or "R15"
 ORBIT.gasterUnlocked = ORBIT.saveData.gasterUnlocked
 ORBIT.gasterWeaponUnlocked = ORBIT.saveData.gasterWeaponUnlocked
 ORBIT.abilityMoveUntil = 0
@@ -252,11 +239,10 @@ P.SHAPE_CATEGORIES = {
     {name="ОСНОВНЫЕ",  shapes={"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"}},
     {name="ОРУЖИЕ",    shapes={"МЕЧ","ЩИТ"}},
     {name="МАГИЯ",     shapes={"ГЛАЗ","ИНЬ-ЯН","МОЛНИЯ","ГАСТЕР БЛАСТЕР"}},
-    {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ","СКАЛА","ДРАКОН","ЦВЕТОК ФЛАУИ","ОМЕГА ФЛАУИ"}},
+    {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ","СКАЛА","ДРАКОН","ЦВЕТОК ФЛАУИ","ОМЕГА ФЛАУИ","КОРОНА","ФЕНИКС","ПОРТАЛ"}},
 }
 P.shapeCategoryIndex = 1
 
--- 50 ЦВЕТОВ
 P.COLORS = {
     {name="РАДУГА",rainbow=true},
     {name="КРАСНЫЙ",c=Color3.fromRGB(255,50,50)},
@@ -615,7 +601,6 @@ ORBIT.unload = function()
     if ORBIT.musicSound then pcall(function() ORBIT.musicSound:Destroy() end); ORBIT.musicSound = nil end
     if ORBIT.stopUltra then pcall(ORBIT.stopUltra) end
     if ORBIT.helperClose then pcall(ORBIT.helperClose) end
-    -- v24.0: новые модули (destroy идемпотентен — повторный вызов безопасен)
     for _, k in ipairs({ "sans", "abilities", "animations", "deathFx", "gaster", "tools", "anticheat" }) do
         local m = ORBIT[k]
         if type(m) == "table" and type(m.destroy) == "function" then pcall(m.destroy) end
@@ -635,7 +620,6 @@ end
 ORBIT.start = function()
     ORBIT.notify("Не все части загружены", Color3.fromRGB(255,200,100), 3)
 end
-
 -- ============================================================
 --              ЗАГРУЗЧИК
 -- ============================================================
@@ -1102,7 +1086,7 @@ local function stopPulse()
 end
 
 setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "части 2 → 3 → 4 → share → защита → звуки → extras → 3D", C_GREEN)
-updateRingProgress(0.1)  -- v23.8-fix1: 1/10 файлов
+updateRingProgress(0.1)
 refreshSteps()
 
 -- ============================================================
@@ -1302,7 +1286,7 @@ local progStroke = Instance.new("UIStroke", progHolder)
 progStroke.Color = C_BORDER; progStroke.Thickness = 1; progStroke.Transparency = 0.4
 
 local progFill = Instance.new("Frame")
-progFill.Size = UDim2.new(0.1, 0, 1, 0)  -- v23.8-fix1: 1/10 файлов
+progFill.Size = UDim2.new(0.1, 0, 1, 0)
 progFill.BackgroundColor3 = C_GREEN
 progFill.BorderSizePixel = 0
 progFill.ZIndex = 4
@@ -1319,7 +1303,7 @@ fillGradient.Color = ColorSequence.new({
 local progText = Instance.new("TextLabel")
 progText.Size = UDim2.new(1, 0, 1, 0)
 progText.BackgroundTransparency = 1
-progText.Text = "LOADING 10%  •  1/10 ФАЙЛОВ"  -- v23.8-fix1
+progText.Text = "LOADING 10%  •  1/10 ФАЙЛОВ"
 progText.TextColor3 = Color3.fromRGB(20, 40, 28)
 progText.Font = Enum.Font.GothamBold
 progText.TextSize = 11
@@ -1357,10 +1341,8 @@ statusBar.Parent = frame
 -- ============================================================
 --       ПОДСЧЁТ ПРОГРЕССА
 -- ============================================================
--- v23.8-fix1: shop и minigame грузятся ИЗ p4 ПОСЛЕ закрытия загрузчика — их не считаем.
--- Итого 10 файлов: p1 + p2 + p3 + p4 + share + ac + sfx + extras + editor3d + helper.
 local function countLoaded()
-    local n = 1  -- p1 всегда загружен (мы в нём)
+    local n = 1
     if ORBIT.loaded.p2 then n = n + 1 end
     if ORBIT.loaded.p3 then n = n + 1 end
     if ORBIT.loaded.p4 then n = n + 1 end
@@ -1375,11 +1357,10 @@ end
 
 local function refreshStatus()
     local n = countLoaded()
-    local total = 10  -- v23.8-fix1: было 12 (shop и minigame не считаем)
+    local total = 10
     local percent = math.min(n / total, 1)
 
     TweenService:Create(progFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), { Size = UDim2.new(percent, 0, 1, 0) }):Play()
-    -- показываем, какой именно файл качается сейчас
     local cur = ORBIT.currentFile and ("  •  " .. ORBIT.currentFile) or ""
     progText.Text = string.format("LOADING %d%%  •  %d/%d ФАЙЛОВ%s", math.floor(percent * 100 + 0.5), math.min(n, total), total, cur)
     updateRingProgress(percent)
@@ -1399,10 +1380,8 @@ ORBIT.refreshLoaderStatus = refreshStatus
 -- ============================================================
 --       ЗАГРУЗКА ЧАСТИ
 -- ============================================================
--- v23.7: sub(1, 60) → sub(1, 300), чтобы видеть полный текст ошибки
 local function fetchAndRun(file, attempts, tag)
     for attempt = 1, attempts do
-        -- v23.8 (I1): прогресс по каждому файлу — имя и номер попытки
         ORBIT.currentFile = file
         pcall(function()
             statusBar.Text = "> ⬇ " .. file .. "  (попытка " .. attempt .. "/" .. attempts .. ")"
@@ -1419,7 +1398,6 @@ local function fetchAndRun(file, attempts, tag)
         else
             local fn, err = loadstring(src)
             if not fn then
-                -- v23.7: показываем больше символов из сообщения компилятора
                 addLog("ERR", tag .. " compile: " .. tostring(err):sub(1, 300))
             else
                 local runOk, runErr = pcall(fn)
@@ -1427,7 +1405,6 @@ local function fetchAndRun(file, attempts, tag)
                     pcall(function() statusBar.Text = "> ✔ " .. file .. " — готово" end)
                     return true
                 end
-                -- v23.7: показываем больше символов из сообщения рантайма
                 addLog("ERR", tag .. " runtime: " .. tostring(runErr):sub(1, 300))
             end
         end
