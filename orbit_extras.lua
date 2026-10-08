@@ -1,27 +1,319 @@
---[[ ОРБИТА v23.2 — EXTRAS (исправлен S_STEP)
-     ❄️ Атмосфера: 7 типов + выбор из 50 цветов
-     🌠 Трейл-шлейф + 50 цветов
-     💥 Реактивные искры + 50 цветов
-]]
---[[ ИЗМЕНЕНИЯ (общий релиз v23.5):
-  🎨 разделы «Атмосфера / Шлейф / Искры» теперь во вкладке ✨ ЭФФЕКТЫ новой панели
-     (через ORBIT.ui.addSection / ORBIT.ui.makeButton / ORBIT.ui.addControl); с старой панелью
-     по-прежнему работают (запасной путь).
-  🐛 все кнопки — через onClick (Android); подключение CharacterAdded отключается в unload
-     (раньше при повторном запуске эффекты создавались дважды).
-]]
---[[ ФИКСЫ v23.6:
-  🐛 Heartbeat-коннекты extras (atmoConn, trailStreamConn, reactSparksConn) НЕ отключались
-     в ORBIT.unload — утечка: при повторной загрузке скрипта коннекты наслаивались и
-     продолжали дёргать уже несуществующие эмиттеры. Теперь все три отключаются.
-  🐛 папки extras (OrbitAtmo_*, OrbitTrailStream_*, OrbitReactSparks) НЕ удалялись из Workspace
-     при выгрузке — p1.unload чистит только свои папки. Теперь сносятся здесь же.
-]]
-
+-- ORBIT v24.0 | orbit_extras.lua
+-- Атмосфера (7 типов) + шлейф + реактивные искры + SFX (звуки/эмоции).
+-- v24: SFX встроен сюда; новые звуки fire/hit/combo/cd/empty/slowmo;
+--      R6/R15 проверка рига в Sfx.emote для dance/laugh/greet;
+--      ORBIT.extras.getColorByName; ORBIT.loaded.extras.
+-- Мини-игра «Ловля звёзд» живёт в orbit_minigame.lua (шаг 13 загрузчика).
+-- Идентификаторы — латиница, комментарии — русский.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Extras] ORBIT не найден!"); return end
 
--- Ждём UI (если p4 ещё не готов)
+-- ============================================================
+--       SFX (v24: встроен в extras; ранее orbit_sfx.lua)
+-- ============================================================
+do
+local SoundService    = game:GetService("SoundService")
+local ContentProvider = game:GetService("ContentProvider")
+local Debris          = game:GetService("Debris")
+if type(ORBIT.SOUNDS) ~= "table" then ORBIT.SOUNDS = { Enabled = true, Volume = 1 } end
+if ORBIT.SOUNDS.Enabled == nil then ORBIT.SOUNDS.Enabled = true end
+if ORBIT.SOUNDS.Volume == nil then ORBIT.SOUNDS.Volume = 1 end
+local Sfx = {}
+
+-- ============================================================
+--              ВСЕ ЗВУКИ
+-- ============================================================
+local IDS = {
+    click       = "rbxasset://sounds/button.wav",
+    switch      = "rbxasset://sounds/switch.wav",
+    ping        = "rbxasset://sounds/electronicpingshort.wav",
+    snap        = "rbxasset://sounds/snap.mp3",
+    dodge       = "rbxassetid://140721035016341",
+    afterDodge  = "rbxassetid://6325779988",
+    sans        = "rbxassetid://135692693675195",
+    laugh       = "rbxassetid://113650760423588",
+    botCollect  = "rbxassetid://12221967",
+    fire        = "rbxasset://sounds/snap.mp3",
+    hit         = "rbxasset://sounds/electronicpingshort.wav",
+    combo       = "rbxasset://sounds/switch.wav",
+    cd          = "rbxasset://sounds/electronicpingshort.wav",
+    empty       = "rbxasset://sounds/button.wav",
+    slowmo      = "rbxasset://sounds/snap.mp3",
+}
+
+if ORBIT.sfxFolder and ORBIT.sfxFolder.Parent then pcall(function() ORBIT.sfxFolder:Destroy() end) end
+local folder = Instance.new("Folder")
+folder.Name = "OrbitSfx_" .. tostring(math.random(100000, 999999))
+folder.Parent = SoundService
+ORBIT.sfxFolder = folder
+
+local templates = {}
+for name, id in pairs(IDS) do
+    local s = Instance.new("Sound")
+    s.Name = name
+    s.SoundId = id
+    s.Volume = 0.5
+    s.Parent = folder
+    templates[name] = s
+end
+
+task.spawn(function()
+    pcall(function() ContentProvider:PreloadAsync(folder:GetChildren()) end)
+end)
+
+-- ============================================================
+--              АНТИСПАМ И ВОСПРОИЗВЕДЕНИЕ
+-- ============================================================
+local lastPlay = {}
+
+local function settings()
+    local s = ORBIT.SOUNDS
+    local enabled = true
+    local volume = 1
+    if type(s) == "table" then
+        if s.Enabled == false then enabled = false end
+        volume = tonumber(s.Volume) or 1
+    end
+    return enabled, volume
+end
+
+local function sfxPlayRaw(name, vol, pitch)
+    local tpl = templates[name]
+    if not tpl then return end
+    local enabled, master = settings()
+    if not enabled or master <= 0 then return end
+    local now = os.clock()
+    if lastPlay[name] and now - lastPlay[name] < 0.04 then return end
+    lastPlay[name] = now
+    local s = tpl:Clone()
+    s.Volume = tpl.Volume * (vol or 1) * master
+    s.PlaybackSpeed = pitch or 1
+    s.Parent = SoundService
+    s:Play()
+    Debris:AddItem(s, 6)
+end
+function Sfx.play(name, vol, pitch)
+    pcall(sfxPlayRaw, name, vol, pitch)
+end
+
+-- ============================================================
+--              R6/R15 — вспомогательные
+-- ============================================================
+local function rigOfLocal()
+    -- сначала спрашиваем ORBIT (устанавливается animations.lua),
+    -- потом считаем сами
+    if ORBIT.RigType == "R6" or ORBIT.RigType == "R15" then return ORBIT.RigType end
+    local c = ORBIT.LocalPlayer and ORBIT.LocalPlayer.Character
+    local h = c and c:FindFirstChildOfClass("Humanoid")
+    if h then
+        local rig = (h.RigType == Enum.HumanoidRigType.R15) and "R15" or "R6"
+        ORBIT.RigType = rig
+        return rig
+    end
+    return "R15"
+end
+local function isR15Local() return rigOfLocal() == "R15" end
+-- обновление кэша при спавне
+task.spawn(function()
+    local LP = ORBIT.LocalPlayer
+    if not LP then return end
+    if LP.Character then rigOfLocal() end
+    LP.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        rigOfLocal()
+    end)
+end)
+
+-- ============================================================
+--              ЭМОЦИЯ LAUGH (безопасная)
+-- ============================================================
+local function playLaughEmote()
+    pcall(function()
+        local char = ORBIT.LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        local ok = pcall(function() hum:PlayEmote("Laugh") end)
+        if not ok then return end
+        task.delay(2, function()
+            pcall(function()
+                local animator = hum:FindFirstChildOfClass("Animator")
+                if not animator then return end
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                    local name = track.Animation and track.Animation.Name or ""
+                    if name:lower():find("laugh") or name:lower():find("emote") then
+                        track:Stop(0)
+                    end
+                end
+            end)
+        end)
+    end)
+end
+
+-- ============================================================
+--              ЭМОЦИИ
+-- ============================================================
+local voiceUntil = 0
+local emoteCooldown = {}
+
+local SANS_PHRASES = {
+    "ну и денёк...", "птички поют, цветочки цветут...", "ты выбрал не тот день.",
+    "у тебя плохое предчувствие?", "а я тут просто стою.",
+}
+
+local function voiceFree()
+    return os.clock() >= voiceUntil
+end
+local function takeVoice(sec)
+    voiceUntil = os.clock() + (sec or 1.5)
+end
+
+local function playRobloxEmote(emoteName, stopAfter)
+    local okAll = false
+    pcall(function()
+        local char = ORBIT.LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        okAll = pcall(function() hum:PlayEmote(emoteName) end)
+        task.delay(stopAfter or 2.5, function()
+            pcall(function()
+                local animator = hum:FindFirstChildOfClass("Animator")
+                if not animator then return end
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                    local nm = (track.Animation and track.Animation.Name or ""):lower()
+                    if nm:find("laugh") or nm:find("emote") or nm:find("dance") or nm:find("wave")
+                       or nm:find("cheer") or nm:find("point") then
+                        track:Stop(0.2)
+                    end
+                end
+            end)
+        end)
+    end)
+    return okAll
+end
+
+local function sayBubble(text, sec)
+    pcall(function()
+        local char = ORBIT.LocalPlayer.Character
+        local head = char and char:FindFirstChild("Head")
+        if not head then return end
+        local old = head:FindFirstChild("_OrbitSay")
+        if old then old:Destroy() end
+        local g = Instance.new("BillboardGui")
+        g.Name = "_OrbitSay"; g.Size = UDim2.new(0, 220, 0, 40); g.StudsOffset = Vector3.new(0, 3, 0)
+        g.AlwaysOnTop = true; g.Adornee = head; g.Parent = head
+        local l = Instance.new("TextLabel")
+        l.Size = UDim2.new(1, 0, 1, 0); l.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        l.BackgroundTransparency = 0.2; l.TextColor3 = Color3.fromRGB(255, 255, 255)
+        l.Font = Enum.Font.Code; l.TextScaled = true; l.Text = text; l.Parent = g
+        Instance.new("UICorner", l).CornerRadius = UDim.new(0, 8)
+        Debris:AddItem(g, sec or 2.5)
+    end)
+end
+
+-- name: "sans" | "laugh" | "dance" | "greet" | "dodge"
+-- v24.0-fix1: dance/laugh/greet учитывают R6/R15
+function Sfx.emote(name)
+    local now = os.clock()
+    local cd = emoteCooldown[name] or 0
+    if now < cd then return false end
+    emoteCooldown[name] = now + 1.2
+
+    if name == "sans" then
+        if not voiceFree() then return false end
+        takeVoice(1.8)
+        Sfx.play("sans", 1, 1)
+        if ORBIT.mode ~= "normal" then
+            sayBubble(SANS_PHRASES[math.random(1, #SANS_PHRASES)], 3)
+        end
+        return true
+    elseif name == "laugh" then
+        if not voiceFree() then return false end
+        takeVoice(1.8)
+        -- laugh есть и на R6, и на R15; запас — cheer
+        local ok = playRobloxEmote("Laugh", 2)
+        if not ok then pcall(function()
+            local hum = ORBIT.LocalPlayer.Character and ORBIT.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum:PlayEmote("cheer") end
+        end) end
+        Sfx.play("laugh", 0.8, 1)
+        return true
+    elseif name == "dance" then
+        local dances = isR15Local() and { "dance", "dance2", "dance3" } or { "dance" }
+        playRobloxEmote(dances[math.random(1, #dances)], 6)
+        return true
+    elseif name == "greet" then
+        -- wave работает и на R6, и на R15
+        playRobloxEmote("wave", 2.5)
+        if ORBIT.mode ~= "normal" then sayBubble("привет!", 2) end
+        return true
+    elseif name == "dodge" then
+        Sfx.play("dodge", 1, 1)
+        task.delay(0.45, function()
+            if math.random() < 0.5 then Sfx.emote("sans") else Sfx.emote("laugh") end
+        end)
+        return true
+    end
+    return false
+end
+
+-- ============================================================
+--              ПОДМЕНА ФУНКЦИЙ В ORBIT
+-- ============================================================
+if not ORBIT._sfxPatched then
+    ORBIT._origPlayClick      = ORBIT.playClick
+    ORBIT._origPlayDodge      = ORBIT.playDodge
+    ORBIT._origPlayBotCollect = ORBIT.playBotCollect
+    ORBIT._origPlayWin        = ORBIT.playWin
+    ORBIT._origPlayBuy        = ORBIT.playBuy
+    ORBIT._sfxPatched = true
+end
+
+ORBIT.playClick = function()
+    Sfx.play("click", 1, 1)
+end
+ORBIT.playBotCollect = function()
+    Sfx.play("botCollect", 1, 1.2)
+end
+ORBIT.playDodge = function()
+    Sfx.emote("dodge")
+end
+ORBIT.emote = function(name) return Sfx.emote(name) end
+ORBIT.playWin = function()
+    Sfx.play("ping", 1, 1.6)
+end
+ORBIT.playBuy = function()
+    Sfx.play("switch", 1, 1.3)
+end
+ORBIT.playSwitch = function()
+    Sfx.play("switch", 1, 1)
+end
+ORBIT.playProtect = function()
+    Sfx.play("snap", 1, 0.9)
+end
+
+ORBIT.Sfx = Sfx
+
+do
+    local prevUnload = ORBIT.unload
+    ORBIT.unload = function()
+        pcall(function() folder:Destroy() end)
+        if ORBIT._sfxPatched then
+            ORBIT.playClick = ORBIT._origPlayClick or ORBIT.playClick
+            ORBIT.playDodge = ORBIT._origPlayDodge or ORBIT.playDodge
+            ORBIT.playBotCollect = ORBIT._origPlayBotCollect or ORBIT.playBotCollect
+            ORBIT.playWin = ORBIT._origPlayWin or ORBIT.playWin
+            ORBIT.playBuy = ORBIT._origPlayBuy or ORBIT.playBuy
+            ORBIT._sfxPatched = nil
+        end
+        if prevUnload then pcall(prevUnload) end
+    end
+end
+end -- SFX
+
+-- ============================================================
+--       ЖДЁМ UI (если p4 ещё не готов)
+-- ============================================================
 local waitT = 0
 while (not ORBIT.ui or not ORBIT.ui.panel) and waitT < 20 do
     task.wait(0.3)
@@ -72,6 +364,12 @@ local function getColorByIndex(i)
     local c = COLORS_LIST[((i - 1) % #COLORS_LIST) + 1]
     if c.rainbow then return Color3.fromHSV((tick() * 0.2) % 1, 0.9, 1) end
     return c.c or Color3.fromRGB(255,255,255)
+end
+local function getColorByName(name)
+    for i, c in ipairs(COLORS_LIST or {}) do
+        if c.name == name then return getColorByIndex(i) end
+    end
+    return Color3.fromRGB(255,255,255)
 end
 local function getColorNameByIndex(i)
     if not COLORS_LIST or #COLORS_LIST == 0 then return "?" end
@@ -260,7 +558,6 @@ local function setupAtmo()
         atmoConn = RunService.Heartbeat:Connect(updateAtmo)
     end
 end
-
 -- ============================================================
 --       ТРЕЙЛ-ШЛЕЙФ
 -- ============================================================
@@ -496,7 +793,6 @@ local function oldMakeButton(text, y, h, bgColor, textColor)
     return b
 end
 
--- новая панель: раздел во вкладке «ЭФФЕКТЫ»; старая — прежняя раскладка по Y
 local function makeBigSection(text, y, color)
     if UI.addSection then return UI.addSection(text, color, "fx") end
     return oldMakeBigSection(text, y, color)
@@ -504,7 +800,7 @@ end
 local function makeButton(text, y, h, bgColor, textColor)
     if UI.makeButton then
         local hh = h
-        if h == BTN_H then hh = nil end          -- обычная кнопка: может стоять парой в два столбца
+        if h == BTN_H then hh = nil end
         return UI.makeButton(text, hh, bgColor, textColor)
     end
     return oldMakeButton(text, y, h, bgColor, textColor)
@@ -768,31 +1064,28 @@ if SETTINGS.TrailStreamEnabled then setupTrailStream() end
 if SETTINGS.ReactSparksEnabled then setupReactSparks() end
 
 -- ============================================================
---       ВЫГРУЗКА (ФИКС v23.6)
+--       ВЫГРУЗКА
 -- ============================================================
 do
     local prevUnload = ORBIT.unload
     ORBIT.unload = function()
         pcall(function() respawnConn:Disconnect() end)
-
-        -- 🐛 ФИКС v23.6: отключаем Heartbeat-коннекты extras (утечка при повторной загрузке)
         if atmoConn then pcall(function() atmoConn:Disconnect() end); atmoConn = nil end
         if trailStreamConn then pcall(function() trailStreamConn:Disconnect() end); trailStreamConn = nil end
         if reactSparksConn then pcall(function() reactSparksConn:Disconnect() end); reactSparksConn = nil end
-
-        -- 🐛 ФИКС v23.6: убираем папки extras из Workspace (p1.unload о них не знает)
         if atmoFolder then pcall(function() atmoFolder:Destroy() end); atmoFolder = nil; atmoEmitter = nil end
         if trailStreamFolder then
             pcall(function() trailStreamFolder:Destroy() end)
             trailStreamFolder = nil; trailStreamPart = nil; trailStreamTrail = nil
         end
         if reactSparksFolder then pcall(function() reactSparksFolder:Destroy() end); reactSparksFolder = nil end
-
         if prevUnload then pcall(prevUnload) end
     end
 end
 
--- v23.6: пересчитать локальные индексы из SETTINGS (после загрузки сохранения / пресета стихии)
+-- ============================================================
+--       СИНХРОНИЗАЦИЯ ИЗ SETTINGS
+-- ============================================================
 local function syncFromSettings()
     for i, t in ipairs(ATMO_TYPES) do if t.name == SETTINGS.AtmoType then atmoTypeIndex = i; break end end
     for i, t in ipairs(ATMO_INTENSITY) do if t.name == SETTINGS.AtmoIntensity then atmoIntensityIndex = i; break end end
@@ -804,7 +1097,6 @@ local function syncFromSettings()
     pcall(setupReactSparks)
 end
 
--- Включить атмосферу одной командой (используется пресетами стихий): nil/false в enabled — выключить
 local function setAtmo(enabled, typeName, intensityName, sizeName)
     SETTINGS.AtmoEnabled = enabled == true
     if typeName then SETTINGS.AtmoType = typeName end
@@ -822,11 +1114,16 @@ ORBIT.extras = {
     setupReactSparks = setupReactSparks,
     reactBurst = reactBurst,
     getColorByIndex = getColorByIndex,
+    getColorByName = getColorByName,
     getColorNameByIndex = getColorNameByIndex,
 }
 
+ORBIT.loaded = ORBIT.loaded or {}
+ORBIT.loaded.extras = true
+ORBIT.loaded.sfx = true
+
 if ORBIT.notify then
-    ORBIT.notify("❄️ Extras v23.6 загружен", Color3.fromRGB(180,220,255), 3)
+    ORBIT.notify("❄️ Extras v24.0 загружен", Color3.fromRGB(180,220,255), 3)
 end
-warn("[Orbit Extras v23.6] Загружен ✅")
+warn("[Orbit Extras v24.0] Загружен ✅")
 return true
