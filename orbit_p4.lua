@@ -1054,7 +1054,8 @@ statsLabel.Parent = panel
 Instance.new("UICorner", statsLabel).CornerRadius = UDim.new(0, 6)
 yCursor = yCursor + 106
 
-local resetSessionBtn = makeButton("🔄 Сбросить статистику", yCursor, BTN_H, Color3.fromRGB(50,40,40), Color3.fromRGB(255,180,180)); yCursor = yCursor + BTN_H + S_STEP + 6 UIK.finishBuild()
+local resetSessionBtn = makeButton("🔄 Сбросить статистику", yCursor, BTN_H, Color3.fromRGB(50,40,40), Color3.fromRGB(255,180,180)); yCursor = yCursor + BTN_H + S_STEP + 6
+UIK.finishBuild()
 
 -- ============================================================
 --       ОТКРЫТИЕ/ЗАКРЫТИЕ
