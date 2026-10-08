@@ -1,4 +1,6 @@
--- ОРБИТА v23.7 — ЧАСТЬ 2/4: ФИГУРЫ (28 шт.)
+-- ORBIT v24.0 | orbit_p2.lua
+-- ОРБИТА v24.0 — ЧАСТЬ 2/4: ФИГУРЫ (28 шт.)
+-- v24.0: сердце 7×6 (PIX_HEART), HEART_COLORS {nm, c}, экспорт ORBIT.createPixelHeart / HEART_COLORS / PIX_HEART.
 --
 -- ИСТОРИЯ:
 --   v22.8 — новая фигура «СКАЛА» (createRock v2) — крепыш в фиолетовом бархатном костюме
@@ -252,7 +254,7 @@ local function create3DTriangle(size, color, name)
     return model, root, bodies
 end
 
-local HEART_PATTERN = { "11011", "11111", "11111", "01110", "00100" }
+local HEART_PATTERN = { "0110110", "1111111", "1111111", "0111110", "0011100", "0001000" }  -- v24.0: PIX_HEART 7×6
 local function createPixelHeart(sizeStuds, color, name)
     local rows, cols = #HEART_PATTERN, #HEART_PATTERN[1]
     local pixel = sizeStuds/cols
@@ -291,7 +293,7 @@ local function createPixelHeart(sizeStuds, color, name)
             else c = c + 1 end
         end
     end
-    local hx = (1.5 - (cols+1)/2)*pixel
+    local hx = (2.5 - (cols+1)/2)*pixel
     local hy = ((rows+1)/2 - 1)*pixel
     local shine = newPart(model, "Shine", Vector3.new(pixel*0.55, pixel*0.25, pixel*0.12), CFrame.new(hx, hy + pixel*0.12, -pixel*0.72), Color3.fromRGB(255,255,255), true)
     shine.Transparency = 0.15; table.insert(bodies, shine)
@@ -301,9 +303,17 @@ local function createPixelHeart(sizeStuds, color, name)
 end
 
 local HEART_COLORS = {
-    Color3.fromRGB(255,140,40), Color3.fromRGB(255,230,60), Color3.fromRGB(255,0,200),
-    Color3.fromRGB(220,20,60), Color3.fromRGB(0,255,120), Color3.fromRGB(0,220,220), Color3.fromRGB(40,80,255),
+    { nm = "ОРАНЖЕВЫЙ", c = Color3.fromRGB(245, 145, 40) },
+    { nm = "ЖЁЛТЫЙ",    c = Color3.fromRGB(240, 230, 40) },
+    { nm = "МАДЖЕНТА",  c = Color3.fromRGB(230, 30, 200) },
+    { nm = "КРАСНЫЙ",   c = Color3.fromRGB(200, 25, 30) },
+    { nm = "ЛАЙМ",      c = Color3.fromRGB(120, 240, 60) },
+    { nm = "СИНИЙ",     c = Color3.fromRGB(30, 60, 230) },
+    { nm = "БИРЮЗОВЫЙ", c = Color3.fromRGB(60, 230, 200) },
 }
+ORBIT.createPixelHeart = createPixelHeart
+ORBIT.HEART_COLORS = HEART_COLORS
+ORBIT.PIX_HEART = HEART_PATTERN
 
 local function createPalmPlate(model, bodies, cf, size, color)
     local half = size*0.5; local cornerR = size*0.22
@@ -1189,9 +1199,10 @@ ORBIT.SHAPE_PRESETS = {
     { name = "ГОЛОВА", create = function(s, n)
         local m, r, b = createHead(s, Color3.fromRGB(255,220,60), n)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s } end },
-    { name = "СЕРДЦЕ", create = function(s, n)
+    { name = "СЕРДЦЕ", create = function(s, n, idx)
         local hs = s*1.8
-        local m, r, b = createPixelHeart(hs, Color3.fromRGB(255,60,120), n)
+        local hc = HEART_COLORS[((idx or 1)-1) % #HEART_COLORS + 1].c
+        local m, r, b = createPixelHeart(hs, hc, n)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=hs } end },
     { name = "ЗВЕЗДА", create = function(s, n)
         local m, r, b = create3DStar(s, Color3.fromRGB(255,200,40), n)
@@ -1215,7 +1226,7 @@ ORBIT.SHAPE_PRESETS = {
         local m, r, b = create3DHand(s, Color3.fromRGB(235,230,215), n, false)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.2 } end },
     { name = "РУКА-СЕРДЦЕ", create = function(s, n, idx)
-        local hc = HEART_COLORS[((idx or 1)-1) % #HEART_COLORS + 1]
+        local hc = HEART_COLORS[((idx or 1)-1) % #HEART_COLORS + 1].c
         local m, r, b = create3DHand(s, Color3.fromRGB(235,230,215), n, true, hc)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.2 } end },
     { name = "ГАСТЕР БЛАСТЕР", create = function(s, n)
