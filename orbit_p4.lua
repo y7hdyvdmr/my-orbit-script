@@ -1054,9 +1054,7 @@ statsLabel.Parent = panel
 Instance.new("UICorner", statsLabel).CornerRadius = UDim.new(0, 6)
 yCursor = yCursor + 106
 
-local resetSessionBtn = makeButton("🔄 Сбросить статистику", yCursor, BTN_H, Color3.fromRGB(50,40,40), Color3.fromRGB(255,180,180)); yCursor = yCursor + BTN_H + S_STEP + 6
-
-UIK.finishBuild()
+local resetSessionBtn = makeButton("🔄 Сбросить статистику", yCursor, BTN_H, Color3.fromRGB(50,40,40), Color3.fromRGB(255,180,180)); yCursor = yCursor + BTN_H + S_STEP + 6UIK.finishBuild()
 
 -- ============================================================
 --       ОТКРЫТИЕ/ЗАКРЫТИЕ
@@ -1986,6 +1984,934 @@ onClick(heartSizeBtn, function()
     SETTINGS.HeartScale = HEART_STEPS[heartScaleIndex]
     refreshHeartSizeBtn(); ORBIT.rebuildAllRings()
 end)
+UIK.finishBuild()
+
+-- ============================================================
+--       ОТКРЫТИЕ/ЗАКРЫТИЕ
+-- ============================================================
+local panelOpen = false
+local dragMoved = false
+local panelScale = Instance.new("UIScale")
+panelScale.Parent = window
+
+local function setPanel(open)
+    panelOpen = open
+    if open then
+        local abs = screenGui.AbsoluteSize
+        local w = math.min(PANEL_W, abs.X - 16)
+        local h = math.clamp(abs.Y - 40, 220, IS_MOBILE and 560 or 780)
+        window.Size = UDim2.fromOffset(w, h)
+        window.Position = UDim2.fromOffset(
+            math.clamp(mainBtn.Position.X.Offset + (IS_MOBILE and 72 or 70), 4, math.max(4, abs.X - w - 8)),
+            math.clamp(math.floor((abs.Y - h) / 2), 4, math.max(4, abs.Y - h - 4)))
+        panelScale.Scale = 0.88
+        window.Visible = true
+        TweenService:Create(panelScale, TweenInfo.new(0.22, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+        relayout()
+    else
+        TweenService:Create(panelScale, TweenInfo.new(0.12), { Scale = 0.88 }):Play()
+        task.delay(0.13, function()
+            if not panelOpen then window.Visible = false end
+        end)
+    end
+end
+
+onClick(mainBtn, function()
+    if dragMoved then dragMoved = false; return end
+    setPanel(not panelOpen)
+end)
+onClick(panelCloseBtn, function() setPanel(false) end)
+
+-- ============================================================
+--       ОБРАБОТЧИКИ
+-- ============================================================
+local ringButtons = { [2]=ring2Btn, [3]=ring3Btn, [4]=ring4Btn, [5]=ring5Btn }
+local function refreshRingButton(ri)
+    local btn = ringButtons[ri]; if not btn then return end
+    if rings[ri].enabled then
+        btn.Text = "➖ Кольцо " .. ri
+        btn.BackgroundColor3 = Color3.fromRGB(55,40,40); btn.TextColor3 = Color3.fromRGB(255,160,160)
+    else
+        btn.Text = "➕ Кольцо " .. ri
+        btn.BackgroundColor3 = Color3.fromRGB(40,55,40); btn.TextColor3 = Color3.fromRGB(160,255,160)
+    end
+end
+
+onClick(toggleBtn, function()
+    ORBIT.setEnabled(not ORBIT.enabled)
+    if ORBIT.enabled then
+        toggleBtn.Text = "🟢 ВКЛЮЧЕНО"; toggleBtn.TextColor3 = Color3.fromRGB(0,255,120); toggleBtn.BackgroundColor3 = Color3.fromRGB(40,50,40)
+    else
+        toggleBtn.Text = "🔴 ВЫКЛЮЧЕНО"; toggleBtn.TextColor3 = Color3.fromRGB(255,80,80); toggleBtn.BackgroundColor3 = Color3.fromRGB(50,35,40)
+    end
+end)
+
+task.spawn(function()
+    while screenGui and screenGui.Parent do
+        task.wait(0.5)
+        if statsLabel and statsLabel.Parent and ORBIT.SESSION then
+            local s = ORBIT.SESSION
+            local elapsed = tick() - (s.startTime or tick())
+            local mins = math.floor(elapsed / 60)
+            local secs = math.floor(elapsed % 60)
+            local ringTargets = 0; for _ in pairs(ORBIT.targetRings or {}) do ringTargets = ringTargets + 1 end
+            local savesCount = 0; for _ in pairs(ORBIT.SAVES or {}) do savesCount = savesCount + 1 end
+            statsLabel.Text = string.format(
+                "🎁 Ботов: %d  |  🚩 Читеров: %d\n🥷 Уворотов: %d\n🛡️ Защит: %d\n🎯 Колец на людях: %d  |  💾 Сохр: %d\n⏱️ %d:%02d",
+                s.botsCollected or 0, s.cheatersTagged or 0,
+                s.dodgesMade or 0, s.protectionsTriggered or 0,
+                ringTargets, savesCount, mins, secs)
+        end
+    end
+end)
+
+onClick(resetSessionBtn, function()
+    if ORBIT.SESSION then
+        ORBIT.SESSION.botsCollected = 0
+        ORBIT.SESSION.cheatersTagged = 0
+        ORBIT.SESSION.dodgesMade = 0
+        ORBIT.SESSION.protectionsTriggered = 0
+        ORBIT.SESSION.startTime = tick()
+        ORBIT.notify("📊 Статистика сброшена", Color3.fromRGB(180,220,255), 2)
+    end
+end)
+
+onClick(espBtn, function()
+    if ORBIT.setESPEnabled then
+        ORBIT.setESPEnabled(not ORBIT.ESP.Enabled)
+        espBtn.Text = "👁️ ESP игроков: " .. (ORBIT.ESP.Enabled and "ВКЛ" or "ВЫКЛ")
+        if ORBIT.ESP.Enabled then
+            espBtn.BackgroundColor3 = Color3.fromRGB(40,80,60)
+            espBtn.TextColor3 = Color3.fromRGB(180,255,200)
+        else
+            espBtn.BackgroundColor3 = Color3.fromRGB(50,60,90)
+            espBtn.TextColor3 = Color3.fromRGB(200,220,255)
+        end
+    end
+end)
+
+task.spawn(function()
+    while screenGui and screenGui.Parent do
+        task.wait(0.5)
+        if taggedCount and ORBIT.getTaggedPlayers then
+            taggedCount.Text = "⭐ Список читеров: " .. #ORBIT.getTaggedPlayers()
+        end
+    end
+end)
+
+local function rebuildPeopleList()
+    local list = ORBIT.getPlayerList and ORBIT.getPlayerList() or {}
+    local sigParts = {}
+    for _, info in ipairs(list) do
+        sigParts[#sigParts + 1] = info.name .. (info.hasRing and "1" or "0") .. (info.isTagged and "1" or "0")
+    end
+    local sig = table.concat(sigParts, "|")
+    if sig == NB.peopleSig then return end
+    NB.peopleSig = sig
+    for _, ch in ipairs(peopleListScroll:GetChildren()) do
+        if ch:IsA("Frame") or ch:IsA("TextLabel") then ch:Destroy() end
+    end
+    if #list == 0 then
+        local empty = Instance.new("TextLabel")
+        empty.Size = UDim2.new(1, -6, 0, 24)
+        empty.BackgroundTransparency = 1
+        empty.Text = "— на сервере только ты —"
+        empty.TextColor3 = Color3.fromRGB(140, 130, 170)
+        empty.Font = Enum.Font.Gotham
+        empty.TextSize = 11
+        empty.LayoutOrder = 1
+        empty.Parent = peopleListScroll
+        return
+    end
+    for i, info in ipairs(list) do
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, -6, 0, 52)
+        row.BackgroundColor3 = Color3.fromRGB(28, 22, 45)
+        row.BorderSizePixel = 0
+        row.LayoutOrder = i
+        row.Parent = peopleListScroll
+        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Size = UDim2.new(1, -8, 0, 18)
+        nameLbl.Position = UDim2.new(0, 6, 0, 2)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Text = "👤 " .. info.name
+        nameLbl.TextColor3 = Color3.fromRGB(230, 220, 255)
+        nameLbl.Font = Enum.Font.GothamBold
+        nameLbl.TextSize = 11
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLbl.Parent = row
+
+        local btnRow = Instance.new("Frame")
+        btnRow.Size = UDim2.new(1, -8, 0, 24)
+        btnRow.Position = UDim2.new(0, 4, 0, 22)
+        btnRow.BackgroundTransparency = 1
+        btnRow.Parent = row
+
+        local ringBtn = Instance.new("TextButton")
+        ringBtn.Size = UDim2.new(0.5, -2, 1, 0)
+        if info.hasRing then
+            ringBtn.Text = "➖ Убрать"
+            ringBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
+            ringBtn.TextColor3 = Color3.fromRGB(255, 160, 160)
+        else
+            ringBtn.Text = "➕ Полное кольцо"
+            ringBtn.BackgroundColor3 = Color3.fromRGB(40, 70, 45)
+            ringBtn.TextColor3 = Color3.fromRGB(160, 255, 180)
+        end
+        ringBtn.Font = Enum.Font.GothamBold
+        ringBtn.TextSize = 10
+        ringBtn.Parent = btnRow
+        Instance.new("UICorner", ringBtn).CornerRadius = UDim.new(0, 5)
+
+        local tagBtn = Instance.new("TextButton")
+        tagBtn.Size = UDim2.new(0.5, -2, 1, 0)
+        tagBtn.Position = UDim2.new(0.5, 2, 0, 0)
+        if info.isTagged then
+            tagBtn.Text = "✅ Снять метку"
+            tagBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 50)
+            tagBtn.TextColor3 = Color3.fromRGB(220, 200, 220)
+        else
+            tagBtn.Text = "🚩 Читер"
+            tagBtn.BackgroundColor3 = Color3.fromRGB(80, 30, 55)
+            tagBtn.TextColor3 = Color3.fromRGB(255, 150, 200)
+        end
+        tagBtn.Font = Enum.Font.GothamBold
+        tagBtn.TextSize = 10
+        tagBtn.Parent = btnRow
+        Instance.new("UICorner", tagBtn).CornerRadius = UDim.new(0, 5)
+
+        onClick(ringBtn, function()
+            if ORBIT.toggleTargetRings then ORBIT.toggleTargetRings(info.player) end
+            task.wait(0.1); rebuildPeopleList()
+        end)
+        onClick(tagBtn, function()
+            if ORBIT.toggleTagCheater then ORBIT.toggleTagCheater(info.player) end
+            task.wait(0.1); rebuildPeopleList()
+        end)
+    end
+end
+rebuildPeopleList()
+
+onClick(refreshPeopleBtn, function()
+    NB.peopleSig = nil
+    rebuildPeopleList()
+    refreshPeopleBtn.Text = "✅ Обновлено"
+    task.wait(0.8)
+    refreshPeopleBtn.Text = "🔄 Обновить список игроков"
+end)
+
+onClick(addAllRingsBtn, function() if ORBIT.addRingsToAll then ORBIT.addRingsToAll() end; task.wait(0.2); rebuildPeopleList() end)
+onClick(remAllRingsBtn, function() if ORBIT.removeRingsFromAll then ORBIT.removeRingsFromAll() end; task.wait(0.2); rebuildPeopleList() end)
+onClick(toggleAllRingsBtn, function() if ORBIT.toggleAllRings then ORBIT.toggleAllRings() end; task.wait(0.2); rebuildPeopleList() end)
+
+task.spawn(function()
+    while screenGui and screenGui.Parent do
+        task.wait(4)
+        if window.Visible then pcall(rebuildPeopleList) end
+    end
+end)
+UIK.connect(Players.PlayerAdded, function(p) if p ~= LocalPlayer then task.wait(0.5); pcall(rebuildPeopleList) end end)
+UIK.connect(Players.PlayerRemoving, function(p) if p ~= LocalPlayer then task.wait(0.3); pcall(rebuildPeopleList) end end)
+
+-- БОТЫ
+onClick(botCreateNearBtn, function() if ORBIT.createBotNear then ORBIT.createBotNear() end end)
+onClick(botCreate5Btn, function() ORBIT.createMultipleBots(5) end)
+onClick(botCreate25Btn, function() ORBIT.createManyBots(25) end)
+onClick(botCreate100Btn, function() ORBIT.createManyBots(100) end)
+onClick(botRemoveAll, function() ORBIT.removeAllBots() end)
+onClick(botAutoCollectBtn, function()
+    ORBIT.botSettings.AutoCollect = not ORBIT.botSettings.AutoCollect
+    botAutoCollectBtn.Text = "🎁 Автосбор: " .. (ORBIT.botSettings.AutoCollect and "ВКЛ" or "ВЫКЛ")
+end)
+onClick(botRadiusBtn, function()
+    local steps = {6, 8, 10, 12, 15, 20, 25}
+    local idx = 1
+    for i, v in ipairs(steps) do if v == ORBIT.botSettings.CollectRadius then idx = i; break end end
+    ORBIT.botSettings.CollectRadius = steps[(idx % #steps) + 1]
+    botRadiusBtn.Text = "📏 Радиус сбора: " .. ORBIT.botSettings.CollectRadius .. " st"
+end)
+onClick(botShowPlayerRing, function()
+    ORBIT.botSettings.ShowPlayerRing = not ORBIT.botSettings.ShowPlayerRing
+    botShowPlayerRing.Text = "👤 Кольцо как у игрока: " .. (ORBIT.botSettings.ShowPlayerRing and "ВКЛ" or "ВЫКЛ")
+    ORBIT.notify("👤 Кольцо ботов: " .. (ORBIT.botSettings.ShowPlayerRing and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(200,180,255), 2)
+end)
+onClick(botSkinBtnEnd, function()
+    ORBIT.botSettings.UseMySkin = not ORBIT.botSettings.UseMySkin
+    botSkinBtnEnd.Text = "🎭 Скин как у меня: " .. (ORBIT.botSettings.UseMySkin and "ВКЛ" or "ВЫКЛ")
+    ORBIT.botAvatarTemplate = nil
+    ORBIT.notify("🎭 Скин бота: " .. (ORBIT.botSettings.UseMySkin and "ВКЛ" or "ВЫКЛ"), Color3.fromRGB(200, 180, 255), 2)
+end)
+if ORBIT.botSettings.UseMySkin then botSkinBtnEnd.Text = "🎭 Скин как у меня: ВКЛ" end
+if ORBIT.botSettings.ShowPlayerRing then botShowPlayerRing.Text = "👤 Кольцо как у игрока: ВКЛ" end
+
+-- КОЛЬЦА
+onClick(allRingsBtn, function()
+    local anyOff = false
+    for ri = 2, 5 do if not rings[ri].enabled then anyOff = true; break end end
+    local ns = anyOff
+    for ri = 2, 5 do if rings[ri].enabled ~= ns then ORBIT.setRingEnabled(ri, ns) end end
+    for ri = 2, 5 do refreshRingButton(ri) end
+    allRingsBtn.Text = ns and "⭕ Все кольца: ВЫКЛ" or "⭕ Все кольца: ВКЛ"
+end)
+for ri, btn in pairs(ringButtons) do
+    onClick(btn, function() ORBIT.setRingEnabled(ri, not rings[ri].enabled); refreshRingButton(ri) end)
+end
+
+-- ВНЕШНИЙ ВИД
+onClick(shapeCatBtn, function()
+    P.shapeCategoryIndex = P.shapeCategoryIndex + 1
+    if P.shapeCategoryIndex > #P.SHAPE_CATEGORIES then P.shapeCategoryIndex = 1 end
+    shapeCatBtn.Text = "📁 Категория: " .. P.SHAPE_CATEGORIES[P.shapeCategoryIndex].name
+    local idxs = ORBIT.getShapeIndicesInCategory()
+    if #idxs > 0 then
+        ORBIT.shapeIndex = idxs[1]
+        shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name
+        ORBIT.applyShapes(); ORBIT.rebuildAllRings()
+    end
+end)
+onClick(shapeBtn, function()
+    local idxs = ORBIT.getShapeIndicesInCategory()
+    if #idxs == 0 then return end
+    local pos = nil
+    for i, v in ipairs(idxs) do if v == ORBIT.shapeIndex then pos = i; break end end
+    local newPos = pos and (pos % #idxs) + 1 or 1
+    ORBIT.shapeIndex = idxs[newPos]
+    shapeBtn.Text = "🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name
+    ORBIT.applyShapes(); ORBIT.rebuildAllRings()
+end)
+onClick(shapeModeBtn, function()
+    P.formModeIndex = P.formModeIndex + 1; if P.formModeIndex > #P.FORM_MODES then P.formModeIndex = 1 end
+    shapeModeBtn.Text = "🎭 Режим: " .. P.FORM_MODES[P.formModeIndex].name
+    ORBIT.applyShapes(); ORBIT.rebuildAllRings()
+end)
+onClick(shapeSizeBtn, function()
+    P.shapeSizeIndex = P.shapeSizeIndex + 1; if P.shapeSizeIndex > #P.SHAPE_SIZE then P.shapeSizeIndex = 1 end
+    shapeSizeBtn.Text = "🔍 Размер: " .. P.SHAPE_SIZE[P.shapeSizeIndex].name
+    ORBIT.rebuildAllRings()
+end)
+onClick(gradientBtn, function()
+    SETTINGS.GradientEnabled = not SETTINGS.GradientEnabled
+    gradientBtn.Text = "🌈 Градиент: " .. (SETTINGS.GradientEnabled and "ВКЛ" or "ВЫКЛ")
+    if SETTINGS.GradientEnabled then SETTINGS.Rainbow = false end
+    ORBIT.rebuildAllRings()
+end)
+onClick(lightBtn, function()
+    SETTINGS.LightEnabled = not SETTINGS.LightEnabled
+    lightBtn.Text = "💡 Свет: " .. (SETTINGS.LightEnabled and "ВКЛ" or "ВЫКЛ")
+    ORBIT.rebuildAllRings()
+end)
+onClick(nameBtn, function()
+    SETTINGS.ShowBlockNames = not SETTINGS.ShowBlockNames
+    nameBtn.Text = "🏷️ Имена блоков: " .. (SETTINGS.ShowBlockNames and "ВКЛ" or "ВЫКЛ")
+    ORBIT.applyNameVisibility()
+end)
+onClick(autoSwapBtn, function()
+    SETTINGS.AutoShapeSwap = not SETTINGS.AutoShapeSwap
+    autoSwapBtn.Text = "🎭 Автосмена: " .. (SETTINGS.AutoShapeSwap and "ВКЛ" or "ВЫКЛ")
+    if SETTINGS.AutoShapeSwap then ORBIT.lastAutoSwap = tick() end
+end)
+
+-- ДВИЖЕНИЕ
+onClick(orbitBtn, function()
+    P.orbitIndex = P.orbitIndex + 1; if P.orbitIndex > #P.ORBIT then P.orbitIndex = 1 end
+    orbitBtn.Text = "📏 Орбита: " .. P.ORBIT[P.orbitIndex].name
+end)
+onClick(spreadBtn, function()
+    P.spreadIndex = P.spreadIndex + 1; if P.spreadIndex > #P.SPREAD then P.spreadIndex = 1 end
+    spreadBtn.Text = "📐 Разлёт: " .. P.SPREAD[P.spreadIndex].name
+end)
+onClick(heightBtn, function()
+    P.heightIndex = P.heightIndex + 1; if P.heightIndex > #P.HEIGHT then P.heightIndex = 1 end
+    heightBtn.Text = "⬆️ Высота: " .. P.HEIGHT[P.heightIndex].name
+end)
+onClick(speedBtn, function()
+    P.speedIndex = P.speedIndex + 1; if P.speedIndex > #P.SPEED then P.speedIndex = 1 end
+    SETTINGS.SpeedMultiplier = P.SPEED[P.speedIndex].value
+    speedBtn.Text = "⚡ Множитель: " .. P.SPEED[P.speedIndex].name
+end)
+onClick(speedModeBtn, function()
+    P.speedModeIndex = P.speedModeIndex + 1; if P.speedModeIndex > #P.SPEED_MODE then P.speedModeIndex = 1 end
+    speedModeBtn.Text = "⚙️ Режим: " .. P.SPEED_MODE[P.speedModeIndex].name
+    ORBIT.applySpeedModePreset()
+end)
+onClick(directionBtn, function()
+    P.directionIndex = P.directionIndex + 1; if P.directionIndex > #P.DIRECTION then P.directionIndex = 1 end
+    directionBtn.Text = "🔃 Направление: " .. P.DIRECTION[P.directionIndex].name
+    ORBIT.applyDirectionPreset()
+end)
+onClick(orbitPatternBtn, function()
+    P.orbitPatternIndex = P.orbitPatternIndex + 1; if P.orbitPatternIndex > #P.ORBIT_PATTERNS then P.orbitPatternIndex = 1 end
+    SETTINGS.OrbitPattern = P.ORBIT_PATTERNS[P.orbitPatternIndex].name
+    orbitPatternBtn.Text = "🌀 Узор: " .. SETTINGS.OrbitPattern
+end)
+
+-- КРУЧЕНИЕ
+onClick(spinBtn, function()
+    ORBIT.spinResetting = not ORBIT.spinResetting
+    spinBtn.Text = ORBIT.spinResetting and "↩️ Вращение: ВОЗВРАТ" or "↩️ Вращение в 0"
+end)
+onClick(spinAxisBtn, function()
+    ORBIT.spinAxisEnabled = not ORBIT.spinAxisEnabled
+    spinAxisBtn.Text = "🔄 Кручение оси: " .. (ORBIT.spinAxisEnabled and "ВКЛ" or "ВЫКЛ")
+end)
+onClick(spinDirBtn, function()
+    if ORBIT.spinAxisDir == "X" then ORBIT.spinAxisDir = "Y"; spinDirBtn.Text = "↔️ Ось: ВЛЕВО/ВПРАВО"
+    else ORBIT.spinAxisDir = "X"; spinDirBtn.Text = "↕️ Ось: ВЕРХ/ВНИЗ" end
+end)
+onClick(spinSpeedBtn, function()
+    P.spinSpeedIndex = P.spinSpeedIndex + 1; if P.spinSpeedIndex > #P.SPIN_SPEED then P.spinSpeedIndex = 1 end
+    SETTINGS.SpinSpeedMultiplier = P.SPIN_SPEED[P.spinSpeedIndex].value
+    spinSpeedBtn.Text = "🌀 Скорость: " .. P.SPIN_SPEED[P.spinSpeedIndex].name
+end)
+
+-- ЭФФЕКТЫ
+onClick(trailBtn, function()
+    SETTINGS.TrailEnabled = not SETTINGS.TrailEnabled
+    trailBtn.Text = "🌠 Трейлы: " .. (SETTINGS.TrailEnabled and "ВКЛ" or "ВЫКЛ")
+    ORBIT.rebuildAllRings()
+end)
+onClick(trailLenBtn, function()
+    P.trailLengthIndex = P.trailLengthIndex + 1; if P.trailLengthIndex > #P.TRAIL_LEN then P.trailLengthIndex = 1 end
+    SETTINGS.TrailLength = P.TRAIL_LEN[P.trailLengthIndex].value
+    trailLenBtn.Text = "📏 Длина: " .. P.TRAIL_LEN[P.trailLengthIndex].name
+    ORBIT.refreshAllTrails()
+end)
+onClick(trailWidBtn, function()
+    P.trailWidthIndex = P.trailWidthIndex + 1; if P.trailWidthIndex > #P.TRAIL_WID then P.trailWidthIndex = 1 end
+    SETTINGS.TrailWidth = P.TRAIL_WID[P.trailWidthIndex].value
+    trailWidBtn.Text = "🎚️ Толщина: " .. P.TRAIL_WID[P.trailWidthIndex].name
+    ORBIT.refreshAllTrails()
+end)
+onClick(waveBtn, function()
+    SETTINGS.WaveEnabled = not SETTINGS.WaveEnabled
+    waveBtn.Text = "🌊 Волна: " .. (SETTINGS.WaveEnabled and "ВКЛ" or "ВЫКЛ")
+end)
+onClick(explosionBtn, function()
+    SETTINGS.ExplosionEnabled = not SETTINGS.ExplosionEnabled
+    explosionBtn.Text = "💥 Взрыв: " .. (SETTINGS.ExplosionEnabled and "ВКЛ" or "ВЫКЛ")
+end)
+onClick(pulseBtn, function()
+    SETTINGS.PulseEnabled = not SETTINGS.PulseEnabled
+    pulseBtn.Text = "💓 Пульсация: " .. (SETTINGS.PulseEnabled and "ВКЛ" or "ВЫКЛ")
+end)
+
+-- АУРА
+local function refreshAura()
+    if SETTINGS.AuraEnabled then ORBIT.setupAura() end
+end
+onClick(auraBtn, function()
+    SETTINGS.AuraEnabled = not SETTINGS.AuraEnabled
+    auraBtn.Text = "🌀 Аура: " .. (SETTINGS.AuraEnabled and "ВКЛ" or "ВЫКЛ")
+    if SETTINGS.AuraEnabled then
+        if not SETTINGS.AuraRing and not SETTINGS.AuraParticles and not SETTINGS.AuraShapes then
+            SETTINGS.AuraRing = true; SETTINGS.AuraParticles = true; SETTINGS.AuraShapes = true
+            auraRingBtn.Text = "⭕ Кольцо: ВКЛ"; auraPartBtn.Text = "✨ Частицы: ВКЛ"; auraFigBtn.Text = "🔷 Фигуры: ВКЛ"
+        end
+        ORBIT.setupAura()
+    else
+        if ORBIT.auraFolder then ORBIT.auraFolder:Destroy(); ORBIT.auraFolder = nil end
+    end
+end)
+onClick(auraRingBtn, function()
+    SETTINGS.AuraRing = not SETTINGS.AuraRing
+    auraRingBtn.Text = "⭕ Кольцо: " .. (SETTINGS.AuraRing and "ВКЛ" or "ВЫКЛ")
+    refreshAura()
+end)
+onClick(auraPartBtn, function()
+    SETTINGS.AuraParticles = not SETTINGS.AuraParticles
+    auraPartBtn.Text = "✨ Частицы: " .. (SETTINGS.AuraParticles and "ВКЛ" or "ВЫКЛ")
+    refreshAura()
+end)
+onClick(auraFigBtn, function()
+    SETTINGS.AuraShapes = not SETTINGS.AuraShapes
+    auraFigBtn.Text = "🔷 Фигуры: " .. (SETTINGS.AuraShapes and "ВКЛ" or "ВЫКЛ")
+    refreshAura()
+end)
+onClick(auraShapeBtn, function()
+    ORBIT.auraShapeIndex = ORBIT.auraShapeIndex + 1
+    if ORBIT.auraShapeIndex > #SHAPE_PRESETS then ORBIT.auraShapeIndex = 1 end
+    auraShapeBtn.Text = "🔷 Форма ауры: " .. SHAPE_PRESETS[ORBIT.auraShapeIndex].name
+    refreshAura()
+end)
+onClick(auraSizeBtn, function()
+    P.auraSizeIndex = P.auraSizeIndex + 1; if P.auraSizeIndex > #P.AURA_SIZE then P.auraSizeIndex = 1 end
+    SETTINGS.AuraSize = P.AURA_SIZE[P.auraSizeIndex].value
+    auraSizeBtn.Text = "📐 Размер: " .. P.AURA_SIZE[P.auraSizeIndex].name
+    refreshAura()
+end)
+onClick(auraThickBtn, function()
+    P.auraThickIndex = P.auraThickIndex + 1; if P.auraThickIndex > #P.AURA_THICK then P.auraThickIndex = 1 end
+    SETTINGS.AuraThickness = P.AURA_THICK[P.auraThickIndex].value
+    auraThickBtn.Text = "🎚️ Толщина: " .. P.AURA_THICK[P.auraThickIndex].name
+    refreshAura()
+end)
+onClick(auraHeightBtn, function()
+    P.auraHeightIndex = P.auraHeightIndex + 1; if P.auraHeightIndex > #P.AURA_HEIGHT then P.auraHeightIndex = 1 end
+    SETTINGS.AuraHeight = P.AURA_HEIGHT[P.auraHeightIndex].value
+    auraHeightBtn.Text = "⬆️ Высота: " .. P.AURA_HEIGHT[P.auraHeightIndex].name
+    refreshAura()
+end)
+onClick(auraShapeScaleBtn, function()
+    P.auraShapeScaleIndex = P.auraShapeScaleIndex + 1; if P.auraShapeScaleIndex > #P.AURA_SHAPE_SCALE then P.auraShapeScaleIndex = 1 end
+    SETTINGS.AuraShapeScale = P.AURA_SHAPE_SCALE[P.auraShapeScaleIndex].factor
+    auraShapeScaleBtn.Text = "🔍 Масштаб фигур: " .. P.AURA_SHAPE_SCALE[P.auraShapeScaleIndex].name
+    refreshAura()
+end)
+onClick(auraPatternBtn, function()
+    P.auraPatternIndex = P.auraPatternIndex + 1
+    if P.auraPatternIndex > #P.AURA_PATTERNS then P.auraPatternIndex = 1 end
+    SETTINGS.AuraPattern = P.AURA_PATTERNS[P.auraPatternIndex].name
+    auraPatternBtn.Text = "🌀 Узор ауры: " .. SETTINGS.AuraPattern
+end)
+onClick(auraSpeedBtn, function()
+    P.auraSpeedIndex = P.auraSpeedIndex + 1; if P.auraSpeedIndex > #P.AURA_SPEED then P.auraSpeedIndex = 1 end
+    SETTINGS.AuraSpeedMult = P.AURA_SPEED[P.auraSpeedIndex].value
+    auraSpeedBtn.Text = "⚡ Скорость: " .. P.AURA_SPEED[P.auraSpeedIndex].name
+end)
+onClick(auraDirBtn, function()
+    P.auraDirIndex = P.auraDirIndex + 1; if P.auraDirIndex > #P.AURA_DIR then P.auraDirIndex = 1 end
+    SETTINGS.AuraDirection = P.AURA_DIR[P.auraDirIndex].value
+    auraDirBtn.Text = "🔃 Направление: " .. P.AURA_DIR[P.auraDirIndex].name
+end)
+onClick(auraTrailBtn, function()
+    SETTINGS.AuraTrailEnabled = not SETTINGS.AuraTrailEnabled
+    auraTrailBtn.Text = "🌠 Трейлы ауры: " .. (SETTINGS.AuraTrailEnabled and "ВКЛ" or "ВЫКЛ")
+    refreshAura()
+end)
+onClick(auraTrailLenBtn, function()
+    P.auraTrailLengthIndex = P.auraTrailLengthIndex + 1; if P.auraTrailLengthIndex > #P.AURA_TRAIL_LEN then P.auraTrailLengthIndex = 1 end
+    SETTINGS.AuraTrailLength = P.AURA_TRAIL_LEN[P.auraTrailLengthIndex].value
+    auraTrailLenBtn.Text = "📏 Длина трейла: " .. P.AURA_TRAIL_LEN[P.auraTrailLengthIndex].name
+    ORBIT.refreshAllTrails()
+end)
+onClick(auraTrailWidBtn, function()
+    P.auraTrailWidthIndex = P.auraTrailWidthIndex + 1; if P.auraTrailWidthIndex > #P.AURA_TRAIL_WID then P.auraTrailWidthIndex = 1 end
+    SETTINGS.AuraTrailWidth = P.AURA_TRAIL_WID[P.auraTrailWidthIndex].value
+    auraTrailWidBtn.Text = "🎚️ Толщина трейла: " .. P.AURA_TRAIL_WID[P.auraTrailWidthIndex].name
+    ORBIT.refreshAllTrails()
+end)
+onClick(auraSpinBtn, function()
+    SETTINGS.AuraSpinEnabled = not SETTINGS.AuraSpinEnabled
+    auraSpinBtn.Text = "🔄 Кручение: " .. (SETTINGS.AuraSpinEnabled and "ВКЛ" or "ВЫКЛ")
+end)
+onClick(auraSpinAxisBtn, function()
+    P.auraSpinAxisIndex = P.auraSpinAxisIndex + 1; if P.auraSpinAxisIndex > #P.AURA_SPIN_AXIS then P.auraSpinAxisIndex = 1 end
+    SETTINGS.AuraSpinAxis = P.AURA_SPIN_AXIS[P.auraSpinAxisIndex].value
+    auraSpinAxisBtn.Text = "↕️ Ось: " .. P.AURA_SPIN_AXIS[P.auraSpinAxisIndex].name
+end)
+onClick(auraSpinSpeedBtn, function()
+    P.auraSpinSpeedIndex = P.auraSpinSpeedIndex + 1; if P.auraSpinSpeedIndex > #P.AURA_SPIN_SPEED then P.auraSpinSpeedIndex = 1 end
+    SETTINGS.AuraSpinSpeed = P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].value
+    auraSpinSpeedBtn.Text = "🌀 Скорость кручения: " .. P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].name
+end)
+onClick(auraPulseBtn, function()
+    SETTINGS.AuraPulseEnabled = not SETTINGS.AuraPulseEnabled
+    auraPulseBtn.Text = "💓 Пульсация ауры: " .. (SETTINGS.AuraPulseEnabled and "ВКЛ" or "ВЫКЛ")
+end)
+
+-- СВЕТ АУРЫ
+onClick(auraLightBtn, function()
+    SETTINGS.AuraLightEnabled = not SETTINGS.AuraLightEnabled
+    auraLightBtn.Text = "💡 Свет ауры: " .. (SETTINGS.AuraLightEnabled and "ВКЛ" or "ВЫКЛ")
+    if SETTINGS.AuraLightEnabled then
+        auraLightBtn.BackgroundColor3 = Color3.fromRGB(120,100,40)
+        auraLightBtn.TextColor3 = Color3.fromRGB(255,240,160)
+    else
+        auraLightBtn.BackgroundColor3 = Color3.fromRGB(70,60,30)
+        auraLightBtn.TextColor3 = Color3.fromRGB(255,230,140)
+    end
+    refreshAura()
+end)
+onClick(auraLightRangeBtn, function()
+    local steps = {4, 6, 8, 12, 16, 24, 32}
+    local idx = 1
+    for i, v in ipairs(steps) do if v == SETTINGS.AuraLightRange then idx = i; break end end
+    SETTINGS.AuraLightRange = steps[(idx % #steps) + 1]
+    auraLightRangeBtn.Text = "📏 Дальность: " .. SETTINGS.AuraLightRange
+    refreshAura()
+end)
+onClick(auraLightBrightBtn, function()
+    local steps = {1, 2, 3, 5, 8, 12}
+    local idx = 1
+    for i, v in ipairs(steps) do if v == SETTINGS.AuraLightBrightness then idx = i; break end end
+    SETTINGS.AuraLightBrightness = steps[(idx % #steps) + 1]
+    auraLightBrightBtn.Text = "✨ Яркость: " .. SETTINGS.AuraLightBrightness
+    refreshAura()
+end)
+
+-- ГРАФИКА
+local MATERIALS = {"Neon", "Glass", "ForceField", "Plastic", "SmoothPlastic", "Metal", "Ice", "Marble", "Slate", "Granite"}
+local materialIndex = 1
+for i, m in ipairs(MATERIALS) do
+    if m == tostring(SETTINGS.Material):gsub("Enum.Material.", "") then materialIndex = i; break end
+end
+onClick(materialBtn, function()
+    materialIndex = materialIndex + 1
+    if materialIndex > #MATERIALS then materialIndex = 1 end
+    local mName = MATERIALS[materialIndex]
+    SETTINGS.Material = Enum.Material[mName]
+    materialBtn.Text = "🎨 Материал: " .. mName:upper()
+    ORBIT.rebuildAllRings()
+end)
+if SETTINGS.Material then
+    materialBtn.Text = "🎨 Материал: " .. tostring(SETTINGS.Material):gsub("Enum.Material.", ""):upper()
+end
+
+onClick(transparencyBtn, function()
+    local steps = {0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9}
+    local idx = 1
+    for i, v in ipairs(steps) do if math.abs(v - SETTINGS.Transparency) < 0.01 then idx = i; break end end
+    SETTINGS.Transparency = steps[(idx % #steps) + 1]
+    transparencyBtn.Text = "👁️ Прозрачность: " .. math.floor(SETTINGS.Transparency * 100) .. "%"
+    ORBIT.rebuildAllRings()
+end)
+transparencyBtn.Text = "👁️ Прозрачность: " .. math.floor(SETTINGS.Transparency * 100) .. "%"
+
+onClick(brightnessBtn, function()
+    local steps = {0.5, 1, 1.5, 2, 3, 5, 8}
+    local idx = 1
+    for i, v in ipairs(steps) do if v == (SETTINGS.GlowIntensity or 1) then idx = i; break end end
+    SETTINGS.GlowIntensity = steps[(idx % #steps) + 1]
+    brightnessBtn.Text = "☀️ Яркость: " .. SETTINGS.GlowIntensity
+    ORBIT.rebuildAllRings()
+end)
+brightnessBtn.Text = "☀️ Яркость: " .. (SETTINGS.GlowIntensity or 1)
+
+onClick(glowBtn, function()
+    SETTINGS.GlowEnabled = not (SETTINGS.GlowEnabled ~= false)
+    local on = SETTINGS.GlowEnabled
+    glowBtn.Text = "✨ Свечение: " .. (on and "ВКЛ" or "ВЫКЛ")
+    if on then
+        glowBtn.BackgroundColor3 = Color3.fromRGB(35,60,50); glowBtn.TextColor3 = Color3.fromRGB(180,255,220)
+    else
+        glowBtn.BackgroundColor3 = Color3.fromRGB(45,45,65); glowBtn.TextColor3 = Color3.fromRGB(200,200,220)
+    end
+    for _, ring in pairs(rings) do
+        for _, d in ipairs(ring.blocks) do
+            if d.light then d.light.Enabled = on end
+        end
+    end
+end)
+
+onClick(castShadowBtn, function()
+    SETTINGS.CastShadow = not SETTINGS.CastShadow
+    castShadowBtn.Text = "🌑 Тени: " .. (SETTINGS.CastShadow and "ВКЛ" or "ВЫКЛ")
+    ORBIT.rebuildAllRings()
+end)
+
+local GRAPHIC_MODES = {"LOW", "MEDIUM", "HIGH", "ULTRA"}
+local graphicModeIndex = 2
+local function applyGraphicMode(mode)
+    if mode == "LOW" then
+        SETTINGS.LightEnabled = false
+        SETTINGS.TrailEnabled = false
+        SETTINGS.AuraParticles = false
+        SETTINGS.BlockCount = 4
+    elseif mode == "MEDIUM" then
+        SETTINGS.LightEnabled = true
+        SETTINGS.LightLimit = 10
+        SETTINGS.TrailEnabled = false
+        SETTINGS.AuraParticles = true
+        SETTINGS.BlockCount = 6
+    elseif mode == "HIGH" then
+        SETTINGS.LightEnabled = true
+        SETTINGS.LightLimit = 20
+        SETTINGS.TrailEnabled = true
+        SETTINGS.AuraParticles = true
+        SETTINGS.BlockCount = 8
+    elseif mode == "ULTRA" then
+        SETTINGS.LightEnabled = true
+        SETTINGS.LightLimit = 40
+        SETTINGS.TrailEnabled = true
+        SETTINGS.AuraParticles = true
+        SETTINGS.AuraShapes = true
+        SETTINGS.BlockCount = 12
+    end
+    ORBIT.rebuildAllRings()
+    if SETTINGS.AuraEnabled then ORBIT.setupAura() end
+end
+onClick(qualityBtn, function()
+    graphicModeIndex = graphicModeIndex + 1
+    if graphicModeIndex > #GRAPHIC_MODES then graphicModeIndex = 1 end
+    local mode = GRAPHIC_MODES[graphicModeIndex]
+    qualityBtn.Text = "⚡ Качество графики: " .. mode
+    applyGraphicMode(mode)
+    ORBIT.notify("🎨 Графика: " .. mode, Color3.fromRGB(200,220,255), 2)
+end)
+
+-- ОГОНЬ
+onClick(fireBtn, function()
+    SETTINGS.FireEnabled = not SETTINGS.FireEnabled
+    fireBtn.Text = "🔥 Огонь: " .. (SETTINGS.FireEnabled and "ВКЛ" or "ВЫКЛ")
+    ORBIT.setupFire()
+end)
+onClick(fireSizeBtn, function()
+    P.fireSizeIndex = P.fireSizeIndex + 1; if P.fireSizeIndex > #P.FIRE_SIZE then P.fireSizeIndex = 1 end
+    SETTINGS.FireSize = P.FIRE_SIZE[P.fireSizeIndex].value
+    fireSizeBtn.Text = "📏 Размер: " .. P.FIRE_SIZE[P.fireSizeIndex].name
+    if SETTINGS.FireEnabled then ORBIT.setupFire() end
+end)
+onClick(fireHeatBtn, function()
+    P.fireHeatIndex = P.fireHeatIndex + 1; if P.fireHeatIndex > #P.FIRE_HEAT then P.fireHeatIndex = 1 end
+    SETTINGS.FireHeat = P.FIRE_HEAT[P.fireHeatIndex].value
+    fireHeatBtn.Text = "🌡️ Жар: " .. P.FIRE_HEAT[P.fireHeatIndex].name
+    if SETTINGS.FireEnabled then ORBIT.setupFire() end
+end)
+
+-- ЗАЩИТА
+local antichitLoaded = false
+onClick(antichitLaunchBtn, function()
+    if antichitLoaded or (ORBIT.loaded and ORBIT.loaded.ac) then
+        antichitLoaded = true
+        antichitLaunchBtn.Text = "✅ АНТИ-ЧИТ АКТИВЕН"
+        antichitStatusLbl.Text = "🛡 Защита: активна (18 функций)"
+        antichitStatusLbl.TextColor3 = Color3.fromRGB(160,255,180)
+        ORBIT.notify("🛡 Античит уже запущен", Color3.fromRGB(180,255,180), 2)
+        return
+    end
+    antichitLaunchBtn.Text = "⏳ Загружаю..."
+    task.spawn(function()
+        local url = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/orbit_anticheat.lua?t=" .. os.time()
+        local ok, src = pcall(function() return game:HttpGet(url) end)
+        if not ok or type(src) ~= "string" or #src < 100 then
+            antichitLaunchBtn.Text = "❌ Ошибка загрузки"
+            antichitStatusLbl.Text = "🛡 Защита: ошибка сети"
+            antichitStatusLbl.TextColor3 = Color3.fromRGB(255,150,150)
+            task.wait(2)
+            antichitLaunchBtn.Text = "🛡️ Запустить АНТИ-ЧИТ"
+            return
+        end
+        local fn, err = loadstring(src)
+        if not fn then
+            antichitLaunchBtn.Text = "❌ Ошибка кода"
+            antichitStatusLbl.Text = "🛡 Защита: ошибка компиляции"
+            antichitStatusLbl.TextColor3 = Color3.fromRGB(255,150,150)
+            task.wait(2)
+            antichitLaunchBtn.Text = "🛡️ Запустить АНТИ-ЧИТ"
+            return
+        end
+        local runOk, runErr = pcall(fn)
+        if not runOk then
+            antichitLaunchBtn.Text = "❌ Ошибка запуска"
+            antichitStatusLbl.Text = "🛡 Защита: " .. tostring(runErr):sub(1, 30)
+            antichitStatusLbl.TextColor3 = Color3.fromRGB(255,150,150)
+            task.wait(2)
+            antichitLaunchBtn.Text = "🛡️ Запустить АНТИ-ЧИТ"
+            return
+        end
+        antichitLoaded = true
+        ORBIT.loaded.ac = true
+        antichitLaunchBtn.Text = "✅ АНТИ-ЧИТ АКТИВЕН"
+        antichitLaunchBtn.BackgroundColor3 = Color3.fromRGB(60,100,60)
+        antichitLaunchBtn.TextColor3 = Color3.fromRGB(200,255,200)
+        antichitStatusLbl.Text = "🛡 Защита: активна (18 функций)"
+        antichitStatusLbl.TextColor3 = Color3.fromRGB(160,255,180)
+        ORBIT.notify("🛡 Античит запущен!", Color3.fromRGB(160,255,180), 3)
+    end)
+end)
+
+task.spawn(function()
+    while screenGui and screenGui.Parent and not antichitLoaded do
+        task.wait(1)
+        if ORBIT.loaded and ORBIT.loaded.ac then
+            antichitLoaded = true
+            antichitLaunchBtn.Text = "✅ АНТИ-ЧИТ АКТИВЕН"
+            antichitLaunchBtn.BackgroundColor3 = Color3.fromRGB(60,100,60)
+            antichitStatusLbl.Text = "🛡 Защита: активна (18 функций)"
+            antichitStatusLbl.TextColor3 = Color3.fromRGB(160,255,180)
+        end
+    end
+end)
+
+-- ЗВУКИ
+onClick(soundToggleBtn, function()
+    if ORBIT.SOUNDS then
+        ORBIT.SOUNDS.Enabled = not ORBIT.SOUNDS.Enabled
+        soundToggleBtn.Text = "🔊 Звуки: " .. (ORBIT.SOUNDS.Enabled and "ВКЛ" or "ВЫКЛ")
+    end
+end)
+local VOLUME_STEPS = {0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0}
+local soundVolumeIndex = 11
+onClick(soundVolumeBtn, function()
+    if not ORBIT.SOUNDS then return end
+    soundVolumeIndex = soundVolumeIndex + 1
+    if soundVolumeIndex > #VOLUME_STEPS then soundVolumeIndex = 1 end
+    local v = VOLUME_STEPS[soundVolumeIndex]
+    ORBIT.SOUNDS.Volume = v
+    soundVolumeBtn.Text = "🎵 Громкость: " .. math.floor(v * 100) .. "%"
+end)
+onClick(soundTestBtn, function()
+    soundTestBtn.Text = "⏳ Проверяю..."
+    task.wait(0.1)
+    if ORBIT.playClick then ORBIT.playClick() end
+    task.wait(0.4)
+    if ORBIT.playDodge then ORBIT.playDodge() end
+    task.wait(1.2)
+    soundTestBtn.Text = "✅ Готово"
+    task.wait(2)
+    soundTestBtn.Text = "🔍 Проверка звуков"
+end)
+
+-- МЕТКИ
+onClick(tagNearestBtn, function()
+    local closest, bestDist = nil, math.huge
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local d = (hrp.Position - myHrp.Position).Magnitude
+                if d < bestDist then closest, bestDist = p, d end
+            end
+        end
+    end
+    if closest and ORBIT.toggleTagCheater then
+        ORBIT.toggleTagCheater(closest); task.wait(0.1); pcall(rebuildPeopleList)
+    end
+end)
+onClick(clearTagsBtn, function()
+    if ORBIT.clearAllTags then ORBIT.clearAllTags() end
+    task.wait(0.1); pcall(rebuildPeopleList)
+end)
+
+-- МАГАЗИН
+onClick(openShopBtn, function() if ORBIT.openShop then ORBIT.openShop() end end)
+onClick(openEditorBtn, function() if ORBIT.openEditor then ORBIT.openEditor() end end)
+onClick(openGameBtn, function() if ORBIT.openMiniGame then ORBIT.openMiniGame() end end)
+do -- v24.0: Гастер и режим игрока
+    local function modeBtnLabel() return (ORBIT.mode == "normal") and "🎭 Режим: Обычный" or "🎭 Режим: Санс" end
+    UIK.modeLabel = modeBtnLabel
+    onClick(UIK.openGasterBtn, function()
+        if ORBIT.gaster and ORBIT.gaster.open then ORBIT.gaster.open()
+        else ORBIT.notify("⚠️ Модуль Гастера не загружен", Color3.fromRGB(255,200,120), 3) end
+    end)
+    onClick(UIK.gasterWeaponBtn, function()
+        local W = ORBIT.gaster and ORBIT.gaster.weapon
+        if W and W.equip then W.equip()
+        else ORBIT.notify("⚠️ Гастер-оружие не загружено", Color3.fromRGB(255,200,120), 3) end
+    end)
+    onClick(UIK.modeBtn, function()
+        if ORBIT.setMode then ORBIT.setMode((ORBIT.mode == "normal") and "sans" or "normal") end
+        UIK.modeBtn.Text = modeBtnLabel()
+    end)
+end
+
+-- ============================================================
+--       SHARE (упрощённый, v23.9) — обработчики
+-- ============================================================
+onClick(shareLoadBtn, function()
+    local txt = shareInputBox.Text or ""
+    txt = txt:gsub("^%s+", ""):gsub("%s+$", "")
+    if txt == "" then
+        ORBIT.notify("📥 Поле пустое — вставь строку от друга", Color3.fromRGB(255, 200, 120), 3)
+        return
+    end
+    if txt:match("^https?://") then
+        ORBIT.notify("🌐 Загружаю по ссылке...", Color3.fromRGB(200, 220, 255), 2)
+        task.spawn(function()
+            local ok, body = pcall(function() return game:HttpGet(txt, true) end)
+            if ok and type(body) == "string" and #body > 10 then
+                shareInputBox.Text = body:gsub("^%s+", ""):gsub("%s+$", "")
+                ORBIT.notify("✅ Скачал — нажми ЗАГРУЗИТЬ ещё раз", Color3.fromRGB(180, 255, 180), 3)
+            else
+                ORBIT.notify("❌ Не удалось скачать ссылку", Color3.fromRGB(255, 150, 150), 3)
+            end
+        end)
+        return
+    end
+    if not ORBIT.share or not ORBIT.share.decode then
+        ORBIT.notify("❌ orbit_share.lua не загружен", Color3.fromRGB(255, 150, 150), 3)
+        return
+    end
+    local dec, err = ORBIT.share.decode(txt)
+    if not dec then
+        ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255, 150, 150), 4)
+        return
+    end
+    local ok = ORBIT.share.applyDecoded(dec)
+    if ok then shareInputBox.Text = "" end
+end)
+
+onClick(shareCopyBtn, function()
+    if not ORBIT.share or not ORBIT.share.encodeCurrentSettings then
+        ORBIT.notify("❌ orbit_share.lua не загружен", Color3.fromRGB(255, 150, 150), 3)
+        return
+    end
+    local str, err = ORBIT.share.encodeCurrentSettings()
+    if not str then
+        ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255, 150, 150), 3)
+        return
+    end
+    shareInputBox.Text = str
+    local ok = ORBIT.share.copy(str)
+    if ok then
+        ORBIT.notify("📤 Готово и скопировано — отправь другу", Color3.fromRGB(180, 255, 180), 3)
+    else
+        ORBIT.notify("📤 Готово — выдели строку и скопируй вручную", Color3.fromRGB(255, 220, 140), 4)
+    end
+end)
+
+onClick(sharePasteBtn, function()
+    if not ORBIT.share or not ORBIT.share.paste then
+        ORBIT.notify("❌ orbit_share.lua не загружен", Color3.fromRGB(255, 150, 150), 3)
+        return
+    end
+    local txt, err = ORBIT.share.paste()
+    if not txt then
+        ORBIT.notify("📋 " .. tostring(err) .. " — вставь вручную", Color3.fromRGB(255, 200, 120), 3)
+        return
+    end
+    shareInputBox.Text = txt
+    ORBIT.notify("📋 Вставлено (" .. #txt .. " симв.)", Color3.fromRGB(180, 220, 255), 2)
+end)
+
+onClick(shareClearBtn, function()
+    shareInputBox.Text = ""
+end)
+
+-- ПОМОЩНИК
+onClick(helperBtn, function()
+    if ORBIT.helperOpen then
+        ORBIT.helperOpen()
+    else
+        ORBIT.notify("❌ orbit_helper.lua не загружен", Color3.fromRGB(255,150,150), 3)
+    end
+end)
+
+-- ПРОИЗВОДИТЕЛЬНОСТЬ
+local PERF_MODES = {"auto", "high", "medium", "low", "minimal", "off"}
+local PERF_LABELS = {auto="АВТО", high="ВЫСОКОЕ", medium="СРЕДНЕЕ", low="НИЗКОЕ", minimal="МИНИМУМ", off="ВЫКЛ"}
+local perfIndex = 1
+local function refreshPerfBtn()
+    local info = ORBIT.getPerformanceInfo and ORBIT.getPerformanceInfo() or {Mode="auto", Current="high", FPS=60}
+    perfBtn.Text = string.format("⚡ Качество: %s", PERF_LABELS[info.Mode] or info.Mode)
+end
+refreshPerfBtn()
+onClick(perfBtn, function()
+    perfIndex = perfIndex + 1; if perfIndex > #PERF_MODES then perfIndex = 1 end
+    if ORBIT.setPerformanceMode then ORBIT.setPerformanceMode(PERF_MODES[perfIndex]) end
+    refreshPerfBtn()
+end)
+
+-- СЕРДЦЕ
+local heartScaleIndex = 4
+local HEART_STEPS = P.HEART_STEPS or {0.2, 0.35, 0.5, 0.65, 0.9, 1.2, 1.6, 2.2}
+for i, v in ipairs(HEART_STEPS) do if math.abs(v - SETTINGS.HeartScale) < 0.01 then heartScaleIndex = i; break end end
+local function refreshHeartSizeBtn()
+    local pct = math.floor(SETTINGS.HeartScale / 0.65 * 100 + 0.5)
+    heartSizeBtn.Text = "💗 Размер сердца: " .. pct .. "%"
+end
+refreshHeartSizeBtn()
+onClick(heartSizeBtn, function()
+    heartScaleIndex = heartScaleIndex + 1
+    if heartScaleIndex > #HEART_STEPS then heartScaleIndex = 1 end
+    SETTINGS.HeartScale = HEART_STEPS[heartScaleIndex]
+    refreshHeartSizeBtn(); ORBIT.rebuildAllRings()
+end)
 
 -- ============================================================
 --       ОБЩЕЕ ОБНОВЛЕНИЕ ПОДПИСЕЙ
@@ -2042,7 +2968,7 @@ local function refreshAllLabels()
     auraShapeBtn.Text = "🔷 Форма ауры: " .. SHAPE_PRESETS[ORBIT.auraShapeIndex].name
     auraColorBtn.Text = "🎨 Цвет ауры: " .. P.COLORS[P.auraColorIndex].name
     NB.auraMatBtn.Text = "🧱 Материал ауры: " .. string.upper((tostring(SETTINGS.AuraMaterial):gsub("Enum%.Material%.", "")))
-    if NB.refreshAuraFx then NB.refreshAuraFx() end   -- v23.7 (A2): подписи стиля частиц и свечения
+    if NB.refreshAuraFx then NB.refreshAuraFx() end
     auraSizeBtn.Text = "📐 Размер: " .. P.AURA_SIZE[P.auraSizeIndex].name
     auraThickBtn.Text = "🎚️ Толщина: " .. P.AURA_THICK[P.auraThickIndex].name
     auraHeightBtn.Text = "⬆️ Высота: " .. P.AURA_HEIGHT[P.auraHeightIndex].name
