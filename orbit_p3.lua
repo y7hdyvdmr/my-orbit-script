@@ -1,3 +1,6 @@
+-- ORBIT v24.0 | orbit_p3.lua
+-- v24.0: Died → sans.say + deathFx (только режим "sans"); animations.attach в buildRing;
+--        saveSettings/loadSettings + gasterUnlocked, gasterWeaponUnlocked, playerMode, theme, achievements; ORBIT.setMode.
 -- ОРБИТА v23.5 — P3: ЛОГИКА
 -- ИЗМЕНЕНИЯ v23.4 (относительно v23.3):
 --   fix: FPS всегда показывал 60 — statsData.fpsLastCheck хранил абсолютный tick(),
@@ -1543,12 +1546,14 @@ function ORBIT.buildRing(ri)
         nameLabel.Font = Enum.Font.GothamBold
         nameLabel.TextStrokeTransparency = 0.3
         nameLabel.Parent = nameGui
-        table.insert(ring.blocks, {
+        local newBlock = {
             part = refPart, model = data.model, isModel = data.isModel or false,
             bodyParts = data.bodyParts, light = light, trail = trail, lastTrailUpdate = 0,
             nameGui = nameGui, nameLabel = nameLabel, visualSize = visualSize,
             angleOffset = (i-1)*(360/SETTINGS.BlockCount) + ring.angleShift,
-        })
+        }
+        table.insert(ring.blocks, newBlock)
+        if ORBIT.animations and ORBIT.animations.attach then pcall(ORBIT.animations.attach, newBlock, shape.name) end
     end
     statsData.totalShapes = statsData.totalShapes + #ring.blocks
     if SETTINGS.SpawnAnim ~= false then ring.spawnTime = tick() else ring.spawnTime = nil end
@@ -1674,6 +1679,15 @@ local function cleanupOnDeath()
     warn("[Orbit] Смерть - все элементы убраны мгновенно")
 end
 
+-- v24.0: эффект смерти + фраза Санса (только режим "sans"). Фраза — ПЕРВОЙ, deathFx переиспользует её.
+local function onPlayerDied()
+    if ORBIT.mode ~= "sans" then return end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "death", true) end
+    if root and ORBIT.deathFx and ORBIT.deathFx.play then pcall(ORBIT.deathFx.play, root.Position) end
+end
+
 function ORBIT.setupRespawnHook()
     if ORBIT._respawnHooked then return end
     ORBIT._respawnHooked = true
@@ -1681,11 +1695,11 @@ function ORBIT.setupRespawnHook()
         if not char then return end
         local hum = char:FindFirstChildOfClass("Humanoid")
         if hum then
-            track(hum.Died:Connect(function() cleanupOnDeath() end))
+            track(hum.Died:Connect(function() onPlayerDied(); cleanupOnDeath() end))
         else
             track(char.ChildAdded:Connect(function(child)
                 if child:IsA("Humanoid") then
-                    track(child.Died:Connect(function() cleanupOnDeath() end))
+                    track(child.Died:Connect(function() onPlayerDied(); cleanupOnDeath() end))
                 end
             end))
         end
@@ -2171,9 +2185,32 @@ local function applySaveData(d)
     pcall(function() if ORBIT.enabled and ORBIT.setupFire then ORBIT.setupFire() end end)
 end
 
+-- v24.0: миграция сейвов v23.x — недостающим полям ставим дефолты, старые поля не трогаем
+local function migrateV24(d)
+    if type(d) ~= "table" then return end
+    local sd = ORBIT.saveData or {}
+    ORBIT.saveData = sd
+    sd.gasterUnlocked = (d.gasterUnlocked == true) or (sd.gasterUnlocked == true)
+    sd.gasterWeaponUnlocked = (d.gasterWeaponUnlocked == true) or (sd.gasterWeaponUnlocked == true)
+    sd.playerMode = (d.playerMode == "normal") and "normal" or ((d.playerMode == "sans") and "sans" or (sd.playerMode or "sans"))
+    sd.theme = (type(d.theme) == "string") and d.theme or (sd.theme or "dark")
+    sd.achievements = (type(d.achievements) == "table") and d.achievements or (sd.achievements or {})
+    ORBIT.gasterUnlocked = sd.gasterUnlocked
+    ORBIT.gasterWeaponUnlocked = sd.gasterWeaponUnlocked
+    ORBIT.mode = sd.playerMode
+end
+
 function ORBIT.saveSettings()
     local ok, data = pcall(collectSaveData)
     if not ok then return false, "Сбор данных" end
+    do -- v24.0: новые поля (только в основной файл, не в именные сейвы и не в SHARE)
+        local sd = ORBIT.saveData or {}
+        data.gasterUnlocked = (ORBIT.gasterUnlocked == true) or (sd.gasterUnlocked == true)
+        data.gasterWeaponUnlocked = (ORBIT.gasterWeaponUnlocked == true) or (sd.gasterWeaponUnlocked == true)
+        data.playerMode = (ORBIT.mode == "normal") and "normal" or "sans"
+        data.theme = (type(sd.theme) == "string") and sd.theme or "dark"
+        data.achievements = (type(sd.achievements) == "table") and sd.achievements or {}
+    end
     local ok2, encData = pcall(enc, data)
     if not ok2 then return false, "Сериализация" end
     SAVED_DATA = data
@@ -2193,7 +2230,19 @@ function ORBIT.loadSettings()
         end)
     end
     if not SAVED_DATA then return false end
+    pcall(migrateV24, SAVED_DATA)
     applySaveData(SAVED_DATA)
+    return true
+end
+
+-- v24.0: переключение режима игрока ("sans" — фразы и эффект смерти, "normal" — тишина)
+function ORBIT.setMode(m)
+    if m ~= "sans" and m ~= "normal" then return false end
+    ORBIT.mode = m
+    ORBIT.saveData = ORBIT.saveData or {}
+    ORBIT.saveData.playerMode = m
+    pcall(ORBIT.saveSettings)
+    if ORBIT.notify then ORBIT.notify(m == "sans" and "🎭 Режим: Санс" or "🎭 Режим: Обычный", Color3.fromRGB(200,200,255), 2) end
     return true
 end
 
@@ -2251,6 +2300,6 @@ ORBIT.decodeSettingsForShare  = dec
 ORBIT.applySaveData           = applySaveData
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v23.5 (логика + экспорт для SHARE)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v24.0 (логика + экспорт для SHARE)", Color3.fromRGB(180,255,180), 3) end
 
 return true
