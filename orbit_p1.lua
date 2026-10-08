@@ -1,4 +1,8 @@
--- ОРБИТА v23.8 — CORE + LOADER (orbit_p1.lua)
+-- ORBIT v24.0 | orbit_p1.lua
+-- ОРБИТА v24.0 — CORE + LOADER (orbit_p1.lua)
+-- v24.0: ORBIT.saveData (gasterUnlocked, gasterWeaponUnlocked, playerMode, theme, achievements);
+--        ORBIT.mode = "sans" | "normal" (читается из файла сохранения заранее);
+--        ORBIT.loaded + флаги новых модулей; ORBIT.unload чистит новые модули через pcall.
 -- Часть 1/4: ЯДРО + НАСТРОЙКИ + ЗАГРУЗЧИК
 --
 -- ИСТОРИЯ:
@@ -31,10 +35,35 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
-ORBIT.version = "v23.8"
-ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, share = false, sfx = false, ac = false, extras = false, editor3d = false, helper = false }
+ORBIT.version = "v24.0"
+ORBIT.loaded = { p1 = true, p2 = false, p3 = false, p4 = false, share = false, sfx = false, ac = false, extras = false, editor3d = false, helper = false,
+    sans = false, abilities = false, animations = false, deathfx = false, gaster = false, newfigures = false, tools = false, anticheat = false, shop = false, minigame = false }
 ORBIT.started = false
 ORBIT.PLATFORM = nil
+-- v24.0: кэш сохраняемых флагов + режим игрока
+ORBIT.saveData = { gasterUnlocked = false, gasterWeaponUnlocked = false, playerMode = "sans", theme = "dark", achievements = {} }
+do
+    -- читаем режим/флаги из файла настроек заранее (полная загрузка делается позже в p3)
+    local okR, raw = pcall(function()
+        if type(isfile) == "function" and type(readfile) == "function" and isfile("orbit_v21_settings.json") then
+            return readfile("orbit_v21_settings.json")
+        end
+    end)
+    if okR and type(raw) == "string" and #raw > 2 then
+        local okJ, d = pcall(function() return game:GetService("HttpService"):JSONDecode(raw) end)
+        if okJ and type(d) == "table" then
+            if d.playerMode == "normal" or d.playerMode == "sans" then ORBIT.saveData.playerMode = d.playerMode end
+            if d.gasterUnlocked == true then ORBIT.saveData.gasterUnlocked = true end
+            if d.gasterWeaponUnlocked == true then ORBIT.saveData.gasterWeaponUnlocked = true end
+            if type(d.theme) == "string" then ORBIT.saveData.theme = d.theme end
+            if type(d.achievements) == "table" then ORBIT.saveData.achievements = d.achievements end
+        end
+    end
+end
+ORBIT.mode = ORBIT.saveData.playerMode or "sans"
+ORBIT.gasterUnlocked = ORBIT.saveData.gasterUnlocked
+ORBIT.gasterWeaponUnlocked = ORBIT.saveData.gasterWeaponUnlocked
+ORBIT.abilityMoveUntil = 0
 
 local Players      = game:GetService("Players")
 local RunService   = game:GetService("RunService")
@@ -586,6 +615,17 @@ ORBIT.unload = function()
     if ORBIT.musicSound then pcall(function() ORBIT.musicSound:Destroy() end); ORBIT.musicSound = nil end
     if ORBIT.stopUltra then pcall(ORBIT.stopUltra) end
     if ORBIT.helperClose then pcall(ORBIT.helperClose) end
+    -- v24.0: новые модули (destroy идемпотентен — повторный вызов безопасен)
+    for _, k in ipairs({ "sans", "abilities", "animations", "deathFx", "gaster", "tools", "anticheat" }) do
+        local m = ORBIT[k]
+        if type(m) == "table" and type(m.destroy) == "function" then pcall(m.destroy) end
+    end
+    for _, ch in ipairs(Workspace:GetChildren()) do
+        local nm = ch.Name
+        if nm:find("^OrbitAbility_") or nm:find("^OrbitDeathFx_") or nm:find("^OrbitAtmo_") or nm:find("^OrbitSfx_") then
+            pcall(function() ch:Destroy() end)
+        end
+    end
     if GENV._OrbitLoaderGui then pcall(function() GENV._OrbitLoaderGui:Destroy() end) end
     if GENV._OrbitMainGui then pcall(function() GENV._OrbitMainGui:Destroy() end) end
     shared.ORBIT = nil
