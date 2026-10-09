@@ -579,14 +579,12 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
   end
   if G.figure then stepFigure(dt, t) end
 end)
-
 function G.open()
   if not alive then return false end
   if G.active then clearShards(); G.active = false end
   buildUI()
   return true
 end
-
 function G.destroy()
   if not alive then return end
   alive = false
@@ -595,12 +593,11 @@ function G.destroy()
   closeUI()
   G.removeFigure()
   G.active = false
-  -- v24.0: чистим и оружие, если оно было в руках
+  -- v24.0-fix (правка 3): чистим и оружие, если оно было в руках
   if G.weapon and G.weapon.destroy then pcall(G.weapon.destroy) end
   if helperWrapped and ORBIT.helper and origInterp then pcall(function() ORBIT.helper.interpret = origInterp end) end
   if folder then pcall(function() folder:Destroy() end); folder = nil end
 end
-
 -- ===== ГАСТЕР В РУКАХ (G.weapon = W) =====
 local W = { equipped = false, models = {}, proj = {}, cdUntil = 0, conns = {}, side = 1 }
 local wFolder, wGui, wBtn = nil, nil, nil
@@ -718,7 +715,7 @@ function W.equip()
   end
   W.equipped = true
   wShowBtn(true)
-  -- v24.0: сохраняем флаг, чтобы после перезахода не требовать игру заново
+  -- v24.0-fix (правка 2): сохраняем флаг, чтобы после перезахода не требовать игру заново
   ORBIT.gasterWeaponUnlocked = true
   ORBIT.saveData = ORBIT.saveData or {}
   ORBIT.saveData.gasterWeaponUnlocked = true
