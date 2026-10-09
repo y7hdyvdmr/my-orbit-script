@@ -82,6 +82,18 @@ S.phrases = {
         "неплохая комбинация.",
         "и всё-таки я лучше.",
     },
+    victory = {
+        "и это всё?",
+        "я даже не устал.",
+        "слабовато.",
+        "попробуй ещё разок.",
+    },
+    idle = {
+        "ты тут?",
+        "скучно...",
+        "может, что-нибудь сделаем?",
+        "я тут просто стою.",
+    },
 }
 
 -- ============================================================
@@ -99,7 +111,7 @@ S.cooldowns = {}
 S.COOLDOWN_DEFAULT = 1.2
 S.ENABLED = true
 
--- v24.1: последняя фраза
+-- v24.1: последняя фраза (нужно death_fx)
 S.lastCat = nil
 S.lastCatTime = 0
 S.lastSaid = nil
@@ -177,13 +189,11 @@ function S.showAt(pos, text, seconds)
     lbl.TextStrokeColor3 = C3(0, 0, 0)
     lbl.Parent = bb
 
-    -- появление
     lbl.TextTransparency = 1
     pcall(function()
         game:GetService("TweenService"):Create(lbl, TweenInfo.new(0.2), { TextTransparency = 0 }):Play()
     end)
 
-    -- исчезновение + удаление
     task.delay(seconds, function()
         pcall(function()
             game:GetService("TweenService"):Create(lbl, TweenInfo.new(0.4), { TextTransparency = 1 }):Play()
@@ -200,6 +210,9 @@ end
 -- ============================================================
 --       СКАЗАТЬ ФРАЗУ
 -- ============================================================
+-- category: "death" / "spawn" / "greet" / "hurt" / "kill" / "dodge" / "taunt" / "combo" / "victory" / "idle"
+-- force:    true — игнорировать cooldown (для смерти/респавна)
+-- ВОЗВРАТ:  строка с текстом фразы (если сказано), либо false (если не сказано)
 function S.say(category, force)
     if not S.ENABLED then return false end
     if ORBIT.mode ~= "sans" and not force then return false end
@@ -227,7 +240,8 @@ function S.say(category, force)
         elseif category == "kill" then color = C3(255, 140, 140)
         elseif category == "hurt" then color = C3(255, 200, 140)
         elseif category == "taunt" then color = C3(180, 255, 200)
-        elseif category == "combo" then color = C3(255, 240, 120) end
+        elseif category == "combo" then color = C3(255, 240, 120)
+        elseif category == "victory" then color = C3(200, 255, 200) end
         ORBIT.notify("💀 " .. text, color, 3)
     end
 
@@ -255,14 +269,16 @@ function S.toggle() return S.setEnabled(not S.ENABLED) end
 -- ============================================================
 --       БЫСТРЫЕ АЛИАСЫ
 -- ============================================================
-S.sayDeath = function() return S.say("death", true) end
-S.saySpawn = function() return S.say("spawn", true) end
-S.sayGreet = function() return S.say("greet") end
-S.sayHurt  = function() return S.say("hurt") end
-S.sayKill  = function() return S.say("kill") end
-S.sayDodge = function() return S.say("dodge") end
-S.sayTaunt = function() return S.say("taunt") end
-S.sayCombo = function() return S.say("combo") end
+S.sayDeath   = function() return S.say("death", true) end
+S.saySpawn   = function() return S.say("spawn", true) end
+S.sayGreet   = function() return S.say("greet") end
+S.sayHurt    = function() return S.say("hurt") end
+S.sayKill    = function() return S.say("kill") end
+S.sayDodge   = function() return S.say("dodge") end
+S.sayTaunt   = function() return S.say("taunt") end
+S.sayCombo   = function() return S.say("combo") end
+S.sayVictory = function() return S.say("victory") end
+S.sayIdle    = function() return S.say("idle") end
 
 -- ============================================================
 --       АВТО-ХУК НА СПАВН
@@ -292,7 +308,11 @@ ORBIT.unload = function()
         pcall(function() if anchor.Parent then anchor:Destroy() end end)
     end
     S.liveTags = {}
-    if S.sound then pcall(function() S.sound:Stop() end); pcall(function() S.sound:Destroy() end); S.sound = nil end
+    if S.sound then
+        pcall(function() S.sound:Stop() end)
+        pcall(function() S.sound:Destroy() end)
+        S.sound = nil
+    end
     if prevUnload then pcall(prevUnload) end
 end
 
