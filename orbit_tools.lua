@@ -2,6 +2,7 @@
 -- Объединяет: helper + share + editor3d + shop (+2D-редактор) и две новые фичи:
 -- 4 темы UI (ORBIT.THEMES / applyTheme) и 52 достижения (ORBIT.achievements).
 -- Модули shop/editor3d пропускаются, если уже загружены отдельными шагами загрузчика.
+-- v24.0-fix: 3 бага в достижениях (c_charged, fireId double-shot, h_g3 через UI-кнопку).
 -- Идентификаторы — латиница, комментарии — русский.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
@@ -50,12 +51,12 @@ ORBIT.share = S
 --       ВЕРСИЯ / КОНСТАНТЫ
 -- ============================================================
 local PREFIX    = "ORBIT1|"
-local MAX_LEN   = 200000          -- защита от гигантских строк
-local MAX_PIX   = 24              -- максимальная сетка 2D
-local MIN_PIX   = 8               -- минимальная
-local MAX_GRID3 = 64              -- максимальный куб 3D (v23.10: поднято с 8)
+local MAX_LEN   = 200000
+local MAX_PIX   = 24
+local MIN_PIX   = 8
+local MAX_GRID3 = 64
 local MIN_GRID3 = 2
-local MAX_BLOCKS3 = 5000          -- лимит блоков в 3D (v23.10: поднято с 1500)
+local MAX_BLOCKS3 = 5000
 local MAX_NAME_LEN = 32
 
 -- ============================================================
@@ -97,7 +98,6 @@ end
 
 local function b64Decode(str)
     if type(str) ~= "string" then return nil end
-    -- выкидываем всё лишнее (пробелы, переводы строк), паддинг считаем сами
     str = str:gsub("[^%w%+/]", "")
     local out, n = {}, 0
     local len = #str
@@ -128,14 +128,12 @@ end
 -- ============================================================
 --       УПАКОВКА
 -- ============================================================
--- Общая упаковка: kind + payload (table) + опциональное имя
 local function pack(kind, payload, extraName)
     local ok, json = pcall(function() return HttpService:JSONEncode(payload) end)
     if not ok or not json then return nil, "Ошибка упаковки" end
     local b64 = b64Encode(json)
     if not b64 then return nil, "Ошибка base64" end
     if kind == "SV" and extraName then
-        -- имя санитайзим: без | и переводов строк
         local safe = tostring(extraName):gsub("[|%c]", "_"):sub(1, MAX_NAME_LEN)
         return PREFIX .. "SV|" .. safe .. "|" .. b64
     end
@@ -145,7 +143,6 @@ end
 -- ============================================================
 --       ВАЛИДАЦИЯ
 -- ============================================================
--- Санитайзер 2D-фигуры: { pixels = {{0..24}}, grid = 16 }
 local function sanitize2D(data)
     if type(data) ~= "table" then return nil, "Нет данных" end
     local grid = tonumber(data.grid) or #(data.pixels or {})
@@ -167,7 +164,6 @@ local function sanitize2D(data)
     return { type = "2D", grid = grid, pixels = out, name = name }
 end
 
--- Санитайзер 3D-фигуры: { blocks = {{x,y,z,r,g,b}}, N = 6 }
 local function sanitize3D(data)
     if type(data) ~= "table" then return nil, "Нет данных" end
     local N = tonumber(data.N) or 6
@@ -198,7 +194,6 @@ end
 -- ============================================================
 function S.encodeShape(shape)
     if type(shape) ~= "table" then return nil, "Нет фигуры" end
-    -- Определяем: 2D или 3D
     if shape.is3D or shape.blocks then
         local clean = sanitize3D(shape)
         if not clean then return nil, "Плохие данные 3D" end
@@ -218,28 +213,18 @@ function S.encodeSave(name)
     local payload = {
         savedAt  = tonumber(entry.time) or os.time(),
         appVer   = ORBIT.version or "?",
-        data     = entry.data,   -- уже энцифрованный дамп (см. p3 collectSaveData)
+        data     = entry.data,
     }
     return pack("SV", payload, name)
 end
 
--- Текущие настройки — «пресет без имени» (те же данные, что и в автослот)
 function S.encodeCurrentSettings()
-    if not ORBIT.collectSaveData then
-        -- p3 не экспортирует collectSaveData наружу — используем приватный путь через saveSettings+readfile
-        -- Проще: если есть ORBIT.saveNamed, создаём временное сохранение? Нет.
-        -- Фолбэк: пробуем через ORBIT.saveSettings и читаем файл.
-    end
-    -- Пробуем получить «сырой» дамп через p3 (если экспортирован)
     local collector = ORBIT.collectSaveDataForShare
     if type(collector) ~= "function" then
         return nil, "Обновление p3 не установлено (нет collectSaveDataForShare)"
     end
     local ok, data = pcall(collector)
     if not ok or not data then return nil, "Не удалось собрать настройки" end
-    -- кодируем цвета/векторы тем же способом, что p3 (или просто JSON их съест?)
-    -- JSONEncode не умеет Color3/Vector3 => нужен энкодер. Он есть в p3, но не экспортирован.
-    -- Значит, требуем от p3 экспорт `encodeSettingsForShare`.
     local enc = ORBIT.encodeSettingsForShare
     if type(enc) ~= "function" then
         return nil, "Обновление p3 не установлено (нет encodeSettingsForShare)"
@@ -255,7 +240,6 @@ end
 function S.decode(text)
     if type(text) ~= "string" then return nil, "Не строка" end
     text = text:gsub("^%s+", ""):gsub("%s+$", "")
-    -- v23.11: если вставили ссылку paste.rs — сначала скачиваем содержимое
     if text:match("^https?://") then
         local body, derr = S.download(text)
         if not body then return nil, "Ссылка: " .. tostring(derr) end
@@ -331,9 +315,8 @@ function S.paste()
 end
 
 -- ============================================================
---       ЗАГРУЗКА НА paste.rs (опционально)
+--       ЗАГРУЗКА НА paste.rs
 -- ============================================================
--- Универсальный HTTP-запрос: пробуем все известные API executor'ов
 local function httpRequest(opts)
     local fns = {}
     if type(request) == "function" then fns[#fns + 1] = request end
@@ -365,7 +348,6 @@ local function httpPost(url, body)
     })
 end
 
--- Скачать текст по ссылке (для приёма «короткой ссылки» paste.rs)
 function S.download(url)
     if type(url) ~= "string" or not url:match("^https?://") then return nil, "Не ссылка" end
     local body, err = httpRequest({ Url = url, Method = "GET" })
@@ -418,7 +400,6 @@ local function ensureUI()
     stroke.Thickness = 1.5
     if ORBIT.ui.fitToScreen then pcall(ORBIT.ui.fitToScreen, win, W, H) end
 
-    -- Заголовок
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, -60, 0, 26)
     title.Position = UDim2.new(0, 14, 0, 6)
@@ -460,7 +441,6 @@ local function ensureUI()
     end
     onClick(closeBtn, function() win.Visible = false end)
 
-    -- ──────── Блок "ОТДАТЬ ДРУГУ" ────────
     local sendTitle = Instance.new("TextLabel")
     sendTitle.Size = UDim2.new(1, -20, 0, 18)
     sendTitle.Position = UDim2.new(0, 14, 0, 40)
@@ -495,7 +475,6 @@ local function ensureUI()
     sp.PaddingLeft = UDim.new(0, 6); sp.PaddingRight = UDim.new(0, 6)
     sp.PaddingTop = UDim.new(0, 4); sp.PaddingBottom = UDim.new(0, 4)
 
-    -- кнопки под "отдать"
     local rowY = 156
     local btnH = 32
     local function mkBtn(text, x, w, color, cb)
@@ -552,7 +531,6 @@ local function ensureUI()
         sendBox.Text = ""
     end)
 
-    -- ──────── Блок "ПРИНЯТЬ ОТ ДРУГА" ────────
     local recvTitle = Instance.new("TextLabel")
     recvTitle.Size = UDim2.new(1, -20, 0, 18)
     recvTitle.Position = UDim2.new(0, 14, 0, rowY + btnH + 10)
@@ -588,7 +566,6 @@ local function ensureUI()
     rp.PaddingLeft = UDim.new(0, 6); rp.PaddingRight = UDim.new(0, 6)
     rp.PaddingTop = UDim.new(0, 4); rp.PaddingBottom = UDim.new(0, 4)
 
-    -- Кнопки под "принять"
     local recvRowY = recvY + 96
     local function mkRecvBtn(text, x, w, color, cb)
         local b = Instance.new("TextButton")
@@ -622,7 +599,6 @@ local function ensureUI()
             ORBIT.notify("📥 Вставь строку или ссылку", Color3.fromRGB(255, 200, 120), 2)
             return
         end
-        -- Если это ссылка — сначала скачаем её содержимое
         if txt:match("^https?://") then
             ORBIT.notify("🌐 Загружаю по ссылке...", Color3.fromRGB(200, 220, 255), 2)
             task.spawn(function()
@@ -636,7 +612,6 @@ local function ensureUI()
             end)
             return
         end
-        -- Обычная строка ORBIT1|...
         local decoded, err = S.decode(txt)
         if not decoded then
             ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255, 150, 150), 3)
@@ -650,7 +625,6 @@ local function ensureUI()
         recvBox.Text = ""
     end)
 
-    -- Подсказка
     local hint = Instance.new("TextLabel")
     hint.Size = UDim2.new(1, -28, 0, 40)
     hint.Position = UDim2.new(0, 14, 1, -48)
@@ -671,14 +645,12 @@ end
 -- ============================================================
 --       ПРИМЕНЕНИЕ РАСШИФРОВАННОГО
 -- ============================================================
--- Применяет то, что вернул S.decode
 function S.applyDecoded(decoded)
     if not decoded then return false end
 
     if decoded.kind == "SH" then
         local shape = decoded.data
         if shape.type == "3D" then
-            -- Регистрируем 3D-фигуру как кастомную через общий механизм p4_shop
             if not ORBIT.registerCustomShape then
                 ORBIT.notify("❌ Модуль магазина не готов", Color3.fromRGB(255,150,150), 3)
                 return false
@@ -705,11 +677,9 @@ function S.applyDecoded(decoded)
     end
 
     if decoded.kind == "SV" then
-        -- Именованное сохранение: складываем в ORBIT.SAVES
         ORBIT.SAVES = ORBIT.SAVES or {}
         local name = decoded.name or "ИМПОРТ"
         if ORBIT.SAVES[name] then
-            -- уникальное имя
             local base, n = name, 1
             while ORBIT.SAVES[name] do
                 n = n + 1
@@ -723,13 +693,11 @@ function S.applyDecoded(decoded)
     end
 
     if decoded.kind == "PR" then
-        -- Пресет: сразу применяем к настройкам
         local apply = ORBIT.applySaveData
         if type(apply) ~= "function" then
             ORBIT.notify("❌ p3 не экспортирует applySaveData", Color3.fromRGB(255,150,150), 3)
             return false
         end
-        -- v23.11: данные пришли в «кодированном» виде (как их отдаёт p3 enc) — расшифровываем перед применением
         local data = decoded.data
         if type(ORBIT.decodeSettingsForShare) == "function" then
             local okD, res = pcall(ORBIT.decodeSettingsForShare, data)
@@ -761,7 +729,6 @@ function S.open(initialSendText)
         ORBIT.notify("❌ UI не готов", Color3.fromRGB(255,150,150), 2)
         return
     end
-    -- Положить в sendBox, если передали
     if initialSendText then
         local sendBox = win:FindFirstChildOfClass("TextBox")
         if sendBox then sendBox.Text = initialSendText end
@@ -782,7 +749,6 @@ function S.openImport(text)
         for _, ch in ipairs(win:GetChildren()) do
             if ch:IsA("TextBox") then boxes[#boxes + 1] = ch end
         end
-        -- второй бокс — «принять»
         if boxes[2] then boxes[2].Text = text end
     end
 end
@@ -796,42 +762,13 @@ return true
 
 end
 do local ok, err = pcall(module_share); Tools.share = ok; if not ok then warn("[Orbit Tools] share: " .. tostring(err)) end end
+
 -- ═════════ МОДУЛЬ: helper (из orbit_helper.lua) ═════════
 local function module_helper()
 if ORBIT.helper then return end
 -- ОРБИТА v1.2 — HELPER (orbit_helper.lua)
 -- Rule-based помощник: понимает простые русские фразы и сразу применяет настройки.
 -- Не требует интернета, API-ключей, LLM. Работает офлайн за 1 кадр.
---
--- Примеры команд:
---   «красный» / «сделай радугу» / «цвет ледяной»
---   «медленнее» / «быстрее» / «х2 скорость»
---   «выше» / «ниже» / «в небо»
---   «ауру вкл» / «убери ауру» / «аура огонь»
---   «огонь» / «включи трейлы» / «пульсация вкл»
---   «череп» / «звезда» / «меч» / «скала»
---   «стиль огонь» / «стиль призрак» / «случайный стиль»
---   «все кольца» / «5 колец» / «только 1 кольцо»
---   «помощь» — показать список
---   v1.1: «сделай огонь», «включи дракона», «стиль лёд», «5 колец», «покажи ботов», «танцуй»,
---         «снег», «материал стекло», «12 фигур», «сохрани», «поделись»
---
---   v1.2 (Y5): «частицы дым» / «частицы звёзды» / «частицы искры» / «частицы выкл»,
---         «свечение ауры сильно» / «свечение ауры выкл» / «свечение выкл» (свечение колец),
---         «включи флауи» / «омега флауи», «открой редактор» / «3d редактор»,
---         «размер сетки 16» и «кисть 3» (в открытом редакторе — 2D или 3D).
---         Исправлено: «омега флауи» больше не путается с «цветок флауи» (берётся самый длинный корень).
---
---   v1.2-fix1: 🐛 fallback ORBIT.ui.applyStyleByName использовал pairs() по массиву STYLE_KEYWORDS
---              (после переноса в массив пар это ломалось). Теперь ipairs + reentrancy guard,
---              чтобы не словить рекурсию с H.interpret. Основной путь в p4 всё равно перекрывает
---              этот fallback — оставлен только на случай, если p4 ещё не подгрузился.
---              🐛 команда «помощь» теперь РЕАЛЬНО вызывает H.showHelp() (раньше просто возвращала
---              строку «Список команд открыт», окно не открывалось).
---              🐛 версия в notify/warn поднята с «v1.0» до «v1.2» — синхронизация с шапкой.
---              🐛 добавлен ORBIT.helperClose (p1.unload его ищет и зовёт pcall).
---
--- Автор: ОРБИТА. Все идентификаторы латиницей.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Helper] ORBIT не найден!"); return end
@@ -849,7 +786,6 @@ ORBIT.helper = H
 ORBIT.helperOpen = function()
     if H.open then H.open() end
 end
--- v1.2-fix1: p1.unload зовёт ORBIT.helperClose — отдаём безопасный хэндлер.
 ORBIT.helperClose = function()
     if H.close then pcall(H.close) end
 end
@@ -857,7 +793,6 @@ end
 -- ============================================================
 --       СЛОВАРИ КЛЮЧЕВЫХ СЛОВ
 -- ============================================================
--- Цвета: список корней → точное имя в P.COLORS
 local COLOR_KEYWORDS = {
     ["красн"]     = "КРАСНЫЙ",
     ["алый"]      = "АЛЫЙ",
@@ -894,8 +829,6 @@ local COLOR_KEYWORDS = {
     ["радуг"]     = "РАДУГА",
 }
 
--- Стили и стихии. v1.1: список УПОРЯДОЧЕН (раньше pairs() давал случайный порядок,
--- и «огненный» мог совпасть с «огн»). Более длинные корни стоят выше коротких.
 local STYLE_KEYWORDS = {
     { "огненн",   "🔥 Огненный" },
     { "ледян",    "❄️ Ледяной" },
@@ -906,7 +839,6 @@ local STYLE_KEYWORDS = {
     { "скал",     "🪨 Скала-шоу" },
     { "случайн",  "🎲 Случайный стиль" },
     { "рандом",   "🎲 Случайный стиль" },
-    -- стихии (одним нажатием: цвет + материал + атмосфера + аура + огонь)
     { "огн",      "🔥 Огонь" },
     { "пламя",    "🔥 Огонь" },
     { "земл",     "🌍 Земля" },
@@ -924,20 +856,17 @@ local STYLE_KEYWORDS = {
     { "яд",       "☠️ Яд" },
 }
 
--- Атмосфера (имена как в orbit_extras.lua)
 local ATMO_KEYWORDS = {
     { "снег", "Снег" }, { "дожд", "Дождь" }, { "лепест", "Лепестки" }, { "искр", "Искры" },
     { "звёзд", "Звёзды" }, { "звезд", "Звёзды" }, { "пузыр", "Пузыри" }, { "пепел", "Пепел" },
 }
 
--- Материалы колец
 local MATERIAL_KEYWORDS = {
     { "стекл", "Glass" }, { "метал", "Metal" }, { "неон", "Neon" }, { "пластик", "SmoothPlastic" },
     { "лёд", "Ice" }, { "лед", "Ice" }, { "силов", "ForceField" }, { "мрамор", "Marble" },
     { "фольг", "Foil" }, { "камен", "Slate" },
 }
 
--- Фигуры (корень → имя в SHAPE_PRESETS)
 local SHAPE_KEYWORDS = {
     ["блок"]     = "БЛОК",
     ["куб"]      = "БЛОК",
@@ -977,7 +906,6 @@ local SHAPE_KEYWORDS = {
 --       УТИЛИТЫ
 -- ============================================================
 local function lower(s)
-    -- кириллица + латиница, ASCII-safe в рамках текущего окружения
     local out = {}
     for _, code in utf8.codes(s or "") do
         if code >= 0x410 and code <= 0x42F then code = code + 32
@@ -986,10 +914,6 @@ local function lower(s)
         out[#out + 1] = utf8.char(code)
     end
     return table.concat(out)
-end
-
-local function startsWith(s, prefix)
-    return s:sub(1, #prefix) == prefix
 end
 
 local function containsWord(text, root)
@@ -1023,7 +947,6 @@ end
 local function findStyle(text)
     for _, pair in ipairs(STYLE_KEYWORDS) do
         if containsWord(text, pair[1]) then
-            -- «х2 скорость» — это ускорение, а не стихия
             if not (pair[1] == "скорост" and (text:match("[хx]%s*%d") or containsWord(text, "быстр") or containsWord(text, "медлен"))) then
                 return pair[2]
             end
@@ -1040,8 +963,6 @@ local function findFromList(text, list)
 end
 
 local function findShape(text)
-    -- v1.2: pairs() даёт случайный порядок, поэтому выбираем САМЫЙ ДЛИННЫЙ подходящий корень
-    -- («омега флауи» важнее, чем «флауи» или «омега»).
     local bestIdx, bestName, bestLen = nil, nil, 0
     for root, name in pairs(SHAPE_KEYWORDS) do
         if #root > bestLen and containsWord(text, root) then
@@ -1052,44 +973,19 @@ local function findShape(text)
     return bestIdx, bestName
 end
 
-local function applyColorByName(name)
-    local idx = idxByColorName(name)
-    if not idx then return false, "Цвет не найден: " .. name end
-    P.colorIndex = idx
-    if ORBIT.applyColor then pcall(ORBIT.applyColor) end
-    if ORBIT.rebuildAllRings then pcall(ORBIT.rebuildAllRings) end
-    return true, "🎨 Цвет: " .. name
-end
-
-local function applyShapeByName(name)
-    local idx = idxByShapeName(name)
-    if not idx then return false, "Фигура не найдена: " .. name end
-    ORBIT.shapeIndex = idx
-    P.shapeCategoryIndex = 1
-    P.formModeIndex = 1
-    if ORBIT.applyShapes then pcall(ORBIT.applyShapes) end
-    if ORBIT.rebuildAllRings then pcall(ORBIT.rebuildAllRings) end
-    return true, "🔷 Фигура: " .. name
-end
-
 -- ============================================================
 --       ОСНОВНОЙ ПАРСЕР
 -- ============================================================
--- Возвращает: true, "что сделали"
--- или false, "не понял"
 function H.interpret(rawText)
     if type(rawText) ~= "string" then return false, "Пустой запрос" end
     local t = lower(rawText)
     if #t < 2 then return false, "Слишком коротко" end
 
-    -- ---------- СПРАВКА ----------
-    -- v1.2-fix1: реально открываем окно помощника (раньше просто возвращали строку).
     if containsWord(t, "помощь") or containsWord(t, "команд") or t == "help" or t == "?" then
         if H.showHelp then pcall(H.showHelp) end
         return true, "📖 Открыл окно помощника"
     end
 
-    -- ---------- v1.1: ЭМОЦИИ ----------
     do
         local emo
         if containsWord(t, "танц") or containsWord(t, "станцуй") then emo = "dance"
@@ -1103,7 +999,6 @@ function H.interpret(rawText)
         end
     end
 
-    -- ---------- v1.1: БОТЫ / ВКЛАДКИ / СОХРАНЕНИЕ / SHARE ----------
     if containsWord(t, "бот") then
         if containsWord(t, "покажи") or containsWord(t, "открой") or containsWord(t, "где") then
             if ORBIT.ui and ORBIT.ui.setTab then ORBIT.ui.setTab("bots"); if ORBIT.ui.open then ORBIT.ui.open() end end
@@ -1142,7 +1037,6 @@ function H.interpret(rawText)
         return false, "🔗 orbit_share.lua не загружен"
     end
 
-    -- ---------- v1.2 (Y5): РЕДАКТОРЫ ----------
     if containsWord(t, "редактор") then
         local is3d = containsWord(t, "3d") or containsWord(t, "3д") or containsWord(t, "объём") or containsWord(t, "объем")
             or containsWord(t, "трёхмер") or containsWord(t, "трехмер")
@@ -1192,8 +1086,6 @@ function H.interpret(rawText)
         end
     end
 
-    -- ---------- v1.2 (Y5): ЧАСТИЦЫ АУРЫ (искры / дым / звёзды) ----------
-    -- Идёт ДО атмосферы: «частицы звёзды» — это аура, а не «звёзды» атмосферы.
     if containsWord(t, "частиц") or (containsWord(t, "аур") and (containsWord(t, "дым") or containsWord(t, "звёзд") or containsWord(t, "звезд") or containsWord(t, "искр"))) then
         local offWords = containsWord(t, "выкл") or containsWord(t, "убери") or containsWord(t, "отключ") or containsWord(t, "без ")
         if offWords then
@@ -1223,8 +1115,6 @@ function H.interpret(rawText)
         return false, "✨ Частицы ауры: скажи «частицы дым», «частицы звёзды» или «частицы искры»"
     end
 
-    -- ---------- v1.2 (Y5): СВЕЧЕНИЕ ----------
-    -- «свечение ауры …» — мягкие светящиеся частицы ауры (0 / 0.5 / 1 / 2); «свечение …» без «ауры» — свет колец.
     if containsWord(t, "свеч") then
         local off = containsWord(t, "выкл") or containsWord(t, "убери") or containsWord(t, "отключ") or containsWord(t, "без ")
         if containsWord(t, "аур") then
@@ -1251,7 +1141,6 @@ function H.interpret(rawText)
         return true, "✨ Свечение колец: " .. (on and "ВКЛ" or "ВЫКЛ")
     end
 
-    -- ---------- v1.1: АТМОСФЕРА ----------
     do
         local atmoOff = containsWord(t, "без атмосфер") or containsWord(t, "убери атмосфер")
             or (containsWord(t, "убери") and findFromList(t, ATMO_KEYWORDS) ~= nil)
@@ -1264,7 +1153,6 @@ function H.interpret(rawText)
         end
     end
 
-    -- ---------- v1.1: МАТЕРИАЛ / КОЛИЧЕСТВО ФИГУР ----------
     if containsWord(t, "материал") then
         local mname = findFromList(t, MATERIAL_KEYWORDS)
         if mname then
@@ -1290,7 +1178,6 @@ function H.interpret(rawText)
         end
     end
 
-    -- ---------- СТИЛЬ ----------
     if containsWord(t, "стиль") or containsWord(t, "образ") then
         local styleName = findStyle(t)
         if styleName and ORBIT.ui and ORBIT.ui.applyStyleByName then
@@ -1298,7 +1185,6 @@ function H.interpret(rawText)
             return true, "🎭 Стиль: " .. styleName
         end
     end
-    -- Без слова «стиль», если встретили имя стиля и «хочу/поставь/вруби»
     if containsWord(t, "хочу") or containsWord(t, "поставь") or containsWord(t, "вруб") or containsWord(t, "сделай") then
         local styleName = findStyle(t)
         if styleName and ORBIT.ui and ORBIT.ui.applyStyleByName then
@@ -1307,7 +1193,6 @@ function H.interpret(rawText)
         end
     end
 
-    -- ---------- СКОРОСТЬ ----------
     local speedRoots = {
         ["быстрее"] = 1, ["ускорь"] = 1, ["ускор"] = 1,
         ["медленнее"] = -1, ["замедл"] = -1, ["медл"] = -1,
@@ -1321,7 +1206,6 @@ function H.interpret(rawText)
             return true, "⚡ Скорость: " .. P.SPEED[newIdx].name
         end
     end
-    -- «х2», «х5», «2x», «в 3 раза»
     do
         local m = t:match("[хx]%s*(%d+)") or t:match("в%s*(%d+)%s*раз")
         if m then
@@ -1339,7 +1223,6 @@ function H.interpret(rawText)
         end
     end
 
-    -- ---------- ВЫСОТА ----------
     if containsWord(t, "выше") or containsWord(t, "высок") or containsWord(t, "небо") or containsWord(t, "космос") then
         local cur = P.heightIndex or 4
         local newIdx = math.clamp(cur + 1, 1, #P.HEIGHT)
@@ -1353,7 +1236,6 @@ function H.interpret(rawText)
         return true, "⬇️ Высота: " .. P.HEIGHT[newIdx].name
     end
 
-    -- ---------- АУРА ----------
     local auraOff = containsWord(t, "убери") or containsWord(t, "выключ") or containsWord(t, "отключ") or containsWord(t, "убрать")
     local auraOn  = containsWord(t, "включ") or containsWord(t, "вруб") or containsWord(t, "поставь") or containsWord(t, "добавь")
     if containsWord(t, "аур") then
@@ -1373,7 +1255,6 @@ function H.interpret(rawText)
         end
     end
 
-    -- ---------- ОГОНЬ ----------
     if containsWord(t, "огон") or containsWord(t, "огня") or containsWord(t, "поджог") then
         if auraOff then
             SETTINGS.FireEnabled = false
@@ -1386,7 +1267,6 @@ function H.interpret(rawText)
         end
     end
 
-    -- ---------- ТРЕЙЛЫ / ПУЛЬСАЦИЯ / ВОЛНА / ВЗРЫВ ----------
     if containsWord(t, "трейл") then
         local v = not auraOff
         SETTINGS.TrailEnabled = v
@@ -1415,7 +1295,6 @@ function H.interpret(rawText)
         return true, "💡 Свет: " .. (v and "ВКЛ" or "ВЫКЛ")
     end
 
-    -- ---------- КОЛЬЦА ----------
     if containsWord(t, "все кольц") or containsWord(t, "все кольца") or containsWord(t, "5 коль") or containsWord(t, "пять коль") then
         for ri = 2, 5 do ORBIT.setRingEnabled(ri, true) end
         return true, "⭕ Включены все 5 колец"
@@ -1424,7 +1303,6 @@ function H.interpret(rawText)
         for ri = 2, 5 do ORBIT.setRingEnabled(ri, false) end
         return true, "⭕ Оставлено только 1 кольцо"
     end
-    -- «3 кольца», «4 кольца»
     do
         local m = t:match("(%d+)%s*кольц")
         if m then
@@ -1434,7 +1312,6 @@ function H.interpret(rawText)
         end
     end
 
-    -- ---------- ФИГУРА ----------
     local shapeIdx, shapeName = findShape(t)
     if shapeIdx and shapeName then
         ORBIT.shapeIndex = shapeIdx
@@ -1443,7 +1320,6 @@ function H.interpret(rawText)
         return true, "🔷 Фигура: " .. shapeName
     end
 
-    -- ---------- ЦВЕТ ----------
     local colIdx, colName = findColor(t)
     if colIdx and colName then
         P.colorIndex = colIdx
@@ -1452,7 +1328,6 @@ function H.interpret(rawText)
         return true, "🎨 Цвет: " .. colName
     end
 
-    -- ---------- ТЕМП / СЛОЖНОСТЬ / НЕЗНАЮ ----------
     return false, "🤔 Не понял. Скажи «помощь» для списка команд."
 end
 
@@ -1461,8 +1336,7 @@ end
 -- ============================================================
 function H.helpText()
     return table.concat({
-        "🤖  КОМАНДЫ ПОМОЩНИКА",
-        "",
+        "🤖  КОМАНДЫ ПОМОЩНИКА", "",
         "🎨 Цвет: красный, синий, радуга, огонь, лёд, золотой...",
         "🔷 Фигура: шар, звезда, меч, череп, скала, сердце...",
         "🎭 Стиль: стиль огонь, стиль призрак, случайный стиль",
@@ -1483,15 +1357,14 @@ function H.helpText()
         "🔷 Количество: 12 фигур",
         "🎭 Эмоции: танцуй / привет / смейся / санс / уворот",
         "🤖 Боты: покажи ботов / создай 5 ботов / удали ботов",
-        "📂 Прочее: открой ауру / сохрани / загрузи / поделись",
-        "",
+        "📂 Прочее: открой ауру / сохрани / загрузи / поделись", "",
         "Просто напиши фразу целиком:",
         "«хочу огненный стиль»  «сделай радугу»  «поставь череп»",
     }, "\n")
 end
 
 -- ============================================================
---       UI ПАНЕЛЬ
+--       UI ПАНЕЛЬ ПОМОЩНИКА
 -- ============================================================
 local panel = nil
 
@@ -1542,7 +1415,6 @@ function H.open()
     closeBtn.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch then win.Visible = false end end)
     closeBtn.Activated:Connect(function() win.Visible = false end)
 
-    -- Поле ввода
     local input = Instance.new("TextBox")
     input.Size = UDim2.new(1, -28, 0, 40)
     input.Position = UDim2.new(0, 14, 0, 42)
@@ -1559,7 +1431,6 @@ function H.open()
     local pad = Instance.new("UIPadding", input)
     pad.PaddingLeft = UDim.new(0, 10); pad.PaddingRight = UDim.new(0, 10)
 
-    -- Кнопка «Выполнить»
     local runBtn = Instance.new("TextButton")
     runBtn.Size = UDim2.new(1, -28, 0, 38)
     runBtn.Position = UDim2.new(0, 14, 0, 90)
@@ -1571,7 +1442,6 @@ function H.open()
     runBtn.Parent = win
     Instance.new("UICorner", runBtn).CornerRadius = UDim.new(0, 10)
 
-    -- Лог (последний ответ)
     local logLbl = Instance.new("TextLabel")
     logLbl.Size = UDim2.new(1, -28, 0, 44)
     logLbl.Position = UDim2.new(0, 14, 0, 134)
@@ -1629,9 +1499,7 @@ function H.open()
         if enter then doRun() end
     end)
 
-    -- Ряд быстрых кнопок-пресетов
     local y0 = 186
-    local BTN_H = 30
     local presetTitle = Instance.new("TextLabel")
     presetTitle.Size = UDim2.new(1, -28, 0, 16)
     presetTitle.Position = UDim2.new(0, 14, 0, y0)
@@ -1677,7 +1545,7 @@ function H.open()
     scroll.Parent = win
 
     local grid = Instance.new("UIGridLayout", scroll)
-    grid.CellSize = UDim2.new(0, cw, 0, BTN_H)
+    grid.CellSize = UDim2.new(0, cw, 0, 30)
     grid.CellPadding = UDim2.new(0, 6, 0, 6)
     grid.SortOrder = Enum.SortOrder.LayoutOrder
 
@@ -1696,78 +1564,15 @@ function H.open()
             input.Text = phrase
             doRun()
         end)(b)
-    end
-end
-
--- v1.2-fix1: публичный close для ORBIT.helperClose
-function H.close()
-    if panel and panel.Parent then panel.Visible = false end
-end
-
--- ============================================================
---       ЭКСПОРТ
--- ============================================================
-H.showHelp = function()
-    H.open()
-    if ORBIT.notify then
-        ORBIT.notify("📖 Смотри окно помощника", Color3.fromRGB(200, 220, 255), 2)
-    end
-end
-
--- Хук для того, чтобы p4 мог вызвать applyStyleByName
--- v1.2-fix1: 🔧 раньше здесь был for root, styleName in pairs(STYLE_KEYWORDS) — но
--- STYLE_KEYWORDS уже МАССИВ пар (после v1.1). Исправлено на ipairs + pair[1]/pair[2].
--- Плюс reentrancy guard: если fallback всё же вызван из H.interpret (внутри
--- обработки «стиль X»), то повторный вызов applyStyleByName НЕ уходит в рекурсию.
--- Основной путь всё равно в p4 (NB.styleDefs + NB.elementDefs); этот fallback — страховка.
-if not ORBIT.ui then ORBIT.ui = {} end
-if not ORBIT.ui.applyStyleByName then
-    local applyingFallback = false
-    ORBIT.ui.applyStyleByName = function(name)
-        if not name or applyingFallback then return false end
-        local t = lower(name)
-        for _, pair in ipairs(STYLE_KEYWORDS) do
-            if containsWord(t, pair[1]) then
-                applyingFallback = true
-                pcall(H.interpret, "стиль " .. tostring(pair[2]))
-                applyingFallback = false
-                return true
-            end
-        end
-        return false
-    end
-end
-
-if ORBIT.notify then
-    ORBIT.notify("🤖 Помощник v1.2 загружен (команда «помощь»)", Color3.fromRGB(200, 220, 255), 3)
-end
-warn("[Orbit Helper v1.2] Загружен ✅")
-return true
-
-end
-do local ok, err = pcall(module_helper); Tools.helper = ok; if not ok then warn("[Orbit Tools] helper: " .. tostring(err)) end end
--- ═════════ МОДУЛЬ: shop (из orbit_p4_shop.lua) ═════════
+    end-- ═════════ МОДУЛЬ: shop (из orbit_p4_shop.lua) ═════════
 local function module_shop()
 if ORBIT.openShop then return end
 -- ОРБИТА v23.12 — P4_SHOP (Магазин + 2D-Редактор + кнопка 3D)
 -- v23.12 (Y5): экспорт ORBIT.Editor2D (Open, SetBrush, SetGridSize) для команд помощника.
--- v23.11 (L3): кнопки +12%, яркие заголовки, отступы 12 px, активный инструмент с обводкой и «✓», палитра сразу под сеткой,
---    Отмена/Вернуть серые когда нечего делать, яркие когда можно.
--- v23.10 (I3): 2D-редактор — кисти 1×1…5×5 (и для ластика), пипетка, кнопки 38 px, секции «РАЗМЕР КИСТИ» / «ИНСТРУМЕНТ».
+-- v23.11 (L3): кнопки +12%, яркие заголовки, активный инструмент с обводкой и «✓».
+-- v23.10 (I3): 2D-редактор — кисти 1×1…5×5, пипетка, кнопки 38 px.
 -- Магазин + 2D-редактор v3: сетка 16/20/24, кисти 1x1/2x2/3x3, ластик, заливка,
 -- история 20 шагов, симметрия, шаблоны, сохранение кастомных фигур.
--- Сохранение { name, pixels } -> SHAPE_PRESETS.
--- ВАЖНО: все идентификаторы латиницей, кириллица — только в комментариях и текстах UI.
---
--- ИЗМЕНЕНИЯ v23.5: onClick в ScrollingFrame срабатывает при отпускании пальца,
--- чтобы прокрутка сетки магазина случайно не покупала фигуры.
--- ФИКСЫ v23.6: на мобилке кнопка 3D-редактора вынесена во второй ряд хедера
--- (перекрывала заголовок и монеты); локальный onClick играет playClick.
--- ФИКС v23.7: в шапке только строчные комментарии (блочные ломали компиляцию).
--- v23.8: фигура «СКАЛА» добавлена в категорию «СУЩЕСТВА» магазина.
--- v23.9: в 2D-редакторе появились кнопки «Поделиться» и «Импорт» — они работают
--- через модуль orbit_share.lua. Созданную фигуру можно отправить другу строкой
--- или короткой ссылкой, а чужую — принять и она попадёт в магазин.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Shop] ORBIT не найден!"); return end
@@ -1875,7 +1680,6 @@ local COLOR_NAMES = {
 
 -- ============================================================
 --       УНИВЕРСАЛЬНЫЙ ТАП (Delta/Android)
---       Down + Touch + Activated, плюс защита от двойного срабатывания
 -- ============================================================
 local function onClick(btn, fn, releaseOnly)
     local deb = false
@@ -1909,7 +1713,6 @@ local function onClick(btn, fn, releaseOnly)
     end)
     btn.Activated:Connect(call)
 end
-
 
 -- ============================================================
 --       РЕГИСТРАЦИЯ 2D И 3D ФИГУР
@@ -1953,7 +1756,6 @@ local function registerCustomShape(shape)
     local rows = #shape.pixels
     local cols = #shape.pixels[1]
     local pixelData = {}
-
     for r = 1, rows do
         pixelData[r] = {}
         local row = shape.pixels[r]
@@ -1972,7 +1774,6 @@ local function registerCustomShape(shape)
             end
         end
     end
-
     table.insert(SHAPE_PRESETS, {
         name = name, isCustom = true,
         create = function(shapeSize, partName)
@@ -2058,23 +1859,19 @@ local function createAvatarPreview(parent, size)
     avatar.Parent = world
 
     cam.CFrame = CFrame.new(Vector3.new(0, 1.5, -8), Vector3.new(0, 1.5, 0))
-
     return vp, world, cam, avatar
 end
 
 local function buildDemoRing(world, shapeIndex, color3, sizeMult, blockCount)
     local old = world:FindFirstChild("_DemoRing")
     if old then old:Destroy() end
-
     local folder = Instance.new("Folder")
     folder.Name = "_DemoRing"
     folder.Parent = world
-
     local shape = SHAPE_PRESETS[shapeIndex] or SHAPE_PRESETS[1]
     local size = 1.2 * (sizeMult or 1.0)
     local count = blockCount or 8
     local blocks = {}
-
     for i = 1, count do
         local data = shape.create(size, "D_" .. i)
         local refPart = data.part
@@ -2095,7 +1892,7 @@ local function buildDemoRing(world, shapeIndex, color3, sizeMult, blockCount)
 end
 
 -- ============================================================
---              МАГАЗИН (логика без изменений)
+--              МАГАЗИН
 -- ============================================================
 local shopOpen = false
 local shopGui
@@ -2159,7 +1956,6 @@ local function openShop()
     local str = Instance.new("UIStroke", shopGui)
     str.Color = Color3.fromRGB(180, 140, 255)
     str.Thickness = 2
-
     if ORBIT.ui.fitToScreen then ORBIT.ui.fitToScreen(shopGui, shopW, shopH) end
 
     local title = Instance.new("TextLabel")
@@ -2269,7 +2065,6 @@ local function openShop()
         lbl.ZIndex = 12
         lbl.Parent = rightPanel
         ry = ry + 16
-
         if hintText then
             local hint = Instance.new("TextLabel")
             hint.Size = UDim2.new(1, -12, 0, 12)
@@ -2528,7 +2323,6 @@ local function openShop()
             return
         end
         local t = tick()
-
         if avatar then
             pcall(function()
                 local rootPart = avatar.PrimaryPart or avatar:FindFirstChild("HumanoidRootPart") or avatar:FindFirstChild("Torso")
@@ -2537,7 +2331,6 @@ local function openShop()
                 end
             end)
         end
-
         local col = P.COLORS[shopState.colorIndex]
         local c3 = col.c or Color3.fromRGB(0, 180, 255)
         if col.rainbow then c3 = Color3.fromHSV((t*0.2) % 1, 0.9, 1) end
@@ -2625,22 +2418,23 @@ local function openShop()
     end)
 
     updateCat(); refreshShapeLbl(); updateColor(); updateSize(); updateSpeed(); refreshDemo()
-  end
-  -- ============================================================
+end
+
+-- ============================================================
 --       2D-РЕДАКТОР v3
 -- ============================================================
 local editorOpen = false
 local editorGui
 local editorConns = {}
-local P2 = "Orbit2D_"   -- префикс имён всех элементов 2D-редактора
+local P2 = "Orbit2D_"
 
 local GRID_OPTIONS = {16, 20, 24}
-local GRID = 16   -- по умолчанию 16×16 (крупные клетки)
+local GRID = 16
 
 local Ed2D = {
     Cells = {},
-    Tool = "paint",     -- "paint" / "eraser" / "fill" / "pick"  (v23.10: размер кисти вынесен в Brush)
-    Brush = 1,          -- размер кисти 1..5 (для кисти и ластика)
+    Tool = "paint",
+    Brush = 1,
     Color = 1,
     States = {}, StateIdx = 0, MaxHistory = 20,
 }
@@ -2653,7 +2447,6 @@ local function resizeGrid(newN)
         Ed2D.Cells[r] = {}
         for c = 1, newN do Ed2D.Cells[r][c] = 0 end
     end
-    -- старые клетки сохраняются в пределах нового размера
     for r = 1, math.min(oldN, newN) do
         for c = 1, math.min(oldN, newN) do
             if oldCells[r] and oldCells[r][c] then
@@ -2664,7 +2457,6 @@ local function resizeGrid(newN)
     GRID = newN
 end
 
--- История: States[StateIdx] — текущее состояние, commit вызывается ПОСЛЕ изменения
 local function snapshot2D()
     local s = {}
     for r = 1, GRID do
@@ -2711,7 +2503,6 @@ end
 resizeGrid(GRID)
 resetHistory2D()
 
--- Заливка: свой стек + seen (без рекурсии). Возвращает true, если что-то изменилось
 local function floodFill2D(r0, c0, newColor)
     local old = Ed2D.Cells[r0][c0]
     if old == newColor then return false end
@@ -2735,7 +2526,6 @@ local function floodFill2D(r0, c0, newColor)
     return true
 end
 
--- Шаблоны (1 = основной цвет, 2 = цвет деталей)
 local HEART_PATTERN = {
     "01100110", "11111111", "11111111", "11111111",
     "01111110", "00111100", "00011000",
@@ -2754,7 +2544,6 @@ local function openEditor()
     local editorW = IS_MOBILE and 360 or 700
     local editorH = IS_MOBILE and 620 or 470
 
-    -- --- маленькие помощники с префиксом имён ---
     local function mk(class, props, parent)
         local o = Instance.new(class)
         for k, v in pairs(props or {}) do
@@ -2789,12 +2578,11 @@ local function openEditor()
         Ed2D.SetGridSize = nil
         for _, cn in ipairs(editorConns) do pcall(function() cn:Disconnect() end) end
         editorConns = {}
-        Ed2D.OnHistory = nil   -- кнопки уничтожены
+        Ed2D.OnHistory = nil
         if editorGui then pcall(function() editorGui:Destroy() end) end
         editorGui = nil
     end
 
-    -- Заголовок
     mk("TextLabel", {
         Name = "Title", Size = UDim2.new(1, -200, 0, 26), Position = UDim2.new(0, 16, 0, 8),
         BackgroundTransparency = 1, Text = "🎨 2D-РЕДАКТОР", TextColor3 = Color3.fromRGB(230, 200, 255),
@@ -2822,9 +2610,6 @@ local function openEditor()
     corner(closeBtn, 8)
     onClick(closeBtn, closeEditor)
 
-    -- ============================================================
-    --       СЕТКА (подложка темнее клеток, у каждой клетки UIStroke)
-    -- ============================================================
     local leftX, topY = 16, 42
     local gridPx = IS_MOBILE and 328 or 400
     local pitch = 1
@@ -2882,9 +2667,6 @@ local function openEditor()
         refreshAllCells()
     end
 
-    -- ============================================================
-    --       РИСОВАНИЕ (один оверлей: тап и протяжка пальцем)
-    -- ============================================================
     local countLbl
     local function countFilled()
         local n = 0
@@ -2905,7 +2687,6 @@ local function openEditor()
         return true
     end
 
-    -- v23.10 (I3): кисти 1×1 … 5×5 работают и для кисти, и для ластика; добавлена пипетка
     local function stampBrush(r, c, color)
         local n = Ed2D.Brush or 1
         local lo = -math.floor((n - 1) / 2)
@@ -3010,9 +2791,6 @@ local function openEditor()
         end
     end))
 
-    -- ============================================================
-    --       ПАНЕЛЬ УПРАВЛЕНИЯ (вертикальный скролл, одна колонка)
-    -- ============================================================
     local ctrlX = IS_MOBILE and 16 or (leftX + gridPx + 12)
     local ctrlY = IS_MOBILE and (topY + gridPx + 8) or topY
     local ctrlW = IS_MOBILE and (editorW - 32) or (editorW - ctrlX - 16)
@@ -3036,7 +2814,6 @@ local function openEditor()
     list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(fitCanvas)
 
     local secOrder = 0
-    -- v23.11 (L3): единый масштаб кнопок +12% (мобилка); высоты секций масштабируются так же
     local BTN_SCALE = 1.12
     local function sc(v) return math.floor(v * BTN_SCALE + 0.5) end
 
@@ -3064,7 +2841,6 @@ local function openEditor()
     local BTN = Color3.fromRGB(45, 38, 65)
     local BTN_OFF = Color3.fromRGB(34, 30, 46)
 
-    -- Активная кнопка: белая обводка + «✓» перед текстом
     local function markActive(b, on)
         if not b then return end
         local base = b:GetAttribute("BaseText")
@@ -3122,7 +2898,6 @@ local function openEditor()
         end
         btns = buttonRow(body, items, 0, 32, 12)
         paintSizes()
-        -- v23.12 (Y5): вызывается помощником («размер сетки 20»); возвращает true, если размер допустим
         Ed2D.SetGridSize = function(n)
             for _, g in ipairs(GRID_OPTIONS) do
                 if g == n then setSize(n); return true end
@@ -3135,7 +2910,7 @@ local function openEditor()
     local swatch
     do
         local body, titleLbl = section("🎨 ПАЛИТРА", Color3.fromRGB(100, 60, 140), 54)
-        body.Parent.LayoutOrder = 0   -- v23.11 (L3): палитра — первая секция, сразу под сеткой
+        body.Parent.LayoutOrder = 0
         swatch = mk("Frame", {
             Name = "Swatch", Size = UDim2.new(0, 26, 0, 12), Position = UDim2.new(1, -30, 0, 3),
             BackgroundColor3 = PALETTE[Ed2D.Color], BorderSizePixel = 0,
@@ -3187,7 +2962,7 @@ local function openEditor()
         Ed2D.refreshPal = refreshPal
     end
 
-    -- 🔲 РАЗМЕР КИСТИ (v23.10: крупные кисти до 5×5, кнопки по 38 px)
+    -- 🔲 РАЗМЕР КИСТИ
     do
         local body = section("🔲 РАЗМЕР КИСТИ", Color3.fromRGB(100, 80, 40), 38)
         local btns = {}
@@ -3205,7 +2980,7 @@ local function openEditor()
         Ed2D.paintBrush()
     end
 
-    -- 🛠 ИНСТРУМЕНТ (кисть / ластик / заливка / пипетка)
+    -- 🛠 ИНСТРУМЕНТ
     do
         local body = section("🛠 ИНСТРУМЕНТ", Color3.fromRGB(120, 90, 50), 38)
         local tools = {
@@ -3248,7 +3023,6 @@ local function openEditor()
                 commit2D(); refreshAllCells(); refreshCount()
             end},
         }, 0, 32, 11)
-        -- серые, когда нечего отменять/возвращать; яркие, когда можно
         Ed2D.OnHistory = function()
             local canUndo = Ed2D.StateIdx > 1
             local canRedo = Ed2D.StateIdx < #Ed2D.States
@@ -3301,7 +3075,6 @@ local function openEditor()
 
     -- 💾 СОХРАНЕНИЕ
     do
-        -- bodyH = 220: countLbl(0..16) + nameInput(20..52) + saveBtn(58..94) + sellBtn(100..132) + shareBtn(138..174) + importBtn(178..214)
         local body = section("💾 СОХРАНЕНИЕ", Color3.fromRGB(100, 60, 140), 220)
 
         countLbl = mk("TextLabel", {
@@ -3335,7 +3108,6 @@ local function openEditor()
         }, body)
         corner(sellBtn, 8)
 
-        -- 🆕 📤 Поделиться фигурой (упаковывает текущую сетку в строку ОРБИТЫ и открывает панель)
         local shareBtn = mk("TextButton", {
             Name = "Share", Size = UDim2.new(1, -4, 0, 36), Position = UDim2.new(0, 2, 0, 138),
             BackgroundColor3 = Color3.fromRGB(70, 60, 130), TextColor3 = Color3.fromRGB(220, 210, 255),
@@ -3344,7 +3116,6 @@ local function openEditor()
         }, body)
         corner(shareBtn, 8)
 
-        -- 🆕 📥 Импорт чужой фигуры (открывает панель шаринга для приёма строки)
         local importBtn = mk("TextButton", {
             Name = "Import", Size = UDim2.new(1, -4, 0, 36), Position = UDim2.new(0, 2, 0, 178),
             BackgroundColor3 = Color3.fromRGB(50, 80, 110), TextColor3 = Color3.fromRGB(200, 230, 255),
@@ -3411,13 +3182,11 @@ local function openEditor()
             if ORBIT.playBuy then pcall(ORBIT.playBuy) end
         end)
 
-        -- 📤 Поделиться: упаковать текущую сетку в строку и открыть share-панель
         onClick(shareBtn, function()
             if not ORBIT.share or not ORBIT.share.encodeShape then
                 ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
                 return
             end
-            -- собираем пиксели
             local data = {}
             local filled = 0
             for r = 1, GRID do
@@ -3445,11 +3214,9 @@ local function openEditor()
                 ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255,150,150), 3)
                 return
             end
-            -- открыть панель шаринга со строкой уже в поле «отдать»
             ORBIT.share.open(str)
         end)
 
-        -- 📥 Импорт: открыть панель шаринга (пустую), пользователь вставит строку
         onClick(importBtn, function()
             if not ORBIT.share or not ORBIT.share.open then
                 ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
@@ -3459,7 +3226,6 @@ local function openEditor()
         end)
     end
 
-    -- Первичная сборка сетки
     rebuildGridUI()
     refreshCount()
     fitCanvas()
@@ -3471,14 +3237,12 @@ end
 if ORBIT.ui.openShopBtn then
     onClick(ORBIT.ui.openShopBtn, function() openShop() end)
 end
-
 if ORBIT.ui.openEditorBtn then
     onClick(ORBIT.ui.openEditorBtn, function() openEditor() end)
 end
 
 ORBIT.openShop = openShop
 ORBIT.openEditor = openEditor
--- v23.12 (Y5): доступ помощника к состоянию 2D-редактора
 Ed2D.GridOptions = GRID_OPTIONS
 Ed2D.SetBrush = function(n)
     n = math.clamp(math.floor(tonumber(n) or 1), 1, 5)
@@ -3499,34 +3263,52 @@ return true
 
 end
 do local ok, err = pcall(module_shop); Tools.shop = ok; if not ok then warn("[Orbit Tools] shop: " .. tostring(err)) end end
+            
+end
+
+function H.close()
+    if panel and panel.Parent then panel.Visible = false end
+end
+
+H.showHelp = function()
+    H.open()
+    if ORBIT.notify then
+        ORBIT.notify("📖 Смотри окно помощника", Color3.fromRGB(200, 220, 255), 2)
+    end
+end
+
+if not ORBIT.ui then ORBIT.ui = {} end
+if not ORBIT.ui.applyStyleByName then
+    local applyingFallback = false
+    ORBIT.ui.applyStyleByName = function(name)
+        if not name or applyingFallback then return false end
+        local t = lower(name)
+        for _, pair in ipairs(STYLE_KEYWORDS) do
+            if containsWord(t, pair[1]) then
+                applyingFallback = true
+                pcall(H.interpret, "стиль " .. tostring(pair[2]))
+                applyingFallback = false
+                return true
+            end
+        end
+        return false
+    end
+end
+
+if ORBIT.notify then
+    ORBIT.notify("🤖 Помощник v1.2 загружен (команда «помощь»)", Color3.fromRGB(200, 220, 255), 3)
+end
+warn("[Orbit Helper v1.2] Загружен ✅")
+return true
+
+end
+do local ok, err = pcall(module_helper); Tools.helper = ok; if not ok then warn("[Orbit Tools] helper: " .. tostring(err)) end end
 -- ═════════ МОДУЛЬ: editor3d (из orbit_editor3d.lua) ═════════
 local function module_editor3d()
 if ORBIT.Editor3D then return end
 -- ОРБИТА v23.13 — 3D-РЕДАКТОР ФИГУР (orbit_editor3d.lua)
 -- Открывается через ORBIT.openEditor3D().
 -- Сетка N×N×N: 4..8 (легко), 16 (средне), 32 (тяжело), 64 (крайне тяжело).
--- Слои Z, симметрия X/Y/Z, история 20 (10 для N>=16) шагов.
--- Камера: свайп — вращение, пинч — зум, кнопки сброса/зума.
--- Выбор клетки: свой луч + rayAABB.
--- Сохранение в ORBIT.SHAPE_PRESETS / ORBIT.CUSTOM_SHAPES (+ writefile, если есть).
---
--- ИСТОРИЯ:
---   v23.9  — добавлены кнопки «Поделиться» и «Импорт» через orbit_share.lua.
---   v23.10 — добавлены размеры 16/32/64. Для больших сеток — упрощённая визуализация
---            (иначе ViewportFrame захлёбывается). Лимит блоков = 5000 (предупреждение при
---            превышении). История шагов = 20 для N<16, 10 для N>=16 (память).
---   v23.11 (I3) — кисть-куб 1/2/3/4/5 (Ed.Brush), кнопка размера кисти 36 px,
---            секция «РАЗМЕР КИСТИ».
---   v23.12 (L3) — кнопки +12%, яркие заголовки, отступы между блоками 12 px,
---            активный инструмент с обводкой и «✓», размеры сетки по категориям
---            (Малый/Средний/Большой/Огромный) с мини-иконками; Отмена/Вернуть серые,
---            когда нечего делать.
---   v23.13 (Y5) — Ed.SetBrush / Ed.SetGridSize для команд помощника.
---   v23.13-fix1 — 🐛 warn в конце синхронизирован (было v23.10 → стало v23.13);
---                 🐛 notify в конце синхронизирован (было v23.10 → стало v23.13);
---                 📝 шапка переписана в единый -- блок (правило #5: --[[ ]] не вкладываются).
---
--- ВАЖНО: все идентификаторы латиницей, кириллица только в комментариях и текстах.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit 3D Editor] ORBIT не найден!"); return end
@@ -3538,7 +3320,6 @@ local screenGui   = ORBIT.ui.screenGui
 local IS_MOBILE   = (ORBIT.PLATFORM == "mobile")
 local PREFIX      = "Orbit3D_"
 
--- Если скрипт запущен повторно — аккуратно закрываем старый экземпляр
 if ORBIT.Editor3D and ORBIT.Editor3D.Close then pcall(ORBIT.Editor3D.Close) end
 
 -- ============================================================
@@ -3578,19 +3359,13 @@ local C = {
     accent = Color3.fromRGB(180, 130, 255),
 }
 
--- ============================================================
---       КОНСТАНТЫ
--- ============================================================
 local SIZES_ALLOWED   = {4, 5, 6, 7, 8, 16, 32, 64}
-local BIG_THRESHOLD   = 16      -- N >= 16 — упрощённая визуализация
-local HUGE_THRESHOLD  = 32      -- N >= 32 — отключаем сетку, только рамка
-local MAX_CELLS       = 5000    -- больше — предупреждение и обрезка
-local MAX_HISTORY_BIG = 10      -- история для N >= 16
-local MAX_HISTORY_STD = 20      -- обычная
+local BIG_THRESHOLD   = 16
+local HUGE_THRESHOLD  = 32
+local MAX_CELLS       = 5000
+local MAX_HISTORY_BIG = 10
+local MAX_HISTORY_STD = 20
 
--- ============================================================
---       СОСТОЯНИЕ
--- ============================================================
 local Ed = {
     Open = false, Gui = nil, Vp = nil, World = nil, Cam = nil,
     BlockFolder = nil, GridFolder = nil,
@@ -3606,28 +3381,20 @@ local Ed = {
 
 local HALF = Vector3.new(0.5, 0.5, 0.5)
 
--- Ключ ячейки — 32-битный (для N<=64 достаточно)
 local function key(x, y, z) return (x * 128 + y) * 128 + z end
-
 local function cellCenter(x, y, z)
     local o = (Ed.N + 1) / 2
     return Vector3.new(x - o, y - o, z - o)
 end
-
 local function countCells()
     local n = 0
     for _ in pairs(Ed.Cells) do n = n + 1 end
     return n
 end
-
 local function defaultDist() return 4 + Ed.N * 2 end
-
 local function isBig()  return Ed.N >= BIG_THRESHOLD end
 local function isHuge() return Ed.N >= HUGE_THRESHOLD end
 
--- ============================================================
---       УТИЛИТЫ GUI
--- ============================================================
 local function mk(class, props, parent)
     local o = Instance.new(class)
     for k, v in pairs(props or {}) do
@@ -3680,9 +3447,6 @@ local function onClick(btn, fn, releaseOnly)
     btn.Activated:Connect(call)
 end
 
--- ============================================================
---       ЛУЧ: rayAABB
--- ============================================================
 local function rayAABB(origin, direction, mn, mx)
     local o  = {origin.X, origin.Y, origin.Z}
     local d  = {direction.X, direction.Y, direction.Z}
@@ -3744,9 +3508,6 @@ local function pickFromScreen(px, py)
     return nil
 end
 
--- ============================================================
---       ВИЗУАЛ: СЕТКА И БЛОКИ
--- ============================================================
 local function setupPart(p, color, transp)
     p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false
     p.CastShadow = false; p.Material = Enum.Material.Neon
@@ -3778,7 +3539,6 @@ local function buildGrid()
     local accent = PALETTE[Ed.Color]
     local frameCol = Color3.fromRGB(120, 160, 220)
 
-    -- внешний куб (12 рёбер) — всегда
     for _, u in ipairs({-h, h}) do
         for _, v in ipairs({-h, h}) do
             gridSeg(Vector3.new(-h, u, v), Vector3.new(h, u, v), frameCol, 0.7, 0.05)
@@ -3787,7 +3547,6 @@ local function buildGrid()
         end
     end
 
-    -- HUGE (N >= 32): только рамка куба + активный слой — сетка не рисуется
     if isHuge() then
         local zc = Ed.ActiveZ - o
         gridSeg(Vector3.new(-h, -h, zc), Vector3.new(h, -h, zc), accent, 0.4, 0.02)
@@ -3797,7 +3556,6 @@ local function buildGrid()
         return
     end
 
-    -- BIG (N >= 16): активный слой с сеткой, остальные слои — без рамок
     if isBig() then
         local zc = Ed.ActiveZ - o
         for i = 0, N do
@@ -3808,7 +3566,6 @@ local function buildGrid()
         return
     end
 
-    -- Обычный режим: рамки остальных слоёв + полная сетка активного
     for zi = 1, N do
         if zi ~= Ed.ActiveZ then
             local zc = zi - o
@@ -3869,9 +3626,6 @@ local function updateCamera()
     Ed.Cam.CFrame = CFrame.new(pos, Vector3.new(0, 0, 0))
 end
 
--- ============================================================
---       ИСТОРИЯ
--- ============================================================
 local function snapshot()
     local s = {}
     for k, c in pairs(Ed.Cells) do s[k] = {x = c.x, y = c.y, z = c.z, color = c.color} end
@@ -3913,9 +3667,6 @@ local function doRedo()
 end
 resetHistory()
 
--- ============================================================
---       ДЕЙСТВИЯ НАД СЕТКОЙ
--- ============================================================
 local function mirrored(x, y, z)
     local pts = {{x, y, z}}
     local N = Ed.N
@@ -3934,7 +3685,6 @@ local function mirrored(x, y, z)
     return pts
 end
 
--- v23.11 (I3): кисть-куб 1 / 2 / 3 / 5 клеток; зеркала считаются для каждой клетки куба
 local function applyAt(x, y, z)
     local col = PALETTE[Ed.Color]
     local changed = false
@@ -4078,9 +3828,6 @@ local function setActiveZ(z)
     refreshView()
 end
 
--- ============================================================
---       РЕГИСТРАЦИЯ ФИГУРЫ
--- ============================================================
 local function persistShapes()
     if type(ORBIT.saveStorage) == "function" then
         pcall(ORBIT.saveStorage)
@@ -4152,9 +3899,6 @@ local function registerShape(name)
     return true, finalName
 end
 
--- ============================================================
---       ЗАКРЫТИЕ
--- ============================================================
 local function closeEditor()
     Ed.Open = false
     for _, cn in ipairs(Ed.Conns) do pcall(function() cn:Disconnect() end) end
@@ -4168,9 +3912,6 @@ local function closeEditor()
     Ed.PaintBrush, Ed.PaintSizes = nil, nil
 end
 
--- ============================================================
---       ОКНО РЕДАКТОРА
--- ============================================================
 local function openEditor3D()
     if Ed.Open and Ed.Gui and Ed.Gui.Parent then return end
     Ed.Open = true
@@ -4209,7 +3950,6 @@ local function openEditor3D()
     corner(closeBtn, 8)
     onClick(closeBtn, closeEditor)
 
-    -- ---------- ViewportFrame ----------
     Ed.Vp = mk("ViewportFrame", {
         Name = "Viewport", Size = UDim2.new(0, vpW, 0, vpH), Position = UDim2.new(0, 10, 0, 36),
         BackgroundColor3 = Color3.fromRGB(8, 6, 16), BorderSizePixel = 0, Active = true,
@@ -4236,7 +3976,6 @@ local function openEditor3D()
     buildGrid()
     syncBlocks()
 
-    -- ---------- Жесты ----------
     local touches = {}
     local g = {moved = false, mouse = false, last = nil, start = nil}
     local pinchStart, pinchZoom
@@ -4331,7 +4070,6 @@ local function openEditor3D()
         end
     end)
 
-    -- ---------- Палитра ----------
     local palX, palY, palW = 10, 36 + vpH + 6, vpW
     local palBlock = mk("Frame", {
         Name = "PalBlock", Size = UDim2.new(0, palW, 0, 74), Position = UDim2.new(0, palX, 0, palY),
@@ -4391,7 +4129,6 @@ local function openEditor3D()
     end
     refreshPalette()
 
-    -- ---------- Панель инструментов ----------
     local toolsX, toolsY, toolsW, toolsH
     if IS_MOBILE then
         toolsX, toolsY = 10, palY + 78
@@ -4419,7 +4156,6 @@ local function openEditor3D()
     list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(fitCanvas)
 
     local secOrder = 0
-    -- v23.12 (L3): единый масштаб кнопок +12% (для мобилки); высоты секций масштабируются так же
     local BTN_SCALE = 1.12
     local function sc(v) return math.floor(v * BTN_SCALE + 0.5) end
 
@@ -4442,7 +4178,6 @@ local function openEditor3D()
         }, f)
     end
 
-    -- Активная кнопка: белая обводка + «✓» перед текстом
     local function markActive(b, on)
         if not b then return end
         local base = b:GetAttribute("BaseText")
@@ -4499,7 +4234,7 @@ local function openEditor3D()
         paintModes()
     end
 
-    -- 🔲 РАЗМЕР КИСТИ (v23.11, I3): куб из N×N×N клеток, кнопки 36 px
+    -- 🔲 РАЗМЕР КИСТИ
     do
         local body = section("🔲 РАЗМЕР КИСТИ (куб)", 36)
         local sizes = {1, 2, 3, 4, 5}
@@ -4519,7 +4254,7 @@ local function openEditor3D()
         paintBrush()
     end
 
-    -- 📐 РАЗМЕР СЕТКИ — две строки с категориями и мини-иконками
+    -- 📐 РАЗМЕР СЕТКИ
     do
         local body = section("📐 РАЗМЕР СЕТКИ", 84)
         local GRID_ITEMS1 = {
@@ -4661,7 +4396,7 @@ local function openEditor3D()
         }, 0, 32, 10)
     end
 
-    -- 💾 СОХРАНЕНИЕ (+ share/import)
+    -- 💾 СОХРАНЕНИЕ
     do
         local body = section("💾 СОХРАНЕНИЕ И ОБМЕН", 160)
 
@@ -4763,7 +4498,6 @@ local function openEditor3D()
         end)
     end
 
-    -- Подсказка
     local hintText = "👆 Свайп по 3D — вращать\n🔍 Пинч двумя пальцами — зум\n👆 Тап по клетке — действие по режиму\n📚 Редактируется активный слой (▲/▼)\n⚠️ N>=16: упрощённая сетка (иначе лаги)"
     if IS_MOBILE then
         secOrder = secOrder + 1
@@ -4791,11 +4525,7 @@ local function openEditor3D()
     fitCanvas()
 end
 
--- ============================================================
---       ЭКСПОРТ
--- ============================================================
 Ed.Close = closeEditor
--- v23.13 (Y5): методы для помощника («кисть 3», «размер сетки 16»)
 Ed.BrushSizes = {1, 2, 3, 4, 5}
 Ed.GridSizes = {4, 5, 6, 7, 8, 16, 32, 64}
 Ed.SetBrush = function(n)
@@ -4856,7 +4586,6 @@ local triedThemes = {}
 local function lum(c) return 0.299 * c.R + 0.587 * c.G + 0.114 * c.B end
 local function sat(c) local _, s = Color3.toHSV(c); return s end
 
--- Перекраска одного элемента. Оригинальные цвета хранятся в атрибутах (тема dark = оригинал)
 local function paint(obj, th, isDefault)
     if obj:GetAttribute("_OrbitNoTheme") then return end
     if obj:IsA("GuiObject") then
@@ -4868,7 +4597,7 @@ local function paint(obj, th, isDefault)
             obj.BackgroundColor3 = ob
         elseif obj.BackgroundTransparency < 0.95 then
             if sat(ob) > 0.35 and lum(ob) > 0.2 then
-                obj.BackgroundColor3 = ob:Lerp(th.accent, 0.55)   -- акцентные блоки
+                obj.BackgroundColor3 = ob:Lerp(th.accent, 0.55)
             elseif obj:IsA("TextButton") or obj:IsA("TextBox") then
                 obj.BackgroundColor3 = th.button
             elseif lum(ob) < 0.3 then
@@ -4909,7 +4638,7 @@ function ORBIT.applyTheme(name, silent)
         for _, d in ipairs(sg:GetDescendants()) do
             pcall(paint, d, th, isDefault)
             n = n + 1
-            if n % 150 == 0 then task.wait() end   -- не фризим кадр
+            if n % 150 == 0 then task.wait() end
         end
     end)
     if themeConn then pcall(function() themeConn:Disconnect() end); themeConn = nil end
@@ -4930,7 +4659,6 @@ function ORBIT.applyTheme(name, silent)
 end
 if ORBIT.ui then ORBIT.ui.applyTheme = ORBIT.applyTheme end
 
--- Секция выбора темы (вкладка «more»)
 task.spawn(function()
     local UI = ORBIT.ui
     if not (UI and UI.addSection and UI.makeButton and UI.addControl) then return end
@@ -4945,7 +4673,6 @@ task.spawn(function()
     end
 end)
 
--- Применить сохранённую тему после старта UI
 task.delay(1.5, function()
     local t = ORBIT.saveData and ORBIT.saveData.theme
     if t and t ~= "dark" and ORBIT.THEMES[t] then pcall(ORBIT.applyTheme, t, true) end
@@ -4959,7 +4686,7 @@ end
 end -- ТЕМЫ
 
 -- ============================================================
---       ДОСТИЖЕНИЯ 52 (v24)
+--       ДОСТИЖЕНИЯ 52 (v24) — С 3 ПРАВКАМИ
 -- ============================================================
 do
 local Players = ORBIT.Players or game:GetService("Players")
@@ -4968,7 +4695,7 @@ local C3 = Color3.fromRGB
 
 ORBIT.saveData = ORBIT.saveData or {}
 if type(ORBIT.saveData.achievements) ~= "table" then ORBIT.saveData.achievements = {} end
-local ACH = ORBIT.saveData.achievements          -- id = true; счётчики в ACH._c
+local ACH = ORBIT.saveData.achievements
 if type(ACH._c) ~= "table" then ACH._c = {} end
 local CNT = ACH._c
 
@@ -4992,7 +4719,7 @@ def("combat", "c_all9", "Все 9 стихий применены", "Приме�
 def("combat", "c_light", "Убийство молнией", "Победи молнией", 40)
 def("combat", "c_slowmo", "Слоу-мо", "Включи замедление времени", 20)
 def("combat", "c_charged", "Заряженный выстрел", "Сделай заряженный выстрел", 30)
--- Коллекционные (12 + 2)
+-- Коллекционные
 def("collect", "k_ring1", "Первое кольцо", "Включи кольцо", 10)
 def("collect", "k_ring5", "Все 5 колец", "Включи все 5 колец одновременно", 60, 5)
 def("collect", "k_fig30", "30 фигур", "Открой 30 фигур в коллекции", 40, 30)
@@ -5007,7 +4734,7 @@ def("collect", "k_gweapon", "Гастер-оружие надето", "Наде�
 def("collect", "k_allfig", "Все фигуры в коллекции", "Открой все фигуры", 300)
 def("collect", "k_shop", "Первый визит в магазин", "Открой магазин", 10)
 def("collect", "k_atmo", "Атмосфера", "Включи атмосферу или шлейф", 20)
--- Социальные (10 + 2)
+-- Социальные
 def("social", "s_bot1", "Первый бот", "Собери первого бота", 10)
 def("social", "s_bot10", "10 ботов", "Собери 10 ботов", 30, 10)
 def("social", "s_bot100", "100 ботов", "Собери 100 ботов", 120, 100)
@@ -5020,7 +4747,7 @@ def("social", "s_greet", "Приветствие", "Поприветствуй �
 def("social", "s_dance", "Танец", "Станцуй", 10)
 def("social", "s_helper", "Помощник", "Открой помощника", 10)
 def("social", "s_share", "Обмен", "Экспортируй или импортируй настройки", 30)
--- Скрытые (10 + 4)
+-- Скрытые
 def("hidden", "h_gdeath", "Смерть с Гастером в руках", "Умри с Гастер-оружием", 50)
 def("hidden", "h_die10", "Смерть 10 раз", "Умри 10 раз", 40, 10)
 def("hidden", "h_dieaura", "Смерть с аурой", "Умри с включённой аурой", 30)
@@ -5101,7 +4828,6 @@ end
 local function bump(id, n) return A.check(id, (CNT[id] or 0) + (n or 1)) end
 A.bump = bump
 
--- Внешний вход для других модулей: ORBIT.achievements.event("name", value)
 local setSeen = {}
 function A.event(name, v)
     if name == "shot" then
@@ -5161,7 +4887,7 @@ function A.event(name, v)
     end
 end
 
--- ----- Оборачивание чужих функций (один раз; восстанавливаем в destroy)
+-- ----- Оборачивание чужих функций
 local wrapped = {}
 local function wrap(tbl, key, after)
     if type(tbl) ~= "table" or type(tbl[key]) ~= "function" then return end
@@ -5218,7 +4944,6 @@ local function hookAll()
     end
 end
 
--- ----- Смерти
 local deathConn, charConn = nil, nil
 local function watchChar(char)
     if deathConn then pcall(function() deathConn:Disconnect() end); deathConn = nil end
@@ -5232,7 +4957,6 @@ if lp then
     if lp.Character then task.spawn(watchChar, lp.Character) end
 end
 
--- ----- Опрос состояния раз в 2 сек (один цикл на модуль)
 local pollOn = true
 local function countKeys(t) local n = 0; if type(t) == "table" then for _ in pairs(t) do n = n + 1 end end; return n end
 task.spawn(function()
@@ -5280,7 +5004,6 @@ task.spawn(function()
     end
 end)
 
--- Синхронизация полей list[i].unlocked/progress
 function A.sync()
     for _, a in ipairs(A.list) do
         a.unlocked = ACH[a.id] == true
@@ -5288,7 +5011,6 @@ function A.sync()
     end
 end
 
--- ----- UI-секция «🏆 ДОСТИЖЕНИЯ»
 local uiPieces = {}
 task.spawn(function()
     local UI = ORBIT.ui
