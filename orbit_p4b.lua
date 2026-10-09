@@ -1,7 +1,6 @@
--- ORBIT v24.0 | orbit_p4b.lua
--- Вторая половина UI: обработчики всех кнопок, палитра, сохранения, FPS-цикл, API, старт.
--- Берёт готовый каркас из ORBIT.P4 (см. orbit_p4.lua). Всё в NB.* — locals экономим.
-
+-- ORBIT v24.2 | orbit_p4b.lua
+-- Вторая половина UI: обработчики кнопок, крестики стихий, меню фраз Санса,
+-- «Мои фигуры», «Импорт фигуры», палитра, FPS-цикл, API.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4b] P1 не загружен"); return end
 if ORBIT.P4b and ORBIT.P4b.ready then warn("[Orbit P4b] уже загружен"); return end
@@ -331,6 +330,26 @@ onClick(NB.btn.shape, function()
     NB.btn.shape.Text = "🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name
     ORBIT.applyShapes(); ORBIT.rebuildAllRings()
 end)
+
+-- ✨ «Мои фигуры» — открывает магазин на категории СВОИ
+onClick(NB.btn.myFigs, function()
+    if ORBIT.openShop then
+        ORBIT.openShop()
+        ORBIT.notify("🖼️ Категория «СВОИ» — листай до конца", Color3.fromRGB(220, 200, 255), 3)
+    else
+        ORBIT.notify("❌ Модуль магазина не загружен", Color3.fromRGB(255,150,150), 3)
+    end
+end)
+-- ✨ «Импорт фигуры» — открывает панель SHARE (пользователь вставит строку)
+onClick(NB.btn.importFig, function()
+    if ORBIT.share and ORBIT.share.open then
+        ORBIT.share.open()
+        ORBIT.notify("📥 Вставь строку и нажми ИМПОРТ", Color3.fromRGB(200, 230, 255), 3)
+    else
+        ORBIT.notify("❌ Модуль SHARE не загружен", Color3.fromRGB(255,150,150), 3)
+    end
+end)
+
 onClick(NB.btn.shapeMode, function()
     P.formModeIndex = P.formModeIndex + 1; if P.formModeIndex > #P.FORM_MODES then P.formModeIndex = 1 end
     NB.btn.shapeMode.Text = "🎭 Режим: " .. P.FORM_MODES[P.formModeIndex].name
@@ -617,6 +636,7 @@ onClick(NB.btn.auraLightBright, function()
     NB.btn.auraLightBright.Text = "✨ Яркость: " .. SETTINGS.AuraLightBrightness
     NB.refreshAura()
 end)
+
 -- ============================================================
 --       ГРАФИКА
 -- ============================================================
@@ -683,29 +703,13 @@ NB.GRAPHIC_MODES = {"LOW", "MEDIUM", "HIGH", "ULTRA"}
 NB.graphicModeIndex = 2
 NB.applyGraphicMode = function(mode)
     if mode == "LOW" then
-        SETTINGS.LightEnabled = false
-        SETTINGS.TrailEnabled = false
-        SETTINGS.AuraParticles = false
-        SETTINGS.BlockCount = 4
+        SETTINGS.LightEnabled = false; SETTINGS.TrailEnabled = false; SETTINGS.AuraParticles = false; SETTINGS.BlockCount = 4
     elseif mode == "MEDIUM" then
-        SETTINGS.LightEnabled = true
-        SETTINGS.LightLimit = 10
-        SETTINGS.TrailEnabled = false
-        SETTINGS.AuraParticles = true
-        SETTINGS.BlockCount = 6
+        SETTINGS.LightEnabled = true; SETTINGS.LightLimit = 10; SETTINGS.TrailEnabled = false; SETTINGS.AuraParticles = true; SETTINGS.BlockCount = 6
     elseif mode == "HIGH" then
-        SETTINGS.LightEnabled = true
-        SETTINGS.LightLimit = 20
-        SETTINGS.TrailEnabled = true
-        SETTINGS.AuraParticles = true
-        SETTINGS.BlockCount = 8
+        SETTINGS.LightEnabled = true; SETTINGS.LightLimit = 20; SETTINGS.TrailEnabled = true; SETTINGS.AuraParticles = true; SETTINGS.BlockCount = 8
     elseif mode == "ULTRA" then
-        SETTINGS.LightEnabled = true
-        SETTINGS.LightLimit = 40
-        SETTINGS.TrailEnabled = true
-        SETTINGS.AuraParticles = true
-        SETTINGS.AuraShapes = true
-        SETTINGS.BlockCount = 12
+        SETTINGS.LightEnabled = true; SETTINGS.LightLimit = 40; SETTINGS.TrailEnabled = true; SETTINGS.AuraParticles = true; SETTINGS.AuraShapes = true; SETTINGS.BlockCount = 12
     end
     ORBIT.rebuildAllRings()
     if SETTINGS.AuraEnabled then ORBIT.setupAura() end
@@ -741,11 +745,11 @@ onClick(NB.btn.fireHeat, function()
 end)
 
 -- ============================================================
---       ЗАЩИТА (АНТИ-ЧИТ)
+--       АНТИЧИТ
 -- ============================================================
 NB.antichitLoaded = false
 onClick(NB.btn.antichitLaunch, function()
-    if NB.antichitLoaded or (ORBIT.loaded and ORBIT.loaded.ac) then
+    if NB.antichitLoaded or (ORBIT.loaded and ORBIT.loaded.anticheat) then
         NB.antichitLoaded = true
         NB.btn.antichitLaunch.Text = "✅ АНТИ-ЧИТ АКТИВЕН"
         NB.lbl.antichitStatus.Text = "🛡 Защита: активна (18 функций)"
@@ -781,7 +785,7 @@ onClick(NB.btn.antichitLaunch, function()
             return
         end
         NB.antichitLoaded = true
-        ORBIT.loaded.ac = true
+        ORBIT.loaded.anticheat = true
         NB.btn.antichitLaunch.Text = "✅ АНТИ-ЧИТ АКТИВЕН"
         NB.btn.antichitLaunch.BackgroundColor3 = Color3.fromRGB(60,100,60)
         NB.btn.antichitLaunch.TextColor3 = Color3.fromRGB(200,255,200)
@@ -794,7 +798,7 @@ end)
 task.spawn(function()
     while screenGui and screenGui.Parent and not NB.antichitLoaded do
         task.wait(1)
-        if ORBIT.loaded and ORBIT.loaded.ac then
+        if ORBIT.loaded and ORBIT.loaded.anticheat then
             NB.antichitLoaded = true
             NB.btn.antichitLaunch.Text = "✅ АНТИ-ЧИТ АКТИВЕН"
             NB.btn.antichitLaunch.BackgroundColor3 = Color3.fromRGB(60,100,60)
@@ -866,7 +870,7 @@ end)
 onClick(NB.btn.openShop, function() if ORBIT.openShop then ORBIT.openShop() end end)
 onClick(NB.btn.openEditor, function() if ORBIT.openEditor then ORBIT.openEditor() end end)
 onClick(NB.btn.openGame, function() if ORBIT.openMiniGame then ORBIT.openMiniGame() end end)
-do -- v24.0: Гастер и режим игрока
+do
     NB.modeLabel = function() return (ORBIT.mode == "normal") and "🎭 Режим: Обычный" or "🎭 Режим: Санс" end
     onClick(NB.btn.openGaster, function()
         if ORBIT.gaster and ORBIT.gaster.open then ORBIT.gaster.open()
@@ -1177,99 +1181,157 @@ onClick(NB.btn.music, function()
 end)
 
 NB.rebuildSavesList()
--- ============================================================
---       ОБЩЕЕ ОБНОВЛЕНИЕ ПОДПИСЕЙ
--- ============================================================
-NB.onOff = function(v) return v and "ВКЛ" or "ВЫКЛ" end
 
-NB.refreshAllLabels = function()
-    pcall(function() if NB.btn.mode and NB.modeLabel then NB.btn.mode.Text = NB.modeLabel() end end)
-    if ORBIT.enabled then
-        NB.btn.toggle.Text = "🟢 ВКЛЮЧЕНО"; NB.btn.toggle.TextColor3 = Color3.fromRGB(0,255,120); NB.btn.toggle.BackgroundColor3 = Color3.fromRGB(40,50,40)
-    else
-        NB.btn.toggle.Text = "🔴 ВЫКЛЮЧЕНО"; NB.btn.toggle.TextColor3 = Color3.fromRGB(255,80,80); NB.btn.toggle.BackgroundColor3 = Color3.fromRGB(50,35,40)
+-- ============================================================
+--       ✨ СТИХИИ: ОБРАБОТЧИКИ КРЕСТИКОВ И ВОЗВРАТА
+-- ============================================================
+NB.elementHidden = {}   -- локальный кэш: id -> true
+
+local function applyElementVisibility()
+    -- Прячем/показываем строки стихий
+    local y = nil
+    for i, row in ipairs(NB.elementRows) do
+        local id = row.id
+        local hidden = NB.elementHidden[id]
+        row.holder.Visible = not hidden
     end
-    local allOn = true
-    for ri = 2, 5 do NB.refreshRingButton(ri); if not rings[ri].enabled then allOn = false end end
-    NB.btn.allRings.Text = allOn and "⭕ Все кольца: ВЫКЛ" or "⭕ Все кольца: ВКЛ"
-    NB.btn.botAutoCollect.Text = "🎁 Автосбор: " .. NB.onOff(ORBIT.botSettings.AutoCollect)
-    NB.btn.botRadius.Text = "📏 Радиус сбора: " .. ORBIT.botSettings.CollectRadius .. " st"
-    NB.btn.botShowRing.Text = "👤 Кольцо как у игрока: " .. NB.onOff(ORBIT.botSettings.ShowPlayerRing)
-    NB.btn.botSkin.Text = "🎭 Скин как у меня: " .. NB.onOff(ORBIT.botSettings.UseMySkin)
-    NB.btn.esp.Text = "👁️ ESP игроков: " .. NB.onOff(ORBIT.ESP and ORBIT.ESP.Enabled)
-    NB.btn.shapeCat.Text = "📁 Категория: " .. P.SHAPE_CATEGORIES[P.shapeCategoryIndex].name
-    NB.btn.shape.Text = "🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name
-    NB.btn.shapeMode.Text = "🎭 Режим: " .. P.FORM_MODES[P.formModeIndex].name
-    NB.btn.shapeSize.Text = "🔍 Размер: " .. P.SHAPE_SIZE[P.shapeSizeIndex].name
-    NB.btn.color.Text = "🎨 Цвет: " .. P.COLORS[P.colorIndex].name
-    NB.btn.gradient.Text = "🌈 Градиент: " .. NB.onOff(SETTINGS.GradientEnabled)
-    NB.btn.light.Text = "💡 Свет: " .. NB.onOff(SETTINGS.LightEnabled)
-    NB.btn.nameBtn.Text = "🏷️ Имена блоков: " .. NB.onOff(SETTINGS.ShowBlockNames)
-    NB.btn.autoSwap.Text = "🎭 Автосмена: " .. NB.onOff(SETTINGS.AutoShapeSwap)
-    NB.btn.orbit.Text = "📏 Орбита: " .. P.ORBIT[P.orbitIndex].name
-    NB.btn.spread.Text = "📐 Разлёт: " .. P.SPREAD[P.spreadIndex].name
-    NB.btn.height.Text = "⬆️ Высота: " .. P.HEIGHT[P.heightIndex].name
-    NB.btn.speed.Text = "⚡ Множитель: " .. P.SPEED[P.speedIndex].name
-    NB.btn.speedMode.Text = "⚙️ Режим: " .. P.SPEED_MODE[P.speedModeIndex].name
-    NB.btn.direction.Text = "🔃 Направление: " .. P.DIRECTION[P.directionIndex].name
-    NB.btn.orbitPattern.Text = "🌀 Узор: " .. tostring(SETTINGS.OrbitPattern)
-    NB.btn.spin.Text = ORBIT.spinResetting and "↩️ Вращение: ВОЗВРАТ" or "↩️ Вращение в 0"
-    NB.btn.spinAxis.Text = "🔄 Кручение оси: " .. NB.onOff(ORBIT.spinAxisEnabled)
-    NB.btn.spinDir.Text = (ORBIT.spinAxisDir == "X") and "↕️ Ось: ВЕРХ/ВНИЗ" or "↔️ Ось: ВЛЕВО/ВПРАВО"
-    NB.btn.spinSpeed.Text = "🌀 Скорость: " .. P.SPIN_SPEED[P.spinSpeedIndex].name
-    NB.btn.trail.Text = "🌠 Трейлы: " .. NB.onOff(SETTINGS.TrailEnabled)
-    NB.btn.trailLen.Text = "📏 Длина: " .. P.TRAIL_LEN[P.trailLengthIndex].name
-    NB.btn.trailWid.Text = "🎚️ Толщина: " .. P.TRAIL_WID[P.trailWidthIndex].name
-    NB.btn.wave.Text = "🌊 Волна: " .. NB.onOff(SETTINGS.WaveEnabled)
-    NB.btn.explosion.Text = "💥 Взрыв: " .. NB.onOff(SETTINGS.ExplosionEnabled)
-    NB.btn.pulse.Text = "💓 Пульсация: " .. NB.onOff(SETTINGS.PulseEnabled)
-    NB.btn.spawnAnim.Text = "🎆 Появление колец: " .. NB.onOff(SETTINGS.SpawnAnim ~= false)
-    NB.btn.spawnFlash.Text = "💫 Вспышка при вкл: " .. NB.onOff(SETTINGS.SpawnFlash ~= false)
-    NB.btn.aura.Text = "🌀 Аура: " .. NB.onOff(SETTINGS.AuraEnabled)
-    NB.btn.auraRing.Text = "⭕ Кольцо: " .. NB.onOff(SETTINGS.AuraRing)
-    NB.btn.auraPart.Text = "✨ Частицы: " .. NB.onOff(SETTINGS.AuraParticles)
-    NB.btn.auraFig.Text = "🔷 Фигуры: " .. NB.onOff(SETTINGS.AuraShapes)
-    NB.btn.auraShape.Text = "🔷 Форма ауры: " .. SHAPE_PRESETS[ORBIT.auraShapeIndex].name
-    NB.btn.auraColor.Text = "🎨 Цвет ауры: " .. P.COLORS[P.auraColorIndex].name
-    NB.btn.auraMat.Text = "🧱 Материал ауры: " .. string.upper((tostring(SETTINGS.AuraMaterial):gsub("Enum%.Material%.", "")))
-    if NB.refreshAuraFx then NB.refreshAuraFx() end
-    NB.btn.auraSize.Text = "📐 Размер: " .. P.AURA_SIZE[P.auraSizeIndex].name
-    NB.btn.auraThick.Text = "🎚️ Толщина: " .. P.AURA_THICK[P.auraThickIndex].name
-    NB.btn.auraHeight.Text = "⬆️ Высота: " .. P.AURA_HEIGHT[P.auraHeightIndex].name
-    NB.btn.auraShapeScale.Text = "🔍 Масштаб фигур: " .. P.AURA_SHAPE_SCALE[P.auraShapeScaleIndex].name
-    NB.btn.auraPattern.Text = "🌀 Узор ауры: " .. tostring(SETTINGS.AuraPattern)
-    NB.btn.auraSpeed.Text = "⚡ Скорость: " .. P.AURA_SPEED[P.auraSpeedIndex].name
-    NB.btn.auraDir.Text = "🔃 Направление: " .. P.AURA_DIR[P.auraDirIndex].name
-    NB.btn.auraTrail.Text = "🌠 Трейлы ауры: " .. NB.onOff(SETTINGS.AuraTrailEnabled)
-    NB.btn.auraTrailLen.Text = "📏 Длина трейла: " .. P.AURA_TRAIL_LEN[P.auraTrailLengthIndex].name
-    NB.btn.auraTrailWid.Text = "🎚️ Толщина трейла: " .. P.AURA_TRAIL_WID[P.auraTrailWidthIndex].name
-    NB.btn.auraSpin.Text = "🔄 Кручение: " .. NB.onOff(SETTINGS.AuraSpinEnabled)
-    NB.btn.auraSpinAxis.Text = "↕️ Ось: " .. P.AURA_SPIN_AXIS[P.auraSpinAxisIndex].name
-    NB.btn.auraSpinSpeed.Text = "🌀 Скорость кручения: " .. P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].name
-    NB.btn.auraPulse.Text = "💓 Пульсация ауры: " .. NB.onOff(SETTINGS.AuraPulseEnabled)
-    NB.btn.auraLight.Text = "💡 Свет ауры: " .. NB.onOff(SETTINGS.AuraLightEnabled)
-    NB.btn.auraLightRange.Text = "📏 Дальность: " .. tostring(SETTINGS.AuraLightRange)
-    NB.btn.auraLightBright.Text = "✨ Яркость: " .. tostring(SETTINGS.AuraLightBrightness)
-    local mname = (tostring(SETTINGS.Material):gsub("Enum%.Material%.", ""))
-    for i, m in ipairs(NB.MATERIALS) do if m == mname then NB.materialIndex = i; break end end
-    NB.btn.material.Text = "🎨 Материал: " .. mname:upper()
-    NB.btn.transparency.Text = "👁️ Прозрачность: " .. math.floor(SETTINGS.Transparency * 100 + 0.5) .. "%"
-    NB.btn.brightness.Text = "☀️ Яркость: " .. tostring(SETTINGS.GlowIntensity or 1)
-    NB.btn.glow.Text = "✨ Свечение: " .. NB.onOff(SETTINGS.GlowEnabled ~= false)
-    NB.btn.castShadow.Text = "🌑 Тени: " .. NB.onOff(SETTINGS.CastShadow)
-    NB.btn.fire.Text = "🔥 Огонь: " .. NB.onOff(SETTINGS.FireEnabled)
-    NB.btn.fireSize.Text = "📏 Размер: " .. P.FIRE_SIZE[P.fireSizeIndex].name
-    NB.btn.fireHeat.Text = "🌡️ Жар: " .. P.FIRE_HEAT[P.fireHeatIndex].name
-    if ORBIT.SOUNDS then
-        NB.btn.soundToggle.Text = "🔊 Звуки: " .. NB.onOff(ORBIT.SOUNDS.Enabled)
-        NB.btn.soundVolume.Text = "🎵 Громкость: " .. math.floor((ORBIT.SOUNDS.Volume or 1) * 100 + 0.5) .. "%"
-        NB.soundVolumeIndex = math.clamp(math.floor((ORBIT.SOUNDS.Volume or 1) * 10 + 0.5) + 1, 1, #NB.VOLUME_STEPS)
+    -- Переупаковываем строки по порядку (без дыр)
+    relayout()
+end
+
+for i, row in ipairs(NB.elementRows) do
+    local st = row.def
+    local btn = row.btn
+    local xBtn = row.xBtn
+
+    onClick(btn, function() NB.applyStyle(st) end)
+
+    onClick(xBtn, function()
+        local id = st.id
+        -- ставим флаг в abilities
+        if ORBIT.abilities and ORBIT.abilities.hideElement then
+            pcall(ORBIT.abilities.hideElement, id)
+        end
+        NB.elementHidden[id] = true
+        row.holder.Visible = false
+        relayout()
+        ORBIT.notify("❌ Стихия скрыта: " .. st.name, Color3.fromRGB(255, 180, 180), 2)
+    end)
+end
+
+onClick(NB.btn.restoreElements, function()
+    if ORBIT.abilities and ORBIT.abilities.resetHidden then
+        pcall(ORBIT.abilities.resetHidden)
     end
-    NB.btn.music.Text = "🎵 Музыка: " .. NB.onOff(ORBIT.musicEnabled)
-    for i, v in ipairs(NB.HEART_STEPS) do if math.abs(v - SETTINGS.HeartScale) < 0.01 then NB.heartScaleIndex = i; break end end
-    NB.refreshHeartSizeBtn()
-    NB.btn.fpsToggle.Text = "📊 FPS-панель: " .. NB.onOff(topBar.Visible)
-    pcall(NB.refreshPerfBtn)
+    NB.elementHidden = {}
+    for _, row in ipairs(NB.elementRows) do
+        row.holder.Visible = true
+    end
+    relayout()
+    ORBIT.notify("♻️ Все стихии возвращены", Color3.fromRGB(180, 255, 180), 2)
+end)
+
+-- ============================================================
+--       ✨ МЕНЮ ФРАЗ САНСА
+-- ============================================================
+NB.openSansPhraseMenu = function()
+    if not ORBIT.sans or not ORBIT.sans.phrases then
+        ORBIT.notify("❌ Модуль Санса не загружен", Color3.fromRGB(255,150,150), 2)
+        return
+    end
+    local old = screenGui:FindFirstChild("_OrbitSansMenu")
+    if old then old:Destroy() end
+
+    local cats = {}
+    for cat, _ in pairs(ORBIT.sans.phrases) do cats[#cats + 1] = cat end
+    table.sort(cats)
+
+    local m = Instance.new("Frame")
+    m.Name = "_OrbitSansMenu"
+    m.AnchorPoint = Vector2.new(0.5, 0.5)
+    m.Position = UDim2.new(0.5, 0, 0.5, 0)
+    m.Size = UDim2.new(0, math.min(360, screenGui.AbsoluteSize.X - 20), 0, math.min(460, screenGui.AbsoluteSize.Y - 40))
+    m.BackgroundColor3 = Color3.fromRGB(22, 18, 38)
+    m.BorderSizePixel = 0
+    m.ZIndex = 80
+    m.Parent = screenGui
+    Instance.new("UICorner", m).CornerRadius = UDim.new(0, 14)
+    local st = Instance.new("UIStroke", m); st.Color = Color3.fromRGB(150, 120, 255); st.Thickness = 1.5
+
+    local title = Instance.new("TextLabel", m)
+    title.Size = UDim2.new(1, -60, 0, 30); title.Position = UDim2.new(0, 14, 0, 6)
+    title.BackgroundTransparency = 1; title.Text = "💀 ФРАЗЫ САНСА"
+    title.TextColor3 = Color3.fromRGB(235, 225, 255); title.Font = Enum.Font.GothamBold
+    title.TextSize = 14; title.TextXAlignment = Enum.TextXAlignment.Left; title.ZIndex = 81
+
+    local cl = Instance.new("TextButton", m)
+    cl.Size = UDim2.new(0, 30, 0, 30); cl.Position = UDim2.new(1, -38, 0, 4)
+    cl.BackgroundColor3 = Color3.fromRGB(80, 30, 30); cl.TextColor3 = Color3.fromRGB(255, 160, 160)
+    cl.Font = Enum.Font.GothamBold; cl.TextSize = 15; cl.Text = "✖"; cl.ZIndex = 81
+    Instance.new("UICorner", cl).CornerRadius = UDim.new(0, 8)
+    cl.Activated:Connect(function() m:Destroy() end)
+
+    local sc = Instance.new("ScrollingFrame", m)
+    sc.Position = UDim2.new(0, 8, 0, 44); sc.Size = UDim2.new(1, -16, 1, -52)
+    sc.BackgroundTransparency = 1; sc.BorderSizePixel = 0; sc.ScrollBarThickness = 4
+    sc.CanvasSize = UDim2.new(0, 0, 0, 0); sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    sc.ZIndex = 81
+    local layout = Instance.new("UIListLayout", sc)
+    layout.Padding = UDim.new(0, 6); layout.SortOrder = Enum.SortOrder.LayoutOrder
+    local pad = Instance.new("UIPadding", sc); pad.PaddingLeft = UDim.new(0, 4); pad.PaddingRight = UDim.new(0, 4); pad.PaddingTop = UDim.new(0, 4)
+
+    local CAT_LABEL = {
+        death = "💀 Смерть", spawn = "✨ Спавн", greet = "👋 Приветствие",
+        hurt = "💔 Боль", kill = "🗡 Убийство", dodge = "🥷 Уворот",
+        taunt = "😏 Насмешка", combo = "🔥 Комбо", victory = "🏆 Победа",
+        idle = "💤 Простой", lowhp = "❤️ Мало HP", spawnkill = "⚠️ Спавн-килл",
+    }
+
+    for _, cat in ipairs(cats) do
+        local hdr = Instance.new("TextLabel", sc)
+        hdr.Size = UDim2.new(1, -4, 0, 22); hdr.BackgroundTransparency = 1
+        hdr.Text = "▸ " .. (CAT_LABEL[cat] or cat:upper())
+        hdr.TextColor3 = Color3.fromRGB(200, 200, 255)
+        hdr.Font = Enum.Font.GothamBold; hdr.TextSize = 11
+        hdr.TextXAlignment = Enum.TextXAlignment.Left; hdr.ZIndex = 82
+
+        for _, phrase in ipairs(ORBIT.sans.phrases[cat]) do
+            local b = Instance.new("TextButton", sc)
+            b.Size = UDim2.new(1, -4, 0, 30)
+            b.BackgroundColor3 = Color3.fromRGB(45, 38, 65)
+            b.TextColor3 = Color3.fromRGB(230, 220, 255)
+            b.Font = Enum.Font.GothamBold; b.TextSize = 11
+            b.Text = phrase; b.TextWrapped = true; b.TextTruncated = true; b.ZIndex = 82
+            Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+            b.Activated:Connect(function()
+                local c = LocalPlayer.Character
+                local head = c and c:FindFirstChild("Head")
+                if head and ORBIT.sans and ORBIT.sans.showAt then
+                    pcall(ORBIT.sans.showAt, head.Position + Vector3.new(0, 2, 0), phrase, 4)
+                end
+                ORBIT.notify("💀 " .. phrase, Color3.fromRGB(200, 220, 255), 3)
+                if ORBIT.sans and ORBIT.sans.playSound then pcall(ORBIT.sans.playSound, cat) end
+                m:Destroy()
+            end)
+        end
+    end
+end
+
+-- Обработчики эмоций
+for i, b in ipairs(NB.emoteBtns) do
+    local def = NB.emoteDefs[i]
+    onClick(b, function()
+        local name = def[2]
+        if name == "say" then
+            NB.openSansPhraseMenu()
+        elseif ORBIT.emote then
+            if not ORBIT.emote(name) then
+                ORBIT.notify("🎭 Подожди секунду...", Color3.fromRGB(255, 220, 140), 1.5)
+            end
+        else
+            ORBIT.notify("❌ Модуль эмоций не загружен", Color3.fromRGB(255, 150, 150), 3)
+        end
+    end)
 end
 
 -- ============================================================
@@ -1455,20 +1517,7 @@ end
 for i, b in ipairs(NB.styleBtns) do
     onClick(b, function() NB.applyStyle(NB.styleDefs[i]) end)
 end
-for i, b in ipairs(NB.elementBtns) do
-    onClick(b, function() NB.applyStyle(NB.elementDefs[i]) end)
-end
-for i, b in ipairs(NB.emoteBtns) do
-    onClick(b, function()
-        if ORBIT.emote then
-            if not ORBIT.emote(NB.emoteDefs[i][2]) then
-                ORBIT.notify("🎭 Подожди секунду...", Color3.fromRGB(255, 220, 140), 1.5)
-            end
-        else
-            ORBIT.notify("❌ orbit_sfx.lua не загружен", Color3.fromRGB(255, 150, 150), 3)
-        end
-    end)
-end
+
 do
     NB.amIdx = 1
     for i, m in ipairs(NB.AURA_MATERIALS) do
@@ -1515,6 +1564,101 @@ onClick(NB.btn.fpsToggle, function()
     topBar.Visible = not topBar.Visible
     NB.btn.fpsToggle.Text = "📊 FPS-панель: " .. NB.onOff(topBar.Visible)
 end)
+
+-- ============================================================
+--       ОБЩЕЕ ОБНОВЛЕНИЕ ПОДПИСЕЙ
+-- ============================================================
+NB.onOff = function(v) return v and "ВКЛ" or "ВЫКЛ" end
+
+NB.refreshAllLabels = function()
+    pcall(function() if NB.btn.mode and NB.modeLabel then NB.btn.mode.Text = NB.modeLabel() end end)
+    if ORBIT.enabled then
+        NB.btn.toggle.Text = "🟢 ВКЛЮЧЕНО"; NB.btn.toggle.TextColor3 = Color3.fromRGB(0,255,120); NB.btn.toggle.BackgroundColor3 = Color3.fromRGB(40,50,40)
+    else
+        NB.btn.toggle.Text = "🔴 ВЫКЛЮЧЕНО"; NB.btn.toggle.TextColor3 = Color3.fromRGB(255,80,80); NB.btn.toggle.BackgroundColor3 = Color3.fromRGB(50,35,40)
+    end
+    local allOn = true
+    for ri = 2, 5 do NB.refreshRingButton(ri); if not rings[ri].enabled then allOn = false end end
+    NB.btn.allRings.Text = allOn and "⭕ Все кольца: ВЫКЛ" or "⭕ Все кольца: ВКЛ"
+    NB.btn.botAutoCollect.Text = "🎁 Автосбор: " .. NB.onOff(ORBIT.botSettings.AutoCollect)
+    NB.btn.botRadius.Text = "📏 Радиус сбора: " .. ORBIT.botSettings.CollectRadius .. " st"
+    NB.btn.botShowRing.Text = "👤 Кольцо как у игрока: " .. NB.onOff(ORBIT.botSettings.ShowPlayerRing)
+    NB.btn.botSkin.Text = "🎭 Скин как у меня: " .. NB.onOff(ORBIT.botSettings.UseMySkin)
+    NB.btn.esp.Text = "👁️ ESP игроков: " .. NB.onOff(ORBIT.ESP and ORBIT.ESP.Enabled)
+    NB.btn.shapeCat.Text = "📁 Категория: " .. P.SHAPE_CATEGORIES[P.shapeCategoryIndex].name
+    NB.btn.shape.Text = "🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name
+    NB.btn.shapeMode.Text = "🎭 Режим: " .. P.FORM_MODES[P.formModeIndex].name
+    NB.btn.shapeSize.Text = "🔍 Размер: " .. P.SHAPE_SIZE[P.shapeSizeIndex].name
+    NB.btn.color.Text = "🎨 Цвет: " .. P.COLORS[P.colorIndex].name
+    NB.btn.gradient.Text = "🌈 Градиент: " .. NB.onOff(SETTINGS.GradientEnabled)
+    NB.btn.light.Text = "💡 Свет: " .. NB.onOff(SETTINGS.LightEnabled)
+    NB.btn.nameBtn.Text = "🏷️ Имена блоков: " .. NB.onOff(SETTINGS.ShowBlockNames)
+    NB.btn.autoSwap.Text = "🎭 Автосмена: " .. NB.onOff(SETTINGS.AutoShapeSwap)
+    NB.btn.orbit.Text = "📏 Орбита: " .. P.ORBIT[P.orbitIndex].name
+    NB.btn.spread.Text = "📐 Разлёт: " .. P.SPREAD[P.spreadIndex].name
+    NB.btn.height.Text = "⬆️ Высота: " .. P.HEIGHT[P.heightIndex].name
+    NB.btn.speed.Text = "⚡ Множитель: " .. P.SPEED[P.speedIndex].name
+    NB.btn.speedMode.Text = "⚙️ Режим: " .. P.SPEED_MODE[P.speedModeIndex].name
+    NB.btn.direction.Text = "🔃 Направление: " .. P.DIRECTION[P.directionIndex].name
+    NB.btn.orbitPattern.Text = "🌀 Узор: " .. tostring(SETTINGS.OrbitPattern)
+    NB.btn.spin.Text = ORBIT.spinResetting and "↩️ Вращение: ВОЗВРАТ" or "↩️ Вращение в 0"
+    NB.btn.spinAxis.Text = "🔄 Кручение оси: " .. NB.onOff(ORBIT.spinAxisEnabled)
+    NB.btn.spinDir.Text = (ORBIT.spinAxisDir == "X") and "↕️ Ось: ВЕРХ/ВНИЗ" or "↔️ Ось: ВЛЕВО/ВПРАВО"
+    NB.btn.spinSpeed.Text = "🌀 Скорость: " .. P.SPIN_SPEED[P.spinSpeedIndex].name
+    NB.btn.trail.Text = "🌠 Трейлы: " .. NB.onOff(SETTINGS.TrailEnabled)
+    NB.btn.trailLen.Text = "📏 Длина: " .. P.TRAIL_LEN[P.trailLengthIndex].name
+    NB.btn.trailWid.Text = "🎚️ Толщина: " .. P.TRAIL_WID[P.trailWidthIndex].name
+    NB.btn.wave.Text = "🌊 Волна: " .. NB.onOff(SETTINGS.WaveEnabled)
+    NB.btn.explosion.Text = "💥 Взрыв: " .. NB.onOff(SETTINGS.ExplosionEnabled)
+    NB.btn.pulse.Text = "💓 Пульсация: " .. NB.onOff(SETTINGS.PulseEnabled)
+    NB.btn.spawnAnim.Text = "🎆 Появление колец: " .. NB.onOff(SETTINGS.SpawnAnim ~= false)
+    NB.btn.spawnFlash.Text = "💫 Вспышка при вкл: " .. NB.onOff(SETTINGS.SpawnFlash ~= false)
+    NB.btn.aura.Text = "🌀 Аура: " .. NB.onOff(SETTINGS.AuraEnabled)
+    NB.btn.auraRing.Text = "⭕ Кольцо: " .. NB.onOff(SETTINGS.AuraRing)
+    NB.btn.auraPart.Text = "✨ Частицы: " .. NB.onOff(SETTINGS.AuraParticles)
+    NB.btn.auraFig.Text = "🔷 Фигуры: " .. NB.onOff(SETTINGS.AuraShapes)
+    NB.btn.auraShape.Text = "🔷 Форма ауры: " .. SHAPE_PRESETS[ORBIT.auraShapeIndex].name
+    NB.btn.auraColor.Text = "🎨 Цвет ауры: " .. P.COLORS[P.auraColorIndex].name
+    NB.btn.auraMat.Text = "🧱 Материал ауры: " .. string.upper((tostring(SETTINGS.AuraMaterial):gsub("Enum%.Material%.", "")))
+    if NB.refreshAuraFx then NB.refreshAuraFx() end
+    NB.btn.auraSize.Text = "📐 Размер: " .. P.AURA_SIZE[P.auraSizeIndex].name
+    NB.btn.auraThick.Text = "🎚️ Толщина: " .. P.AURA_THICK[P.auraThickIndex].name
+    NB.btn.auraHeight.Text = "⬆️ Высота: " .. P.AURA_HEIGHT[P.auraHeightIndex].name
+    NB.btn.auraShapeScale.Text = "🔍 Масштаб фигур: " .. P.AURA_SHAPE_SCALE[P.auraShapeScaleIndex].name
+    NB.btn.auraPattern.Text = "🌀 Узор ауры: " .. tostring(SETTINGS.AuraPattern)
+    NB.btn.auraSpeed.Text = "⚡ Скорость: " .. P.AURA_SPEED[P.auraSpeedIndex].name
+    NB.btn.auraDir.Text = "🔃 Направление: " .. P.AURA_DIR[P.auraDirIndex].name
+    NB.btn.auraTrail.Text = "🌠 Трейлы ауры: " .. NB.onOff(SETTINGS.AuraTrailEnabled)
+    NB.btn.auraTrailLen.Text = "📏 Длина трейла: " .. P.AURA_TRAIL_LEN[P.auraTrailLengthIndex].name
+    NB.btn.auraTrailWid.Text = "🎚️ Толщина трейла: " .. P.AURA_TRAIL_WID[P.auraTrailWidthIndex].name
+    NB.btn.auraSpin.Text = "🔄 Кручение: " .. NB.onOff(SETTINGS.AuraSpinEnabled)
+    NB.btn.auraSpinAxis.Text = "↕️ Ось: " .. P.AURA_SPIN_AXIS[P.auraSpinAxisIndex].name
+    NB.btn.auraSpinSpeed.Text = "🌀 Скорость кручения: " .. P.AURA_SPIN_SPEED[P.auraSpinSpeedIndex].name
+    NB.btn.auraPulse.Text = "💓 Пульсация ауры: " .. NB.onOff(SETTINGS.AuraPulseEnabled)
+    NB.btn.auraLight.Text = "💡 Свет ауры: " .. NB.onOff(SETTINGS.AuraLightEnabled)
+    NB.btn.auraLightRange.Text = "📏 Дальность: " .. tostring(SETTINGS.AuraLightRange)
+    NB.btn.auraLightBright.Text = "✨ Яркость: " .. tostring(SETTINGS.AuraLightBrightness)
+    local mname = (tostring(SETTINGS.Material):gsub("Enum%.Material%.", ""))
+    for i, m in ipairs(NB.MATERIALS) do if m == mname then NB.materialIndex = i; break end end
+    NB.btn.material.Text = "🎨 Материал: " .. mname:upper()
+    NB.btn.transparency.Text = "👁️ Прозрачность: " .. math.floor(SETTINGS.Transparency * 100 + 0.5) .. "%"
+    NB.btn.brightness.Text = "☀️ Яркость: " .. tostring(SETTINGS.GlowIntensity or 1)
+    NB.btn.glow.Text = "✨ Свечение: " .. NB.onOff(SETTINGS.GlowEnabled ~= false)
+    NB.btn.castShadow.Text = "🌑 Тени: " .. NB.onOff(SETTINGS.CastShadow)
+    NB.btn.fire.Text = "🔥 Огонь: " .. NB.onOff(SETTINGS.FireEnabled)
+    NB.btn.fireSize.Text = "📏 Размер: " .. P.FIRE_SIZE[P.fireSizeIndex].name
+    NB.btn.fireHeat.Text = "🌡️ Жар: " .. P.FIRE_HEAT[P.fireHeatIndex].name
+    if ORBIT.SOUNDS then
+        NB.btn.soundToggle.Text = "🔊 Звуки: " .. NB.onOff(ORBIT.SOUNDS.Enabled)
+        NB.btn.soundVolume.Text = "🎵 Громкость: " .. math.floor((ORBIT.SOUNDS.Volume or 1) * 100 + 0.5) .. "%"
+        NB.soundVolumeIndex = math.clamp(math.floor((ORBIT.SOUNDS.Volume or 1) * 10 + 0.5) + 1, 1, #NB.VOLUME_STEPS)
+    end
+    NB.btn.music.Text = "🎵 Музыка: " .. NB.onOff(ORBIT.musicEnabled)
+    for i, v in ipairs(NB.HEART_STEPS) do if math.abs(v - SETTINGS.HeartScale) < 0.01 then NB.heartScaleIndex = i; break end end
+    NB.refreshHeartSizeBtn()
+    NB.btn.fpsToggle.Text = "📊 FPS-панель: " .. NB.onOff(topBar.Visible)
+    pcall(NB.refreshPerfBtn)
+end
 
 -- ============================================================
 --       FPS СЧЁТЧИК (верхняя панель)
@@ -1622,6 +1766,7 @@ end
 ORBIT.ui.open = function() NB.setPanel(true) end
 ORBIT.ui.close = function() NB.setPanel(false) end
 ORBIT.ui.toggle = function() NB.setPanel(not NB.panelOpen) end
+ORBIT.ui.openSansPhraseMenu = function() NB.openSansPhraseMenu() end
 
 ORBIT.ui.fitToScreen = function(frame, w, h)
     frame.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1657,7 +1802,7 @@ ORBIT.start = function()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4b v24.0 (+ Гастер, режимы)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4b v24.2 (крестики стихий + фразы Санса + фигуры)", Color3.fromRGB(180,255,180), 3) end
 
 -- ПОДГРУЗКА МАГАЗИНА И МИНИ-ИГРЫ
 do
