@@ -1,9 +1,10 @@
--- ORBIT v24.0 | orbit_animations.lua
--- Анимации фигур и игрока. Один Heartbeat на всё.
--- v24.0-fix1: R6/R15 проверка рига в P.laugh и P.greet (в P.dance уже была).
--- КОНТРАКТ ИМЁН ЧАСТЕЙ (core называет детали так, фронт фигуры = -Z, верх = +Y):
---   ДРАКОН: WingL*/WingR*, Tail1..N, Head*   ФЛАУИ: Head*, Petal*   ОМЕГА: Screen*, Vine*
---   ГЛАЗ: Lid*, Pupil*   МЕЧ: Blade*   ЩИТ: Crack*   КРЫЛЬЯ: Feather<слой>_*   ЧЕРЕП: EyeL/EyeR
+-- ORBIT v24.2 | orbit_animations.lua
+-- v24.2-fix: R6/R15 — универсальный tryEmote с fallback через Animator.
+--            P.dance/laugh/greet больше не падают и пробуют несколько вариантов.
+-- КОНТРАКТ ИМЁН ЧАСТЕЙ (front фигуры = -Z, top = +Y):
+--   ДРАКОН: WingL*/WingR*, Tail1..N, Head*   ФЛАУИ: Head*, Petal*
+--   ОМЕГА: Screen*, Vine*   ГЛАЗ: Lid*, Pupil*   МЕЧ: Blade*
+--   ЩИТ: Crack*   КРЫЛЬЯ: Feather<слой>_*   ЧЕРЕП: EyeL/EyeR
 --   ИНЬ-ЯН: Dot*   ФЕНИКС: Flame<слой>   ПОРТАЛ: Disk*, Ring
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
@@ -306,7 +307,7 @@ DEFS.portal = {
   end,
   cleanup = function(fig, d) for _, p in ipairs(d.fx or {}) do pcall(function() p:Destroy() end) end end,
 }
--- ===== Реестр: имя фигуры (SHAPE_PRESETS) -> список анимаций =====
+-- ===== Реестр =====
 REG["ДРАКОН"] = { "wings", "tail", "headTrack" }
 REG["ЦВЕТОК ФЛАУИ"] = { "nod", "petals" }
 REG["ОМЕГА ФЛАУИ"] = { "tv", "vines" }
@@ -413,36 +414,66 @@ local function say(text, sec)
   local head = LP.Character and LP.Character:FindFirstChild("Head")
   if head and ORBIT.sans and ORBIT.sans.showAt then pcall(ORBIT.sans.showAt, head.Position + V3(0, 2, 0), text, sec or 2.5) end
 end
+
+-- ✨ v24.2-fix: универсальный запуск эмоции — работает и на R6, и на R15.
+-- Сначала пробует PlayEmote с разными именами. Если всё падает —
+-- пытается найти Animation-объект с таким именем и загрузить через Animator.
+local function tryEmote(h, names)
+  if not h then return false, nil end
+  if type(names) == "string" then names = { names } end
+  -- 1) пробуем PlayEmote
+  for _, n in ipairs(names) do
+    local ok, res = pcall(function() return h:PlayEmote(n) end)
+    if ok and res then return true, n end
+  end
+  -- 2) fallback через Animator (если в character есть Animation-объекты)
+  local animator = h:FindFirstChildOfClass("Animator")
+  if animator then
+    local char = LP.Character
+    for _, n in ipairs(names) do
+      local anim = char and char:FindFirstChild(n)
+      if anim and anim:IsA("Animation") then
+        local ok, track = pcall(function() return animator:LoadAnimation(anim) end)
+        if ok and track then
+          pcall(function() track:Play() end)
+          return true, n
+        end
+      end
+    end
+  end
+  return false, nil
+end
+
 function P.dance()
   local h = hum()
   if not h then return false end
   if ORBIT.emote and ORBIT.emote("dance") then return true end
-  local names = isR15(h) and { "dance", "dance2", "dance3" } or { "dance" }
-  local ok, res = pcall(function() return h:PlayEmote(names[math.random(#names)]) end)
-  return ok and res and true or false
+  local rig = rigOf(h)
+  local names = (rig == "R15") and { "dance", "dance2", "dance3" } or { "dance", "dance2" }
+  local ok = tryEmote(h, names)
+  return ok
 end
 function P.laugh()
   local h = hum()
   if not h then return false end
   ping("laugh", 1, 1)
   if ORBIT.emote and ORBIT.emote("laugh") then return true end
-  -- R6: laugh есть и на R6, но с другим набором анимаций. Пробуем оба.
-  local ok, res = pcall(function() return h:PlayEmote("laugh") end)
-  if not ok or not res then
-    -- запасной вариант для R6: используем "cheer" (обычно есть)
-    pcall(function() h:PlayEmote("cheer") end)
-  end
+  local rig = rigOf(h)
+  -- laugh есть и на R6, и на R15; fallback — cheer и point
+  local names = (rig == "R15") and { "laugh", "cheer", "point" } or { "laugh", "cheer", "point" }
+  local ok = tryEmote(h, names)
   task.delay(2, function() if alive then stopEmote(h) end end)
-  return true
+  return ok
 end
 function P.greet()
   local h = hum()
   if not h then return false end
   say("привет!", 2.5)
   if ORBIT.emote and ORBIT.emote("greet") then return true end
-  -- wave есть и на R6, и на R15
-  local ok, res = pcall(function() return h:PlayEmote("wave") end)
-  return ok and res and true or false
+  -- wave есть и на R6, и на R15; fallback — point
+  local names = { "wave", "point" }
+  local ok = tryEmote(h, names)
+  return ok
 end
 function P.sans()
   if ORBIT.sans and ORBIT.sans.say then return ORBIT.sans.say("random", true) end
@@ -478,12 +509,11 @@ end
 A.player = P
 A.rigOf = rigOf
 A.isR15 = isR15
--- ===== Слежение за HP (сердце, щит) =====
+-- ===== Слежение за HP =====
 local function hook(char)
   if hpConn then pcall(function() hpConn:Disconnect() end); hpConn = nil end
   local h = char:WaitForChild("Humanoid", 5)
   if not h or not alive then return end
-  -- запоминаем риг
   ORBIT.RigType = rigOf(h)
   local last = h.Health
   hpRatio = h.MaxHealth > 0 and h.Health / h.MaxHealth or 1
