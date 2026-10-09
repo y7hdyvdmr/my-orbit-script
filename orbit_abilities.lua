@@ -1,7 +1,5 @@
--- ORBIT v24.2 | orbit_abilities.lua
--- 9 стихий + улучшенный прицел + авто-комбо + крестики стихий + трейлы снарядов
--- v24.2: hit-marker, дистанция в прицеле, индикатор «комбо готово», авто-комбо по таймеру,
---        A.hideElement/A.showElement/A.getVisibleElements, больше комбо-пар, лучше FX.
+-- ORBIT v24.5 | orbit_abilities.lua
+-- v24.5: aim НЕ замедляет, "Скорость" снова ускоряет, телепорт в точку прицела (200 studs).
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] abilities: нет ORBIT"); return false end
@@ -33,7 +31,6 @@ local EL = {
 local IDX = {}
 for i, e in ipairs(EL) do IDX[e.id] = i end
 
--- ✨ v24.2: какие стихии «скрыты крестиком» (не показываются в панели, но fireId работает)
 local hidden = {}
 
 local C = {
@@ -42,7 +39,7 @@ local C = {
   water = { dps = 5, range = 35, cd = 0, push = 8 },
   ice = { dmg = 15, spread = 15, slow = 2, cd = 2, speed = 90 },
   lightning = { dmg = 40, range = 40, stun = 0.5, cd = 2.5 },
-  teleport = { dist = 30, cd = 3 },
+  teleport = { maxDist = 200, cd = 3 },  -- ← было 30 studs, стало 200
   speed = { dist = 20, mult = 1.8, dur = 3, cd = 5 },
   wind = { r = 15, knock = 25, cd = 4 },
   poison = { dps = 8, r = 8, dur = 5, cd = 6 },
@@ -61,9 +58,9 @@ local dots, slows, hitWatch, clouds = {}, {}, {}, {}
 local enemyCache, enemyT = {}, 0
 local speedUntil, toastUntil = 0, 0
 local hitMarkerUntil = 0
-local lastHitPos, lastHitDist = nil, 0
 local sm = nil
 local helperWrapped, origInterp = false, nil
+local speedRestoreToken = 0
 local function connect(sig, fn) local c = sig:Connect(fn); conns[#conns + 1] = c; return c end
 local function ping(n, v, p) if ORBIT.Sfx and ORBIT.Sfx.play then pcall(ORBIT.Sfx.play, n, v or 1, p or 1) end end
 local function fold()
@@ -131,7 +128,6 @@ local function burst(pos, col, n, spd)
   e:Emit(n or 20)
   Debris:AddItem(p, 1.5)
 end
--- ✨ новое: ударное кольцо в точке попадания
 local function impactRing(pos, col, r, th)
   local p = mkpart(Enum.PartType.Cylinder, V3(0.3, r * 0.5, r * 0.5), col, MAT.Neon, 0.3)
   p.CFrame = CF(pos) * CFrame.Angles(0, 0, math.rad(90))
@@ -185,8 +181,6 @@ local function isSolid(inst)
   local m = inst:FindFirstAncestorOfClass("Model")
   return m ~= nil and m:FindFirstChildOfClass("Humanoid") ~= nil
 end
-
--- ✨ новый хелпер: навесить трейл на снаряд
 local function attachTrail(part, col)
   local a0 = Instance.new("Attachment"); a0.Position = V3(0, 0, 0); a0.Parent = part
   local a1 = Instance.new("Attachment"); a1.Position = V3(0, 0, 0); a1.Parent = part
@@ -201,7 +195,7 @@ local function attachTrail(part, col)
   return tr
 end
 
--- ===== Враги, урон, эффекты =====
+-- ===== Враги =====
 local function enemies()
   local t = tick()
   if t - enemyT < 0.15 then return enemyCache end
@@ -228,16 +222,15 @@ local function dmg(e, n)
   if not e or not e.hum or e.hum.Health <= 0 then return end
   pcall(function() e.hum:TakeDamage(n) end)
   hitWatch[e.hum] = tick()
-  -- ✨ hit-marker
   hitMarkerUntil = tick() + 0.18
-  if e.root then lastHitPos = e.root.Position end
 end
 local function knock(root, dir, studs)
   if dir.Magnitude < 0.01 then dir = V3(0, 0, 1) end
   pcall(function() root.AssemblyLinearVelocity = dir.Unit * studs * 3 + V3(0, studs * 0.8, 0) end)
 end
-local function slow(hum, f, sec)
+local function slowEnemy(hum, f, sec)
   if not hum or not hum.Parent or hum.Health <= 0 then return end
+  if hum == LP.Character or (LP.Character and hum:IsDescendantOf(LP.Character)) then return end
   local s = slows[hum]
   if not s then s = { orig = hum.WalkSpeed, endt = 0 }; slows[hum] = s end
   s.endt = math.max(s.endt, tick() + sec)
@@ -284,14 +277,15 @@ local function screenPoint()
   end
   return UIS:GetMouseLocation()
 end
+-- Получить точку, куда смотрит прицел. Если прицел выключен — берём центр экрана.
 local function aimPoint(origin)
   local c = cam()
   if not c then return origin + V3(0, 0, -50) end
   local sp = screenPoint()
   local ray = c:ViewportPointToRay(sp.X, sp.Y)
-  local res = WS:Raycast(ray.Origin, ray.Direction * 400, rayParams())
+  local res = WS:Raycast(ray.Origin, ray.Direction * 1000, rayParams())
   if res then return res.Position end
-  return ray.Origin + ray.Direction * 400
+  return ray.Origin + ray.Direction * 1000
 end
 
 -- ===== Снаряды =====
@@ -314,7 +308,7 @@ end
 local function onIce(q, pos)
   burst(pos, EL[4].col, 14, 10)
   impactRing(pos, EL[4].col, 3.2, 0.3)
-  for _, t in ipairs(near(pos, 3.2)) do dmg(t, C.ice.dmg * q.mul); slow(t.hum, 0.3, C.ice.slow) end
+  for _, t in ipairs(near(pos, 3.2)) do dmg(t, C.ice.dmg * q.mul); slowEnemy(t.hum, 0.3, C.ice.slow) end
   ping("ping", 0.8, 1.6)
 end
 local function stepProj(dt)
@@ -390,12 +384,12 @@ FIRE.lightning = function(ch, origin, dir)
   impactRing(to, EL[5].col, 4, 0.3)
   local mul = ch and C.charge.dmg or 1
   if t then
-    dmg(t, C.lightning.dmg * mul); slow(t.hum, 0, C.lightning.stun)
+    dmg(t, C.lightning.dmg * mul); slowEnemy(t.hum, 0, C.lightning.stun)
     if ch then
       for _, e2 in ipairs(near(t.root.Position, 20)) do
         if e2 ~= t then
           bolt(t.root.Position, e2.root.Position, EL[5].col, 0.5)
-          dmg(e2, C.lightning.dmg); slow(e2.hum, 0, C.lightning.stun)
+          dmg(e2, C.lightning.dmg); slowEnemy(e2.hum, 0, C.lightning.stun)
           break
         end
       end
@@ -419,16 +413,84 @@ local function hop(r, flat, dist, col)
   r.CFrame = CF(to, to + flat)
   burst(from, col, 16, 10); burst(to, col, 16, 10)
 end
+
+-- ✨ ТЕЛЕПОРТ v24.5: летит в точку прицела (до 200 studs), с рейкастом на пути
 FIRE.teleport = function(ch, origin, dir, target, c, h, r)
-  hop(r, flatDir(dir, r), C.teleport.dist * (ch and 1.5 or 1), EL[6].col)
+  local from = r.Position
+  local want = target or aimPoint(from)  -- куда смотрит прицел
+
+  -- Ограничение дистанции
+  local diff = want - from
+  local maxDist = C.teleport.maxDist  -- 200 studs
+  if ch then maxDist = maxDist * 1.3 end  -- заряженный — 260
+  if diff.Magnitude > maxDist then
+    want = from + diff.Unit * maxDist
+  end
+
+  -- Проверяем, нет ли стены на пути (от груди игрока, а не от ног)
+  local head = from + V3(0, 1.5, 0)
+  local wantHead = want + V3(0, 1.5, 0)
+  local rayDir = (wantHead - head)
+  local rp = rayParams()
+  local res = WS:Raycast(head, rayDir, rp)
+  local finalPos = want
+  if res and res.Instance.CanCollide then
+    -- останавливаемся перед стеной (немного отступаем)
+    local hitDist = (res.Position - head).Magnitude
+    local safeDist = math.max(2, hitDist - 3)
+    finalPos = head + rayDir.Unit * safeDist
+    finalPos = V3(finalPos.X, finalPos.Y - 1.5, finalPos.Z)
+  end
+
+  -- Ищем безопасный пол под целевой точкой
+  local downRes = WS:Raycast(finalPos + V3(0, 5, 0), V3(0, -15, 0), rp)
+  if downRes then
+    finalPos = downRes.Position + V3(0, 3, 0)
+  end
+
+  -- Ставим на позицию
+  ORBIT.abilityMoveUntil = tick() + 1
+  local to = finalPos
+
+  -- Визуал: 2 следа + кольцо
+  trailFx(from + V3(0, 1, 0), to + V3(0, 1, 0), EL[6].col)
+  burst(from, EL[6].col, 24, 15)
+  burst(to, EL[6].col, 24, 15)
+  impactRing(from, EL[6].col, 4, 0.35)
+  impactRing(to, EL[6].col, 5, 0.4)
+
+  -- Телепорт
+  local look = r.CFrame.LookVector
+  r.CFrame = CF(to, to + look)
+  pcall(function()
+    r.AssemblyLinearVelocity = V3(0, 0, 0)
+    r.AssemblyAngularVelocity = V3(0, 0, 0)
+  end)
+  local dist = (to - from).Magnitude
+  toast(string.format("✨ Телепорт: %.0f st", dist))
   ping("snap", 1, 1.6)
 end
+
+-- ✨ СКОРОСТЬ v24.5: ускорение вернули (WalkSpeed 32 на 3 сек)
 FIRE.speed = function(ch, origin, dir, target, c, h, r)
-  hop(r, flatDir(dir, r), C.speed.dist, EL[7].col)
+  hop(r, flatDir(dir, r), C.speed.dist * (ch and 1.5 or 1), EL[7].col)
   local dur = C.speed.dur * (ch and 1.5 or 1)
   speedUntil = tick() + dur
   ORBIT.abilitySpeedUntil = speedUntil
-  slow(h, C.speed.mult, dur)
+  -- ✨ УСКОРЕНИЕ
+  if h and h.Parent then
+    speedRestoreToken = speedRestoreToken + 1
+    local myToken = speedRestoreToken
+    local prevSpeed = h.WalkSpeed
+    local boost = 32 * (ch and 1.3 or 1)
+    pcall(function() h.WalkSpeed = boost end)
+    task.delay(dur, function()
+      if not alive or speedRestoreToken ~= myToken then return end
+      if h and h.Parent and h.WalkSpeed == boost then
+        pcall(function() h.WalkSpeed = prevSpeed end)
+      end
+    end)
+  end
   ping("snap", 1, 1.3)
 end
 FIRE.wind = function(ch, origin, dir, target, c, h, r)
@@ -452,7 +514,7 @@ FIRE.poison = function(ch, origin, dir, target, c, h, r)
   ping("snap", 0.8, 0.5)
 end
 
--- ===== Комбо (v24.2: расширено) =====
+-- ===== Комбо =====
 local COMBOS = {}
 COMBOS["fire+lightning"] = function(origin, dir, target, c, h, r)
   local p = clampPt(r.Position, target, 60)
@@ -467,14 +529,14 @@ COMBOS["ice+water"] = function(origin, dir, target, c, h, r)
   w.CFrame = CF(p)
   T(w, 0.6, { Size = V3(40, 40, 40), Transparency = 0.92 }); Debris:AddItem(w, 0.8)
   burst(p, C3(200, 240, 255), 40, 25)
-  for _, e in ipairs(near(p, 20)) do slow(e.hum, 0, 2.5); dmg(e, 10) end
+  for _, e in ipairs(near(p, 20)) do slowEnemy(e.hum, 0, 2.5); dmg(e, 10) end
   toast("💧❄️ ЛЕДЯНАЯ ВОЛНА")
 end
 COMBOS["earth+wind"] = function(origin, dir, target, c, h, r)
   local p = clampPt(r.Position, target, 50)
   blast(p, 15, C3(210, 180, 120))
   mkCloud(p, 15, 3, 0, C3(210, 180, 120), false)
-  for _, e in ipairs(near(p, 15)) do dmg(e, 50); slow(e.hum, 0.4, 3) end
+  for _, e in ipairs(near(p, 15)) do dmg(e, 50); slowEnemy(e.hum, 0.4, 3) end
   toast("🌍🌪️ ПЕСЧАНАЯ БУРЯ")
 end
 COMBOS["poison+water"] = function(origin, dir, target, c, h, r)
@@ -482,11 +544,10 @@ COMBOS["poison+water"] = function(origin, dir, target, c, h, r)
   mkCloud(p, 15, 3, 20, C3(150, 230, 60), true)
   toast("☠️💧 КИСЛОТНЫЙ ДОЖДЬ")
 end
--- ✨ новые комбо v24.2
 COMBOS["fire+ice"] = function(origin, dir, target, c, h, r)
   local p = clampPt(r.Position, target, 55)
   blast(p, 10, C3(255, 180, 90)); blast(p, 10, C3(180, 230, 255))
-  for _, e in ipairs(near(p, 10)) do dmg(e, 45); slow(e.hum, 0.4, 2); burn(e, 2) end
+  for _, e in ipairs(near(p, 10)) do dmg(e, 45); slowEnemy(e.hum, 0.4, 2); burn(e, 2) end
   toast("🔥❄️ ТЕРМОШОК")
 end
 COMBOS["fire+wind"] = function(origin, dir, target, c, h, r)
@@ -498,7 +559,7 @@ end
 COMBOS["ice+lightning"] = function(origin, dir, target, c, h, r)
   local p = clampPt(r.Position, target, 55)
   bolt(p + V3(0, 30, 0), p, C3(200, 230, 255), 0.5)
-  for _, e in ipairs(near(p, 12)) do dmg(e, 60); slow(e.hum, 0.2, 3) end
+  for _, e in ipairs(near(p, 12)) do dmg(e, 60); slowEnemy(e.hum, 0.2, 3) end
   toast("❄️⚡ ЛЕДЯНАЯ МОЛНИЯ")
 end
 COMBOS["water+lightning"] = function(origin, dir, target, c, h, r)
@@ -506,7 +567,7 @@ COMBOS["water+lightning"] = function(origin, dir, target, c, h, r)
   local w = mkpart(PT_BALL, V3(3, 3, 3), C3(80, 160, 255), MAT.Neon, 0.4)
   w.CFrame = CF(p)
   T(w, 0.4, { Size = V3(20, 20, 20), Transparency = 1 }); Debris:AddItem(w, 0.5)
-  for _, e in ipairs(near(p, 12)) do dmg(e, 55); slow(e.hum, 0.2, 1.5) end
+  for _, e in ipairs(near(p, 12)) do dmg(e, 55); slowEnemy(e.hum, 0.2, 1.5) end
   bolt(p + V3(0, 25, 0), p, C3(140, 200, 255), 0.4)
   toast("💧⚡ ЭЛЕКТРОШОК")
 end
@@ -518,15 +579,27 @@ COMBOS["teleport+lightning"] = function(origin, dir, target, c, h, r)
       bolt(p + V3(math.random(-6, 6), 30, math.random(-6, 6)), p, EL[5].col, 0.4)
     end)
   end
-  for _, e in ipairs(near(p, 10)) do dmg(e, 90); slow(e.hum, 0, 1) end
+  for _, e in ipairs(near(p, 10)) do dmg(e, 90); slowEnemy(e.hum, 0, 1) end
   toast("✨⚡ ПРОСТРАНСТВЕННЫЙ РАЗРЯД")
 end
+-- ✨ speed+wind — теперь с ускорением
 COMBOS["speed+wind"] = function(origin, dir, target, c, h, r)
   local dur = 6
   speedUntil = tick() + dur
   ORBIT.abilitySpeedUntil = speedUntil
-  local c2, h2 = getChar()
-  if h2 then slow(h2, 2.2, dur) end
+  if h and h.Parent then
+    speedRestoreToken = speedRestoreToken + 1
+    local myToken = speedRestoreToken
+    local prevSpeed = h.WalkSpeed
+    local boost = 40
+    pcall(function() h.WalkSpeed = boost end)
+    task.delay(dur, function()
+      if not alive or speedRestoreToken ~= myToken then return end
+      if h and h.Parent and h.WalkSpeed == boost then
+        pcall(function() h.WalkSpeed = prevSpeed end)
+      end
+    end)
+  end
   local p = r.Position
   for i = 0, 4 do
     task.delay(i * 0.1, function()
@@ -593,7 +666,7 @@ function A.combo()
   local c, h, r = getChar()
   if not c then return false end
   local key = comboKey()
-  if not key then ping("click", 0.6, 0.8); toast("КОМБО: нужна пара стихий (например 🔥 + ⚡)"); return false end
+  if not key then ping("click", 0.6, 0.8); toast("КОМБО: нужна пара стихий"); return false end
   local left = cdLeft("combo")
   if left > 0 then ping("click", 0.6, 0.8); toast("КОМБО КД " .. string.format("%.1f", left)); return false end
   local origin = r.Position + V3(0, 1.5, 0)
@@ -625,11 +698,9 @@ function A.aim(on)
   return aiming
 end
 
--- ✨ v24.2: API скрытия/показа стихий (для крестиков в UI)
 function A.hideElement(id)
   if not IDX[id] then return false end
   hidden[id] = true
-  -- если скрываем текущую — переключаемся на первую видимую
   if A.current == id then
     for _, e in ipairs(EL) do
       if not hidden[e.id] then A.setCurrent(e.id); break end
@@ -659,12 +730,6 @@ local function smEnd()
   local s = sm
   sm = nil
   pcall(function() WS.Gravity = s.g0 end)
-  pcall(function()
-    if s.hum and s.hum.Parent then
-      s.hum.WalkSpeed = s.ws0
-      if s.hum.UseJumpPower then s.hum.JumpPower = s.jp0 end
-    end
-  end)
   pcall(function() local c = cam(); if c and s.fov0 then c.FieldOfView = s.fov0 end end)
   if s.cc then pcall(function() s.cc:Destroy() end) end
   if s.gui then pcall(function() s.gui:Destroy() end) end
@@ -673,7 +738,7 @@ local function smStart()
   if sm or not alive then return end
   local c, h = getChar()
   local cm = cam()
-  sm = { t0 = tick(), g0 = WS.Gravity, hum = h, ws0 = h and h.WalkSpeed or 16, jp0 = h and h.JumpPower or 50, fov0 = cm and cm.FieldOfView }
+  sm = { t0 = tick(), g0 = WS.Gravity, hum = h, fov0 = cm and cm.FieldOfView }
   local cc = Instance.new("ColorCorrectionEffect")
   cc.Name = "OrbitSlowmoCC"; cc.Parent = Lighting; sm.cc = cc
   local pg = LP:FindFirstChildOfClass("PlayerGui")
@@ -708,10 +773,6 @@ local function smStep()
   else smEnd(); return end
   local k = (1 - f) / 0.7
   pcall(function() WS.Gravity = sm.g0 * f * f end)
-  local h = sm.hum
-  if h and h.Parent and h.Health > 0 then
-    pcall(function() h.WalkSpeed = sm.ws0 * f; if h.UseJumpPower then h.JumpPower = sm.jp0 * f end end)
-  end
   pcall(function()
     sm.cc.Saturation = 0.6 * k; sm.cc.Contrast = 0.25 * k
     sm.cc.TintColor = Color3.new(1, 1 - 0.12 * k, 1 - 0.08 * k)
@@ -766,7 +827,7 @@ local function pressUp()
   end
 end
 
--- ===== Помощник (голосовые команды) =====
+-- ===== Помощник =====
 local function ruLower(s)
   s = s:lower()
   s = s:gsub("\208([\144-\175])", function(ch)
@@ -831,27 +892,6 @@ end
 local KEYN = {}
 for i, k in ipairs({ "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine" }) do KEYN[Enum.KeyCode[k]] = i end
 
-local function rebuildSlotPanel()
-  if not ui.slots then return end
-  -- пересчитываем видимость и позиции кнопок под скрытые стихии
-  local visible = A.getVisibleElements()
-  for id, s in pairs(ui.slots) do
-    s.btn.Visible = not hidden[id]
-  end
-  -- сдвигаем
-  local slot = ui.slot or 40
-  for i, e in ipairs(visible) do
-    local s = ui.slots[e.id]
-    if s then
-      s.btn.Position = UDim2.fromOffset(6 + (i - 1) * (slot + 3), 6)
-      s.idxLabel.Text = tostring(i)
-    end
-  end
-  if ui.panel then
-    ui.panel.Size = UDim2.fromOffset(#visible * slot + (#visible - 1) * 3 + 12, slot + 12)
-  end
-end
-
 local function mkUI()
   local pg = LP:FindFirstChildOfClass("PlayerGui")
   if not pg then return end
@@ -887,7 +927,6 @@ local function mkUI()
   ui.comboStroke = Instance.new("UIStroke"); ui.comboStroke.Color = C3(255, 240, 120); ui.comboStroke.Thickness = 1; ui.comboStroke.Parent = cb
   onClick(cb, function() A.combo() end)
   ui.combo = cb
-  -- ✨ v24.2: индикатор «пара готова: 🔥⚡»
   local pairLbl = Instance.new("TextLabel")
   pairLbl.AnchorPoint = Vector2.new(0.5, 1); pairLbl.Position = UDim2.new(0.5, 0, 1, -(slot + 60)); pairLbl.Size = UDim2.fromOffset(220, 22)
   pairLbl.BackgroundColor3 = C3(0, 0, 0); pairLbl.BackgroundTransparency = 0.4
@@ -902,7 +941,6 @@ local function mkUI()
   Instance.new("UICorner", ts).CornerRadius = UDim.new(0, 8)
   ui.toast = ts
 
-  -- 🎯 улучшенный прицел
   local cr = Instance.new("Frame")
   cr.Name = "Cross"; cr.AnchorPoint = Vector2.new(0.5, 0.5); cr.Size = UDim2.fromOffset(64, 64)
   cr.BackgroundTransparency = 1; cr.Visible = false; cr.Active = TOUCH; cr.Parent = sg
@@ -914,12 +952,9 @@ local function mkUI()
     ui.lines[#ui.lines + 1] = f
     return f
   end
-  -- центр точка
   local dot = line(30, 30, 4, 4); Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
-  -- 4 линии по краям (расходящиеся)
   line(31, 0, 2, 14); line(31, 50, 2, 14)
   line(0, 31, 14, 2); line(50, 31, 14, 2)
-  -- внешнее кольцо (для hit-marker)
   local ring = Instance.new("Frame")
   ring.AnchorPoint = Vector2.new(0.5, 0.5); ring.Position = UDim2.fromScale(0.5, 0.5)
   ring.Size = UDim2.fromOffset(80, 80); ring.BackgroundTransparency = 1
@@ -928,7 +963,6 @@ local function mkUI()
   local ringStroke = Instance.new("UIStroke", ring)
   ringStroke.Color = C3(255, 80, 80); ringStroke.Thickness = 2; ringStroke.Transparency = 1
   ui.hitStroke = ringStroke
-  -- метка дистанции
   local cl = Instance.new("TextLabel")
   cl.AnchorPoint = Vector2.new(0.5, 0); cl.Position = UDim2.new(0.5, 0, 1, 2); cl.Size = UDim2.fromOffset(180, 16)
   cl.BackgroundTransparency = 1; cl.TextColor3 = C3(255, 255, 255); cl.Font = Enum.Font.Code; cl.TextSize = 12; cl.Parent = cr
@@ -975,7 +1009,6 @@ local function mkUI()
     sb.TextSize = 14
     onClick(sb, function() menu.Visible = not menu.Visible end)
   end
-  rebuildSlotPanel()
 end
 
 local function refreshUI()
@@ -992,7 +1025,6 @@ local function refreshUI()
   if aiming then
     local sp = screenPoint()
     ui.cross.Position = UDim2.fromOffset(sp.X, sp.Y)
-    -- 🎯 дистанция до цели под прицелом
     local origin = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") and LP.Character.HumanoidRootPart.Position or V3()
     local dist = 0
     local target = aimPoint(origin)
@@ -1001,7 +1033,6 @@ local function refreshUI()
     if pressT and t - pressT >= C.charge.time then txt = txt .. " ⚡ЗАРЯД" end
     ui.crossLabel.Text = txt .. "  •  " .. math.floor(dist) .. " st"
     for _, l in ipairs(ui.lines) do l.BackgroundColor3 = el.col end
-    -- hit-marker
     if t < hitMarkerUntil then
       ui.hitStroke.Transparency = 0
       ui.hitStroke.Color = C3(255, 60, 60)
@@ -1012,7 +1043,6 @@ local function refreshUI()
       ui.hitRing.Size = UDim2.fromOffset(80, 80)
     end
   end
-  -- индикатор пары
   local key = comboKey()
   if key and cdLeft("combo") <= 0 then
     local a, b = key:match("^(%w+)%+(%w+)$")
@@ -1094,16 +1124,14 @@ connect(RS.Heartbeat, function(dt)
       for _, e in ipairs(near(cl.pos, cl.r)) do dmg(e, cl.dps * dt) end
     end
   end
+  -- восстановление врагов (НЕ игрока)
   for hum, s in pairs(slows) do
     if t >= s.endt or not hum.Parent then
       pcall(function() if hum.Parent then hum.WalkSpeed = s.orig end end)
       slows[hum] = nil
     end
   end
-  if aiming and t > speedUntil then
-    local c, h = getChar()
-    if h then slow(h, 0.6, 0.25) end
-  end
+  -- aim НЕ замедляет — этой строки больше нет
   for hum, ts in pairs(hitWatch) do
     if hum.Parent and hum.Health <= 0 then
       hitWatch[hum] = nil
