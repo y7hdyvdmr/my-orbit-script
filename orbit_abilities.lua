@@ -1,5 +1,5 @@
--- ORBIT v24.5 | orbit_abilities.lua
--- v24.5: aim НЕ замедляет, "Скорость" снова ускоряет, телепорт в точку прицела (200 studs).
+-- ORBIT v24.7 | orbit_abilities.lua
+-- 9 стихий + крестики скрытия + кнопка возврата + прицел + комбо
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] abilities: нет ORBIT"); return false end
@@ -39,7 +39,7 @@ local C = {
   water = { dps = 5, range = 35, cd = 0, push = 8 },
   ice = { dmg = 15, spread = 15, slow = 2, cd = 2, speed = 90 },
   lightning = { dmg = 40, range = 40, stun = 0.5, cd = 2.5 },
-  teleport = { maxDist = 200, cd = 3 },  -- ← было 30 studs, стало 200
+  teleport = { maxDist = 200, cd = 3 },
   speed = { dist = 20, mult = 1.8, dur = 3, cd = 5 },
   wind = { r = 15, knock = 25, cd = 4 },
   poison = { dps = 8, r = 8, dur = 5, cd = 6 },
@@ -277,7 +277,6 @@ local function screenPoint()
   end
   return UIS:GetMouseLocation()
 end
--- Получить точку, куда смотрит прицел. Если прицел выключен — берём центр экрана.
 local function aimPoint(origin)
   local c = cam()
   if not c then return origin + V3(0, 0, -50) end
@@ -414,20 +413,15 @@ local function hop(r, flat, dist, col)
   burst(from, col, 16, 10); burst(to, col, 16, 10)
 end
 
--- ✨ ТЕЛЕПОРТ v24.5: летит в точку прицела (до 200 studs), с рейкастом на пути
 FIRE.teleport = function(ch, origin, dir, target, c, h, r)
   local from = r.Position
-  local want = target or aimPoint(from)  -- куда смотрит прицел
-
-  -- Ограничение дистанции
+  local want = target or aimPoint(from)
   local diff = want - from
-  local maxDist = C.teleport.maxDist  -- 200 studs
-  if ch then maxDist = maxDist * 1.3 end  -- заряженный — 260
+  local maxDist = C.teleport.maxDist
+  if ch then maxDist = maxDist * 1.3 end
   if diff.Magnitude > maxDist then
     want = from + diff.Unit * maxDist
   end
-
-  -- Проверяем, нет ли стены на пути (от груди игрока, а не от ног)
   local head = from + V3(0, 1.5, 0)
   local wantHead = want + V3(0, 1.5, 0)
   local rayDir = (wantHead - head)
@@ -435,31 +429,22 @@ FIRE.teleport = function(ch, origin, dir, target, c, h, r)
   local res = WS:Raycast(head, rayDir, rp)
   local finalPos = want
   if res and res.Instance.CanCollide then
-    -- останавливаемся перед стеной (немного отступаем)
     local hitDist = (res.Position - head).Magnitude
     local safeDist = math.max(2, hitDist - 3)
     finalPos = head + rayDir.Unit * safeDist
     finalPos = V3(finalPos.X, finalPos.Y - 1.5, finalPos.Z)
   end
-
-  -- Ищем безопасный пол под целевой точкой
   local downRes = WS:Raycast(finalPos + V3(0, 5, 0), V3(0, -15, 0), rp)
   if downRes then
     finalPos = downRes.Position + V3(0, 3, 0)
   end
-
-  -- Ставим на позицию
   ORBIT.abilityMoveUntil = tick() + 1
   local to = finalPos
-
-  -- Визуал: 2 следа + кольцо
   trailFx(from + V3(0, 1, 0), to + V3(0, 1, 0), EL[6].col)
   burst(from, EL[6].col, 24, 15)
   burst(to, EL[6].col, 24, 15)
   impactRing(from, EL[6].col, 4, 0.35)
   impactRing(to, EL[6].col, 5, 0.4)
-
-  -- Телепорт
   local look = r.CFrame.LookVector
   r.CFrame = CF(to, to + look)
   pcall(function()
@@ -471,13 +456,11 @@ FIRE.teleport = function(ch, origin, dir, target, c, h, r)
   ping("snap", 1, 1.6)
 end
 
--- ✨ СКОРОСТЬ v24.5: ускорение вернули (WalkSpeed 32 на 3 сек)
 FIRE.speed = function(ch, origin, dir, target, c, h, r)
   hop(r, flatDir(dir, r), C.speed.dist * (ch and 1.5 or 1), EL[7].col)
   local dur = C.speed.dur * (ch and 1.5 or 1)
   speedUntil = tick() + dur
   ORBIT.abilitySpeedUntil = speedUntil
-  -- ✨ УСКОРЕНИЕ
   if h and h.Parent then
     speedRestoreToken = speedRestoreToken + 1
     local myToken = speedRestoreToken
@@ -582,7 +565,6 @@ COMBOS["teleport+lightning"] = function(origin, dir, target, c, h, r)
   for _, e in ipairs(near(p, 10)) do dmg(e, 90); slowEnemy(e.hum, 0, 1) end
   toast("✨⚡ ПРОСТРАНСТВЕННЫЙ РАЗРЯД")
 end
--- ✨ speed+wind — теперь с ускорением
 COMBOS["speed+wind"] = function(origin, dir, target, c, h, r)
   local dur = 6
   speedUntil = tick() + dur
@@ -684,19 +666,37 @@ function A.combo()
 end
 function A.setCurrent(id)
   if not IDX[id] then return false end
+  if hidden[id] then return false end
   if id ~= A.current then
     prevId = A.current; A.current = id; waterHeld = false; pressT = nil
     ping("switch", 0.8, 1.2)
   end
   return true
 end
-function A.next() local i = IDX[A.current] % #EL + 1; return A.setCurrent(EL[i].id) end
-function A.prev() local i = (IDX[A.current] - 2) % #EL + 1; return A.setCurrent(EL[i].id) end
+function A.next()
+  local vis = A.getVisibleElements()
+  if #vis == 0 then return false end
+  local curPos = 1
+  for i, e in ipairs(vis) do if e.id == A.current then curPos = i; break end end
+  local nxt = vis[(curPos % #vis) + 1]
+  return A.setCurrent(nxt.id)
+end
+function A.prev()
+  local vis = A.getVisibleElements()
+  if #vis == 0 then return false end
+  local curPos = 1
+  for i, e in ipairs(vis) do if e.id == A.current then curPos = i; break end end
+  local prv = vis[((curPos - 2) % #vis) + 1]
+  return A.setCurrent(prv.id)
+end
 function A.aim(on)
   if on == nil then aiming = not aiming else aiming = on and true or false end
   if aiming and not crossPos then local c = cam(); crossPos = c and c.ViewportSize / 2 or Vector2.new(400, 200) end
   return aiming
 end
+
+-- ===== Hide / Show =====
+A.rebuildPanel = nil
 
 function A.hideElement(id)
   if not IDX[id] then return false end
@@ -706,11 +706,13 @@ function A.hideElement(id)
       if not hidden[e.id] then A.setCurrent(e.id); break end
     end
   end
+  if A.rebuildPanel then pcall(A.rebuildPanel) end
   return true
 end
 function A.showElement(id)
   if not IDX[id] then return false end
   hidden[id] = nil
+  if A.rebuildPanel then pcall(A.rebuildPanel) end
   return true
 end
 function A.isHidden(id) return hidden[id] == true end
@@ -721,8 +723,24 @@ function A.getVisibleElements()
   end
   return out
 end
+function A.getHiddenElements()
+  local out = {}
+  for _, e in ipairs(EL) do
+    if hidden[e.id] then out[#out + 1] = e end
+  end
+  return out
+end
 function A.getElements() return EL end
-function A.resetHidden() hidden = {} end
+function A.resetHidden()
+  hidden = {}
+  if A.rebuildPanel then pcall(A.rebuildPanel) end
+  -- если текущая стихия скрыта — ставим первую
+  if hidden[A.current] then
+    for _, e in ipairs(EL) do
+      if not hidden[e.id] then A.setCurrent(e.id); break end
+    end
+  end
+end
 
 -- ===== Slow-mo =====
 local function smEnd()
@@ -847,6 +865,10 @@ function A.interpret(raw)
       if has(p[1]) then A.setCurrent(p[2]); return true, "✨ Стихия: " .. EL[IDX[p[2]]].nm end
     end
   end
+  if has("верни") and (has("стихи") or has("всё") or has("все")) then
+    A.resetHidden()
+    return true, "♻️ Все стихии возвращены"
+  end
   if has("комбо") then A.combo(); return true, "✨ Комбо" end
   if has("стреляй") or has("выстрел") then A.fire(false); return true, "🔥 Выстрел: " .. EL[IDX[A.current]].nm end
   if has("прицел") then return true, A.aim() and "🎯 Прицел включён" or "🎯 Прицел выключен" end
@@ -908,6 +930,13 @@ local function mkUI()
   pan.BackgroundColor3 = C3(18, 18, 24); pan.BackgroundTransparency = 0.25; pan.Parent = sg
   Instance.new("UICorner", pan).CornerRadius = UDim.new(0, 10)
   ui.panel = pan
+
+  -- ✨ v24.7: контейнер для крестиков (отдельный от pan, чтобы клики не пересекались с основными кнопками)
+  local xLayer = Instance.new("Frame")
+  xLayer.Name = "XLayer"; xLayer.AnchorPoint = Vector2.new(0.5, 1); xLayer.Position = UDim2.new(0.5, 0, 1, -8)
+  xLayer.Size = pan.Size
+  xLayer.BackgroundTransparency = 1; xLayer.ZIndex = 10; xLayer.Parent = sg
+
   ui.slots = {}
   for i, el in ipairs(EL) do
     local b = mkBtn(pan, el.ic, slot, slot, UDim2.fromOffset(6 + (i - 1) * (slot + 3), 6))
@@ -920,13 +949,100 @@ local function mkUI()
     kl.Size = UDim2.fromOffset(12, 12); kl.Position = UDim2.fromOffset(2, 1); kl.BackgroundTransparency = 1
     kl.Text = tostring(i); kl.TextColor3 = C3(190, 190, 200); kl.Font = Enum.Font.Code; kl.TextSize = 10; kl.ZIndex = 3; kl.Parent = b
     onClick(b, function() A.setCurrent(el.id) end)
-    ui.slots[el.id] = { btn = b, stroke = st, shade = sh, idxLabel = kl }
+
+    -- ✨ Крестик — отдельный элемент в xLayer, позиционируется поверх кнопки
+    local xb = Instance.new("TextButton")
+    xb.Name = "X_" .. el.id
+    xb.Size = UDim2.fromOffset(18, 18)
+    xb.BackgroundColor3 = C3(200, 40, 50)
+    xb.BackgroundTransparency = 0.05
+    xb.TextColor3 = C3(255, 255, 255)
+    xb.Font = Enum.Font.GothamBold
+    xb.TextSize = 12
+    xb.Text = "✖"
+    xb.AutoButtonColor = false
+    xb.ZIndex = 12
+    xb.Parent = xLayer
+    Instance.new("UICorner", xb).CornerRadius = UDim.new(1, 0)
+    local xs = Instance.new("UIStroke", xb)
+    xs.Color = C3(255, 100, 100); xs.Thickness = 1.5; xs.Transparency = 0.2
+    onClick(xb, function()
+      A.hideElement(el.id)
+      if ui.toast then
+        ui.toast.Text = "❌ " .. el.nm .. " скрыта"
+        ui.toast.Visible = true
+        toastUntil = tick() + 1.8
+      end
+    end)
+
+    ui.slots[el.id] = { btn = b, stroke = st, shade = sh, idxLabel = kl, xBtn = xb }
   end
+
+  -- Кнопка «↺ Вернуть все» — справа над панелью
+  local resetBtn = mkBtn(sg, "↺", 34, 34, UDim2.new(1, -18, 1, -(slot + 46)), Vector2.new(1, 1))
+  resetBtn.TextSize = 20
+  resetBtn.BackgroundColor3 = C3(30, 70, 45)
+  resetBtn.TextColor3 = C3(180, 255, 200)
+  resetBtn.BackgroundTransparency = 0.05
+  resetBtn.Visible = false
+  local rs = Instance.new("UIStroke", resetBtn); rs.Color = C3(100, 255, 160); rs.Thickness = 1.5
+  onClick(resetBtn, function()
+    A.resetHidden()
+    if ui.toast then
+      ui.toast.Text = "♻️ Все стихии возвращены"
+      ui.toast.Visible = true
+      toastUntil = tick() + 1.8
+    end
+  end)
+  ui.resetBtn = resetBtn
+
+  -- Функция раскладки
+  A.rebuildPanel = function()
+    if not ui.slots or not ui.panel then return end
+    local visible = A.getVisibleElements()
+    local anyHidden = false
+    for _, e in ipairs(EL) do
+      if hidden[e.id] then anyHidden = true; break end
+    end
+
+    for id, s in pairs(ui.slots) do
+      s.btn.Visible = not hidden[id]
+      if s.xBtn then s.xBtn.Visible = not hidden[id] end
+    end
+
+    local total = #visible
+    for i, e in ipairs(visible) do
+      local s = ui.slots[e.id]
+      if s then
+        local px = 6 + (i - 1) * (slot + 3)
+        s.btn.Position = UDim2.fromOffset(px, 6)
+        s.idxLabel.Text = tostring(i)
+        -- крестик — в правом верхнем углу кнопки
+        if s.xBtn then
+          s.xBtn.Position = UDim2.fromOffset(px + slot - 18, 4)
+        end
+      end
+    end
+
+    if total > 0 then
+      ui.panel.Size = UDim2.fromOffset(total * slot + math.max(0, total - 1) * 3 + 12, slot + 12)
+      xLayer.Size = ui.panel.Size
+      ui.panel.Visible = true
+    else
+      ui.panel.Visible = false
+    end
+
+    if ui.resetBtn then ui.resetBtn.Visible = anyHidden end
+  end
+
+  -- Кнопка КОМБО
   local cb = mkBtn(sg, MOB and "✨ КОМБО" or "✨ КОМБО [F]", 120, 32, UDim2.new(0.5, 0, 1, -(slot + 24)), Vector2.new(0.5, 1))
   cb.TextSize = 14; cb.TextColor3 = C3(150, 150, 160)
-  ui.comboStroke = Instance.new("UIStroke"); ui.comboStroke.Color = C3(255, 240, 120); ui.comboStroke.Thickness = 1; ui.comboStroke.Parent = cb
+  ui.comboStroke = Instance.new("UIStroke", cb); ui.comboStroke.Color = C3(255, 240, 120); ui.comboStroke.Thickness = 1; ui.comboStroke.Parent = cb
   onClick(cb, function() A.combo() end)
   ui.combo = cb
+
+  -- Индикатор пары
   local pairLbl = Instance.new("TextLabel")
   pairLbl.AnchorPoint = Vector2.new(0.5, 1); pairLbl.Position = UDim2.new(0.5, 0, 1, -(slot + 60)); pairLbl.Size = UDim2.fromOffset(220, 22)
   pairLbl.BackgroundColor3 = C3(0, 0, 0); pairLbl.BackgroundTransparency = 0.4
@@ -934,13 +1050,16 @@ local function mkUI()
   pairLbl.TextSize = 13; pairLbl.Visible = false; pairLbl.Parent = sg
   Instance.new("UICorner", pairLbl).CornerRadius = UDim.new(0, 8)
   ui.pairLbl = pairLbl
+
+  -- Тостер
   local ts = Instance.new("TextLabel")
-  ts.AnchorPoint = Vector2.new(0.5, 1); ts.Position = UDim2.new(0.5, 0, 1, -(slot + 86)); ts.Size = UDim2.fromOffset(260, 22)
+  ts.AnchorPoint = Vector2.new(0.5, 1); ts.Position = UDim2.new(0.5, 0, 1, -(slot + 86)); ts.Size = UDim2.fromOffset(280, 22)
   ts.BackgroundColor3 = C3(0, 0, 0); ts.BackgroundTransparency = 0.4; ts.TextColor3 = C3(255, 255, 255)
   ts.Font = Enum.Font.GothamBold; ts.TextSize = 14; ts.Visible = false; ts.Parent = sg
   Instance.new("UICorner", ts).CornerRadius = UDim.new(0, 8)
   ui.toast = ts
 
+  -- Прицел
   local cr = Instance.new("Frame")
   cr.Name = "Cross"; cr.AnchorPoint = Vector2.new(0.5, 0.5); cr.Size = UDim2.fromOffset(64, 64)
   cr.BackgroundTransparency = 1; cr.Visible = false; cr.Active = TOUCH; cr.Parent = sg
@@ -979,6 +1098,7 @@ local function mkUI()
     end
   end)
   connect(UIS.InputEnded, function(i) if dragging and i == dragging then dragging = nil end end)
+
   if MOB then
     local fb = mkBtn(sg, "🔥", 64, 64, UDim2.new(1, -16, 1, -190), Vector2.new(1, 1))
     fb.TextSize = 30
@@ -1009,6 +1129,9 @@ local function mkUI()
     sb.TextSize = 14
     onClick(sb, function() menu.Visible = not menu.Visible end)
   end
+
+  -- Раскладка при старте
+  A.rebuildPanel()
 end
 
 local function refreshUI()
@@ -1124,14 +1247,12 @@ connect(RS.Heartbeat, function(dt)
       for _, e in ipairs(near(cl.pos, cl.r)) do dmg(e, cl.dps * dt) end
     end
   end
-  -- восстановление врагов (НЕ игрока)
   for hum, s in pairs(slows) do
     if t >= s.endt or not hum.Parent then
       pcall(function() if hum.Parent then hum.WalkSpeed = s.orig end end)
       slows[hum] = nil
     end
   end
-  -- aim НЕ замедляет — этой строки больше нет
   for hum, ts in pairs(hitWatch) do
     if hum.Parent and hum.Health <= 0 then
       hitWatch[hum] = nil
