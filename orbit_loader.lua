@@ -1,16 +1,36 @@
 -- ORBIT v24.0 | orbit_loader.lua
--- ЕДИНЫЙ файл: ядро + GUI + загрузчик. Заменяет старые p1 и loader.
--- v24.0-clean: написан с нуля. Грузит 16 модулей (p2..p4b + 12 extras).
+-- ЕДИНЫЙ файл: ядро + GUI + загрузчик 16 модулей (p2, p3, p4, p4b, shop, tools,
+-- extras, abilities, sans, deathfx, gaster, newfigures, animations, editor3d,
+-- minigame, anticheat). Счётчик считается от длины QUEUE, поэтому всегда 16.
+-- BUILD: v24.0-r2 (защита от повторного запуска + диагностика)
 
--- ============================================================
---                    ЯДРО
--- ============================================================
+local BUILD = "v24.0-r2"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
--- снести прошлый запуск, если был
+-- ============================================================
+--        ЗАЩИТА ОТ ПОВТОРНОГО ЗАПУСКА (самозапуск / дубли)
+-- ============================================================
+do
+    local busy = GENV._OrbitLoaderBusy
+    if busy and (os.clock() - (GENV._OrbitLoaderBusyStamp or 0)) < 60 then
+        warn("[ORBIT LOADER " .. BUILD .. "] повторный вызов во время загрузки — проигнорирован")
+        print(debug.traceback("[ORBIT LOADER] кто вызвал повторно:", 2))
+        return rawget(shared, "ORBIT") or rawget(_G, "ORBIT")
+    end
+    GENV._OrbitLoaderBusy = true
+    GENV._OrbitLoaderBusyStamp = os.clock()
+end
+
+local execName = "?"
+pcall(function() if identifyexecutor then execName = tostring((identifyexecutor())) end end)
+print(string.format("[ORBIT LOADER] build=%s executor=%s", BUILD, execName))
+
+-- снести прошлый запуск
 do
     local oldGui = GENV._OrbitLoaderGui
     if oldGui then pcall(function() oldGui:Destroy() end); GENV._OrbitLoaderGui = nil end
+    local oldMain = GENV._OrbitMainGui
+    if oldMain then pcall(function() oldMain:Destroy() end); GENV._OrbitMainGui = nil end
     local oldOrbit = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or GENV.ORBIT
     if oldOrbit and oldOrbit.unload then pcall(oldOrbit.unload) end
 end
@@ -28,6 +48,52 @@ local UIS          = game:GetService("UserInputService")
 local LocalPlayer  = Players.LocalPlayer
 local PlayerGui    = LocalPlayer:WaitForChild("PlayerGui")
 
+-- ============================================================
+--              ПОИСК И УДАЛЕНИЕ СТАРЫХ GUI ОРБИТЫ
+-- ============================================================
+local function sweepOldGuis()
+    local roots = {}
+    local g = rawget(GENV, "gethui")
+    if type(g) == "function" then
+        local ok, h = pcall(g)
+        if ok and h then roots[#roots + 1] = h end
+    end
+    pcall(function() roots[#roots + 1] = game:GetService("CoreGui") end)
+    roots[#roots + 1] = PlayerGui
+    local killed = 0
+    for _, root in ipairs(roots) do
+        local okc, kids = pcall(function() return root:GetChildren() end)
+        if okc then
+            for _, gui in ipairs(kids) do
+                if gui:IsA("ScreenGui") then
+                    local nm = gui.Name
+                    local kill = nm:find("^_OrbitLoader_") or nm:find("^_OrbitMain") or nm:find("^Orbit")
+                    if not kill then
+                        pcall(function()
+                            for _, d in ipairs(gui:GetDescendants()) do
+                                if d:IsA("TextLabel") and d.Text:find("/17", 1, true)
+                                    and (d.Text:find("LOADING", 1, true) or d.Text:find("Загрузка", 1, true)) then
+                                    kill = true; break
+                                end
+                            end
+                        end)
+                    end
+                    if kill then
+                        pcall(function() gui:Destroy() end)
+                        killed = killed + 1
+                    end
+                end
+            end
+        end
+    end
+    return killed
+end
+local swept = sweepOldGuis()
+if swept > 0 then warn("[ORBIT LOADER] удалено старых GUI: " .. swept) end
+
+-- ============================================================
+--                    ЯДРО
+-- ============================================================
 local ORBIT = {}
 shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
@@ -35,6 +101,7 @@ if GENV then GENV.ORBIT = ORBIT end
 
 ORBIT.stub = true
 ORBIT.version = "v24.0"
+ORBIT.build = BUILD
 ORBIT.started = false
 ORBIT.PLATFORM = nil
 ORBIT.enabled = true
@@ -64,20 +131,13 @@ ORBIT.loaded = {
 }
 
 ORBIT.saveData = {
-    gasterUnlocked = false,
-    gasterWeaponUnlocked = false,
-    playerMode = "sans",
-    theme = "dark",
-    achievements = {},
-    rigType = "R15",
+    gasterUnlocked = false, gasterWeaponUnlocked = false,
+    playerMode = "sans", theme = "dark", achievements = {}, rigType = "R15",
 }
 
--- прочитать сохранёнки
 do
     local okR, raw = pcall(function()
-        if ORBIT.HAS_FS and isfile(ORBIT.SAVE_FILE) then
-            return readfile(ORBIT.SAVE_FILE)
-        end
+        if ORBIT.HAS_FS and isfile(ORBIT.SAVE_FILE) then return readfile(ORBIT.SAVE_FILE) end
     end)
     if okR and type(raw) == "string" and #raw > 2 then
         local okJ, d = pcall(function() return HttpService:JSONDecode(raw) end)
@@ -97,7 +157,7 @@ ORBIT.gasterUnlocked = ORBIT.saveData.gasterUnlocked
 ORBIT.gasterWeaponUnlocked = ORBIT.saveData.gasterWeaponUnlocked
 
 -- ============================================================
---              GET SAFE PARENT / PROTECT GUI
+--              SAFE PARENT / PROTECT GUI
 -- ============================================================
 local function getSafeParent()
     local gethuiFn = rawget(GENV, "gethui")
@@ -118,14 +178,12 @@ local function protectGui(gui)
     end
     local protectFn = rawget(GENV, "protect_gui")
     if type(protectFn) == "function" then pcall(protectFn, gui); return end
-    pcall(function() if syn and syn.protect_gui then syn.protect_gui(gui) end end)
 end
-
 ORBIT.getSafeParent = getSafeParent
 ORBIT.protectGui = protectGui
 
 -- ============================================================
---       АНТИСПАМ АНИМАЦИЙ (глушим ошибки анимаций)
+--       АНТИСПАМ АНИМАЦИЙ
 -- ============================================================
 local function isAnimError(msg)
     if type(msg) ~= "string" then return false end
@@ -138,9 +196,7 @@ pcall(function()
     ORBIT.logConn = LogService.MessageOut:Connect(function(msg, msgType)
         if msgType == Enum.MessageType.MessageError and isAnimError(msg) then
             ORBIT.animErrorCount = (ORBIT.animErrorCount or 0) + 1
-            if ORBIT.animErrorCount % 10 == 0 then
-                pcall(function() LogService:ClearOutput() end)
-            end
+            if ORBIT.animErrorCount % 10 == 0 then pcall(function() LogService:ClearOutput() end) end
         end
     end)
 end)
@@ -654,22 +710,47 @@ ORBIT.unload = function()
             pcall(function() ch:Destroy() end)
         end
     end
-    if GENV._OrbitLoaderGui then pcall(function() GENV._OrbitLoaderGui:Destroy() end) end
-    if GENV._OrbitMainGui then pcall(function() GENV._OrbitMainGui:Destroy() end) end
+    if GENV._OrbitLoaderGui then pcall(function() GENV._OrbitLoaderGui:Destroy() end); GENV._OrbitLoaderGui = nil end
+    if GENV._OrbitMainGui then pcall(function() GENV._OrbitMainGui:Destroy() end); GENV._OrbitMainGui = nil end
+    GENV._OrbitLoaderBusy = nil
     shared.ORBIT = nil
     rawset(_G, "ORBIT", nil)
     if GENV then GENV.ORBIT = nil end
 end
 
--- старт — заглушка (загрузчик её перезапишет после подгрузки p4)
 ORBIT.start = function()
     ORBIT.notify("Не все части загружены", Color3.fromRGB(255,200,100), 3)
 end
-
--- лог в GUI (загрузчик ниже перезапишет эту функцию)
 ORBIT.addLog = function() end
 ORBIT.refreshLoaderStatus = function() end
 ORBIT.currentFile = nil
+
+-- ============================================================
+--                    ОЧЕРЕДЬ МОДУЛЕЙ (единый источник правды)
+-- ============================================================
+local QUEUE = {
+    { file = "orbit_p2.lua",          key = "p2",         short = "P2",   tag = "🔷 Фигуры",      cover = "ФИГУРЫ",       icon = "🔷", color = Color3.fromRGB(120, 200, 255), critical = true },
+    { file = "orbit_p3.lua",          key = "p3",         short = "P3",   tag = "⚙️ Логика",      cover = "ЛОГИКА",       icon = "⚙️", color = Color3.fromRGB(200, 220, 120), critical = true },
+    { file = "orbit_p4.lua",          key = "p4",         short = "P4",   tag = "🎨 UI (каркас)", cover = "ИНТЕРФЕЙС",    icon = "🎨", color = Color3.fromRGB(220, 160, 255), critical = true },
+    { file = "orbit_p4b.lua",         key = "p4b",        short = "P4b",  tag = "🎨 UI (логика)", cover = "UI-ЛОГИКА",    icon = "🎨", color = Color3.fromRGB(220, 160, 255), critical = true },
+    { file = "orbit_p4_shop.lua",     key = "shop",       short = "SHOP", tag = "🛒 Магазин",     cover = "МАГАЗИН",      icon = "🛒", color = Color3.fromRGB(180, 130, 255) },
+    { file = "orbit_tools.lua",       key = "tools",      short = "TOOLS",tag = "🧰 Tools",       cover = "TOOLS",        icon = "🧰", color = Color3.fromRGB(180, 255, 200) },
+    { file = "orbit_extras.lua",      key = "extras",     short = "EXT",  tag = "🎵 Extras",      cover = "EXTRAS",       icon = "🎵", color = Color3.fromRGB(180, 220, 255) },
+    { file = "orbit_abilities.lua",   key = "abilities",  short = "ABL",  tag = "✨ Способности", cover = "СПОСОБНОСТИ",  icon = "✨", color = Color3.fromRGB(255, 220, 140) },
+    { file = "orbit_sans.lua",        key = "sans",       short = "SNS",  tag = "🎭 Санс",        cover = "САНС",         icon = "🎭", color = Color3.fromRGB(200, 220, 255) },
+    { file = "orbit_death_fx.lua",    key = "deathfx",    short = "DFX",  tag = "💀 Смерть FX",   cover = "DEATH FX",     icon = "💀", color = Color3.fromRGB(255, 180, 180) },
+    { file = "orbit_gaster.lua",      key = "gaster",     short = "GST",  tag = "👁 Гастер",      cover = "ГАСТЕР",       icon = "👁", color = Color3.fromRGB(200, 140, 255) },
+    { file = "orbit_new_figures.lua", key = "newfigures", short = "NF",   tag = "🔷 Новые фигуры",cover = "НОВЫЕ ФИГУРЫ", icon = "🔷", color = Color3.fromRGB(150, 220, 255) },
+    { file = "orbit_animations.lua",  key = "animations", short = "ANM",  tag = "🎬 Анимации",    cover = "АНИМАЦИИ",     icon = "🎬", color = Color3.fromRGB(255, 180, 220) },
+    { file = "orbit_editor3d.lua",    key = "editor3d",   short = "3D",   tag = "🔮 Редактор 3D", cover = "РЕДАКТОР 3D",  icon = "🔮", color = Color3.fromRGB(200, 160, 255) },
+    { file = "orbit_minigame.lua",    key = "minigame",   short = "MG",   tag = "🎮 Мини-игра",   cover = "МИНИ-ИГРА",    icon = "🎮", color = Color3.fromRGB(255, 200, 100) },
+    { file = "orbit_anticheat.lua",   key = "anticheat",  short = "AC",   tag = "🛡 Античит",     cover = "АНТИЧИТ",      icon = "🛡", color = Color3.fromRGB(200, 255, 180) },
+}
+local TOTAL_LOADED = #QUEUE
+for _, it in ipairs(QUEUE) do
+    if ORBIT.loaded[it.key] == nil then ORBIT.loaded[it.key] = false end
+end
+
 -- ============================================================
 --                    GUI ЗАГРУЗЧИКА
 -- ============================================================
@@ -684,7 +765,6 @@ local okp = pcall(function() loaderGui.Parent = getSafeParent() end)
 if not okp or not loaderGui.Parent then loaderGui.Parent = PlayerGui end
 GENV._OrbitLoaderGui = loaderGui
 
-local C_BG      = Color3.fromRGB(12, 8, 20)
 local C_PANEL   = Color3.fromRGB(22, 16, 35)
 local C_GREEN   = Color3.fromRGB(100, 255, 180)
 local C_ORANGE  = Color3.fromRGB(255, 168, 79)
@@ -699,7 +779,6 @@ local function computeLoaderScale(w, h)
     return math.clamp(math.min((vp.X - 16) / w, (vp.Y - 16) / h), 0.4, 1)
 end
 
--- затемнение игры
 local backdrop = Instance.new("Frame")
 backdrop.Size = UDim2.new(1, 0, 1, 0)
 backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -708,10 +787,8 @@ backdrop.BorderSizePixel = 0
 backdrop.ZIndex = 1
 backdrop.Parent = loaderGui
 
--- свечение сверху
 local bgGlow = Instance.new("Frame")
 bgGlow.Size = UDim2.new(1, 0, 0, 200)
-bgGlow.Position = UDim2.new(0, 0, 0, 0)
 bgGlow.BackgroundColor3 = C_BORDER
 bgGlow.BackgroundTransparency = 0.9
 bgGlow.BorderSizePixel = 0
@@ -720,8 +797,7 @@ bgGlow.Parent = loaderGui
 local bgGlowGradient = Instance.new("UIGradient", bgGlow)
 bgGlowGradient.Rotation = 90
 bgGlowGradient.Transparency = NumberSequence.new({
-    NumberSequenceKeypoint.new(0, 0),
-    NumberSequenceKeypoint.new(1, 1),
+    NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1),
 })
 
 -- ============================================================
@@ -744,7 +820,6 @@ TweenService:Create(pScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.Easin
 local pStroke = Instance.new("UIStroke", platformScreen)
 pStroke.Color = C_BORDER; pStroke.Thickness = 2; pStroke.Transparency = 0.2
 
--- логотип
 local logoFrame = Instance.new("Frame")
 logoFrame.Size = UDim2.new(0, 80, 0, 80)
 logoFrame.Position = UDim2.new(0.5, -40, 0, 30)
@@ -765,43 +840,23 @@ logoIcon.Font = Enum.Font.GothamBold
 logoIcon.TextSize = 44
 logoIcon.ZIndex = 12
 logoIcon.Parent = logoFrame
-
 TweenService:Create(logoIcon,
     TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
     { TextSize = 54 }):Play()
 
-local pTitle = Instance.new("TextLabel")
-pTitle.Size = UDim2.new(1, 0, 0, 40)
-pTitle.Position = UDim2.new(0, 0, 0, 124)
-pTitle.BackgroundTransparency = 1
-pTitle.Text = "ОРБИТА " .. ORBIT.version
-pTitle.TextColor3 = C_GREEN
-pTitle.Font = Enum.Font.GothamBold
-pTitle.TextSize = 28
-pTitle.ZIndex = 11
-pTitle.Parent = platformScreen
+local function mkLabel(parent, text, size, pos, color, font, ts, z)
+    local l = Instance.new("TextLabel")
+    l.Size = size; l.Position = pos
+    l.BackgroundTransparency = 1
+    l.Text = text; l.TextColor3 = color
+    l.Font = font; l.TextSize = ts; l.ZIndex = z
+    l.Parent = parent
+    return l
+end
 
-local pSub = Instance.new("TextLabel")
-pSub.Size = UDim2.new(1, 0, 0, 20)
-pSub.Position = UDim2.new(0, 0, 0, 164)
-pSub.BackgroundTransparency = 1
-pSub.Text = "ВЫБЕРИ СВОЮ ПЛАТФОРМУ"
-pSub.TextColor3 = C_ORANGE
-pSub.Font = Enum.Font.GothamBold
-pSub.TextSize = 13
-pSub.ZIndex = 11
-pSub.Parent = platformScreen
-
-local pHint = Instance.new("TextLabel")
-pHint.Size = UDim2.new(1, 0, 0, 18)
-pHint.Position = UDim2.new(0, 0, 0, 186)
-pHint.BackgroundTransparency = 1
-pHint.Text = "интерфейс и настройки подстроятся автоматически"
-pHint.TextColor3 = C_DIM
-pHint.Font = Enum.Font.Gotham
-pHint.TextSize = 10
-pHint.ZIndex = 11
-pHint.Parent = platformScreen
+mkLabel(platformScreen, "ОРБИТА " .. ORBIT.version, UDim2.new(1, 0, 0, 40), UDim2.new(0, 0, 0, 124), C_GREEN, Enum.Font.GothamBold, 28, 11)
+mkLabel(platformScreen, "ВЫБЕРИ СВОЮ ПЛАТФОРМУ", UDim2.new(1, 0, 0, 20), UDim2.new(0, 0, 0, 164), C_ORANGE, Enum.Font.GothamBold, 13, 11)
+mkLabel(platformScreen, "интерфейс и настройки подстроятся автоматически", UDim2.new(1, 0, 0, 18), UDim2.new(0, 0, 0, 186), C_DIM, Enum.Font.Gotham, 10, 11)
 
 local function buildPlatformButton(text, icon, x, y, w, h, accent)
     local btn = Instance.new("TextButton")
@@ -814,78 +869,29 @@ local function buildPlatformButton(text, icon, x, y, w, h, accent)
     btn.ZIndex = 11
     btn.Parent = platformScreen
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 12)
-
     local stroke = Instance.new("UIStroke", btn)
-    stroke.Color = accent
-    stroke.Thickness = 2
-    stroke.Transparency = 0.4
-
-    local iconLbl = Instance.new("TextLabel")
-    iconLbl.Size = UDim2.new(1, 0, 0, 48)
-    iconLbl.Position = UDim2.new(0, 0, 0, 12)
-    iconLbl.BackgroundTransparency = 1
-    iconLbl.Text = icon
-    iconLbl.TextColor3 = accent
-    iconLbl.Font = Enum.Font.GothamBold
-    iconLbl.TextSize = 42
-    iconLbl.ZIndex = 12
-    iconLbl.Parent = btn
-
-    local nameLbl = Instance.new("TextLabel")
-    nameLbl.Size = UDim2.new(1, 0, 0, 22)
-    nameLbl.Position = UDim2.new(0, 0, 0, 62)
-    nameLbl.BackgroundTransparency = 1
-    nameLbl.Text = text
-    nameLbl.TextColor3 = C_GREEN
-    nameLbl.Font = Enum.Font.GothamBold
-    nameLbl.TextSize = 16
-    nameLbl.ZIndex = 12
-    nameLbl.Parent = btn
-
-    local descLbl = Instance.new("TextLabel")
-    descLbl.Size = UDim2.new(1, -12, 1, -90)
-    descLbl.Position = UDim2.new(0, 6, 0, 90)
-    descLbl.BackgroundTransparency = 1
-    descLbl.Text = ""
-    descLbl.TextColor3 = C_DIM
-    descLbl.Font = Enum.Font.Gotham
-    descLbl.TextSize = 10
-    descLbl.ZIndex = 12
-    descLbl.Parent = btn
-
+    stroke.Color = accent; stroke.Thickness = 2; stroke.Transparency = 0.4
+    mkLabel(btn, icon, UDim2.new(1, 0, 0, 48), UDim2.new(0, 0, 0, 12), accent, Enum.Font.GothamBold, 42, 12)
+    mkLabel(btn, text, UDim2.new(1, 0, 0, 22), UDim2.new(0, 0, 0, 62), C_GREEN, Enum.Font.GothamBold, 16, 12)
+    local descLbl = mkLabel(btn, "", UDim2.new(1, -12, 1, -90), UDim2.new(0, 6, 0, 90), C_DIM, Enum.Font.Gotham, 10, 12)
     return btn, stroke, descLbl
 end
 
-local mobileBtn, mobileStroke, mobileDesc = buildPlatformButton(
-    "ТЕЛЕФОН", "📱", 24, 222, 200, 220, C_CYAN)
+local mobileBtn, mobileStroke, mobileDesc = buildPlatformButton("ТЕЛЕФОН", "📱", 24, 222, 200, 220, C_CYAN)
 mobileDesc.Text = "• Меньше фигур\n• Лёгкие эффекты\n• Крупные кнопки\n• Вертикальный UI"
-
-local pcBtn, pcStroke, pcDesc = buildPlatformButton(
-    "КОМПЬЮТЕР", "💻", 236, 222, 200, 220, C_ORANGE)
+local pcBtn, pcStroke, pcDesc = buildPlatformButton("КОМПЬЮТЕР", "💻", 236, 222, 200, 220, C_ORANGE)
 pcDesc.Text = "• Больше фигур\n• Все эффекты\n• Полный UI\n• Широкие панели"
 
-local autoDetectLbl = Instance.new("TextLabel")
-autoDetectLbl.Size = UDim2.new(1, 0, 0, 20)
-autoDetectLbl.Position = UDim2.new(0, 0, 0, 456)
-autoDetectLbl.BackgroundTransparency = 1
-autoDetectLbl.Text = UIS.TouchEnabled and "Похоже, ты на телефоне" or "Похоже, ты на ПК"
-autoDetectLbl.TextColor3 = C_DIM
-autoDetectLbl.Font = Enum.Font.Gotham
-autoDetectLbl.TextSize = 11
-autoDetectLbl.ZIndex = 11
-autoDetectLbl.Parent = platformScreen
+mkLabel(platformScreen, UIS.TouchEnabled and "Похоже, ты на телефоне" or "Похоже, ты на ПК",
+    UDim2.new(1, 0, 0, 20), UDim2.new(0, 0, 0, 456), C_DIM, Enum.Font.Gotham, 11, 11)
+-- маркер сборки: если его нет на экране — исполняется НЕ этот файл
+mkLabel(platformScreen, "build " .. BUILD .. "  |  " .. execName,
+    UDim2.new(1, 0, 0, 16), UDim2.new(0, 0, 1, -24), C_DIM, Enum.Font.Code, 10, 11)
 
-if UIS.TouchEnabled then
-    mobileStroke.Color = C_GREEN
-    mobileStroke.Transparency = 0.1
-    TweenService:Create(mobileStroke,
-        TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-        { Transparency = 0.6 }):Play()
-else
-    pcStroke.Color = C_GREEN
-    pcStroke.Transparency = 0.1
-    TweenService:Create(pcStroke,
-        TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+do
+    local s = UIS.TouchEnabled and mobileStroke or pcStroke
+    s.Color = C_GREEN; s.Transparency = 0.1
+    TweenService:Create(s, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
         { Transparency = 0.6 }):Play()
 end
 
@@ -901,14 +907,13 @@ local function onTap(btn, fn)
     local function call()
         if deb then return end
         deb = true
-        task.delay(0.1, function() deb = false end)
+        task.delay(0.3, function() deb = false end)
         fn()
     end
-    btn.MouseButton1Down:Connect(call)
+    btn.Activated:Connect(call)
     btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch then call() end
     end)
-    btn.Activated:Connect(call)
 end
 
 mobileBtn.MouseButton1Down:Connect(function() highlightPlatform(mobileBtn, mobileStroke, true, C_CYAN) end)
@@ -932,22 +937,16 @@ Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 16)
 local frameScale = Instance.new("UIScale", frame)
 local frameScaleTarget = computeLoaderScale(500, 620)
 frameScale.Scale = frameScaleTarget
-
 local frameStroke = Instance.new("UIStroke", frame)
-frameStroke.Color = C_BORDER
-frameStroke.Thickness = 2
-frameStroke.Transparency = 0.15
+frameStroke.Color = C_BORDER; frameStroke.Thickness = 2; frameStroke.Transparency = 0.15
 
--- верхняя полоска-градиент
 local topStrip = Instance.new("Frame")
 topStrip.Size = UDim2.new(1, 0, 0, 4)
-topStrip.Position = UDim2.new(0, 0, 0, 0)
 topStrip.BackgroundColor3 = C_BORDER
 topStrip.BorderSizePixel = 0
 topStrip.ZIndex = 3
 topStrip.Parent = frame
 Instance.new("UICorner", topStrip).CornerRadius = UDim.new(0, 16)
-
 local stripGradient = Instance.new("UIGradient", topStrip)
 stripGradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 100, 255)),
@@ -955,32 +954,14 @@ stripGradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 255, 180)),
 })
 
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -180, 0, 26)
-title.Position = UDim2.new(0, 16, 0, 12)
-title.BackgroundTransparency = 1
-title.Text = "ОРБИТА " .. ORBIT.version
-title.TextColor3 = C_GREEN
-title.Font = Enum.Font.GothamBold
-title.TextSize = 18
+local title = mkLabel(frame, "ОРБИТА " .. ORBIT.version, UDim2.new(1, -180, 0, 26), UDim2.new(0, 16, 0, 12), C_GREEN, Enum.Font.GothamBold, 18, 3)
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.ZIndex = 3
-title.Parent = frame
 
-local platformBadge = Instance.new("TextLabel")
-platformBadge.Size = UDim2.new(0, 150, 0, 22)
-platformBadge.Position = UDim2.new(1, -166, 0, 14)
+local platformBadge = mkLabel(frame, "PLATFORM: —", UDim2.new(0, 150, 0, 22), UDim2.new(1, -166, 0, 14), C_ORANGE, Enum.Font.GothamBold, 11, 4)
+platformBadge.BackgroundTransparency = 0
 platformBadge.BackgroundColor3 = Color3.fromRGB(30, 22, 48)
-platformBadge.BorderSizePixel = 0
-platformBadge.Text = "PLATFORM: —"
-platformBadge.TextColor3 = C_ORANGE
-platformBadge.Font = Enum.Font.GothamBold
-platformBadge.TextSize = 11
-platformBadge.ZIndex = 4
-platformBadge.Parent = frame
 Instance.new("UICorner", platformBadge).CornerRadius = UDim.new(0, 6)
 
--- карточка текущей загрузки
 local coverHolder = Instance.new("Frame")
 coverHolder.Size = UDim2.new(1, -32, 0, 110)
 coverHolder.Position = UDim2.new(0, 16, 0, 50)
@@ -989,16 +970,13 @@ coverHolder.BorderSizePixel = 0
 coverHolder.ZIndex = 3
 coverHolder.Parent = frame
 Instance.new("UICorner", coverHolder).CornerRadius = UDim.new(0, 12)
-
 local coverStroke = Instance.new("UIStroke", coverHolder)
-coverStroke.Color = C_BORDER
-coverStroke.Thickness = 1.5
-coverStroke.Transparency = 0.4
+coverStroke.Color = C_BORDER; coverStroke.Thickness = 1.5; coverStroke.Transparency = 0.4
 
 local ringSize = 84
 local ringHolder = Instance.new("Frame")
 ringHolder.Size = UDim2.new(0, ringSize, 0, ringSize)
-ringHolder.Position = UDim2.new(0, 14, 0.5, -ringSize/2)
+ringHolder.Position = UDim2.new(0, 14, 0.5, -ringSize / 2)
 ringHolder.BackgroundTransparency = 1
 ringHolder.ZIndex = 4
 ringHolder.Parent = coverHolder
@@ -1008,64 +986,30 @@ local SEGMENTS = 32
 for i = 1, SEGMENTS do
     local angle = (i - 1) / SEGMENTS * math.pi * 2 - math.pi / 2
     local r = (ringSize - 8) / 2
-    local sx = ringSize / 2 + math.cos(angle) * r - 3
-    local sy = ringSize / 2 + math.sin(angle) * r - 3
     local seg = Instance.new("Frame")
     seg.Size = UDim2.new(0, 6, 0, 6)
-    seg.Position = UDim2.new(0, sx, 0, sy)
+    seg.Position = UDim2.new(0, ringSize / 2 + math.cos(angle) * r - 3, 0, ringSize / 2 + math.sin(angle) * r - 3)
     seg.BackgroundColor3 = Color3.fromRGB(40, 30, 60)
     seg.BorderSizePixel = 0
     seg.ZIndex = 4
     seg.Parent = ringHolder
     Instance.new("UICorner", seg).CornerRadius = UDim.new(1, 0)
-    table.insert(ringSegments, seg)
+    ringSegments[#ringSegments + 1] = seg
 end
 
-local coverIcon = Instance.new("TextLabel")
-coverIcon.Size = UDim2.new(0, ringSize - 20, 0, ringSize - 20)
-coverIcon.Position = UDim2.new(0, 10, 0, 10)
-coverIcon.BackgroundTransparency = 1
-coverIcon.Text = "✨"
-coverIcon.TextColor3 = C_GREEN
-coverIcon.Font = Enum.Font.GothamBold
-coverIcon.TextSize = 34
-coverIcon.ZIndex = 5
-coverIcon.Parent = ringHolder
+local coverIcon = mkLabel(ringHolder, "✨", UDim2.new(0, ringSize - 20, 0, ringSize - 20), UDim2.new(0, 10, 0, 10), C_GREEN, Enum.Font.GothamBold, 34, 5)
 
 local function updateRingProgress(percent)
     local active = math.floor(percent * SEGMENTS + 0.5)
     for i, seg in ipairs(ringSegments) do
-        if i <= active then
-            seg.BackgroundColor3 = C_GREEN
-        else
-            seg.BackgroundColor3 = Color3.fromRGB(40, 30, 60)
-        end
+        seg.BackgroundColor3 = (i <= active) and C_GREEN or Color3.fromRGB(40, 30, 60)
     end
 end
 
-local coverTitle = Instance.new("TextLabel")
-coverTitle.Size = UDim2.new(1, -112, 0, 22)
-coverTitle.Position = UDim2.new(0, 110, 0, 22)
-coverTitle.BackgroundTransparency = 1
-coverTitle.Text = "ГОТОВ К СТАРТУ"
-coverTitle.TextColor3 = C_GREEN
-coverTitle.Font = Enum.Font.GothamBold
-coverTitle.TextSize = 15
+local coverTitle = mkLabel(coverHolder, "ГОТОВ К СТАРТУ", UDim2.new(1, -112, 0, 22), UDim2.new(0, 110, 0, 22), C_GREEN, Enum.Font.GothamBold, 15, 5)
 coverTitle.TextXAlignment = Enum.TextXAlignment.Left
-coverTitle.ZIndex = 5
-coverTitle.Parent = coverHolder
-
-local coverSub = Instance.new("TextLabel")
-coverSub.Size = UDim2.new(1, -112, 0, 16)
-coverSub.Position = UDim2.new(0, 110, 0, 46)
-coverSub.BackgroundTransparency = 1
-coverSub.Text = "Нажми на выбор платформы"
-coverSub.TextColor3 = C_DIM
-coverSub.Font = Enum.Font.Gotham
-coverSub.TextSize = 10
+local coverSub = mkLabel(coverHolder, "Нажми на выбор платформы", UDim2.new(1, -112, 0, 16), UDim2.new(0, 110, 0, 46), C_DIM, Enum.Font.Gotham, 10, 5)
 coverSub.TextXAlignment = Enum.TextXAlignment.Left
-coverSub.ZIndex = 5
-coverSub.Parent = coverHolder
 
 local coverSteps = Instance.new("Frame")
 coverSteps.Size = UDim2.new(1, -112, 0, 22)
@@ -1077,40 +1021,13 @@ coverSteps.Parent = coverHolder
 Instance.new("UICorner", coverSteps).CornerRadius = UDim.new(0, 6)
 
 local stepLabels = {}
-local stepsConfig = {
-    {name="P2",  key="p2"},
-    {name="P3",  key="p3"},
-    {name="P4",  key="p4"},
-    {name="P4b", key="p4b"},
-    {name="SHOP",key="shop"},
-    {name="TOOLS",key="tools"},
-    {name="EXT", key="extras"},
-    {name="ABL", key="abilities"},
-    {name="SNS", key="sans"},
-    {name="DFX", key="deathfx"},
-    {name="GST", key="gaster"},
-    {name="NF",  key="newfigures"},
-    {name="ANM", key="animations"},
-    {name="3D",  key="editor3d"},
-    {name="MG",  key="minigame"},
-    {name="AC",  key="anticheat"},
-}
-local stepW = 1 / #stepsConfig
-for i, cfg in ipairs(stepsConfig) do
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(stepW, -1, 1, 0)
-    lbl.Position = UDim2.new((i-1) * stepW, 0.5, 0, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = cfg.name
-    lbl.TextColor3 = Color3.fromRGB(70, 55, 90)
-    lbl.Font = Enum.Font.Code
-    lbl.TextSize = 8
-    lbl.ZIndex = 6
-    lbl.Parent = coverSteps
-    stepLabels[cfg.key] = lbl
+local stepW = 1 / TOTAL_LOADED
+for i, it in ipairs(QUEUE) do
+    local lbl = mkLabel(coverSteps, it.short, UDim2.new(stepW, -1, 1, 0), UDim2.new((i - 1) * stepW, 0, 0, 0),
+        Color3.fromRGB(70, 55, 90), Enum.Font.Code, 8, 6)
+    stepLabels[it.key] = lbl
 end
 
-local coverPulseTween = nil
 local function setCover(icon, ttl, sub, color)
     coverIcon.Text = icon
     coverTitle.Text = ttl
@@ -1121,17 +1038,17 @@ local function setCover(icon, ttl, sub, color)
     coverStroke.Color = c
 end
 
-local function startPulse()
+local coverPulseTween = nil
+local function stopPulse()
     if coverPulseTween then coverPulseTween:Cancel(); coverPulseTween = nil end
     coverIcon.TextSize = 34
+end
+local function startPulse()
+    stopPulse()
     coverPulseTween = TweenService:Create(coverIcon,
         TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
         { TextSize = 44 })
     coverPulseTween:Play()
-end
-local function stopPulse()
-    if coverPulseTween then coverPulseTween:Cancel(); coverPulseTween = nil end
-    coverIcon.TextSize = 34
 end
 
 setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "p2 → p3 → p4 → p4b → остальные", C_GREEN)
@@ -1149,9 +1066,7 @@ term.ZIndex = 3
 term.Parent = frame
 Instance.new("UICorner", term).CornerRadius = UDim.new(0, 8)
 local termStroke = Instance.new("UIStroke", term)
-termStroke.Color = C_BORDER
-termStroke.Thickness = 1
-termStroke.Transparency = 0.5
+termStroke.Color = C_BORDER; termStroke.Thickness = 1; termStroke.Transparency = 0.5
 
 local termHeader = Instance.new("Frame")
 termHeader.Size = UDim2.new(1, 0, 0, 20)
@@ -1161,19 +1076,16 @@ termHeader.ZIndex = 4
 termHeader.Parent = term
 Instance.new("UICorner", termHeader).CornerRadius = UDim.new(0, 8)
 
-local function makeDot(x, color)
+for i, col in ipairs({ Color3.fromRGB(255, 95, 86), Color3.fromRGB(255, 189, 46), Color3.fromRGB(39, 201, 63) }) do
     local d = Instance.new("Frame")
     d.Size = UDim2.new(0, 7, 0, 7)
-    d.Position = UDim2.new(0, x, 0.5, -3.5)
-    d.BackgroundColor3 = color
+    d.Position = UDim2.new(0, 10 + (i - 1) * 12, 0.5, -3.5)
+    d.BackgroundColor3 = col
     d.BorderSizePixel = 0
     d.ZIndex = 5
     d.Parent = termHeader
     Instance.new("UICorner", d).CornerRadius = UDim.new(1, 0)
 end
-makeDot(10, Color3.fromRGB(255, 95, 86))
-makeDot(22, Color3.fromRGB(255, 189, 46))
-makeDot(34, Color3.fromRGB(39, 201, 63))
 
 local termScroll = Instance.new("ScrollingFrame")
 termScroll.Size = UDim2.new(1, -8, 1, -26)
@@ -1206,10 +1118,11 @@ consoleLabel.Parent = termScroll
 
 local LOG_ENTRIES = {}
 local LOG_COLORS = { INFO="88CCFF", WARN="FFA84F", OK="80FF80", ERR="FF6B6B", SYS="A8C8FF" }
+local function esc(s) return (tostring(s):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")) end
 local function addLog(kind, text)
     local c = LOG_COLORS[kind] or "80FF80"
-    table.insert(LOG_ENTRIES, string.format('<font color="#%s">[%s]</font> %s', c, kind, text))
-    if #LOG_ENTRIES > 40 then table.remove(LOG_ENTRIES, 1) end
+    table.insert(LOG_ENTRIES, string.format('<font color="#%s">[%s]</font> %s', c, kind, esc(text)))
+    if #LOG_ENTRIES > 60 then table.remove(LOG_ENTRIES, 1) end
     consoleLabel.Text = table.concat(LOG_ENTRIES, "\n")
     task.delay(0.03, function()
         pcall(function()
@@ -1240,7 +1153,6 @@ progFill.BorderSizePixel = 0
 progFill.ZIndex = 4
 progFill.Parent = progHolder
 Instance.new("UICorner", progFill).CornerRadius = UDim.new(0, 8)
-
 local fillGradient = Instance.new("UIGradient", progFill)
 fillGradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 255, 180)),
@@ -1248,15 +1160,8 @@ fillGradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 150, 255)),
 })
 
-local progText = Instance.new("TextLabel")
-progText.Size = UDim2.new(1, 0, 1, 0)
-progText.BackgroundTransparency = 1
-progText.Text = "ГОТОВ К СТАРТУ"
-progText.TextColor3 = Color3.fromRGB(20, 40, 28)
-progText.Font = Enum.Font.GothamBold
-progText.TextSize = 11
-progText.ZIndex = 5
-progText.Parent = progHolder
+local progText = mkLabel(progHolder, "ГОТОВ К СТАРТУ", UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0),
+    Color3.fromRGB(20, 40, 28), Enum.Font.GothamBold, 11, 5)
 
 local startBtn = Instance.new("TextButton")
 startBtn.Size = UDim2.new(1, -32, 0, 46)
@@ -1274,60 +1179,37 @@ Instance.new("UICorner", startBtn).CornerRadius = UDim.new(0, 12)
 local stStroke = Instance.new("UIStroke", startBtn)
 stStroke.Color = C_BORDER; stStroke.Thickness = 1.5; stStroke.Transparency = 0.4
 
-local statusBar = Instance.new("TextLabel")
-statusBar.Size = UDim2.new(1, -32, 0, 18)
-statusBar.Position = UDim2.new(0, 16, 1, -26)
-statusBar.BackgroundTransparency = 1
-statusBar.Text = "> ORBITA INITIALIZED  |  READY"
-statusBar.TextColor3 = C_GREEN
-statusBar.Font = Enum.Font.Code
-statusBar.TextSize = 10
+local statusBar = mkLabel(frame, "> ORBITA " .. BUILD .. "  |  READY", UDim2.new(1, -32, 0, 18), UDim2.new(0, 16, 1, -26), C_GREEN, Enum.Font.Code, 10, 3)
 statusBar.TextXAlignment = Enum.TextXAlignment.Left
-statusBar.ZIndex = 3
-statusBar.Parent = frame
-
--- ============================================================
---              ПОДСЧЁТ ПРОГРЕССА
--- ============================================================
-local ALL_KEYS = {
-    "p2","p3","p4","p4b",
-    "shop","tools","extras","abilities","sans","deathfx",
-    "gaster","newfigures","animations","editor3d","minigame","anticheat",
-}
-local TOTAL_LOADED = #ALL_KEYS
 
 local function refreshStatus()
     local n = 0
-    for _, k in ipairs(ALL_KEYS) do
-        if ORBIT.loaded[k] then n = n + 1 end
+    for _, it in ipairs(QUEUE) do
+        if ORBIT.loaded[it.key] then n = n + 1 end
     end
     local percent = n / TOTAL_LOADED
     TweenService:Create(progFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), { Size = UDim2.new(percent, 0, 1, 0) }):Play()
     local cur = ORBIT.currentFile and ("  •  " .. ORBIT.currentFile) or ""
     progText.Text = string.format("LOADING %d%%  •  %d/%d%s", math.floor(percent * 100 + 0.5), n, TOTAL_LOADED, cur)
     updateRingProgress(percent)
-    for _, cfg in ipairs(stepsConfig) do
-        local lbl = stepLabels[cfg.key]
-        if ORBIT.loaded[cfg.key] then
-            lbl.TextColor3 = C_GREEN
-        else
-            lbl.TextColor3 = Color3.fromRGB(70, 55, 90)
-        end
+    for _, it in ipairs(QUEUE) do
+        stepLabels[it.key].TextColor3 = ORBIT.loaded[it.key] and C_GREEN or Color3.fromRGB(70, 55, 90)
     end
     if ORBIT.loaded.p2 and ORBIT.loaded.p3 and ORBIT.loaded.p4 and ORBIT.loaded.p4b then
         startBtn.Text = "ЗАПУСТИТЬ ОРБИТУ"
         startBtn.TextColor3 = C_GREEN
         stStroke.Color = C_GREEN
         stStroke.Transparency = 0.1
-        statusBar.Text = "> ORBITA INITIALIZED  |  ALL MAIN PARTS LOADED  |  READY"
+        statusBar.Text = "> ORBITA " .. BUILD .. "  |  ALL MAIN PARTS LOADED  |  READY"
     end
 end
 ORBIT.refreshLoaderStatus = refreshStatus
 
 -- ============================================================
---              ЗАГРУЗКА ФАЙЛА
+--              ЗАГРУЗКА ФАЙЛА (с диагностикой)
 -- ============================================================
 local BASE = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
+local SUSPECT = { "orbit_p1", "orbit_loader.lua", "Running UI", "/17" }
 
 local function fetchAndRun(file, attempts, tag)
     for attempt = 1, attempts do
@@ -1335,7 +1217,7 @@ local function fetchAndRun(file, attempts, tag)
         pcall(function()
             statusBar.Text = "> ⬇ " .. file .. "  (попытка " .. attempt .. "/" .. attempts .. ")"
             statusBar.TextColor3 = C_GREEN
-            if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
+            refreshStatus()
         end)
         local url = BASE .. file .. "?t=" .. os.time() .. "&a=" .. attempt
         local ok, src = pcall(function() return game:HttpGet(url) end)
@@ -1345,6 +1227,14 @@ local function fetchAndRun(file, attempts, tag)
             addLog("ERR", "loadstring недоступен")
             return false
         else
+            -- диагностика: ищем следы старого кода внутри модуля
+            for _, pat in ipairs(SUSPECT) do
+                if src:find(pat, 1, true) then
+                    addLog("WARN", file .. " содержит «" .. pat .. "»")
+                    warn("[ORBIT LOADER] " .. file .. " содержит подозрительную строку: " .. pat)
+                end
+            end
+            print(string.format("[ORBIT LOADER] %s  %d байт  «%s»", file, #src, (src:match("^[^\r\n]*") or ""):sub(1, 60)))
             local fn, err = loadstring(src, "=" .. file)
             if not fn then
                 addLog("ERR", tag .. " compile: " .. tostring(err):sub(1, 200))
@@ -1364,60 +1254,39 @@ local function fetchAndRun(file, attempts, tag)
     return false
 end
 
--- ============================================================
---              ГЛАВНАЯ ЦЕПОЧКА ЗАГРУЗКИ (ПОСЛЕДОВАТЕЛЬНО)
--- ============================================================
-local QUEUE = {
-    { file = "orbit_p2.lua",          key = "p2",          tag = "🔷 Фигуры",     cover = "ФИГУРЫ",     icon = "🔷", color = Color3.fromRGB(120, 200, 255), critical = true },
-    { file = "orbit_p3.lua",          key = "p3",          tag = "⚙️ Логика",     cover = "ЛОГИКА",     icon = "⚙️", color = Color3.fromRGB(200, 220, 120), critical = true },
-    { file = "orbit_p4.lua",          key = "p4",          tag = "🎨 UI (каркас)",cover = "ИНТЕРФЕЙС",  icon = "🎨", color = Color3.fromRGB(220, 160, 255), critical = true },
-    { file = "orbit_p4b.lua",         key = "p4b",         tag = "🎨 UI (логика)",cover = "UI-ЛОГИКА",  icon = "🎨", color = Color3.fromRGB(220, 160, 255), critical = true },
-    { file = "orbit_p4_shop.lua",     key = "shop",        tag = "🛒 Магазин",    cover = "МАГАЗИН",    icon = "🛒", color = Color3.fromRGB(180, 130, 255) },
-    { file = "orbit_tools.lua",       key = "tools",       tag = "🧰 Tools",      cover = "TOOLS",      icon = "🧰", color = Color3.fromRGB(180, 255, 200) },
-    { file = "orbit_extras.lua",      key = "extras",      tag = "🎵 Extras",     cover = "EXTRAS",     icon = "🎵", color = Color3.fromRGB(180, 220, 255) },
-    { file = "orbit_abilities.lua",   key = "abilities",   tag = "✨ Способности",cover = "СПОСОБНОСТИ",icon = "✨", color = Color3.fromRGB(255, 220, 140) },
-    { file = "orbit_sans.lua",        key = "sans",        tag = "🎭 Санс",       cover = "САНС",       icon = "🎭", color = Color3.fromRGB(200, 220, 255) },
-    { file = "orbit_death_fx.lua",    key = "deathfx",     tag = "💀 Смерть FX",  cover = "DEATH FX",   icon = "💀", color = Color3.fromRGB(255, 180, 180) },
-    { file = "orbit_gaster.lua",      key = "gaster",      tag = "👁 Гастер",     cover = "ГАСТЕР",     icon = "👁", color = Color3.fromRGB(200, 140, 255) },
-    { file = "orbit_new_figures.lua", key = "newfigures",  tag = "🔷 Новые фигуры",cover = "НОВЫЕ ФИГУРЫ",icon = "🔷", color = Color3.fromRGB(150, 220, 255) },
-    { file = "orbit_animations.lua",  key = "animations",  tag = "🎬 Анимации",   cover = "АНИМАЦИИ",   icon = "🎬", color = Color3.fromRGB(255, 180, 220) },
-    { file = "orbit_editor3d.lua",    key = "editor3d",    tag = "🔮 Редактор 3D",cover = "РЕДАКТОР 3D",icon = "🔮", color = Color3.fromRGB(200, 160, 255) },
-    { file = "orbit_minigame.lua",    key = "minigame",    tag = "🎮 Мини-игра",  cover = "МИНИ-ИГРА",  icon = "🎮", color = Color3.fromRGB(255, 200, 100) },
-    { file = "orbit_anticheat.lua",   key = "anticheat",   tag = "🛡 Античит",    cover = "АНТИЧИТ",    icon = "🛡", color = Color3.fromRGB(200, 255, 180) },
-}
-
 local function loadOne(item)
     if ORBIT.loaded[item.key] then return true end
     setCover(item.icon, "ЗАГРУЗКА: " .. item.cover, item.file .. " — скачивание...", item.color)
     startPulse()
     addLog("INFO", "Downloading " .. item.file .. "...")
     local ok = fetchAndRun(item.file, 3, item.tag)
+    stopPulse()
     if ok then
         ORBIT.loaded[item.key] = true
-        stopPulse()
         addLog("OK", item.tag .. " — загружено")
         refreshStatus()
         return true
-    else
-        stopPulse()
-        addLog("ERR", "Failed: " .. item.file)
-        if item.critical then
-            setCover("❌", "ОШИБКА: " .. item.cover, item.file .. " не загрузился", C_RED)
-        end
-        return false
     end
+    addLog("ERR", "Failed: " .. item.file)
+    if item.critical then
+        setCover("❌", "ОШИБКА: " .. item.cover, item.file .. " не загрузился", C_RED)
+    end
+    return false
 end
 
 local function autoLoadAll()
     task.wait(0.3)
     for _, item in ipairs(QUEUE) do
+        GENV._OrbitLoaderBusyStamp = os.clock()
         local ok = loadOne(item)
         if not ok and item.critical then
+            GENV._OrbitLoaderBusy = nil
             return
         end
         task.wait(0.2)
     end
     task.wait(0.3)
+    GENV._OrbitLoaderBusy = nil
     setCover("✅", "ВСЁ ГОТОВО", "нажми ЗАПУСТИТЬ ОРБИТУ", C_GREEN)
     updateRingProgress(1)
     refreshStatus()
@@ -1454,13 +1323,10 @@ local function selectPlatform(platform)
 
     TweenService:Create(platformScreen, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
     for _, ch in ipairs(platformScreen:GetChildren()) do
-        if ch:IsA("TextLabel") or ch:IsA("TextButton") or ch:IsA("Frame") then
-            pcall(function()
-                TweenService:Create(ch, TweenInfo.new(0.25), {
-                    BackgroundTransparency = 1,
-                    TextTransparency = ch:IsA("TextLabel") and 1 or nil,
-                }):Play()
-            end)
+        if ch:IsA("TextLabel") then
+            pcall(function() TweenService:Create(ch, TweenInfo.new(0.25), { TextTransparency = 1 }):Play() end)
+        elseif ch:IsA("TextButton") or ch:IsA("Frame") then
+            pcall(function() TweenService:Create(ch, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play() end)
         end
     end
     task.wait(0.28)
@@ -1472,9 +1338,9 @@ local function selectPlatform(platform)
 
     platformBadge.Text = platform == "mobile" and "MOBILE" or "PC"
 
-    addLog("SYS", "orbit_loader.lua — старт")
+    addLog("SYS", "orbit_loader.lua " .. BUILD .. " — старт (" .. execName .. ")")
     addLog("INFO", "Платформа: " .. platform:upper())
-    addLog("INFO", "Загрузка ОРБИТЫ " .. ORBIT.version)
+    addLog("INFO", "Модулей в очереди: " .. TOTAL_LOADED)
     ORBIT.loadSavesList()
     local saveCount = 0
     for _ in pairs(ORBIT.SAVES) do saveCount = saveCount + 1 end
@@ -1482,12 +1348,17 @@ local function selectPlatform(platform)
     addLog("OK", "BlockCount: " .. ORBIT.SETTINGS.BlockCount)
 
     setCover("✨", "СТАРТ ЗАГРУЗКИ", "p2 → p3 → p4 → p4b → остальные", C_GREEN)
-
     task.spawn(autoLoadAll)
 end
 
 onTap(mobileBtn, function() selectPlatform("mobile") end)
 onTap(pcBtn, function() selectPlatform("pc") end)
+
+-- если пользователь не выбрал платформу — снимаем флаг занятости через минуту,
+-- чтобы повторный запуск вручную не блокировался
+task.delay(60, function()
+    if not platformChosen then GENV._OrbitLoaderBusy = nil end
+end)
 
 ORBIT.notify("✨ ОРБИТА " .. ORBIT.version .. " — выбери платформу", Color3.fromRGB(200, 200, 255), 4)
 
