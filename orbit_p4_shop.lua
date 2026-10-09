@@ -1,6 +1,6 @@
--- ORBIT v24.2 | orbit_p4_shop.lua
+-- ORBIT v24.3 | orbit_p4_shop.lua
 -- Магазин + 2D-редактор + 3D-кнопка.
--- v24.2: категория «СВОИ» с кнопкой удаления, фиксы багов, поддержка hideElement для способностей.
+-- v24.3: кнопки «Скопировать фигуру» и «Вставить из буфера» (share-обмен).
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Shop] ORBIT не найден!"); return end
 if not ORBIT.ui or not ORBIT.ui.screenGui then warn("[Orbit Shop] UI не готов!"); return end
@@ -236,7 +236,7 @@ for _, shape in ipairs(ORBIT.CUSTOM_SHAPES) do
 end
 ORBIT.registerCustomShape = registerCustomShape
 
--- ✨ Удаление кастомной фигуры по имени
+-- ✨ v24.3: удаление кастомной фигуры
 function ORBIT.deleteCustomShape(shapeName)
     if not shapeName then return false end
     local found = false
@@ -255,6 +255,27 @@ function ORBIT.deleteCustomShape(shapeName)
     ORBIT.OWNED_SHAPES[shapeName] = nil
     if found then saveStorage() end
     return found
+end
+
+-- ✨ v24.3: экспорт кастомной фигуры в строку ОРБИТЫ (для кнопки «Скопировать»)
+function ORBIT.encodeCustomShapeByName(shapeName)
+    if not shapeName then return nil, "Нет имени" end
+    if not ORBIT.share or not ORBIT.share.encodeShape then
+        return nil, "Модуль SHARE не загружен"
+    end
+    -- ищем фигуру в SHAPE_PRESETS
+    for _, sp in ipairs(SHAPE_PRESETS) do
+        if sp.name == shapeName and sp.isCustom then
+            -- ищем исходные данные в CUSTOM_SHAPES
+            for _, raw in ipairs(ORBIT.CUSTOM_SHAPES) do
+                if raw.name == shapeName then
+                    return ORBIT.share.encodeShape(raw)
+                end
+            end
+            return nil, "Нет данных фигуры"
+        end
+    end
+    return nil, "Не кастомная фигура"
 end
 
 -- ============================================================
@@ -414,7 +435,7 @@ local function openShop()
     if ORBIT.ui.fitToScreen then ORBIT.ui.fitToScreen(shopGui, shopW, shopH) end
 
     local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -180, 0, 28)
+    title.Size = UDim2.new(1, -240, 0, 28)
     title.Position = UDim2.new(0, 16, 0, 8)
     title.BackgroundTransparency = 1
     title.Text = "🛒  МАГАЗИН"
@@ -426,8 +447,8 @@ local function openShop()
     title.Parent = shopGui
 
     local coinsLbl = Instance.new("TextLabel")
-    coinsLbl.Size = UDim2.new(0, 110, 0, 26)
-    coinsLbl.Position = UDim2.new(1, -150, 0, 10)
+    coinsLbl.Size = UDim2.new(0, 100, 0, 26)
+    coinsLbl.Position = UDim2.new(1, -140, 0, 10)
     coinsLbl.BackgroundColor3 = Color3.fromRGB(60, 40, 80)
     coinsLbl.BorderSizePixel = 0
     coinsLbl.Text = "💰 " .. (ORBIT.COINS or 0)
@@ -450,9 +471,50 @@ local function openShop()
     closeBtn.Parent = shopGui
     Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
 
+    -- ✨ v24.3: кнопка «Вставить фигуру из буфера»
+    local pasteShapeBtn = Instance.new("TextButton")
+    pasteShapeBtn.Size = UDim2.new(0, 150, 0, 24)
+    pasteShapeBtn.Position = UDim2.new(1, -330, 0, 10)
+    pasteShapeBtn.BackgroundColor3 = Color3.fromRGB(50, 80, 110)
+    pasteShapeBtn.TextColor3 = Color3.fromRGB(200, 230, 255)
+    pasteShapeBtn.Font = Enum.Font.GothamBold
+    pasteShapeBtn.TextSize = 10
+    pasteShapeBtn.Text = "📥 Вставить из буфера"
+    pasteShapeBtn.ZIndex = 11
+    pasteShapeBtn.Parent = shopGui
+    Instance.new("UICorner", pasteShapeBtn).CornerRadius = UDim.new(0, 8)
+    onClick(pasteShapeBtn, function()
+        if not ORBIT.share or not ORBIT.share.paste then
+            ORBIT.notify("❌ Модуль SHARE не загружен", Color3.fromRGB(255,150,150), 3)
+            return
+        end
+        local txt, err = ORBIT.share.paste()
+        if not txt or #txt < 10 then
+            ORBIT.notify("📋 Буфер пустой или " .. tostring(err), Color3.fromRGB(255,200,120), 3)
+            return
+        end
+        local decoded, derr = ORBIT.share.decode(txt)
+        if not decoded then
+            ORBIT.notify("❌ " .. tostring(derr), Color3.fromRGB(255,150,150), 3)
+            return
+        end
+        if decoded.kind ~= "SH" then
+            ORBIT.notify("❌ В буфере не фигура (это " .. tostring(decoded.kind) .. ")", Color3.fromRGB(255,150,150), 3)
+            return
+        end
+        if ORBIT.share.applyDecoded then
+            local ok = ORBIT.share.applyDecoded(decoded)
+            if ok then
+                ORBIT.notify("✅ Фигура добавлена в «МОИ ФИГУРЫ»", Color3.fromRGB(180,255,180), 3)
+                shopState.categoryIndex = #SHOP_CATEGORIES
+                updateCat(); refreshShopShapeList(); refreshShapeLbl(); refreshDemo()
+            end
+        end
+    end)
+
     local open3DBtn = Instance.new("TextButton")
     open3DBtn.Size = UDim2.new(0, 120, 0, 24)
-    open3DBtn.Position = UDim2.new(1, -270, 0, 10)
+    open3DBtn.Position = UDim2.new(1, -180, 0, 10)
     open3DBtn.BackgroundColor3 = Color3.fromRGB(80, 45, 130)
     open3DBtn.TextColor3 = Color3.fromRGB(230, 200, 255)
     open3DBtn.Font = Enum.Font.GothamBold
@@ -464,7 +526,8 @@ local function openShop()
     local headerExtraY = 0
     if IS_MOBILE then
         open3DBtn.Position = UDim2.new(0, 16, 0, 40)
-        headerExtraY = 32
+        pasteShapeBtn.Position = UDim2.new(0, 16, 0, 68)
+        headerExtraY = 60
     end
     onClick(open3DBtn, function()
         if ORBIT.openEditor3D then
@@ -630,7 +693,22 @@ local function openShop()
     Instance.new("UICorner", buyShapeBtn).CornerRadius = UDim.new(0, 6)
     ry = ry + 32
 
-    -- ✨ Кнопка удаления (только для кастомных)
+    -- ✨ Кнопка «Скопировать» (только для кастомных)
+    local copyShapeBtn = Instance.new("TextButton")
+    copyShapeBtn.Size = UDim2.new(1, -12, 0, 28)
+    copyShapeBtn.Position = UDim2.new(0, 6, 0, ry)
+    copyShapeBtn.BackgroundColor3 = Color3.fromRGB(70, 60, 130)
+    copyShapeBtn.TextColor3 = Color3.fromRGB(220, 210, 255)
+    copyShapeBtn.Font = Enum.Font.GothamBold
+    copyShapeBtn.TextSize = 11
+    copyShapeBtn.Text = "📋 СКОПИРОВАТЬ (строка другу)"
+    copyShapeBtn.Visible = false
+    copyShapeBtn.ZIndex = 12
+    copyShapeBtn.Parent = rightPanel
+    Instance.new("UICorner", copyShapeBtn).CornerRadius = UDim.new(0, 6)
+    ry = ry + 32
+
+    -- ✨ Кнопка «Удалить» (только для кастомных)
     local delShapeBtn = Instance.new("TextButton")
     delShapeBtn.Size = UDim2.new(1, -12, 0, 28)
     delShapeBtn.Position = UDim2.new(0, 6, 0, ry)
@@ -651,6 +729,7 @@ local function openShop()
         if not sp then
             sV.Text = "—"
             buyShapeBtn.Visible = false
+            copyShapeBtn.Visible = false
             delShapeBtn.Visible = false
             return
         end
@@ -662,8 +741,10 @@ local function openShop()
             buyShapeBtn.Text = "✨ ВАША ФИГУРА"
             buyShapeBtn.BackgroundColor3 = Color3.fromRGB(50,60,80)
             buyShapeBtn.TextColor3 = Color3.fromRGB(180,220,255)
+            copyShapeBtn.Visible = true
             delShapeBtn.Visible = true
         else
+            copyShapeBtn.Visible = false
             delShapeBtn.Visible = false
             if owned then
                 buyShapeBtn.Text = "✅ УЖЕ КУПЛЕНО"
@@ -717,6 +798,27 @@ local function openShop()
         ORBIT.notify("✅ Куплено: " .. sp.name, Color3.fromRGB(160,255,180), 3)
         coinsLbl.Text = "💰 " .. (ORBIT.COINS or 0)
         refreshShapeLbl()
+    end)
+
+    -- ✨ v24.3: СКОПИРОВАТЬ фигуру
+    onClick(copyShapeBtn, function()
+        local sp = SHAPE_PRESETS[shopState.shapeIndex]
+        if not sp or not sp.isCustom then return end
+        if not ORBIT.share then
+            ORBIT.notify("❌ Модуль SHARE не загружен", Color3.fromRGB(255,150,150), 3)
+            return
+        end
+        local str, err = ORBIT.encodeCustomShapeByName(sp.name)
+        if not str then
+            ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255,150,150), 3)
+            return
+        end
+        local copied = ORBIT.share.copy(str)
+        if copied then
+            ORBIT.notify("📋 Скопировано в буфер (" .. #str .. " символов)", Color3.fromRGB(180,255,180), 3)
+        else
+            ORBIT.notify("📤 Строка готова — выдели и скопируй вручную", Color3.fromRGB(255,220,140), 4)
+        end
     end)
 
     -- ✨ Удаление своей фигуры
@@ -1546,7 +1648,7 @@ local function openEditor()
 
     -- 💾 СОХРАНЕНИЕ
     do
-        local body = section("💾 СОХРАНЕНИЕ", Color3.fromRGB(100, 60, 140), 260)
+        local body = section("💾 СОХРАНЕНИЕ", Color3.fromRGB(100, 60, 140), 300)
 
         countLbl = mk("TextLabel", {
             Name = "Count", Size = UDim2.new(1, -4, 0, 16), Position = UDim2.new(0, 2, 0, 0),
@@ -1595,7 +1697,6 @@ local function openEditor()
         }, body)
         corner(importBtn, 8)
 
-        -- ✨ Кнопка «Очистить всё» (сбросить всю сетку)
         local clearAllBtn = mk("TextButton", {
             Name = "ClearAll", Size = UDim2.new(1, -4, 0, 32), Position = UDim2.new(0, 2, 0, 218),
             BackgroundColor3 = Color3.fromRGB(90, 40, 45), TextColor3 = Color3.fromRGB(255, 180, 180),
@@ -1603,6 +1704,14 @@ local function openEditor()
             AutoButtonColor = false, BorderSizePixel = 0,
         }, body)
         corner(clearAllBtn, 8)
+
+        local pasteBtn = mk("TextButton", {
+            Name = "PasteFromClipboard", Size = UDim2.new(1, -4, 0, 32), Position = UDim2.new(0, 2, 0, 256),
+            BackgroundColor3 = Color3.fromRGB(60, 90, 130), TextColor3 = Color3.fromRGB(200, 230, 255),
+            Font = Enum.Font.GothamBold, TextSize = 11, Text = "📋 ВСТАВИТЬ ИЗ БУФЕРА",
+            AutoButtonColor = false, BorderSizePixel = 0,
+        }, body)
+        corner(pasteBtn, 8)
 
         onClick(saveBtn, function()
             local data = {}
@@ -1706,6 +1815,43 @@ local function openEditor()
             commit2D(); refreshAllCells(); refreshCount()
             ORBIT.notify("🧹 Очищено", Color3.fromRGB(255, 200, 200), 2)
         end)
+
+        -- ✨ v24.3: вставить фигуру из буфера прямо в редактор
+        onClick(pasteBtn, function()
+            if not ORBIT.share or not ORBIT.share.paste then
+                ORBIT.notify("❌ Модуль SHARE не загружен", Color3.fromRGB(255,150,150), 3)
+                return
+            end
+            local txt, err = ORBIT.share.paste()
+            if not txt or #txt < 10 then
+                ORBIT.notify("📋 Буфер пустой", Color3.fromRGB(255,200,120), 3)
+                return
+            end
+            local decoded, derr = ORBIT.share.decode(txt)
+            if not decoded or decoded.kind ~= "SH" then
+                ORBIT.notify("❌ " .. tostring(derr or "не фигура"), Color3.fromRGB(255,150,150), 3)
+                return
+            end
+            local shape = decoded.data
+            if shape.type == "3D" then
+                ORBIT.notify("📥 Это 3D-фигура — добавлена в «МОИ ФИГУРЫ»", Color3.fromRGB(180,220,255), 3)
+                if ORBIT.share.applyDecoded then
+                    ORBIT.share.applyDecoded(decoded)
+                end
+                return
+            end
+            -- 2D: загружаем пиксели в сетку
+            if shape.grid and shape.pixels then
+                if shape.grid ~= GRID then resizeGrid(shape.grid) end
+                for r = 1, shape.grid do
+                    for c = 1, shape.grid do
+                        Ed2D.Cells[r][c] = (shape.pixels[r] and shape.pixels[r][c]) or 0
+                    end
+                end
+                commit2D(); rebuildGridUI(); refreshCount()
+                ORBIT.notify("📥 Фигура загружена в редактор: " .. (shape.name or ""), Color3.fromRGB(180,255,180), 3)
+            end
+        end)
     end
 
     rebuildGridUI()
@@ -1738,7 +1884,7 @@ ORBIT.PALETTE = PALETTE
 ORBIT.saveStorage = saveStorage
 
 if ORBIT.notify then
-    ORBIT.notify("🎨 Магазин v24.2 (с удалением своих фигур)", Color3.fromRGB(220,200,255), 3)
+    ORBIT.notify("🎨 Магазин v24.3 (+ копирование/вставка фигур)", Color3.fromRGB(220,200,255), 3)
 end
 
 return true
