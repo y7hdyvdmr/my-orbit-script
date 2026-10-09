@@ -1,8 +1,6 @@
--- ORBIT v24.0 | orbit_p4.lua  (ЧАСТЬ 1/2 — UI + все кнопки; вторая половина в orbit_p4b.lua)
--- v24.0: разбит на два файла, чтобы не превышать лимит 200 locals.
---        Все GUI-элементы лежат в NB.btn.* / NB.lbl.* / NB.input.* / NB.scroll.*
---        В конце экспортируем ORBIT.P4 = {...} для orbit_p4b.lua.
-
+-- ORBIT v24.2 | orbit_p4.lua  (UI-каркас; вторая половина в orbit_p4b.lua)
+-- v24.2: стихии в контейнерах с крестиками, «Вернуть все стихии»,
+--        «Мои фигуры», «Импорт фигуры», «Фраза Санса» в эмоциях.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
 if ORBIT.P4 and ORBIT.P4.ready then warn("[Orbit P4] уже загружен"); return end
@@ -27,11 +25,11 @@ if not ORBIT.createBot then warn("[Orbit P4] Боты не найдены в p3!
 local PLATFORM = ORBIT.PLATFORM or "pc"
 local IS_MOBILE = (PLATFORM == "mobile")
 
-local NB = {}          -- общее хранилище (не тратит locals)
-NB.btn = {}            -- все кнопки
-NB.lbl = {}            -- все лейблы
-NB.input = {}          -- все TextBox
-NB.scroll = {}         -- все ScrollingFrame
+local NB = {}
+NB.btn = {}
+NB.lbl = {}
+NB.input = {}
+NB.scroll = {}
 
 -- ==================== ОКНО ====================
 local screenGui = Instance.new("ScreenGui")
@@ -48,7 +46,7 @@ end
 (rawget(_G, "getgenv") and getgenv() or _G)._OrbitMainGui = screenGui
 
 -- ============================================================
---       ОБРАБОТЧИК КЛИКОВ (Android / Delta)
+--       ОБРАБОТЧИК КЛИКОВ
 -- ============================================================
 local function onClick(btn, fn, releaseOnly)
     local deb = false
@@ -631,71 +629,125 @@ for i, st in ipairs(NB.styleDefs) do
 end
 yCursor = yCursor + 6
 
--- ============ СТИХИИ ============
+-- ============ СТИХИИ (с крестиками) ============
 NB.elementDefs = {
-    { name = "🔥 Огонь", bg = Color3.fromRGB(105,40,10), fg = Color3.fromRGB(255,200,130), search = "огонь пламя жар fire",
-      color = "ОГОНЬ", pattern = "Хаос", speed = 1.5, orbit = "M", size = "M", shape = "МОЛНИЯ",
+    { id = "fire", bg = Color3.fromRGB(105,40,10), fg = Color3.fromRGB(255,200,130), search = "огонь пламя жар fire",
+      name = "🔥 Огонь", color = "ОГОНЬ", pattern = "Хаос", speed = 1.5, orbit = "M", size = "M", shape = "МОЛНИЯ",
       rings = {true,true,true,false,false}, material = "Neon", trail = true, pulse = true,
       aura = true, auraColor = "ЛАВА", auraMaterial = "Neon", fire = true,
       atmo = {type = "Пепел", intensity = "Средняя", size = "Мелкий"} },
-    { name = "🌍 Земля", bg = Color3.fromRGB(70,50,30), fg = Color3.fromRGB(220,200,150), search = "земля камень скала earth",
-      color = "ТЕРРАКОТА", pattern = "Круг", speed = 0.5, orbit = "M", size = "L", shape = "СКАЛА",
+    { id = "earth", bg = Color3.fromRGB(70,50,30), fg = Color3.fromRGB(220,200,150), search = "земля камень скала earth",
+      name = "🌍 Земля", color = "ТЕРРАКОТА", pattern = "Круг", speed = 0.5, orbit = "M", size = "L", shape = "СКАЛА",
       rings = {true,true,false,false,false}, material = "Slate", transparency = 0,
       aura = true, auraColor = "ХАКИ", auraMaterial = "Slate", fire = false,
       atmo = {type = "Лепестки", intensity = "Слабая", size = "Средний"} },
-    { name = "💧 Вода", bg = Color3.fromRGB(25,60,100), fg = Color3.fromRGB(170,225,255), search = "вода море капля water",
-      color = "ЛАЗУРЬ", pattern = "Волна", speed = 1.0, orbit = "L", size = "M", shape = "СЕРДЦЕ",
+    { id = "water", bg = Color3.fromRGB(25,60,100), fg = Color3.fromRGB(170,225,255), search = "вода море капля water",
+      name = "💧 Вода", color = "ЛАЗУРЬ", pattern = "Волна", speed = 1.0, orbit = "L", size = "M", shape = "СЕРДЦЕ",
       rings = {true,true,true,false,false}, material = "Glass", transparency = 0.2, trail = true,
       aura = true, auraColor = "БИРЮЗОВЫЙ", auraMaterial = "Glass", fire = false,
       atmo = {type = "Пузыри", intensity = "Средняя", size = "Средний"} },
-    { name = "❄️ Лёд", bg = Color3.fromRGB(35,65,95), fg = Color3.fromRGB(200,240,255), search = "лёд лед снег холод ice",
-      color = "ЛЁД", pattern = "Круг", speed = 1.0, orbit = "M", size = "M", shape = "РОМБ",
+    { id = "ice", bg = Color3.fromRGB(35,65,95), fg = Color3.fromRGB(200,240,255), search = "лёд лед снег холод ice",
+      name = "❄️ Лёд", color = "ЛЁД", pattern = "Круг", speed = 1.0, orbit = "M", size = "M", shape = "РОМБ",
       rings = {true,true,false,false,false}, material = "Ice", transparency = 0.1,
       aura = true, auraColor = "ЛЁД", auraMaterial = "Ice", fire = false,
       atmo = {type = "Снег", intensity = "Сильная", size = "Мелкий"} },
-    { name = "⚡ Молния", bg = Color3.fromRGB(70,65,20), fg = Color3.fromRGB(255,250,150), search = "молния гроза электро lightning",
-      color = "ЖЁЛТЫЙ", pattern = "Зигзаг", speed = 3.0, orbit = "M", size = "M", shape = "МОЛНИЯ",
+    { id = "lightning", bg = Color3.fromRGB(70,65,20), fg = Color3.fromRGB(255,250,150), search = "молния гроза электро lightning",
+      name = "⚡ Молния", color = "ЖЁЛТЫЙ", pattern = "Зигзаг", speed = 3.0, orbit = "M", size = "M", shape = "МОЛНИЯ",
       rings = {true,true,true,false,false}, material = "Neon", trail = true, pulse = true,
       aura = true, auraColor = "ЖЁЛТЫЙ", auraMaterial = "Neon", fire = false,
       atmo = {type = "Искры", intensity = "Сильная", size = "Мелкий"} },
-    { name = "✨ Телепорт", bg = Color3.fromRGB(65,35,100), fg = Color3.fromRGB(235,200,255), search = "телепорт портал магия teleport",
-      color = "ФИОЛЕТОВЫЙ", pattern = "Лиссажу", speed = 2.0, orbit = "L", size = "M", shape = "ИНЬ-ЯН",
+    { id = "teleport", bg = Color3.fromRGB(65,35,100), fg = Color3.fromRGB(235,200,255), search = "телепорт портал магия teleport",
+      name = "✨ Телепорт", color = "ФИОЛЕТОВЫЙ", pattern = "Лиссажу", speed = 2.0, orbit = "L", size = "M", shape = "ИНЬ-ЯН",
       rings = {true,true,false,false,false}, material = "ForceField", trail = true,
       aura = true, auraColor = "АМЕТИСТ", auraMaterial = "ForceField", fire = false,
       atmo = {type = "Звёзды", intensity = "Средняя", size = "Мелкий"} },
-    { name = "💨 Скорость", bg = Color3.fromRGB(35,70,70), fg = Color3.fromRGB(190,255,245), search = "скорость быстро ускорение speed",
-      color = "БИРЮЗОВЫЙ", pattern = "Спираль", speed = 5.0, orbit = "L", size = "S", shape = "КЛИН",
+    { id = "speed", bg = Color3.fromRGB(35,70,70), fg = Color3.fromRGB(190,255,245), search = "скорость быстро ускорение speed",
+      name = "💨 Скорость", color = "БИРЮЗОВЫЙ", pattern = "Спираль", speed = 5.0, orbit = "L", size = "S", shape = "КЛИН",
       rings = {true,true,true,true,false}, material = "Neon", trail = true,
       aura = true, auraColor = "МЯТА", auraMaterial = "Neon", fire = false,
       atmo = {type = "Дождь", intensity = "Слабая", size = "Крошка"} },
-    { name = "🌪️ Ветер", bg = Color3.fromRGB(55,65,75), fg = Color3.fromRGB(215,230,245), search = "ветер вихрь торнадо wind",
-      color = "СЕРЕБРЯНЫЙ", pattern = "Спираль", speed = 3.0, orbit = "XL", size = "M", shape = "СПИРАЛЬ",
+    { id = "wind", bg = Color3.fromRGB(55,65,75), fg = Color3.fromRGB(215,230,245), search = "ветер вихрь торнадо wind",
+      name = "🌪️ Ветер", color = "СЕРЕБРЯНЫЙ", pattern = "Спираль", speed = 3.0, orbit = "XL", size = "M", shape = "СПИРАЛЬ",
       rings = {true,true,true,false,false}, material = "SmoothPlastic", transparency = 0.3, trail = true,
       aura = true, auraColor = "БЕЛЫЙ", auraMaterial = "SmoothPlastic", fire = false,
       atmo = {type = "Лепестки", intensity = "Сильная", size = "Средний"} },
-    { name = "☠️ Яд", bg = Color3.fromRGB(40,70,25), fg = Color3.fromRGB(200,255,130), search = "яд токсин отрава ядовитый poison",
-      color = "ЛАЙМ", pattern = "Хаос", speed = 1.0, orbit = "M", size = "M", shape = "ЧЕРЕП",
+    { id = "poison", bg = Color3.fromRGB(40,70,25), fg = Color3.fromRGB(200,255,130), search = "яд токсин отрава ядовитый poison",
+      name = "☠️ Яд", color = "ЛАЙМ", pattern = "Хаос", speed = 1.0, orbit = "M", size = "M", shape = "ЧЕРЕП",
       rings = {true,true,true,false,false}, material = "Neon", trail = true, pulse = true,
       aura = true, auraColor = "ЗЕЛЁНЫЙ", auraMaterial = "Neon", fire = false,
       atmo = {type = "Пузыри", intensity = "Слабая", size = "Средний"} },
 }
+
 makeBigSection("🌋  СТИХИИ — ОДНО НАЖАТИЕ", yCursor, Color3.fromRGB(150, 80, 60)); yCursor = yCursor + 30
+
 NB.elementBtns = {}
+NB.elementX = {}
+NB.elementRows = {}
 for i, st in ipairs(NB.elementDefs) do
-    NB.elementBtns[i] = makeButton(st.name, yCursor, BTN_H, st.bg, st.fg)
-    NB.elementBtns[i]:SetAttribute("Search", "стихия стихии " .. (st.search or ""))
+    local holder = Instance.new("Frame")
+    holder.Name = "ElementRow_" .. i
+    holder.Size = UDim2.new(1, -16, 0, BTN_H)
+    holder.BackgroundTransparency = 1
+    holder.ZIndex = 2
+    holder:SetAttribute("Search", "стихия стихии " .. (st.search or "") .. " " .. (st.name or ""))
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -34, 1, 0)
+    btn.Position = UDim2.new(0, 0, 0, 0)
+    btn.BackgroundColor3 = st.bg
+    btn.TextColor3 = st.fg
+    btn.Font = Enum.Font.GothamBold
+    btn.TextScaled = true
+    btn.Text = st.name
+    btn.AutoButtonColor = true
+    btn.ZIndex = 2
+    btn.Parent = holder
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 9)
+    local tc = Instance.new("UITextSizeConstraint", btn)
+    tc.MaxTextSize = IS_MOBILE and 14 or 12; tc.MinTextSize = 8
+    local pad = Instance.new("UIPadding", btn)
+    pad.PaddingLeft = UDim.new(0, 6); pad.PaddingRight = UDim.new(0, 6)
+    local gr = Instance.new("UIGradient", btn)
+    gr.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 190, 205)); gr.Rotation = 90
+    local stroke = Instance.new("UIStroke", btn)
+    stroke.Color = Color3.fromRGB(255, 255, 255); stroke.Thickness = 1; stroke.Transparency = 0.86
+
+    local xBtn = Instance.new("TextButton")
+    xBtn.Name = "ElementX"
+    xBtn.Size = UDim2.new(0, 30, 1, 0)
+    xBtn.Position = UDim2.new(1, -32, 0, 0)
+    xBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 50)
+    xBtn.TextColor3 = Color3.fromRGB(255, 160, 160)
+    xBtn.Font = Enum.Font.GothamBold
+    xBtn.TextSize = 15
+    xBtn.Text = "✖"
+    xBtn.AutoButtonColor = true
+    xBtn.ZIndex = 3
+    xBtn.Parent = holder
+    Instance.new("UICorner", xBtn).CornerRadius = UDim.new(0, 8)
+    local xs = Instance.new("UIStroke", xBtn)
+    xs.Color = Color3.fromRGB(255, 100, 100); xs.Thickness = 1; xs.Transparency = 0.3
+
+    holder.Parent = panel  -- авторегистрация через panel.ChildAdded
+
+    NB.elementBtns[i] = btn
+    NB.elementX[i] = xBtn
+    NB.elementRows[i] = { holder = holder, btn = btn, xBtn = xBtn, id = st.id, def = st }
     yCursor = yCursor + BTN_H + S_STEP
 end
-yCursor = yCursor + 6
 
--- ============ ЭМОЦИИ ============
-makeBigSection("🎭  ЭМОЦИИ", yCursor, Color3.fromRGB(140, 90, 160)); yCursor = yCursor + 30
+NB.btn.restoreElements = makeButton("♻️ Вернуть все стихии", yCursor, BTN_H, Color3.fromRGB(50, 80, 60), Color3.fromRGB(180, 255, 200))
+yCursor = yCursor + BTN_H + S_STEP + 6
+
+-- ============ ЭМОЦИИ (с кнопкой «Фраза Санса») ============
+makeBigSection("🎭  ЭМОЦИИ И ФРАЗЫ", yCursor, Color3.fromRGB(140, 90, 160)); yCursor = yCursor + 30
 NB.emoteDefs = {
-    { "🎤 Санс говорит", "sans",  Color3.fromRGB(35,45,70),  Color3.fromRGB(190,220,255), "санс говорит голос" },
-    { "😂 Смех",         "laugh", Color3.fromRGB(60,50,30),  Color3.fromRGB(255,230,150), "смех смеяться хаха" },
-    { "💃 Танец",        "dance", Color3.fromRGB(70,35,70),  Color3.fromRGB(255,190,255), "танец танцевать" },
-    { "👋 Приветствие",  "greet", Color3.fromRGB(35,70,55),  Color3.fromRGB(180,255,210), "привет помахать" },
-    { "💨 Уворот",       "dodge", Color3.fromRGB(45,45,75),  Color3.fromRGB(200,200,255), "уворот звук" },
+    { "🎤 Санс говорит",   "sans",  Color3.fromRGB(35,45,70),  Color3.fromRGB(190,220,255), "санс говорит голос" },
+    { "😂 Смех",           "laugh", Color3.fromRGB(60,50,30),  Color3.fromRGB(255,230,150), "смех смеяться хаха" },
+    { "💃 Танец",          "dance", Color3.fromRGB(70,35,70),  Color3.fromRGB(255,190,255), "танец танцевать" },
+    { "👋 Приветствие",    "greet", Color3.fromRGB(35,70,55),  Color3.fromRGB(180,255,210), "привет помахать" },
+    { "💨 Уворот",         "dodge", Color3.fromRGB(45,45,75),  Color3.fromRGB(200,200,255), "уворот звук" },
+    { "💬 Сказать фразу Санса", "say", Color3.fromRGB(55,40,80), Color3.fromRGB(230,210,255), "фраза санса сказать эмоция" },
 }
 NB.emoteBtns = {}
 for i, e in ipairs(NB.emoteDefs) do
@@ -739,10 +791,15 @@ NB.btn.taggedCount = makeButton("⭐ Список читеров: 0", yCursor, B
 NB.btn.tagNearest  = makeButton("🚩 Пометить ближайшего", yCursor, BTN_H, Color3.fromRGB(80,30,55), Color3.fromRGB(255,150,200)); yCursor = yCursor + BTN_H + S_STEP
 NB.btn.clearTags   = makeButton("🧹 Снять все метки", yCursor, BTN_H, Color3.fromRGB(50,35,45), Color3.fromRGB(255,180,200)); yCursor = yCursor + BTN_H + S_STEP + 6
 
--- ============ ВНЕШНИЙ ВИД ============
+-- ============ ВНЕШНИЙ ВИД (с «Мои фигуры» и «Импорт фигуры») ============
 makeBigSection("🎨  ВНЕШНИЙ ВИД КОЛЕЦ", yCursor, Color3.fromRGB(60, 100, 120)); yCursor = yCursor + 30
 NB.btn.shapeCat    = makeButton("📁 Категория: " .. P.SHAPE_CATEGORIES[P.shapeCategoryIndex].name, yCursor, BTN_H, Color3.fromRGB(60,50,80), Color3.fromRGB(220,200,255)); yCursor = yCursor + BTN_H + S_STEP
 NB.btn.shape       = makeButton("🔷 Форма: " .. SHAPE_PRESETS[ORBIT.shapeIndex].name, yCursor); yCursor = yCursor + BTN_H + S_STEP
+-- ✨ новые кнопки
+NB.btn.myFigs      = makeButton("🖼️ Мои фигуры", yCursor, BTN_H, Color3.fromRGB(60,50,90), Color3.fromRGB(220,200,255)); yCursor = yCursor + BTN_H + S_STEP
+NB.btn.myFigs:SetAttribute("Search", "мои фигуры кастомные коллекция")
+NB.btn.importFig   = makeButton("📥 Импорт фигуры", yCursor, BTN_H, Color3.fromRGB(60,80,90), Color3.fromRGB(200,230,255)); yCursor = yCursor + BTN_H + S_STEP
+NB.btn.importFig:SetAttribute("Search", "импорт фигуры чужие share")
 NB.btn.shapeMode   = makeButton("🎭 Режим: " .. P.FORM_MODES[P.formModeIndex].name, yCursor, BTN_H, Color3.fromRGB(50,40,65), Color3.fromRGB(220,200,255)); yCursor = yCursor + BTN_H + S_STEP
 NB.btn.shapeSize   = makeButton("🔍 Размер: " .. P.SHAPE_SIZE[P.shapeSizeIndex].name, yCursor); yCursor = yCursor + BTN_H + S_STEP
 NB.btn.color       = makeButton("🎨 Цвет: " .. P.COLORS[P.colorIndex].name, yCursor); yCursor = yCursor + BTN_H + S_STEP
