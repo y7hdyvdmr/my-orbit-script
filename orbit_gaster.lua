@@ -1,7 +1,5 @@
--- ORBIT v24.2 | orbit_gaster.lua
--- Мини-игра «Собери Гастера» + белое оружие (луч и заряд — БЕЛЫЕ, не фиолетовые)
--- v24.2: белая палитра, магнит осколков, улучшенная сцена, белый выстрел.
-
+-- ORBIT v24.3 | orbit_gaster.lua
+-- Мини-игра «Собери Гастера» + ловушки + босс-файт + белое оружие
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -19,33 +17,45 @@ local LP = Players.LocalPlayer
 local V3, CF, C3 = Vector3.new, CFrame.new, Color3.fromRGB
 local PT_BLOCK, PT_BALL, MAT = Enum.PartType.Block, Enum.PartType.Ball, Enum.Material
 
--- ✨ БЕЛАЯ палитра
+-- Белая палитра
 local COL_BEAM   = C3(255, 255, 255)
 local COL_CHARGE = C3(240, 250, 255)
 local COL_GLOW   = C3(230, 240, 255)
+local COL_TRAP   = C3(220, 80, 255)
 
 local G = {
   active = false,
+  state = "idle",  -- idle / collecting / boss / won
   parts = {},
+  traps = {},
   figure = nil,
-  collector = { collected = 0, total = 8 },
-  heartbeat = nil,
-  ui = nil,
+  boss = nil,
+  bossUI = nil,
   timer = 120,
   shapeRegistered = false,
 }
 local alive, folder, token = true, nil, 0
-local helperWrapped, origInterp = false, nil
 
+-- ============================================================
+--       16 ОСКОЛКОВ
+-- ============================================================
 local PARTS = {
-  { id = "head", nm = "Голова",      col = C3(250, 245, 235), shape = PT_BLOCK, sz = 2.4, px = 0.5,  py = 0.14, sw = 46, sh = 34, z = 1 },
-  { id = "eyeL", nm = "Левый глаз",  col = C3(120, 230, 255), shape = PT_BALL,  sz = 1.4, px = 0.4,  py = 0.13, sw = 10, sh = 10, z = 3, round = true },
-  { id = "eyeR", nm = "Правый глаз", col = C3(120, 230, 255), shape = PT_BALL,  sz = 1.4, px = 0.6,  py = 0.13, sw = 10, sh = 10, z = 3, round = true },
-  { id = "armL", nm = "Левая рука",  col = C3(220, 220, 235), shape = PT_BLOCK, sz = 2,   px = 0.16, py = 0.5,  sw = 18, sh = 52, z = 1 },
-  { id = "armR", nm = "Правая рука", col = C3(220, 220, 235), shape = PT_BLOCK, sz = 2,   px = 0.84, py = 0.5,  sw = 18, sh = 52, z = 1 },
-  { id = "torso",nm = "Туловище",    col = C3(200, 200, 220), shape = PT_BLOCK, sz = 2.6, px = 0.5,  py = 0.5,  sw = 42, sh = 56, z = 1 },
-  { id = "boots",nm = "Ботинки",     col = C3(170, 170, 200), shape = PT_BLOCK, sz = 2.2, px = 0.5,  py = 0.87, sw = 58, sh = 20, z = 1 },
-  { id = "core", nm = "Ядро",        col = C3(255, 255, 255), shape = PT_BALL,  sz = 1.8, px = 0.5,  py = 0.5,  sw = 18, sh = 18, z = 4, round = true },
+  { id = "head",   nm = "Голова",       col = C3(250, 245, 235), shape = PT_BLOCK, sz = 2.4, px = 0.5,  py = 0.14, sw = 46, sh = 34, z = 1 },
+  { id = "eyeL",   nm = "Левый глаз",   col = C3(120, 230, 255), shape = PT_BALL,  sz = 1.4, px = 0.4,  py = 0.13, sw = 10, sh = 10, z = 3, round = true },
+  { id = "eyeR",   nm = "Правый глаз",  col = C3(120, 230, 255), shape = PT_BALL,  sz = 1.4, px = 0.6,  py = 0.13, sw = 10, sh = 10, z = 3, round = true },
+  { id = "brow",   nm = "Бровь",        col = C3(240, 240, 250), shape = PT_BLOCK, sz = 1.6, px = 0.5,  py = 0.05, sw = 40, sh = 8,  z = 2 },
+  { id = "cheekL", nm = "Левая щека",   col = C3(230, 220, 240), shape = PT_BLOCK, sz = 1.4, px = 0.32, py = 0.22, sw = 12, sh = 18, z = 2 },
+  { id = "cheekR", nm = "Правая щека",  col = C3(230, 220, 240), shape = PT_BLOCK, sz = 1.4, px = 0.68, py = 0.22, sw = 12, sh = 18, z = 2 },
+  { id = "hornL",  nm = "Левый рог",    col = C3(210, 210, 230), shape = PT_BLOCK, sz = 1.6, px = 0.30, py = 0.02, sw = 12, sh = 18, z = 2 },
+  { id = "hornR",  nm = "Правый рог",   col = C3(210, 210, 230), shape = PT_BLOCK, sz = 1.6, px = 0.70, py = 0.02, sw = 12, sh = 18, z = 2 },
+  { id = "snout",  nm = "Нос",          col = C3(240, 235, 220), shape = PT_BLOCK, sz = 2.0, px = 0.5,  py = 0.30, sw = 26, sh = 20, z = 2 },
+  { id = "jaw",    nm = "Челюсть",      col = C3(240, 235, 220), shape = PT_BLOCK, sz = 1.8, px = 0.5,  py = 0.38, sw = 30, sh = 14, z = 2 },
+  { id = "toothU", nm = "Верхний клык", col = C3(255, 255, 255), shape = PT_BLOCK, sz = 1.2, px = 0.42, py = 0.32, sw = 8,  sh = 12, z = 3 },
+  { id = "toothL", nm = "Нижний клык",  col = C3(255, 255, 255), shape = PT_BLOCK, sz = 1.2, px = 0.58, py = 0.32, sw = 8,  sh = 12, z = 3 },
+  { id = "armL",   nm = "Левая рука",   col = C3(220, 220, 235), shape = PT_BLOCK, sz = 2,   px = 0.16, py = 0.5,  sw = 18, sh = 52, z = 1 },
+  { id = "armR",   nm = "Правая рука",  col = C3(220, 220, 235), shape = PT_BLOCK, sz = 2,   px = 0.84, py = 0.5,  sw = 18, sh = 52, z = 1 },
+  { id = "torso",  nm = "Туловище",     col = C3(200, 200, 220), shape = PT_BLOCK, sz = 2.6, px = 0.5,  py = 0.5,  sw = 42, sh = 56, z = 1 },
+  { id = "boots",  nm = "Ботинки",      col = C3(170, 170, 200), shape = PT_BLOCK, sz = 2.2, px = 0.5,  py = 0.87, sw = 58, sh = 20, z = 1 },
 }
 
 local function ping(n, v, p) if ORBIT.Sfx and ORBIT.Sfx.play then pcall(ORBIT.Sfx.play, n, v or 1, p or 1) end end
@@ -59,11 +69,13 @@ local function getChar()
   if not c then return nil end
   local h = c:FindFirstChildOfClass("Humanoid")
   local r = c:FindFirstChild("HumanoidRootPart")
-  if not h or not r then return nil end
+  if not h or not r or h.Health <= 0 then return nil end
   return c, h, r
 end
 
--- ===== Белый Гастер =====
+-- ============================================================
+--       БЕЛЫЙ ГАСТЕР
+-- ============================================================
 local function mkp(model, name, size, cf, col, mat, nr, tr)
   local p
   if ORBIT.newPart then p = ORBIT.newPart(model, name, size, cf, col, nr) end
@@ -111,10 +123,8 @@ local function createGaster(size, name)
       add("ToothL", V3(0.06 * s, 0.12 * s, 0.08 * s), CF(sd * 0.18 * s, -0.3 * s, z - 0.1 * s), white, MAT.Marble, true)
     end
   end
-  -- ✨ ЗАРЯД — БЕЛЫЙ
   local charge = add("Charge", V3(0.3 * s, 0.3 * s, 0.3 * s), CF(0, -0.22 * s, -1.35 * s), COL_CHARGE, MAT.Neon, true, 0.2)
   charge.Shape = PT_BALL
-  -- ✨ ЛУЧ — БЕЛЫЙ
   add("Beam", V3(0.28 * s, 0.22 * s, 1.4 * s), CF(0, -0.22 * s, -2.1 * s), COL_BEAM, MAT.Neon, true, 0.3)
   local l = Instance.new("PointLight")
   l.Name = "GLight"; l.Color = COL_GLOW; l.Range = 12; l.Brightness = 1.5; l.Parent = charge
@@ -139,7 +149,9 @@ function G.registerShape()
 end
 G.create = createGaster
 
--- ===== Осколки =====
+-- ============================================================
+--       МИР: осколки + ловушки
+-- ============================================================
 local function rayParams()
   local rp = RaycastParams.new()
   rp.FilterType = Enum.RaycastFilterType.Exclude
@@ -148,12 +160,14 @@ local function rayParams()
   rp.FilterDescendantsInstances = ex
   return rp
 end
+
 local function clearShards()
-  for _, s in pairs(G.parts) do
-    if s.part then pcall(function() s.part:Destroy() end) end
-  end
+  for _, s in pairs(G.parts) do if s.part then pcall(function() s.part:Destroy() end) end end
   G.parts = {}
+  for _, t in pairs(G.traps) do if t.part then pcall(function() t.part:Destroy() end) end end
+  G.traps = {}
 end
+
 local function makeShard(def, pos)
   local p = Instance.new("Part")
   p.Name = "GasterShard_" .. def.id; p.Anchored = true; p.CanCollide = false; p.CanTouch = false; p.CastShadow = false
@@ -172,30 +186,71 @@ local function makeShard(def, pos)
   cd.MouseClick:Connect(function() G.collectPart(def.id) end)
   return p
 end
+
+local function makeTrap(pos, r)
+  local p = Instance.new("Part")
+  p.Name = "GasterTrap"; p.Anchored = true; p.CanCollide = false; p.CanTouch = true; p.CastShadow = false
+  p.Shape = PT_BALL; p.Size = V3(r, r, r); p.Material = MAT.Neon; p.Color = COL_TRAP
+  p.Transparency = 0.35; p.CFrame = CF(pos); p:SetAttribute("NoRecolor", true); p.Parent = fold()
+  local l = Instance.new("PointLight"); l.Color = COL_TRAP; l.Range = 12; l.Brightness = 2; l.Parent = p
+  local e = Instance.new("ParticleEmitter")
+  e.Color = ColorSequence.new(COL_TRAP); e.LightEmission = 1; e.Size = NumberSequence.new(0.6, 0)
+  e.Lifetime = NumberRange.new(0.4, 0.8); e.Speed = NumberRange.new(3, 8); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 60; e.Parent = p
+  local t = Instance.new("PointLight") -- no-op, just structure
+  return p
+end
+
 function G.spawnParts()
   clearShards()
   local c, h, root = getChar()
   if not root then return false end
   local placed = {}
   local rp = rayParams()
+
+  -- 16 осколков
   for _, def in ipairs(PARTS) do
     local pos
-    for _ = 1, 10 do
-      local a, d = math.random() * math.pi * 2, 15 + math.random() * 35
+    for _ = 1, 12 do
+      local a, d = math.random() * math.pi * 2, 20 + math.random() * 45
       local x, z = root.Position.X + math.cos(a) * d, root.Position.Z + math.sin(a) * d
-      local res = WS:Raycast(V3(x, root.Position.Y + 60, z), V3(0, -200, 0), rp)
+      local res = WS:Raycast(V3(x, root.Position.Y + 70, z), V3(0, -220, 0), rp)
       pos = V3(x, (res and res.Position.Y or root.Position.Y) + 3, z)
       local ok = true
-      for _, q in ipairs(placed) do if (q - pos).Magnitude < 8 then ok = false; break end end
+      for _, q in ipairs(placed) do if (q - pos).Magnitude < 7 then ok = false; break end end
       if ok then break end
     end
     placed[#placed + 1] = pos
-    G.parts[def.id] = { def = def, part = makeShard(def, pos), base = pos, phase = math.random() * 6, got = false, flying = false }
+    G.parts[def.id] = {
+      def = def, part = makeShard(def, pos), base = pos,
+      phase = math.random() * math.pi * 2,
+      radius = 1.5 + math.random() * 2,
+      speed = 0.6 + math.random() * 0.8,
+      got = false, flying = false,
+    }
+  end
+
+  -- 5 ловушек по кругу
+  for i = 1, 5 do
+    local a = (i - 1) / 5 * math.pi * 2
+    local d = 25 + math.random() * 15
+    local x, z = root.Position.X + math.cos(a) * d, root.Position.Z + math.sin(a) * d
+    local res = WS:Raycast(V3(x, root.Position.Y + 70, z), V3(0, -220, 0), rp)
+    local pos = V3(x, (res and res.Position.Y or root.Position.Y) + 4, z)
+    local r = 3.5 + math.random() * 1.5
+    local p = makeTrap(pos, r)
+    G.traps[#G.traps + 1] = {
+      part = p, r = r, baseAngle = a, baseRadius = d, angle = a,
+      angleSpeed = 0.4 + math.random() * 0.4,
+      baseY = pos.Y, bobPhase = math.random() * 6,
+      hitCooldown = 0,
+    }
   end
   return true
 end
 
--- ===== UI =====
+-- ============================================================
+--       UI
+-- ============================================================
 local function onClick(btn, fn, releaseOnly)
   local deb = false
   local function call()
@@ -209,10 +264,8 @@ local function onClick(btn, fn, releaseOnly)
   btn.MouseButton1Click:Connect(function() if inScroll() then call() end end)
   btn.Activated:Connect(call)
 end
-local function fmtTime(t)
-  t = math.max(0, math.floor(t))
-  return string.format("%d:%02d", math.floor(t / 60), t % 60)
-end
+local function fmtTime(t) t = math.max(0, math.floor(t)); return string.format("%d:%02d", math.floor(t / 60), t % 60) end
+
 local function uiRefresh()
   local u = G.ui
   if not u then return end
@@ -222,14 +275,25 @@ local function uiRefresh()
     local got = s and s.got
     if got then n = n + 1 end
     local sl = u.slots[def.id]
-    sl.BackgroundColor3 = got and def.col or C3(70, 70, 85)
-    sl.BackgroundTransparency = got and 0 or 0.45
+    if sl then
+      sl.BackgroundColor3 = got and def.col or C3(70, 70, 85)
+      sl.BackgroundTransparency = got and 0 or 0.45
+    end
   end
-  G.collector.collected = n
+  G.collected = n
   u.prog.Text = string.format("Собрано %d/%d", n, #PARTS)
-  u.timer.Text = G.active and ("⏱ " .. fmtTime(G.timer)) or "⏱ 2:00"
+  if G.state == "collecting" then
+    u.timer.Text = "⏱ " .. fmtTime(G.timer)
+  elseif G.state == "boss" and G.boss then
+    u.timer.Text = "⚔ БОСС"
+  elseif G.state == "won" then
+    u.timer.Text = "✅ ПОБЕДА"
+  else
+    u.timer.Text = "⏱ " .. fmtTime(G.timer)
+  end
   if u.btnOn then u.btnOn.Text = G.figure and "👁 ВЫКЛЮЧИТЬ ГАСТЕРА" or "👁 ВКЛЮЧИТЬ ГАСТЕРА" end
 end
+
 local function toast(text) if G.ui then G.ui.hint.Text = text end end
 local function closeUI()
   if G.ui and G.ui.sg then pcall(function() G.ui.sg:Destroy() end) end
@@ -243,9 +307,9 @@ local function buildUI()
   sg.Name = "OrbitGasterGui"; sg.ResetOnSpawn = false; sg.IgnoreGuiInset = true; sg.DisplayOrder = 25; sg.Parent = pg
   local cm = WS.CurrentCamera
   local vp = cm and cm.ViewportSize or Vector2.new(800, 400)
-  local w = math.min(360, vp.X - 24)
+  local w = math.min(380, vp.X - 24)
   local win = Instance.new("Frame")
-  win.AnchorPoint = Vector2.new(0.5, 0); win.Position = UDim2.new(0.5, 0, 0, 10); win.Size = UDim2.fromOffset(w, 200)
+  win.AnchorPoint = Vector2.new(0.5, 0); win.Position = UDim2.new(0.5, 0, 0, 10); win.Size = UDim2.fromOffset(w, 210)
   win.BackgroundColor3 = C3(16, 12, 26); win.BackgroundTransparency = 0.1; win.Parent = sg
   Instance.new("UICorner", win).CornerRadius = UDim.new(0, 12)
   local st = Instance.new("UIStroke"); st.Color = C3(200, 200, 255); st.Thickness = 2; st.Parent = win
@@ -265,27 +329,30 @@ local function buildUI()
     return b
   end
   local u = { sg = sg, slots = {} }
-  local title = lbl(10, 6, w - 20, 24, "👁 СОБЕРИ ГАСТЕРА", 16, C3(220, 220, 255))
+  local title = lbl(10, 6, w - 20, 24, "👁 СОБЕРИ ГАСТЕРА (16 осколков)", 15, C3(220, 220, 255))
   title.TextXAlignment = Enum.TextXAlignment.Center
+
   local sk = Instance.new("Frame")
-  sk.Position = UDim2.fromOffset(8, 34); sk.Size = UDim2.fromOffset(120, 156); sk.BackgroundTransparency = 1; sk.Parent = win
+  sk.Position = UDim2.fromOffset(8, 34); sk.Size = UDim2.fromOffset(120, 168); sk.BackgroundTransparency = 1; sk.Parent = win
   for _, def in ipairs(PARTS) do
     local f = Instance.new("Frame")
-    f.AnchorPoint = Vector2.new(0.5, 0.5); f.Position = UDim2.fromScale(def.px, def.py); f.Size = UDim2.fromOffset(def.sw, def.sh)
+    f.AnchorPoint = Vector2.new(0.5, 0.5); f.Position = UDim2.fromScale(def.px, def.py)
+    f.Size = UDim2.fromOffset(math.max(def.sw * 0.7, 8), math.max(def.sh * 0.7, 6))
     f.BackgroundColor3 = C3(70, 70, 85); f.BackgroundTransparency = 0.45; f.BorderSizePixel = 0; f.ZIndex = def.z; f.Parent = sk
-    Instance.new("UICorner", f).CornerRadius = UDim.new(0, def.round and 99 or 5)
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, def.round and 99 or 4)
     u.slots[def.id] = f
   end
+
   local x0, cw = 136, w - 144
-  u.prog = lbl(x0, 34, cw, 22, "Собрано 0/8", 15)
+  u.prog = lbl(x0, 34, cw, 22, "Собрано 0/16", 15)
   u.timer = lbl(x0, 58, cw, 22, "⏱ 2:00", 15)
-  u.hint = lbl(x0, 82, cw, 40, "Подойди к осколку или нажми на него. Далёкие прилетят сами.", 11, C3(170, 160, 200))
-  u.btnStart = btn(x0, 126, cw, "▶ СТАРТ")
-  u.btnReset = btn(x0, 162, math.floor(cw / 2) - 2, "↺ СБРОС")
-  u.btnClose = btn(x0 + math.floor(cw / 2) + 2, 162, math.floor(cw / 2) - 2, "✖ ЗАКРЫТЬ")
+  u.hint = lbl(x0, 82, cw, 44, "Осколки плавают. Ловушки (фиолетовые) — минус осколок! Собирай ВСЕ 16 — потом босс.", 10, C3(170, 160, 200))
+  u.btnStart = btn(x0, 132, cw, "▶ СТАРТ")
+  u.btnReset = btn(x0, 168, math.floor(cw / 2) - 2, "↺ СБРОС")
+  u.btnClose = btn(x0 + math.floor(cw / 2) + 2, 168, math.floor(cw / 2) - 2, "✖ ЗАКРЫТЬ")
   u.btnReset.TextSize = 11; u.btnClose.TextSize = 11
   if ORBIT.gasterUnlocked then
-    u.btnOn = btn(x0, 86, cw, "👁 ВКЛЮЧИТЬ ГАСТЕРА")
+    u.btnOn = btn(x0, 100, cw, "👁 ВКЛЮЧИТЬ ГАСТЕРА")
     u.btnOn.TextSize = 11; u.hint.Visible = false
     onClick(u.btnOn, function()
       if G.figure then G.removeFigure() else G.assemble(true) end
@@ -299,34 +366,113 @@ local function buildUI()
   uiRefresh()
 end
 
+-- ============================================================
+--       БОСС-UI (HP-бар сверху)
+-- ============================================================
+local function showBossUI()
+  local pg = LP:FindFirstChildOfClass("PlayerGui")
+  if not pg then return end
+  local old = pg:FindFirstChild("_OrbitGasterBoss")
+  if old then old:Destroy() end
+  local sg = Instance.new("ScreenGui")
+  sg.Name = "_OrbitGasterBoss"; sg.ResetOnSpawn = false; sg.IgnoreGuiInset = true; sg.DisplayOrder = 40; sg.Parent = pg
+  local frame = Instance.new("Frame")
+  frame.AnchorPoint = Vector2.new(0.5, 0); frame.Position = UDim2.new(0.5, 0, 0, 30)
+  frame.Size = UDim2.new(0, 500, 0, 60)
+  frame.BackgroundColor3 = C3(15, 10, 25); frame.BackgroundTransparency = 0.15; frame.Parent = sg
+  Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+  local st = Instance.new("UIStroke", frame); st.Color = C3(255, 100, 200); st.Thickness = 2
+
+  local nameLbl = Instance.new("TextLabel")
+  nameLbl.Size = UDim2.new(1, -20, 0, 22); nameLbl.Position = UDim2.new(0, 10, 0, 4)
+  nameLbl.BackgroundTransparency = 1; nameLbl.Text = "👁 ГАСТЕР — ФАЗА 1"
+  nameLbl.TextColor3 = C3(255, 200, 240); nameLbl.Font = Enum.Font.GothamBold
+  nameLbl.TextSize = 14; nameLbl.TextXAlignment = Enum.TextXAlignment.Left; nameLbl.Parent = frame
+
+  local hpBg = Instance.new("Frame")
+  hpBg.Size = UDim2.new(1, -20, 0, 20); hpBg.Position = UDim2.new(0, 10, 0, 30)
+  hpBg.BackgroundColor3 = C3(40, 20, 40); hpBg.BorderSizePixel = 0; hpBg.Parent = frame
+  Instance.new("UICorner", hpBg).CornerRadius = UDim.new(0, 6)
+
+  local hpFill = Instance.new("Frame")
+  hpFill.Size = UDim2.new(1, 0, 1, 0); hpFill.BackgroundColor3 = C3(255, 80, 180)
+  hpFill.BorderSizePixel = 0; hpFill.Parent = hpBg
+  Instance.new("UICorner", hpFill).CornerRadius = UDim.new(0, 6)
+  local gr = Instance.new("UIGradient", hpFill)
+  gr.Color = ColorSequence.new(C3(255, 80, 180), C3(180, 60, 255)); gr.Rotation = 0
+
+  local hpTxt = Instance.new("TextLabel")
+  hpTxt.Size = UDim2.new(1, 0, 1, 0); hpTxt.BackgroundTransparency = 1
+  hpTxt.Text = "500 / 500"; hpTxt.TextColor3 = C3(255, 255, 255)
+  hpTxt.Font = Enum.Font.GothamBold; hpTxt.TextSize = 12; hpTxt.ZIndex = 2; hpTxt.Parent = hpBg
+
+  G.bossUI = { sg = sg, frame = frame, nameLbl = nameLbl, hpFill = hpFill, hpTxt = hpTxt }
+end
+
+local function updateBossUI()
+  if not G.bossUI or not G.boss then return end
+  local b = G.boss
+  local frac = math.clamp(b.hp / b.maxHp, 0, 1)
+  G.bossUI.hpFill.Size = UDim2.new(frac, 0, 1, 0)
+  G.bossUI.hpTxt.Text = math.floor(b.hp) .. " / " .. b.maxHp
+  local phase = b.hp > b.maxHp * 0.66 and 1 or (b.hp > b.maxHp * 0.33 and 2 or 3)
+  if phase ~= b.phase then
+    b.phase = phase
+    G.bossUI.nameLbl.Text = "👁 ГАСТЕР — ФАЗА " .. phase
+    if phase == 2 then
+      G.bossUI.hpFill.BackgroundColor3 = C3(255, 130, 60)
+    elseif phase == 3 then
+      G.bossUI.hpFill.BackgroundColor3 = C3(255, 60, 60)
+    end
+  end
+end
+
+local function hideBossUI()
+  if G.bossUI and G.bossUI.sg then pcall(function() G.bossUI.sg:Destroy() end) end
+  G.bossUI = nil
+end
+
+-- ============================================================
+--       Игра
+-- ============================================================
 function G.start()
   if not alive then return false end
-  if G.active then toast("Игра уже идёт!"); return false end
+  if G.state == "collecting" or G.state == "boss" then toast("Игра уже идёт!"); return false end
   if not getChar() then return false end
   if not G.spawnParts() then return false end
-  G.timer = 120; G.active = true
+  G.timer = 120; G.state = "collecting"; G.collected = 0
   ping("ping", 1, 1.2)
-  toast("Собери все 8 осколков за 2 минуты!")
+  toast("Собери все 16 осколков! Осторожно — ловушки!")
   uiRefresh()
   return true
 end
+
 function G.reset()
   clearShards()
-  G.active = false; G.timer = 120
+  G.state = "idle"; G.timer = 120; G.collected = 0
+  hideBossUI()
+  G.boss = nil
   toast("Сброшено. Нажми СТАРТ.")
   uiRefresh()
 end
+
 function G.close()
-  if G.active then clearShards(); G.active = false end
+  if G.state == "collecting" or G.state == "boss" then
+    clearShards(); G.state = "idle"; G.boss = nil; hideBossUI()
+  end
   closeUI()
 end
-local function fail()
+
+local function fail(reason)
   clearShards()
-  G.active = false
+  G.state = "idle"
+  hideBossUI()
+  G.boss = nil
   ping("click", 1, 0.7)
-  toast("Время вышло! Нажми СТАРТ.")
+  toast(reason or "Время вышло! Нажми СТАРТ.")
   uiRefresh()
 end
+
 local function finalize(id)
   local s = G.parts[id]
   if not s or s.got then return end
@@ -336,15 +482,19 @@ local function finalize(id)
   uiRefresh()
   local n = 0
   for _, q in pairs(G.parts) do if q.got then n = n + 1 end end
-  if n >= #PARTS then G.assemble(false) end
+  if n >= #PARTS then
+    -- Все собраны → босс
+    task.delay(0.5, function() G.startBoss() end)
+  end
 end
+
 function G.collectPart(id)
   local s = G.parts[id]
-  if not alive or not G.active or not s or s.got or s.flying or not s.part then return false end
+  if not alive or G.state ~= "collecting" or not s or s.got or s.flying or not s.part then return false end
   local c, h, root = getChar()
   if not root then return false end
   local d = (root.Position - s.part.Position).Magnitude
-  if d > 10 then
+  if d > 12 then
     s.flying = true
     local tt = math.clamp(d / 70, 0.2, 1.2)
     local tw = TS:Create(s.part, TweenInfo.new(tt, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { CFrame = CF(root.Position) })
@@ -356,50 +506,185 @@ function G.collectPart(id)
   return true
 end
 
--- ===== Финал =====
-local function zigzag(a, b, col, th)
-  local pts, d = { a }, b - a
-  for i = 1, 5 do pts[#pts + 1] = a + d * (i / 6) + V3(math.random() - 0.5, 0, math.random() - 0.5) * 6 end
-  pts[#pts + 1] = b
-  for i = 1, #pts - 1 do
-    local diff = pts[i + 1] - pts[i]
-    if diff.Magnitude > 0.05 then
-      local p = Instance.new("Part")
-      p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false; p.Material = MAT.Neon
-      p.Color = col; p.Size = V3(th, th, diff.Magnitude); p.CFrame = CFrame.lookAt((pts[i] + pts[i + 1]) / 2, pts[i + 1])
-      p.Parent = fold(); Debris:AddItem(p, 0.18)
-    end
+-- игрок задел ловушку
+local function trapHit(trap)
+  if not trap or trap.hitCooldown > tick() then return end
+  trap.hitCooldown = tick() + 2
+  -- −1 осколок
+  local lost = nil
+  for id, s in pairs(G.parts) do
+    if s.got then s.got = false; lost = id; break end
   end
-end
-local function burstAt(pos, col, n)
-  local p = Instance.new("Part")
-  p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.Transparency = 1; p.Size = V3(0.2, 0.2, 0.2); p.Position = pos; p.Parent = fold()
+  ping("click", 1, 0.5)
+  toast("⚠️ ЛОВУШКА! −1 осколок")
+  if ORBIT.notify then ORBIT.notify("⚠️ Ловушка! Осколок потерян", C3(255, 100, 100), 2) end
+  uiRefresh()
+  -- визуальный взрыв на ловушке
+  local bp = Instance.new("Part")
+  bp.Anchored = true; bp.CanCollide = false; bp.Transparency = 1; bp.Size = V3(0.2, 0.2, 0.2)
+  bp.Position = trap.part.Position; bp.Parent = fold()
   local e = Instance.new("ParticleEmitter")
-  e.Color = ColorSequence.new(col); e.LightEmission = 1; e.Size = NumberSequence.new(0.7, 0)
-  e.Lifetime = NumberRange.new(0.4, 0.9); e.Speed = NumberRange.new(8, 18); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 0; e.Parent = p
-  e:Emit(n)
-  Debris:AddItem(p, 1.5)
+  e.Color = ColorSequence.new(COL_TRAP); e.LightEmission = 1
+  e.Size = NumberSequence.new(1.5, 0); e.Lifetime = NumberRange.new(0.5, 1)
+  e.Speed = NumberRange.new(15, 25); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 0
+  e.Parent = bp
+  e:Emit(50)
+  Debris:AddItem(bp, 1.5)
 end
-local function pickEnemy(center, maxd)
-  local list = {}
-  for _, pl in ipairs(Players:GetPlayers()) do
-    if pl ~= LP and pl.Character then
-      local h = pl.Character:FindFirstChildOfClass("Humanoid")
-      local r = pl.Character:FindFirstChild("HumanoidRootPart")
-      if h and r and h.Health > 0 and (r.Position - center).Magnitude <= maxd then list[#list + 1] = { hum = h, root = r } end
-    end
+
+-- ============================================================
+--       БОСС-ФАЙТ
+-- ============================================================
+function G.startBoss()
+  if not alive then return end
+  G.state = "boss"
+  -- пасхалка: финальная сцена
+  local c, h, root = getChar()
+  if root then
+    local cc = Instance.new("ColorCorrectionEffect")
+    cc.Name = "OrbitGasterBossCC"; cc.Parent = Lighting
+    G.cc = cc
+    TS:Create(cc, TweenInfo.new(1.5), { Brightness = -0.15, Saturation = -0.3, TintColor = C3(230, 230, 255) }):Play()
+    ping("laugh", 1, 0.8)
   end
-  if #list == 0 then return nil end
-  return list[math.random(#list)]
+  -- создать фигуру-босса
+  local data = createGaster(4.5, "GasterBoss")
+  data.model.Parent = fold()
+  local center = root and root.Position or V3(0, 10, 0)
+  local bp = center + V3(0, 6, -20)
+  pcall(function() data.model:PivotTo(CFrame.lookAt(bp, center)) end)
+  G.boss = {
+    data = data,
+    hp = 500, maxHp = 500,
+    phase = 1,
+    angle = 0,
+    riseT = 0,
+    nextShot = tick() + 3,
+    shotCharging = false,
+    chargeStart = 0,
+    chargeTarget = nil,
+    beamConn = nil,
+    fire = nil,
+    basePos = bp,
+    timeStart = tick(),
+  }
+  showBossUI()
+  updateBossUI()
+  toast("ГАСТЕР ПРОБУДИЛСЯ! Уклоняйся от лучей и бей своими способностями!")
+  if ORBIT.notify then
+    ORBIT.notify("👁 ГАСТЕР ПРОБУДИЛСЯ!", C3(255, 100, 200), 4)
+    ORBIT.notify("⚔️ Применяй свои способности — наноси урон!", C3(255, 200, 120), 5)
+  end
+  -- хук: урон от способностей игрока
+  task.spawn(function()
+    local ab = ORBIT.abilities
+    if not ab then return end
+    if ab._gasterHook then return end
+    ab._gasterHook = true
+    local origFire = ab.fireId
+    ab.fireId = function(id, ch)
+      local r = origFire(id, ch)
+      if r and G.boss and G.state == "boss" then
+        -- 25 урона за выстрел
+        G.damageBoss(25)
+      end
+      return r
+    end
+  end)
 end
+
+function G.damageBoss(n)
+  if not G.boss then return end
+  G.boss.hp = math.max(0, G.boss.hp - (n or 25))
+  updateBossUI()
+  -- визуальный удар
+  if G.boss.data and G.boss.data.model then
+    local m = G.boss.data.model
+    local pos = m:GetPivot().Position
+    local p = Instance.new("Part")
+    p.Anchored = true; p.CanCollide = false; p.Shape = PT_BALL
+    p.Size = V3(1.5, 1.5, 1.5); p.Material = MAT.Neon; p.Color = C3(255, 100, 200)
+    p.Transparency = 0.3; p.CFrame = CF(pos); p.Parent = fold()
+    TS:Create(p, TweenInfo.new(0.3), { Size = V3(6, 6, 6), Transparency = 1 }):Play()
+    Debris:AddItem(p, 0.4)
+  end
+  if G.boss.hp <= 0 then
+    G.winBoss()
+  end
+end
+
+function G.winBoss()
+  if not G.boss then return end
+  local b = G.boss
+  G.boss = nil
+  G.state = "won"
+  hideBossUI()
+  -- финальный взрыв
+  if b.data and b.data.model then
+    local pos = b.data.model:GetPivot().Position
+    for i = 1, 8 do
+      task.delay(i * 0.1, function()
+        if not alive then return end
+        local p = Instance.new("Part")
+        p.Anchored = true; p.CanCollide = false; p.Shape = PT_BALL
+        p.Size = V3(2, 2, 2); p.Material = MAT.Neon; p.Color = COL_BEAM
+        p.Transparency = 0.2
+        p.CFrame = CF(pos + V3(math.random(-8, 8), math.random(-8, 8), math.random(-8, 8)))
+        p.Parent = fold()
+        TS:Create(p, TweenInfo.new(0.6), { Size = V3(15, 15, 15), Transparency = 1 }):Play()
+        Debris:AddItem(p, 0.7)
+        ping("ping", 1, 0.6 + i * 0.1)
+      end)
+    end
+    task.delay(1, function()
+      if b.data and b.data.model then pcall(function() b.data.model:Destroy() end) end
+    end)
+  end
+  task.delay(1.2, function()
+    if G.cc then TS:Create(G.cc, TweenInfo.new(1.5), { Brightness = 0, Saturation = 0, TintColor = C3(255, 255, 255) }):Play() end
+    task.delay(1.8, function()
+      if G.cc then pcall(function() G.cc:Destroy() end); G.cc = nil end
+    end)
+  end)
+  -- фраза
+  local c, h, root = getChar()
+  if root and ORBIT.sans and ORBIT.sans.showAt then
+    pcall(ORBIT.sans.showAt, root.Position + V3(0, 6, 0), "Ты... справился. Неплохо.", 5)
+  end
+  ping("sans", 1, 1)
+  -- награда
+  ORBIT.gasterUnlocked = true
+  ORBIT.gasterWeaponUnlocked = true
+  ORBIT.saveData = ORBIT.saveData or {}
+  ORBIT.saveData.gasterUnlocked = true
+  ORBIT.saveData.gasterWeaponUnlocked = true
+  if ORBIT.saveSettings then pcall(ORBIT.saveSettings) end
+  if ORBIT.COINS then
+    ORBIT.COINS = (ORBIT.COINS or 0) + 500
+    if ORBIT.saveStorage then pcall(ORBIT.saveStorage) end
+    if ORBIT.notify then ORBIT.notify("💰 +500 монет за победу!", C3(255, 220, 100), 4) end
+  end
+  toast("✅ ГАСТЕР ПОВЕРЖЕН! Оружие доступно.")
+  if ORBIT.notify then
+    ORBIT.notify("🏆 ГАСТЕР ПОВЕРЖЕН!", C3(180, 255, 180), 5)
+    ORBIT.notify("⚔️ Гастер-оружие открыто (кнопка в меню)", C3(200, 220, 255), 5)
+  end
+  -- авто-включение фигуры
+  if not G.figure then task.delay(2, function() if alive then G.assemble(true) end end) end
+  uiRefresh()
+end
+
+-- ============================================================
+--       ФИГУРА (после победы, кружит вокруг игрока)
+-- ============================================================
 function G.removeFigure()
   token = token + 1
   if G.figure then
     pcall(function() G.figure.data.model:Destroy() end)
     G.figure = nil
   end
-  if G.cc then pcall(function() G.cc:Destroy() end); G.cc = nil end
 end
+
 local function buildFigure()
   local data = createGaster(3, "GasterOrbit")
   data.model.Parent = fold()
@@ -409,10 +694,13 @@ local function buildFigure()
   G.figure = f
   return f
 end
+
 function G.assemble(quick)
   if not alive then return false end
-  G.active = false
+  G.state = "won"
   clearShards()
+  hideBossUI()
+  G.boss = nil
   token = token + 1
   local my = token
   G.removeFigure()
@@ -423,25 +711,22 @@ function G.assemble(quick)
     local c, h, root = getChar()
     if not quick and root then
       toast("Что-то пробуждается...")
-      local cc = Instance.new("ColorCorrectionEffect")
-      cc.Name = "OrbitGasterCC"; cc.Parent = Lighting; G.cc = cc
-      TS:Create(cc, TweenInfo.new(1.5), { Brightness = -0.05, Saturation = -0.1, TintColor = C3(240, 240, 255) }):Play()
       ping("laugh", 1, 0.8)
-      local sp = Instance.new("Part")
-      sp.Anchored = true; sp.CanCollide = false; sp.CanQuery = false; sp.Transparency = 1; sp.Size = V3(8, 1, 8)
-      sp.Position = root.Position - V3(0, 2.5, 0); sp.Parent = fold()
-      local e = Instance.new("ParticleEmitter")
-      e.Texture = "rbxasset://textures/particles/smoke_main.dds"; e.Color = ColorSequence.new(C3(200, 200, 220))
-      e.Rate = 60; e.Lifetime = NumberRange.new(1, 2); e.Speed = NumberRange.new(3, 8); e.Size = NumberSequence.new(3, 5)
-      e.Transparency = NumberSequence.new(0.3, 1); e.EmissionDirection = Enum.NormalId.Top; e.Parent = sp
-      Debris:AddItem(sp, 6)
       for _ = 1, 6 do
         if not ok() then return end
         local c2, h2, r2 = getChar()
         if r2 then
           local o = r2.Position + V3(math.random(-12, 12), 0, math.random(-12, 12))
-          zigzag(o + V3(0, 45, 0), o, COL_GLOW, 0.5)
-          burstAt(o, COL_GLOW, 16)
+          local p = Instance.new("Part")
+          p.Anchored = true; p.CanCollide = false; p.Transparency = 1; p.Size = V3(0.2, 0.2, 0.2)
+          p.Position = o + V3(0, 40, 0); p.Parent = fold()
+          local e = Instance.new("ParticleEmitter")
+          e.Color = ColorSequence.new(COL_GLOW); e.LightEmission = 1
+          e.Size = NumberSequence.new(0.8, 0); e.Lifetime = NumberRange.new(0.5, 1)
+          e.Speed = NumberRange.new(15, 25); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 0
+          e.Parent = p
+          e:Emit(20)
+          Debris:AddItem(p, 1.5)
         end
         ping("snap", 0.8, 0.6 + math.random() * 0.4)
         task.wait(0.3)
@@ -455,116 +740,265 @@ function G.assemble(quick)
       local text = "Теперь ты знаешь, что такое настоящая сила."
       if r3 and ORBIT.sans and ORBIT.sans.showAt then
         pcall(ORBIT.sans.showAt, r3.Position + V3(0, 6, 0), text, 5)
-        pcall(function() ORBIT.sans.voiceUntil = tick() + 5 end)
       end
       ping("sans", 1, 1)
     end
-    ORBIT.gasterUnlocked = true
-    ORBIT.saveData = ORBIT.saveData or {}
-    ORBIT.saveData.gasterUnlocked = true
-    if ORBIT.saveSettings then pcall(ORBIT.saveSettings) end
-    toast("Гастер с тобой навсегда.")
     uiRefresh()
   end)
   return true
 end
-local function shoot(f, fr)
+
+-- ============================================================
+--       Главный цикл
+-- ============================================================
+local function shootBeam(f, fr)
   local from = f.charge and f.charge.Position or f.data.model:GetPivot().Position
   local to = fr.tpos
   local diff = to - from
   if diff.Magnitude > 0.5 then
     local p = Instance.new("Part")
     p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false; p.Material = MAT.Neon
-    -- ✨ БЕЛЫЙ луч
-    p.Color = COL_BEAM; p.Transparency = 0.15; p.Size = V3(1.8, 1.8, diff.Magnitude)
+    p.Color = COL_BEAM; p.Transparency = 0.1; p.Size = V3(2.2, 2.2, diff.Magnitude)
     p.CFrame = CFrame.lookAt((from + to) / 2, to); p.Parent = fold()
     TS:Create(p, TweenInfo.new(0.35), { Transparency = 1 }):Play()
-    Debris:AddItem(p, 0.45)
+    Debris:AddItem(p, 0.5)
   end
-  burstAt(to, COL_GLOW, 24)
-  if fr.hum and fr.hum.Parent and fr.hum.Health > 0 then pcall(function() fr.hum:TakeDamage(18) end) end
+  -- визуальный взрыв
+  local bp = Instance.new("Part")
+  bp.Anchored = true; bp.CanCollide = false; bp.Transparency = 1; bp.Size = V3(0.2, 0.2, 0.2)
+  bp.Position = to; bp.Parent = fold()
+  local e = Instance.new("ParticleEmitter")
+  e.Color = ColorSequence.new(COL_GLOW); e.LightEmission = 1
+  e.Size = NumberSequence.new(1.5, 0); e.Lifetime = NumberRange.new(0.5, 1)
+  e.Speed = NumberRange.new(15, 25); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 0
+  e.Parent = bp
+  e:Emit(30)
+  Debris:AddItem(bp, 1.5)
+  -- урон игроку если рядом
+  local c, h = getChar()
+  if c and h and h.Health > 0 then
+    local r = c:FindFirstChild("HumanoidRootPart")
+    if r and (r.Position - to).Magnitude < 6 then
+      pcall(function() h:TakeDamage(15) end)
+    end
+  end
   ping("snap", 1, 0.5)
 end
-local function stepFigure(dt, t)
-  local f = G.figure
-  local m = f.data.model
-  if not m.Parent then G.figure = nil; return end
+
+-- линия-предупреждение перед выстрелом
+local function showWarningLine(from, to)
+  local diff = to - from
+  if diff.Magnitude < 0.5 then return end
+  local p = Instance.new("Part")
+  p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false; p.Material = MAT.Neon
+  p.Color = C3(255, 60, 60); p.Transparency = 0.5
+  p.Size = V3(0.4, 0.4, diff.Magnitude)
+  p.CFrame = CFrame.lookAt((from + to) / 2, to); p.Parent = fold()
+  -- пульсирующая прозрачность
+  TS:Create(p, TweenInfo.new(0.4, Enum.EasingStyle.Linear), { Transparency = 0.1 }):Play()
+  Debris:AddItem(p, 0.5)
+end
+
+local function stepBoss(dt, t)
+  local b = G.boss
+  if not b then return end
+  local m = b.data.model
+  if not m.Parent then G.boss = nil; return end
   local c, h, root = getChar()
-  f.angle = f.angle + dt * 2 * math.pi / 30
-  f.riseT = math.min(1.5, f.riseT + dt)
-  local k = f.riseT / 1.5
+  b.angle = b.angle + dt * 0.8
+  b.riseT = math.min(1.5, b.riseT + dt)
+  local k = b.riseT / 1.5
   k = 1 - (1 - k) * (1 - k)
-  local center = root and root.Position or f.lastCenter or V3()
-  f.lastCenter = center
-  local ca, sa = math.cos(f.angle), math.sin(f.angle)
-  local pos = center + V3(ca * 8, 4 + math.sin(t * 1.5) * 0.5 - 12 * (1 - k), sa * 8)
-  local look = pos + V3(ca, 0, sa)
-  local fr = f.fire
-  if fr then look = fr.tpos end
+  local center = root and root.Position or b.lastCenter or V3()
+  b.lastCenter = center
+  local ca, sa = math.cos(b.angle), math.sin(b.angle)
+  local radius = 18
+  local pos = center + V3(ca * radius, 8 + math.sin(t * 1.5) * 1 - 12 * (1 - k), sa * radius)
+  local look = center
+  if b.fire then look = b.fire.tpos end
   pcall(function() m:PivotTo(CFrame.lookAt(pos, look)) end)
-  if k >= 1 then
-    if not fr and t >= f.nextShot then
-      f.nextShot = t + math.random(4, 7)
-      local tg = pickEnemy(center, 80)
-      if tg then f.fire = { t0 = t, hum = tg.hum, root = tg.root, tpos = tg.root.Position } end
+
+  if k < 1 then return end
+
+  -- атаки по фазам
+  local phase = b.hp > b.maxHp * 0.66 and 1 or (b.hp > b.maxHp * 0.33 and 2 or 3)
+  local shotCooldown = phase == 1 and 3 or (phase == 2 and 2.2 or 1.6)
+  local beamsPerShot = phase == 1 and 1 or (phase == 2 and 2 or 3)
+
+  if not b.shotCharging and t >= b.nextShot then
+    -- заряжаем
+    b.shotCharging = true
+    b.chargeStart = t
+    b.chargeTarget = center
+    b.beamsPerShot = beamsPerShot
+    -- предупреждение
+    if root then
+      for i = 1, beamsPerShot do
+        task.delay((i - 1) * 0.12, function()
+          if not alive or not G.boss then return end
+          local spread = (i - (beamsPerShot + 1) / 2) * 3
+          local predictedPos = root.Position + V3(spread, 2, 0)
+          showWarningLine(b.charge and b.charge.Position or m:GetPivot().Position, predictedPos)
+        end)
+      end
     end
-    fr = f.fire
-    if fr then
-      if fr.root and fr.root.Parent then fr.tpos = fr.root.Position end
-      local el = t - fr.t0
-      if f.light then f.light.Brightness = 1.5 + 4 * math.min(1, el / 0.5) end
-      if el >= 0.5 and not fr.shot then fr.shot = true; shoot(f, fr) end
-      if el >= 1.0 then f.fire = nil end
-    elseif f.light then
-      f.light.Brightness = 1.5 + 0.5 * math.sin(t * 3)
+  end
+
+  if b.shotCharging then
+    local el = t - b.chargeStart
+    if b.light then b.light.Brightness = 1.5 + 6 * math.min(1, el / 0.5) end
+    if el >= 0.5 and not b.shotFired then
+      b.shotFired = true
+      local c2, h2, r2 = getChar()
+      for i = 1, b.beamsPerShot do
+        local spread = (i - (b.beamsPerShot + 1) / 2) * 3
+        local from = b.charge and b.charge.Position or m:GetPivot().Position
+        local target = r2 and (r2.Position + V3(spread, 2, 0)) or (from + V3(0, 0, -50))
+        shootBeam(b, { tpos = target })
+      end
+    end
+    if el >= 0.8 then
+      b.shotCharging = false
+      b.shotFired = false
+      b.nextShot = t + shotCooldown
+    end
+  else
+    if b.light then b.light.Brightness = 1.5 + 0.5 * math.sin(t * 3) end
+  end
+end
+
+local function stepShards(dt, t)
+  if G.state ~= "collecting" then return end
+  for id, s in pairs(G.parts) do
+    if not s.got and s.part and s.part.Parent and not s.flying then
+      local ang = t * s.speed + s.phase
+      local offset = V3(math.cos(ang) * s.radius, math.sin(t * 2 + s.phase) * 0.8, math.sin(ang) * s.radius)
+      s.part.CFrame = CF(s.base + offset) * CFrame.Angles(0, t * 1.5 + s.phase, 0)
     end
   end
 end
 
--- ===== Главный цикл =====
-local slowAcc = 0
+local function stepTraps(dt, t)
+  if G.state ~= "collecting" then return end
+  local c, h, root = getChar()
+  if not root then return end
+  for i, tr in ipairs(G.traps) do
+    if tr.part and tr.part.Parent then
+      tr.angle = tr.angle + tr.angleSpeed * dt
+      local x = root.Position.X + math.cos(tr.angle) * tr.baseRadius
+      local z = root.Position.Z + math.sin(tr.angle) * tr.baseRadius
+      local y = tr.baseY + math.sin(t * 1.5 + tr.bobPhase) * 1.5
+      tr.part.CFrame = CF(V3(x, y, z))
+      -- касание игрока
+      local d = (tr.part.Position - root.Position).Magnitude
+      if d < tr.r / 2 + 3 then trapHit(tr) end
+    end
+  end
+end
+
 G.heartbeat = RS.Heartbeat:Connect(function(dt)
   if not alive then return end
   local t = tick()
-  slowAcc = slowAcc + dt
-  if slowAcc >= 1 then
-    slowAcc = 0
-    if not G.shapeRegistered then G.registerShape() end
+  if not G.shapeRegistered then
+    if not G._shapeAcc then G._shapeAcc = 0 end
+    G._shapeAcc = G._shapeAcc + dt
+    if G._shapeAcc > 1 then G._shapeAcc = 0; G.registerShape() end
   end
-  if G.active then
+
+  if G.state == "collecting" then
     G.timer = G.timer - dt
-    local _, _, root = getChar()
-    for id, s in pairs(G.parts) do
-      if not s.got and s.part and s.part.Parent and not s.flying then
-        s.part.CFrame = CF(s.base + V3(0, math.sin(t * 2 + s.phase) * 0.6, 0)) * CFrame.Angles(0, t * 1.5 + s.phase, 0)
-        if root and (root.Position - s.part.Position).Magnitude < 5 then G.collectPart(id) end
+    stepShards(dt, t)
+    stepTraps(dt, t)
+    -- авто-подбор близких
+    local c, h, root = getChar()
+    if root then
+      for id, s in pairs(G.parts) do
+        if not s.got and s.part and s.part.Parent and not s.flying then
+          if (root.Position - s.part.Position).Magnitude < 5 then G.collectPart(id) end
+        end
       end
     end
     if G.ui then G.ui.timer.Text = "⏱ " .. fmtTime(G.timer) end
-    if G.active and G.timer <= 0 then fail() end
+    if G.timer <= 0 then fail("Время вышло! Нажми СТАРТ.") end
+  elseif G.state == "boss" then
+    stepBoss(dt, t)
   end
-  if G.figure then stepFigure(dt, t) end
+
+  if G.figure then
+    -- старая логика фигуры (по желанию)
+    local f = G.figure
+    local m = f.data.model
+    if m.Parent then
+      local c, h, root = getChar()
+      f.angle = f.angle + dt * 2 * math.pi / 30
+      f.riseT = math.min(1.5, f.riseT + dt)
+      local kk = f.riseT / 1.5
+      kk = 1 - (1 - kk) * (1 - kk)
+      local center = root and root.Position or V3()
+      local ca, sa = math.cos(f.angle), math.sin(f.angle)
+      local pos = center + V3(ca * 8, 4 + math.sin(t * 1.5) * 0.5 - 12 * (1 - kk), sa * 8)
+      local look = pos + V3(ca, 0, sa)
+      pcall(function() m:PivotTo(CFrame.lookAt(pos, look)) end)
+      if kk >= 1 then
+        if t >= f.nextShot then
+          f.nextShot = t + math.random(4, 7)
+          local enemies = {}
+          for _, pl in ipairs(Players:GetPlayers()) do
+            if pl ~= LP and pl.Character then
+              local h2 = pl.Character:FindFirstChildOfClass("Humanoid")
+              local r2 = pl.Character:FindFirstChild("HumanoidRootPart")
+              if h2 and r2 and h2.Health > 0 and (r2.Position - center).Magnitude <= 80 then
+                enemies[#enemies + 1] = { hum = h2, root = r2 }
+              end
+            end
+          end
+          if #enemies > 0 then
+            local target = enemies[math.random(#enemies)]
+            f.fire = { t0 = t, hum = target.hum, root = target.root, tpos = target.root.Position }
+          end
+        end
+        if f.fire then
+          if f.fire.root and f.fire.root.Parent then f.fire.tpos = f.fire.root.Position end
+          local el = t - f.fire.t0
+          if f.light then f.light.Brightness = 1.5 + 4 * math.min(1, el / 0.5) end
+          if el >= 0.5 and not f.fire.shot then f.fire.shot = true; shootBeam(f, f.fire) end
+          if el >= 1.0 then f.fire = nil end
+        elseif f.light then
+          f.light.Brightness = 1.5 + 0.5 * math.sin(t * 3)
+        end
+      end
+    else
+      G.figure = nil
+    end
+  end
 end)
+
 function G.open()
   if not alive then return false end
-  if G.active then clearShards(); G.active = false end
   buildUI()
   return true
 end
+
 function G.destroy()
   if not alive then return end
   alive = false
   if G.heartbeat then pcall(function() G.heartbeat:Disconnect() end); G.heartbeat = nil end
   clearShards()
+  hideBossUI()
   closeUI()
   G.removeFigure()
-  G.active = false
+  G.state = "idle"
   if G.weapon and G.weapon.destroy then pcall(G.weapon.destroy) end
-  if helperWrapped and ORBIT.helper and origInterp then pcall(function() ORBIT.helper.interpret = origInterp end) end
+  if G.cc then pcall(function() G.cc:Destroy() end); G.cc = nil end
   if folder then pcall(function() folder:Destroy() end); folder = nil end
+  -- снять хук со abilities
+  local ab = ORBIT.abilities
+  if ab and ab._gasterHook then ab._gasterHook = nil end
 end
 
--- ===== Оружие (БЕЛОЕ) =====
+-- ============================================================
+--       ОРУЖИЕ (БЕЛОЕ)
+-- ============================================================
 local W = { equipped = false, models = {}, proj = {}, cdUntil = 0, conns = {}, side = 1 }
 local wFolder, wGui, wBtn = nil, nil, nil
 local function wFold()
@@ -603,7 +1037,16 @@ local function wExplode(pos)
   b.CFrame = CF(pos); b.Parent = wFold()
   TS:Create(b, TweenInfo.new(0.35), { Size = V3(12, 12, 12), Transparency = 1 }):Play()
   Debris:AddItem(b, 0.5)
-  burstAt(pos, COL_GLOW, 24)
+  local sp = Instance.new("Part")
+  sp.Anchored = true; sp.CanCollide = false; sp.Transparency = 1; sp.Size = V3(0.2, 0.2, 0.2)
+  sp.Position = pos; sp.Parent = wFold()
+  local e = Instance.new("ParticleEmitter")
+  e.Color = ColorSequence.new(COL_GLOW); e.LightEmission = 1
+  e.Size = NumberSequence.new(1.2, 0); e.Lifetime = NumberRange.new(0.5, 1)
+  e.Speed = NumberRange.new(10, 20); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 0
+  e.Parent = sp
+  e:Emit(24)
+  Debris:AddItem(sp, 1.5)
   for _, pl in ipairs(Players:GetPlayers()) do
     if pl ~= LP and pl.Character then
       local h = pl.Character:FindFirstChildOfClass("Humanoid")
@@ -613,6 +1056,7 @@ local function wExplode(pos)
   end
   ping("ping", 1, 1)
 end
+
 function W.shoot()
   if not alive or not W.equipped then return false end
   local t = tick()
@@ -630,12 +1074,10 @@ function W.shoot()
   local p = Instance.new("Part")
   p.Name = "GasterShot"; p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false
   p.Shape = PT_BALL; p.Size = V3(1.4, 1.4, 1.4); p.Material = MAT.Neon
-  -- ✨ БЕЛЫЙ снаряд
   p.Color = COL_BEAM
   p.CFrame = CF(origin); p:SetAttribute("NoRecolor", true); p.Parent = wFold()
   local l = Instance.new("PointLight"); l.Color = COL_GLOW; l.Range = 12; l.Brightness = 3; l.Parent = p
   W.proj[#W.proj + 1] = { part = p, vel = dir * 140, born = t }
-  burstAt(origin, COL_GLOW, 10)
   ping("ping", 1, 0.6)
   return true
 end
@@ -668,7 +1110,7 @@ function W.equip()
   if not alive then return false end
   if W.equipped then return true end
   if not (ORBIT.gasterUnlocked or ORBIT.gasterWeaponUnlocked) then
-    wNotify("🔒 Сначала пройди «Собери Гастера»"); return false
+    wNotify("🔒 Сначала пройди «Собери Гастера» и победи босса"); return false
   end
   local c, h = getChar()
   if not c or h.Health <= 0 then return false end
@@ -754,7 +1196,9 @@ function W.destroy()
 end
 G.weapon = W
 
--- ===== Экспорт =====
+-- ============================================================
+--       Экспорт
+-- ============================================================
 ORBIT.gaster = G
 if ORBIT.gasterUnlocked == nil then ORBIT.gasterUnlocked = false end
 G.registerShape()
@@ -764,6 +1208,12 @@ ORBIT.unload = function()
   pcall(G.destroy)
   if prevUnload then pcall(prevUnload) end
 end
--- Обновляем W каждый кадр
+
+-- Обновление W каждый кадр
 RS.Heartbeat:Connect(function(dt) if alive then W.update(dt) end end)
+
+if ORBIT.notify then
+  ORBIT.notify("👁 Гастер v24.3 (16 осколков + босс)", C3(220, 200, 255), 3)
+end
+
 return true
