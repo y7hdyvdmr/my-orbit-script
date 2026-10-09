@@ -2,9 +2,9 @@
 -- ЕДИНЫЙ файл: ядро + GUI + загрузчик 16 модулей (p2, p3, p4, p4b, shop, tools,
 -- extras, abilities, sans, deathfx, gaster, newfigures, animations, editor3d,
 -- minigame, anticheat). Счётчик считается от длины QUEUE, поэтому всегда 16.
--- BUILD: v24.0-r3 (защита от повторного запуска + диагностика)
+-- BUILD: v24.0-r4 (мягкий фильтр старого лоадера — не режет модули с упоминанием p1)
 
-local BUILD = "v24.0-r3"
+local BUILD = "v24.0-r4"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
 -- ============================================================
@@ -1204,10 +1204,24 @@ end
 ORBIT.refreshLoaderStatus = refreshStatus
 
 -- ============================================================
---              ЗАГРУЗКА ФАЙЛА (с диагностикой)
+--              ЗАГРУЗКА ФАЙЛА (мягкая защита от старого лоадера)
 -- ============================================================
 local BASE = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
-local SUSPECT = { "orbit_p1", "Running UI", "/17" }
+
+-- Только явные сигнатуры настоящего старого лоадера. НЕ режем файлы,
+-- где просто упомянут «orbit_p1» или «/17» в комментариях.
+local OLD_LOADER_SIGS = {
+    "Главный загрузчик: стаб ORBIT",
+    "flags: p4 не грузит shop/minigame сам",
+    "GENV._OrbitV24Loader = true",
+}
+
+local function looksLikeOldLoader(src)
+    for _, sig in ipairs(OLD_LOADER_SIGS) do
+        if src:find(sig, 1, true) then return sig end
+    end
+    return nil
+end
 
 local function fetchAndRun(file, attempts, tag)
     for attempt = 1, attempts do
@@ -1225,19 +1239,11 @@ local function fetchAndRun(file, attempts, tag)
             addLog("ERR", "loadstring недоступен")
             return false
         else
-            for _, pat in ipairs(SUSPECT) do
-                if src:find(pat, 1, true) then
-                    addLog("WARN", file .. " содержит «" .. pat .. "»")
-                    warn("[ORBIT LOADER] " .. file .. " содержит подозрительную строку: " .. pat)
-                end
-            end
             print(string.format("[ORBIT LOADER] %s  %d байт  «%s»", file, #src, (src:match("^[^\r\n]*") or ""):sub(1, 60)))
-            local firstLine = src:match("^[^\r\n]*") or ""
-            if src:find("Главный загрузчик: стаб ORBIT", 1, true)
-                or src:find("_OrbitV24Loader = true", 1, true)
-                or firstLine:find("orbit_loader.lua", 1, true) then
+            local badSig = looksLikeOldLoader(src)
+            if badSig then
                 addLog("ERR", file .. " — внутри СТАРЫЙ ЛОАДЕР, пропущен")
-                warn("[ORBIT LOADER] " .. url .. " содержит старый лоадер — не запускаю")
+                warn("[ORBIT LOADER] " .. url .. " содержит старый лоадер (" .. badSig .. ") — не запускаю")
                 ORBIT.currentFile = nil
                 return false
             end
