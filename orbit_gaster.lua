@@ -403,4 +403,367 @@ end
 local function buildFigure()
   local data = createGaster(3, "GasterOrbit")
   data.model.Parent = fold()
-  local f = { data = data, angle = 0, riseT = 0, next
+  local f = { data = data, angle = 0, riseT = 0, nextShot = tick() + 5, fire = nil }
+  f.charge = data.model:FindFirstChild("Charge")
+  f.light = f.charge and f.charge:FindFirstChild("GLight")
+  G.figure = f
+  return f
+end
+function G.assemble(quick)
+  if not alive then return false end
+  G.active = false
+  clearShards()
+  token = token + 1
+  local my = token
+  G.removeFigure()
+  token = my
+  uiRefresh()
+  task.spawn(function()
+    local function ok() return alive and token == my end
+    local c, h, root = getChar()
+    if not quick and root then
+      toast("Что-то пробуждается...")
+      local cc = Instance.new("ColorCorrectionEffect")
+      cc.Name = "OrbitGasterCC"; cc.Parent = Lighting; G.cc = cc
+      TS:Create(cc, TweenInfo.new(1.5), { Brightness = -0.05, Saturation = -0.1, TintColor = C3(240, 240, 255) }):Play()
+      ping("laugh", 1, 0.8)
+      local sp = Instance.new("Part")
+      sp.Anchored = true; sp.CanCollide = false; sp.CanQuery = false; sp.Transparency = 1; sp.Size = V3(8, 1, 8)
+      sp.Position = root.Position - V3(0, 2.5, 0); sp.Parent = fold()
+      local e = Instance.new("ParticleEmitter")
+      e.Texture = "rbxasset://textures/particles/smoke_main.dds"; e.Color = ColorSequence.new(C3(200, 200, 220))
+      e.Rate = 60; e.Lifetime = NumberRange.new(1, 2); e.Speed = NumberRange.new(3, 8); e.Size = NumberSequence.new(3, 5)
+      e.Transparency = NumberSequence.new(0.3, 1); e.EmissionDirection = Enum.NormalId.Top; e.Parent = sp
+      Debris:AddItem(sp, 6)
+      for _ = 1, 6 do
+        if not ok() then return end
+        local c2, h2, r2 = getChar()
+        if r2 then
+          local o = r2.Position + V3(math.random(-12, 12), 0, math.random(-12, 12))
+          zigzag(o + V3(0, 45, 0), o, COL_GLOW, 0.5)
+          burstAt(o, COL_GLOW, 16)
+        end
+        ping("snap", 0.8, 0.6 + math.random() * 0.4)
+        task.wait(0.3)
+      end
+      task.wait(0.3)
+    end
+    if not ok() then return end
+    buildFigure()
+    if root and not quick then
+      local c3, h3, r3 = getChar()
+      local text = "Теперь ты знаешь, что такое настоящая сила."
+      if r3 and ORBIT.sans and ORBIT.sans.showAt then
+        pcall(ORBIT.sans.showAt, r3.Position + V3(0, 6, 0), text, 5)
+        pcall(function() ORBIT.sans.voiceUntil = tick() + 5 end)
+      end
+      ping("sans", 1, 1)
+    end
+    ORBIT.gasterUnlocked = true
+    ORBIT.saveData = ORBIT.saveData or {}
+    ORBIT.saveData.gasterUnlocked = true
+    if ORBIT.saveSettings then pcall(ORBIT.saveSettings) end
+    toast("Гастер с тобой навсегда.")
+    uiRefresh()
+  end)
+  return true
+end
+local function shoot(f, fr)
+  local from = f.charge and f.charge.Position or f.data.model:GetPivot().Position
+  local to = fr.tpos
+  local diff = to - from
+  if diff.Magnitude > 0.5 then
+    local p = Instance.new("Part")
+    p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false; p.Material = MAT.Neon
+    -- ✨ БЕЛЫЙ луч
+    p.Color = COL_BEAM; p.Transparency = 0.15; p.Size = V3(1.8, 1.8, diff.Magnitude)
+    p.CFrame = CFrame.lookAt((from + to) / 2, to); p.Parent = fold()
+    TS:Create(p, TweenInfo.new(0.35), { Transparency = 1 }):Play()
+    Debris:AddItem(p, 0.45)
+  end
+  burstAt(to, COL_GLOW, 24)
+  if fr.hum and fr.hum.Parent and fr.hum.Health > 0 then pcall(function() fr.hum:TakeDamage(18) end) end
+  ping("snap", 1, 0.5)
+end
+local function stepFigure(dt, t)
+  local f = G.figure
+  local m = f.data.model
+  if not m.Parent then G.figure = nil; return end
+  local c, h, root = getChar()
+  f.angle = f.angle + dt * 2 * math.pi / 30
+  f.riseT = math.min(1.5, f.riseT + dt)
+  local k = f.riseT / 1.5
+  k = 1 - (1 - k) * (1 - k)
+  local center = root and root.Position or f.lastCenter or V3()
+  f.lastCenter = center
+  local ca, sa = math.cos(f.angle), math.sin(f.angle)
+  local pos = center + V3(ca * 8, 4 + math.sin(t * 1.5) * 0.5 - 12 * (1 - k), sa * 8)
+  local look = pos + V3(ca, 0, sa)
+  local fr = f.fire
+  if fr then look = fr.tpos end
+  pcall(function() m:PivotTo(CFrame.lookAt(pos, look)) end)
+  if k >= 1 then
+    if not fr and t >= f.nextShot then
+      f.nextShot = t + math.random(4, 7)
+      local tg = pickEnemy(center, 80)
+      if tg then f.fire = { t0 = t, hum = tg.hum, root = tg.root, tpos = tg.root.Position } end
+    end
+    fr = f.fire
+    if fr then
+      if fr.root and fr.root.Parent then fr.tpos = fr.root.Position end
+      local el = t - fr.t0
+      if f.light then f.light.Brightness = 1.5 + 4 * math.min(1, el / 0.5) end
+      if el >= 0.5 and not fr.shot then fr.shot = true; shoot(f, fr) end
+      if el >= 1.0 then f.fire = nil end
+    elseif f.light then
+      f.light.Brightness = 1.5 + 0.5 * math.sin(t * 3)
+    end
+  end
+end
+
+-- ===== Главный цикл =====
+local slowAcc = 0
+G.heartbeat = RS.Heartbeat:Connect(function(dt)
+  if not alive then return end
+  local t = tick()
+  slowAcc = slowAcc + dt
+  if slowAcc >= 1 then
+    slowAcc = 0
+    if not G.shapeRegistered then G.registerShape() end
+  end
+  if G.active then
+    G.timer = G.timer - dt
+    local _, _, root = getChar()
+    for id, s in pairs(G.parts) do
+      if not s.got and s.part and s.part.Parent and not s.flying then
+        s.part.CFrame = CF(s.base + V3(0, math.sin(t * 2 + s.phase) * 0.6, 0)) * CFrame.Angles(0, t * 1.5 + s.phase, 0)
+        if root and (root.Position - s.part.Position).Magnitude < 5 then G.collectPart(id) end
+      end
+    end
+    if G.ui then G.ui.timer.Text = "⏱ " .. fmtTime(G.timer) end
+    if G.active and G.timer <= 0 then fail() end
+  end
+  if G.figure then stepFigure(dt, t) end
+end)
+function G.open()
+  if not alive then return false end
+  if G.active then clearShards(); G.active = false end
+  buildUI()
+  return true
+end
+function G.destroy()
+  if not alive then return end
+  alive = false
+  if G.heartbeat then pcall(function() G.heartbeat:Disconnect() end); G.heartbeat = nil end
+  clearShards()
+  closeUI()
+  G.removeFigure()
+  G.active = false
+  if G.weapon and G.weapon.destroy then pcall(G.weapon.destroy) end
+  if helperWrapped and ORBIT.helper and origInterp then pcall(function() ORBIT.helper.interpret = origInterp end) end
+  if folder then pcall(function() folder:Destroy() end); folder = nil end
+end
+
+-- ===== Оружие (БЕЛОЕ) =====
+local W = { equipped = false, models = {}, proj = {}, cdUntil = 0, conns = {}, side = 1 }
+local wFolder, wGui, wBtn = nil, nil, nil
+local function wFold()
+  if wFolder and wFolder.Parent then return wFolder end
+  wFolder = Instance.new("Folder"); wFolder.Name = "OrbitAtmo_GasterWeapon_" .. LP.UserId; wFolder.Parent = WS
+  return wFolder
+end
+local function wNotify(text) if ORBIT.notify then pcall(ORBIT.notify, text, C3(220, 220, 255), 3) end end
+local function getHands(char)
+  local hum = char:FindFirstChildOfClass("Humanoid")
+  local r15 = hum ~= nil and hum.RigType == Enum.HumanoidRigType.R15
+  if r15 then
+    return char:FindFirstChild("LeftHand") or char:FindFirstChild("LeftLowerArm"), char:FindFirstChild("RightHand") or char:FindFirstChild("RightLowerArm"), true
+  end
+  return char:FindFirstChild("Left Arm"), char:FindFirstChild("Right Arm"), false
+end
+local function handCF(hand, r15)
+  if r15 then return hand.CFrame * CF(0, 0, -1.2) end
+  return hand.CFrame * CF(0, -1, -1.2)
+end
+local function wAim(origin)
+  local cm = WS.CurrentCamera
+  if not cm then return origin + V3(0, 0, -50) end
+  local sp = UIS_W.MouseEnabled and UIS_W:GetMouseLocation() or (cm.ViewportSize / 2)
+  local ray = cm:ViewportPointToRay(sp.X, sp.Y)
+  local rp = RaycastParams.new()
+  rp.FilterType = Enum.RaycastFilterType.Exclude
+  rp.FilterDescendantsInstances = { LP.Character or wFold(), wFold(), fold() }
+  local res = WS:Raycast(ray.Origin, ray.Direction * 400, rp)
+  return res and res.Position or (ray.Origin + ray.Direction * 400)
+end
+local function wExplode(pos)
+  local b = Instance.new("Part")
+  b.Anchored = true; b.CanCollide = false; b.CanQuery = false; b.CanTouch = false; b.Shape = PT_BALL
+  b.Material = MAT.Neon; b.Color = COL_BEAM; b.Transparency = 0.25; b.Size = V3(1, 1, 1)
+  b.CFrame = CF(pos); b.Parent = wFold()
+  TS:Create(b, TweenInfo.new(0.35), { Size = V3(12, 12, 12), Transparency = 1 }):Play()
+  Debris:AddItem(b, 0.5)
+  burstAt(pos, COL_GLOW, 24)
+  for _, pl in ipairs(Players:GetPlayers()) do
+    if pl ~= LP and pl.Character then
+      local h = pl.Character:FindFirstChildOfClass("Humanoid")
+      local r = pl.Character:FindFirstChild("HumanoidRootPart")
+      if h and r and h.Health > 0 and (r.Position - pos).Magnitude <= 6 then pcall(h.TakeDamage, h, 30) end
+    end
+  end
+  ping("ping", 1, 1)
+end
+function W.shoot()
+  if not alive or not W.equipped then return false end
+  local t = tick()
+  if t < W.cdUntil then return false end
+  local c, h = getChar()
+  if not c or h.Health <= 0 then return false end
+  W.cdUntil = t + 0.8
+  W.side = -W.side
+  local m = W.models[W.side == 1 and "R" or "L"] or W.models.R or W.models.L
+  local charge = m and m:FindFirstChild("Charge")
+  local origin = charge and charge.Position or (c.PrimaryPart and c.PrimaryPart.Position) or V3()
+  local dir = wAim(origin) - origin
+  if dir.Magnitude < 0.5 then dir = (c.PrimaryPart and c.PrimaryPart.CFrame.LookVector) or V3(0, 0, -1) end
+  dir = dir.Unit
+  local p = Instance.new("Part")
+  p.Name = "GasterShot"; p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CanTouch = false
+  p.Shape = PT_BALL; p.Size = V3(1.4, 1.4, 1.4); p.Material = MAT.Neon
+  -- ✨ БЕЛЫЙ снаряд
+  p.Color = COL_BEAM
+  p.CFrame = CF(origin); p:SetAttribute("NoRecolor", true); p.Parent = wFold()
+  local l = Instance.new("PointLight"); l.Color = COL_GLOW; l.Range = 12; l.Brightness = 3; l.Parent = p
+  W.proj[#W.proj + 1] = { part = p, vel = dir * 140, born = t }
+  burstAt(origin, COL_GLOW, 10)
+  ping("ping", 1, 0.6)
+  return true
+end
+local function wShowBtn(on)
+  if not UIS_W.TouchEnabled then return end
+  if on and not wGui then
+    local pg = LP:FindFirstChildOfClass("PlayerGui")
+    if not pg then return end
+    wGui = Instance.new("ScreenGui")
+    wGui.Name = "OrbitGasterWeaponGui"; wGui.ResetOnSpawn = false; wGui.IgnoreGuiInset = true; wGui.DisplayOrder = 22; wGui.Parent = pg
+    wBtn = Instance.new("TextButton")
+    wBtn.AnchorPoint = Vector2.new(1, 1); wBtn.Position = UDim2.new(1, -110, 1, -125); wBtn.Size = UDim2.fromOffset(56, 56)
+    wBtn.Text = "👁"; wBtn.TextSize = 28; wBtn.Font = Enum.Font.GothamBold; wBtn.TextColor3 = C3(255, 255, 255)
+    wBtn.BackgroundColor3 = C3(90, 90, 130); wBtn.BackgroundTransparency = 0.1; wBtn.AutoButtonColor = false; wBtn.Parent = wGui
+    Instance.new("UICorner", wBtn).CornerRadius = UDim.new(0, 28)
+    local t0 = 0
+    wBtn.InputBegan:Connect(function(i)
+      if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then t0 = tick() end
+    end)
+    wBtn.InputEnded:Connect(function(i)
+      if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+        if tick() - t0 > 0.6 then W.unequip() else W.shoot() end
+      end
+    end)
+  elseif not on and wGui then
+    pcall(function() wGui:Destroy() end); wGui, wBtn = nil, nil
+  end
+end
+function W.equip()
+  if not alive then return false end
+  if W.equipped then return true end
+  if not (ORBIT.gasterUnlocked or ORBIT.gasterWeaponUnlocked) then
+    wNotify("🔒 Сначала пройди «Собери Гастера»"); return false
+  end
+  local c, h = getChar()
+  if not c or h.Health <= 0 then return false end
+  for _, k in ipairs({ "L", "R" }) do
+    local data = createGaster(0.55, "GasterHand" .. k)
+    data.model.Parent = wFold()
+    for _, d in ipairs(data.model:GetDescendants()) do
+      if d:IsA("BasePart") then d:SetAttribute("NoRecolor", true) end
+    end
+    W.models[k] = data.model
+  end
+  W.equipped = true
+  wShowBtn(true)
+  ORBIT.gasterWeaponUnlocked = true
+  ORBIT.saveData = ORBIT.saveData or {}
+  ORBIT.saveData.gasterWeaponUnlocked = true
+  if ORBIT.saveSettings then pcall(ORBIT.saveSettings) end
+  wNotify("👁 Гастеры в руках: G — выстрел, H — снять")
+  return true
+end
+function W.unequip()
+  W.equipped = false
+  for k, m in pairs(W.models) do pcall(function() m:Destroy() end); W.models[k] = nil end
+  for _, q in ipairs(W.proj) do pcall(function() q.part:Destroy() end) end
+  W.proj = {}
+  wShowBtn(false)
+end
+function W.toggle() if W.equipped then W.unequip() else W.equip() end end
+function W.update(dt)
+  if not W.equipped then return end
+  local c, h = getChar()
+  if not c or h.Health <= 0 then W.unequip(); return end
+  local lh, rh, r15 = getHands(c)
+  if lh and W.models.L then pcall(function() W.models.L:PivotTo(handCF(lh, r15)) end) end
+  if rh and W.models.R then pcall(function() W.models.R:PivotTo(handCF(rh, r15)) end) end
+  if #W.proj == 0 then return end
+  local rp = RaycastParams.new()
+  rp.FilterType = Enum.RaycastFilterType.Exclude
+  rp.FilterDescendantsInstances = { c, wFold(), fold() }
+  local t = tick()
+  for i = #W.proj, 1, -1 do
+    local q = W.proj[i]
+    if not q.part.Parent or t - q.born > 2.5 then
+      pcall(function() q.part:Destroy() end); table.remove(W.proj, i)
+    else
+      local from = q.part.Position
+      local to = from + q.vel * dt
+      local hit
+      local res = WS:Raycast(from, to - from, rp)
+      if res then
+        local m = res.Instance:FindFirstAncestorOfClass("Model")
+        if res.Instance.CanCollide or (m and m:FindFirstChildOfClass("Humanoid")) then hit = res.Position end
+      end
+      if not hit then
+        for _, pl in ipairs(Players:GetPlayers()) do
+          local r = pl ~= LP and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
+          if r and (r.Position - to).Magnitude < 3 then hit = to; break end
+        end
+      end
+      if hit then
+        table.remove(W.proj, i)
+        pcall(function() q.part:Destroy() end)
+        wExplode(hit)
+      else
+        q.part.CFrame = CF(to)
+      end
+    end
+  end
+end
+W.conns[#W.conns + 1] = UIS_W.InputBegan:Connect(function(i, gp)
+  if gp or not alive or i.UserInputType ~= Enum.UserInputType.Keyboard then return end
+  if i.KeyCode == Enum.KeyCode.G then
+    if W.equipped then W.shoot() else W.equip() end
+  elseif i.KeyCode == Enum.KeyCode.H then
+    W.unequip()
+  end
+end)
+function W.destroy()
+  W.unequip()
+  for _, c in ipairs(W.conns) do pcall(function() c:Disconnect() end) end
+  W.conns = {}
+  if wFolder then pcall(function() wFolder:Destroy() end); wFolder = nil end
+end
+G.weapon = W
+
+-- ===== Экспорт =====
+ORBIT.gaster = G
+if ORBIT.gasterUnlocked == nil then ORBIT.gasterUnlocked = false end
+G.registerShape()
+ORBIT.loaded.gaster = true
+local prevUnload = ORBIT.unload
+ORBIT.unload = function()
+  pcall(G.destroy)
+  if prevUnload then pcall(prevUnload) end
+end
+-- Обновляем W каждый кадр
+RS.Heartbeat:Connect(function(dt) if alive then W.update(dt) end end)
+return true
