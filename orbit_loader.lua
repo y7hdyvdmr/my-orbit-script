@@ -2,9 +2,9 @@
 -- ЕДИНЫЙ файл: ядро + GUI + загрузчик 16 модулей (p2, p3, p4, p4b, shop, tools,
 -- extras, abilities, sans, deathfx, gaster, newfigures, animations, editor3d,
 -- minigame, anticheat). Счётчик считается от длины QUEUE, поэтому всегда 16.
--- BUILD: v24.0-r4 (мягкий фильтр старого лоадера — не режет модули с упоминанием p1)
+-- BUILD: v24.0-r5 (фильтр старого лоадера применяется только к самому loader)
 
-local BUILD = "v24.0-r4"
+local BUILD = "v24.0-r5"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
 -- ============================================================
@@ -1204,19 +1204,21 @@ end
 ORBIT.refreshLoaderStatus = refreshStatus
 
 -- ============================================================
---              ЗАГРУЗКА ФАЙЛА (мягкая защита от старого лоадера)
+--              ЗАГРУЗКА ФАЙЛА (фильтр старого лоадера — только для самого loader)
 -- ============================================================
 local BASE = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
 
--- Только явные сигнатуры настоящего старого лоадера. НЕ режем файлы,
--- где просто упомянут «orbit_p1» или «/17» в комментариях.
+-- Сигнатуры настоящего старого лоадера. Применяются ТОЛЬКО к файлу orbit_loader.lua,
+-- чтобы случайно не заблокировать модули (orbit_p4b и т.п.), где эти строки
+-- могут встречаться в комментариях.
 local OLD_LOADER_SIGS = {
     "Главный загрузчик: стаб ORBIT",
     "flags: p4 не грузит shop/minigame сам",
     "GENV._OrbitV24Loader = true",
 }
 
-local function looksLikeOldLoader(src)
+local function looksLikeOldLoader(src, file)
+    if tostring(file) ~= "orbit_loader.lua" then return nil end
     for _, sig in ipairs(OLD_LOADER_SIGS) do
         if src:find(sig, 1, true) then return sig end
     end
@@ -1240,7 +1242,7 @@ local function fetchAndRun(file, attempts, tag)
             return false
         else
             print(string.format("[ORBIT LOADER] %s  %d байт  «%s»", file, #src, (src:match("^[^\r\n]*") or ""):sub(1, 60)))
-            local badSig = looksLikeOldLoader(src)
+            local badSig = looksLikeOldLoader(src, file)
             if badSig then
                 addLog("ERR", file .. " — внутри СТАРЫЙ ЛОАДЕР, пропущен")
                 warn("[ORBIT LOADER] " .. url .. " содержит старый лоадер (" .. badSig .. ") — не запускаю")
