@@ -1,5 +1,6 @@
--- ORBIT v24.3 | orbit_gaster.lua
--- Мини-игра «Собери Гастера» + ловушки + босс-файт + белое оружие
+-- ORBIT v24.4 | orbit_gaster.lua
+-- 16 осколков + ловушки + босс-файт + белое оружие.
+-- v24.4: "ЗАКРЫТЬ" прячет UI, но НЕ сбрасывает игру.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -17,7 +18,6 @@ local LP = Players.LocalPlayer
 local V3, CF, C3 = Vector3.new, CFrame.new, Color3.fromRGB
 local PT_BLOCK, PT_BALL, MAT = Enum.PartType.Block, Enum.PartType.Ball, Enum.Material
 
--- Белая палитра
 local COL_BEAM   = C3(255, 255, 255)
 local COL_CHARGE = C3(240, 250, 255)
 local COL_GLOW   = C3(230, 240, 255)
@@ -25,7 +25,7 @@ local COL_TRAP   = C3(220, 80, 255)
 
 local G = {
   active = false,
-  state = "idle",  -- idle / collecting / boss / won
+  state = "idle",
   parts = {},
   traps = {},
   figure = nil,
@@ -33,12 +33,10 @@ local G = {
   bossUI = nil,
   timer = 120,
   shapeRegistered = false,
+  uiHidden = false,
 }
 local alive, folder, token = true, nil, 0
 
--- ============================================================
---       16 ОСКОЛКОВ
--- ============================================================
 local PARTS = {
   { id = "head",   nm = "Голова",       col = C3(250, 245, 235), shape = PT_BLOCK, sz = 2.4, px = 0.5,  py = 0.14, sw = 46, sh = 34, z = 1 },
   { id = "eyeL",   nm = "Левый глаз",   col = C3(120, 230, 255), shape = PT_BALL,  sz = 1.4, px = 0.4,  py = 0.13, sw = 10, sh = 10, z = 3, round = true },
@@ -74,7 +72,7 @@ local function getChar()
 end
 
 -- ============================================================
---       БЕЛЫЙ ГАСТЕР
+--       Белый Гастер
 -- ============================================================
 local function mkp(model, name, size, cf, col, mat, nr, tr)
   local p
@@ -150,7 +148,7 @@ end
 G.create = createGaster
 
 -- ============================================================
---       МИР: осколки + ловушки
+--       Мир: осколки + ловушки
 -- ============================================================
 local function rayParams()
   local rp = RaycastParams.new()
@@ -196,7 +194,6 @@ local function makeTrap(pos, r)
   local e = Instance.new("ParticleEmitter")
   e.Color = ColorSequence.new(COL_TRAP); e.LightEmission = 1; e.Size = NumberSequence.new(0.6, 0)
   e.Lifetime = NumberRange.new(0.4, 0.8); e.Speed = NumberRange.new(3, 8); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 60; e.Parent = p
-  local t = Instance.new("PointLight") -- no-op, just structure
   return p
 end
 
@@ -207,7 +204,6 @@ function G.spawnParts()
   local placed = {}
   local rp = rayParams()
 
-  -- 16 осколков
   for _, def in ipairs(PARTS) do
     local pos
     for _ = 1, 12 do
@@ -229,7 +225,6 @@ function G.spawnParts()
     }
   end
 
-  -- 5 ловушек по кругу
   for i = 1, 5 do
     local a = (i - 1) / 5 * math.pi * 2
     local d = 25 + math.random() * 15
@@ -295,10 +290,12 @@ local function uiRefresh()
 end
 
 local function toast(text) if G.ui then G.ui.hint.Text = text end end
+
 local function closeUI()
   if G.ui and G.ui.sg then pcall(function() G.ui.sg:Destroy() end) end
   G.ui = nil
 end
+
 local function buildUI()
   closeUI()
   local pg = LP:FindFirstChildOfClass("PlayerGui")
@@ -349,7 +346,7 @@ local function buildUI()
   u.hint = lbl(x0, 82, cw, 44, "Осколки плавают. Ловушки (фиолетовые) — минус осколок! Собирай ВСЕ 16 — потом босс.", 10, C3(170, 160, 200))
   u.btnStart = btn(x0, 132, cw, "▶ СТАРТ")
   u.btnReset = btn(x0, 168, math.floor(cw / 2) - 2, "↺ СБРОС")
-  u.btnClose = btn(x0 + math.floor(cw / 2) + 2, 168, math.floor(cw / 2) - 2, "✖ ЗАКРЫТЬ")
+  u.btnClose = btn(x0 + math.floor(cw / 2) + 2, 168, math.floor(cw / 2) - 2, "✖ СКРЫТЬ")
   u.btnReset.TextSize = 11; u.btnClose.TextSize = 11
   if ORBIT.gasterUnlocked then
     u.btnOn = btn(x0, 100, cw, "👁 ВКЛЮЧИТЬ ГАСТЕРА")
@@ -361,13 +358,41 @@ local function buildUI()
   end
   onClick(u.btnStart, function() G.start() end, true)
   onClick(u.btnReset, function() G.reset() end, true)
-  onClick(u.btnClose, function() G.close() end, true)
+  -- ✨ v24.4: СКРЫТЬ — просто прячет UI, игра продолжается
+  onClick(u.btnClose, function() G.hideUI() end, true)
   G.ui = u
   uiRefresh()
 end
 
+-- ✨ v24.4: отдельные функции для показа/скрытия UI
+function G.hideUI()
+  if G.ui and G.ui.sg then
+    G.ui.sg.Enabled = false
+    G.uiHidden = true
+    if ORBIT.notify then
+      ORBIT.notify("👁 UI скрыт, но игра идёт. Вернуть: кнопка «Собери Гастера» в меню", C3(200, 220, 255), 3)
+    end
+  end
+end
+
+function G.showUI()
+  if G.ui and G.ui.sg then
+    G.ui.sg.Enabled = true
+    G.uiHidden = false
+  else
+    -- UI нет — пересоздаём
+    buildUI()
+    G.uiHidden = false
+  end
+end
+
+function G.close()
+  -- полное закрытие (с выгрузкой UI, но игра тоже)
+  G.hideUI()
+end
+
 -- ============================================================
---       БОСС-UI (HP-бар сверху)
+--       БОСС-UI
 -- ============================================================
 local function showBossUI()
   local pg = LP:FindFirstChildOfClass("PlayerGui")
@@ -437,13 +462,17 @@ end
 -- ============================================================
 function G.start()
   if not alive then return false end
-  if G.state == "collecting" or G.state == "boss" then toast("Игра уже идёт!"); return false end
+  if G.state == "collecting" or G.state == "boss" then
+    if G.ui then toast("Игра уже идёт!") end
+    return false
+  end
   if not getChar() then return false end
   if not G.spawnParts() then return false end
   G.timer = 120; G.state = "collecting"; G.collected = 0
   ping("ping", 1, 1.2)
-  toast("Собери все 16 осколков! Осторожно — ловушки!")
+  if G.ui then toast("Собери все 16 осколков! Осторожно — ловушки!") end
   uiRefresh()
+  if ORBIT.notify then ORBIT.notify("👁 Игра началась! 16 осколков + ловушки", C3(200, 220, 255), 3) end
   return true
 end
 
@@ -452,15 +481,9 @@ function G.reset()
   G.state = "idle"; G.timer = 120; G.collected = 0
   hideBossUI()
   G.boss = nil
-  toast("Сброшено. Нажми СТАРТ.")
+  if G.ui then toast("Сброшено. Нажми СТАРТ.") end
   uiRefresh()
-end
-
-function G.close()
-  if G.state == "collecting" or G.state == "boss" then
-    clearShards(); G.state = "idle"; G.boss = nil; hideBossUI()
-  end
-  closeUI()
+  if ORBIT.notify then ORBIT.notify("↺ Игра сброшена", C3(255, 200, 120), 2) end
 end
 
 local function fail(reason)
@@ -469,7 +492,7 @@ local function fail(reason)
   hideBossUI()
   G.boss = nil
   ping("click", 1, 0.7)
-  toast(reason or "Время вышло! Нажми СТАРТ.")
+  if G.ui then toast(reason or "Время вышло! Нажми СТАРТ.") end
   uiRefresh()
 end
 
@@ -483,7 +506,6 @@ local function finalize(id)
   local n = 0
   for _, q in pairs(G.parts) do if q.got then n = n + 1 end end
   if n >= #PARTS then
-    -- Все собраны → босс
     task.delay(0.5, function() G.startBoss() end)
   end
 end
@@ -506,20 +528,17 @@ function G.collectPart(id)
   return true
 end
 
--- игрок задел ловушку
 local function trapHit(trap)
   if not trap or trap.hitCooldown > tick() then return end
   trap.hitCooldown = tick() + 2
-  -- −1 осколок
   local lost = nil
   for id, s in pairs(G.parts) do
     if s.got then s.got = false; lost = id; break end
   end
   ping("click", 1, 0.5)
-  toast("⚠️ ЛОВУШКА! −1 осколок")
+  if G.ui then toast("⚠️ ЛОВУШКА! −1 осколок") end
   if ORBIT.notify then ORBIT.notify("⚠️ Ловушка! Осколок потерян", C3(255, 100, 100), 2) end
   uiRefresh()
-  -- визуальный взрыв на ловушке
   local bp = Instance.new("Part")
   bp.Anchored = true; bp.CanCollide = false; bp.Transparency = 1; bp.Size = V3(0.2, 0.2, 0.2)
   bp.Position = trap.part.Position; bp.Parent = fold()
@@ -533,12 +552,11 @@ local function trapHit(trap)
 end
 
 -- ============================================================
---       БОСС-ФАЙТ
+--       БОСС
 -- ============================================================
 function G.startBoss()
   if not alive then return end
   G.state = "boss"
-  -- пасхалка: финальная сцена
   local c, h, root = getChar()
   if root then
     local cc = Instance.new("ColorCorrectionEffect")
@@ -547,7 +565,6 @@ function G.startBoss()
     TS:Create(cc, TweenInfo.new(1.5), { Brightness = -0.15, Saturation = -0.3, TintColor = C3(230, 230, 255) }):Play()
     ping("laugh", 1, 0.8)
   end
-  -- создать фигуру-босса
   local data = createGaster(4.5, "GasterBoss")
   data.model.Parent = fold()
   local center = root and root.Position or V3(0, 10, 0)
@@ -563,19 +580,17 @@ function G.startBoss()
     shotCharging = false,
     chargeStart = 0,
     chargeTarget = nil,
-    beamConn = nil,
     fire = nil,
     basePos = bp,
     timeStart = tick(),
   }
   showBossUI()
   updateBossUI()
-  toast("ГАСТЕР ПРОБУДИЛСЯ! Уклоняйся от лучей и бей своими способностями!")
+  if G.ui then toast("ГАСТЕР ПРОБУДИЛСЯ! Бей своими стихиями!") end
   if ORBIT.notify then
     ORBIT.notify("👁 ГАСТЕР ПРОБУДИЛСЯ!", C3(255, 100, 200), 4)
     ORBIT.notify("⚔️ Применяй свои способности — наноси урон!", C3(255, 200, 120), 5)
   end
-  -- хук: урон от способностей игрока
   task.spawn(function()
     local ab = ORBIT.abilities
     if not ab then return end
@@ -585,7 +600,6 @@ function G.startBoss()
     ab.fireId = function(id, ch)
       local r = origFire(id, ch)
       if r and G.boss and G.state == "boss" then
-        -- 25 урона за выстрел
         G.damageBoss(25)
       end
       return r
@@ -597,7 +611,6 @@ function G.damageBoss(n)
   if not G.boss then return end
   G.boss.hp = math.max(0, G.boss.hp - (n or 25))
   updateBossUI()
-  -- визуальный удар
   if G.boss.data and G.boss.data.model then
     local m = G.boss.data.model
     local pos = m:GetPivot().Position
@@ -619,7 +632,6 @@ function G.winBoss()
   G.boss = nil
   G.state = "won"
   hideBossUI()
-  -- финальный взрыв
   if b.data and b.data.model then
     local pos = b.data.model:GetPivot().Position
     for i = 1, 8 do
@@ -646,13 +658,11 @@ function G.winBoss()
       if G.cc then pcall(function() G.cc:Destroy() end); G.cc = nil end
     end)
   end)
-  -- фраза
   local c, h, root = getChar()
   if root and ORBIT.sans and ORBIT.sans.showAt then
     pcall(ORBIT.sans.showAt, root.Position + V3(0, 6, 0), "Ты... справился. Неплохо.", 5)
   end
   ping("sans", 1, 1)
-  -- награда
   ORBIT.gasterUnlocked = true
   ORBIT.gasterWeaponUnlocked = true
   ORBIT.saveData = ORBIT.saveData or {}
@@ -664,18 +674,17 @@ function G.winBoss()
     if ORBIT.saveStorage then pcall(ORBIT.saveStorage) end
     if ORBIT.notify then ORBIT.notify("💰 +500 монет за победу!", C3(255, 220, 100), 4) end
   end
-  toast("✅ ГАСТЕР ПОВЕРЖЕН! Оружие доступно.")
+  if G.ui then toast("✅ ГАСТЕР ПОВЕРЖЕН! Оружие доступно.") end
   if ORBIT.notify then
     ORBIT.notify("🏆 ГАСТЕР ПОВЕРЖЕН!", C3(180, 255, 180), 5)
     ORBIT.notify("⚔️ Гастер-оружие открыто (кнопка в меню)", C3(200, 220, 255), 5)
   end
-  -- авто-включение фигуры
   if not G.figure then task.delay(2, function() if alive then G.assemble(true) end end) end
   uiRefresh()
 end
 
 -- ============================================================
---       ФИГУРА (после победы, кружит вокруг игрока)
+--       Фигура после победы
 -- ============================================================
 function G.removeFigure()
   token = token + 1
@@ -710,7 +719,7 @@ function G.assemble(quick)
     local function ok() return alive and token == my end
     local c, h, root = getChar()
     if not quick and root then
-      toast("Что-то пробуждается...")
+      if G.ui then toast("Что-то пробуждается...") end
       ping("laugh", 1, 0.8)
       for _ = 1, 6 do
         if not ok() then return end
@@ -763,7 +772,6 @@ local function shootBeam(f, fr)
     TS:Create(p, TweenInfo.new(0.35), { Transparency = 1 }):Play()
     Debris:AddItem(p, 0.5)
   end
-  -- визуальный взрыв
   local bp = Instance.new("Part")
   bp.Anchored = true; bp.CanCollide = false; bp.Transparency = 1; bp.Size = V3(0.2, 0.2, 0.2)
   bp.Position = to; bp.Parent = fold()
@@ -774,7 +782,6 @@ local function shootBeam(f, fr)
   e.Parent = bp
   e:Emit(30)
   Debris:AddItem(bp, 1.5)
-  -- урон игроку если рядом
   local c, h = getChar()
   if c and h and h.Health > 0 then
     local r = c:FindFirstChild("HumanoidRootPart")
@@ -785,7 +792,6 @@ local function shootBeam(f, fr)
   ping("snap", 1, 0.5)
 end
 
--- линия-предупреждение перед выстрелом
 local function showWarningLine(from, to)
   local diff = to - from
   if diff.Magnitude < 0.5 then return end
@@ -794,7 +800,6 @@ local function showWarningLine(from, to)
   p.Color = C3(255, 60, 60); p.Transparency = 0.5
   p.Size = V3(0.4, 0.4, diff.Magnitude)
   p.CFrame = CFrame.lookAt((from + to) / 2, to); p.Parent = fold()
-  -- пульсирующая прозрачность
   TS:Create(p, TweenInfo.new(0.4, Enum.EasingStyle.Linear), { Transparency = 0.1 }):Play()
   Debris:AddItem(p, 0.5)
 end
@@ -820,18 +825,15 @@ local function stepBoss(dt, t)
 
   if k < 1 then return end
 
-  -- атаки по фазам
   local phase = b.hp > b.maxHp * 0.66 and 1 or (b.hp > b.maxHp * 0.33 and 2 or 3)
   local shotCooldown = phase == 1 and 3 or (phase == 2 and 2.2 or 1.6)
   local beamsPerShot = phase == 1 and 1 or (phase == 2 and 2 or 3)
 
   if not b.shotCharging and t >= b.nextShot then
-    -- заряжаем
     b.shotCharging = true
     b.chargeStart = t
     b.chargeTarget = center
     b.beamsPerShot = beamsPerShot
-    -- предупреждение
     if root then
       for i = 1, beamsPerShot do
         task.delay((i - 1) * 0.12, function()
@@ -889,7 +891,6 @@ local function stepTraps(dt, t)
       local z = root.Position.Z + math.sin(tr.angle) * tr.baseRadius
       local y = tr.baseY + math.sin(t * 1.5 + tr.bobPhase) * 1.5
       tr.part.CFrame = CF(V3(x, y, z))
-      -- касание игрока
       local d = (tr.part.Position - root.Position).Magnitude
       if d < tr.r / 2 + 3 then trapHit(tr) end
     end
@@ -909,7 +910,6 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
     G.timer = G.timer - dt
     stepShards(dt, t)
     stepTraps(dt, t)
-    -- авто-подбор близких
     local c, h, root = getChar()
     if root then
       for id, s in pairs(G.parts) do
@@ -918,14 +918,13 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
         end
       end
     end
-    if G.ui then G.ui.timer.Text = "⏱ " .. fmtTime(G.timer) end
+    if G.ui and not G.uiHidden then G.ui.timer.Text = "⏱ " .. fmtTime(G.timer) end
     if G.timer <= 0 then fail("Время вышло! Нажми СТАРТ.") end
   elseif G.state == "boss" then
     stepBoss(dt, t)
   end
 
   if G.figure then
-    -- старая логика фигуры (по желанию)
     local f = G.figure
     local m = f.data.model
     if m.Parent then
@@ -975,6 +974,15 @@ end)
 
 function G.open()
   if not alive then return false end
+  -- ✨ v24.4: если игра уже идёт — просто показываем UI
+  if (G.state == "collecting" or G.state == "boss") then
+    if G.ui then
+      G.showUI()
+    else
+      buildUI()
+    end
+    return true
+  end
   buildUI()
   return true
 end
@@ -991,13 +999,12 @@ function G.destroy()
   if G.weapon and G.weapon.destroy then pcall(G.weapon.destroy) end
   if G.cc then pcall(function() G.cc:Destroy() end); G.cc = nil end
   if folder then pcall(function() folder:Destroy() end); folder = nil end
-  -- снять хук со abilities
   local ab = ORBIT.abilities
   if ab and ab._gasterHook then ab._gasterHook = nil end
 end
 
 -- ============================================================
---       ОРУЖИЕ (БЕЛОЕ)
+--       Оружие (белое)
 -- ============================================================
 local W = { equipped = false, models = {}, proj = {}, cdUntil = 0, conns = {}, side = 1 }
 local wFolder, wGui, wBtn = nil, nil, nil
@@ -1209,11 +1216,10 @@ ORBIT.unload = function()
   if prevUnload then pcall(prevUnload) end
 end
 
--- Обновление W каждый кадр
 RS.Heartbeat:Connect(function(dt) if alive then W.update(dt) end end)
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v24.3 (16 осколков + босс)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v24.4 (16 осколков + босс + скрываемый UI)", C3(220, 200, 255), 3)
 end
 
 return true
