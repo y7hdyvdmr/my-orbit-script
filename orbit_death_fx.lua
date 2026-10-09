@@ -1,5 +1,7 @@
--- ORBIT v24.0 | orbit_death_fx.lua
--- Белое сердце при смерти: всплывает, разбивается, остаётся красный шрам
+-- ORBIT v24.2 | orbit_death_fx.lua
+-- v24.2-fix: корректно читает S.lastSaid (sans теперь возвращает текст),
+--            фраза Санса берётся ДО shatter и переиспользуется в билборде.
+--            Чистит живые tags Санса при destroy.
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] deathFx: нет ORBIT"); return false end
@@ -26,7 +28,7 @@ local function mark(inst)
     if d:IsA("BasePart") then d:SetAttribute("NoRecolor", true); d.CanQuery = false; d.CanTouch = false end
   end
 end
--- запасное сердце, если ORBIT.createPixelHeart ещё не загружен
+-- запасное сердце
 local function ownHeart(size, color, name)
   local m = Instance.new("Model"); m.Name = name
   local root = Instance.new("Part")
@@ -130,11 +132,18 @@ function D.play(pos)
   local model = makeHeart(6, C3(255, 255, 255), "DeathHeart")
   model.Parent = fold(); mark(model)
   pcall(function() model:PivotTo(CF(base)) end)
-  local text
+
+  -- ✨ v24.2: сначала пробуем взять ПОСЛЕДНЮЮ фразу Санса (say теперь возвращает текст).
+  -- Если есть showAt — показываем её над сердцем.
+  local text = nil
   local S = ORBIT.sans
   if S then
-    if S.lastCat == "death" and t - (S.lastCatTime or 0) < 2 then text = S.lastSaid
-    elseif S.say then text = S.say("death", true) end
+    if S.lastCat == "death" and S.lastSaid and (t - (S.lastCatTime or 0)) < 3 then
+      text = S.lastSaid
+    elseif S.say then
+      local ok, r = pcall(S.say, "death", true)
+      if ok and type(r) == "string" and r ~= "" then text = r end
+    end
   end
   text = text or "Хех, Папирус, прости меня..."
   if S and S.showAt then pcall(S.showAt, base + V3(0, 4, 0), text, 4) end
