@@ -1,23 +1,6 @@
--- ОРБИТА v23.12 — P4_SHOP (Магазин + 2D-Редактор + кнопка 3D)
--- v23.12 (Y5): экспорт ORBIT.Editor2D (Open, SetBrush, SetGridSize) для команд помощника.
--- v23.11 (L3): кнопки +12%, яркие заголовки, отступы 12 px, активный инструмент с обводкой и «✓», палитра сразу под сеткой,
---    Отмена/Вернуть серые когда нечего делать, яркие когда можно.
--- v23.10 (I3): 2D-редактор — кисти 1×1…5×5 (и для ластика), пипетка, кнопки 38 px, секции «РАЗМЕР КИСТИ» / «ИНСТРУМЕНТ».
--- Магазин + 2D-редактор v3: сетка 16/20/24, кисти 1x1/2x2/3x3, ластик, заливка,
--- история 20 шагов, симметрия, шаблоны, сохранение кастомных фигур.
--- Сохранение { name, pixels } -> SHAPE_PRESETS.
--- ВАЖНО: все идентификаторы латиницей, кириллица — только в комментариях и текстах UI.
---
--- ИЗМЕНЕНИЯ v23.5: onClick в ScrollingFrame срабатывает при отпускании пальца,
--- чтобы прокрутка сетки магазина случайно не покупала фигуры.
--- ФИКСЫ v23.6: на мобилке кнопка 3D-редактора вынесена во второй ряд хедера
--- (перекрывала заголовок и монеты); локальный onClick играет playClick.
--- ФИКС v23.7: в шапке только строчные комментарии (блочные ломали компиляцию).
--- v23.8: фигура «СКАЛА» добавлена в категорию «СУЩЕСТВА» магазина.
--- v23.9: в 2D-редакторе появились кнопки «Поделиться» и «Импорт» — они работают
--- через модуль orbit_share.lua. Созданную фигуру можно отправить другу строкой
--- или короткой ссылкой, а чужую — принять и она попадёт в магазин.
-
+-- ORBIT v24.2 | orbit_p4_shop.lua
+-- Магазин + 2D-редактор + 3D-кнопка.
+-- v24.2: категория «СВОИ» с кнопкой удаления, фиксы багов, поддержка hideElement для способностей.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (type(getgenv) == "function" and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Shop] ORBIT не найден!"); return end
 if not ORBIT.ui or not ORBIT.ui.screenGui then warn("[Orbit Shop] UI не готов!"); return end
@@ -44,6 +27,7 @@ ORBIT.CUSTOM_SHAPES = ORBIT.CUSTOM_SHAPES or {}
 ORBIT.CUSTOM_FILE = "orbit_v21_custom_shapes.json"
 ORBIT.COINS = ORBIT.COINS or 0
 ORBIT.COINS_FILE = "orbit_v21_coins.json"
+ORBIT.OWNED_FILE = "orbit_v21_owned.json"
 ORBIT.OWNED_SHAPES = ORBIT.OWNED_SHAPES or {
     ["БЛОК"] = true, ["ШАР"] = true, ["ЦИЛИНДР"] = true,
 }
@@ -55,6 +39,8 @@ local SHAPE_PRICES = {
     ["РУКА"] = 250, ["РУКА-СЕРДЦЕ"] = 300, ["МЕЧ"] = 400, ["ЩИТ"] = 400,
     ["КОСТЬ"] = 100, ["ПИРАМИДА"] = 150, ["ИНЬ-ЯН"] = 250, ["ГЛАЗ"] = 200,
     ["СПИРАЛЬ"] = 200, ["КРЫЛЬЯ"] = 300, ["ЩУПАЛЬЦЕ"] = 350, ["ГАСТЕР БЛАСТЕР"] = 450,
+    ["ДРАКОН"] = 500, ["ЦВЕТОК ФЛАУИ"] = 550, ["ОМЕГА ФЛАУИ"] = 700,
+    ["КОРОНА"] = 600, ["ФЕНИКС"] = 800, ["ПОРТАЛ"] = 650, ["СКАЛА"] = 400,
 }
 
 local function saveStorage()
@@ -65,7 +51,7 @@ local function saveStorage()
         writefile(ORBIT.COINS_FILE, tostring(ORBIT.COINS or 0))
         local owned = {}
         for k, v in pairs(ORBIT.OWNED_SHAPES) do if v then table.insert(owned, k) end end
-        writefile("orbit_v21_owned.json", HttpService:JSONEncode(owned))
+        writefile(ORBIT.OWNED_FILE, HttpService:JSONEncode(owned))
     end)
 end
 
@@ -86,8 +72,8 @@ local function loadStorage()
             local txt = readfile(ORBIT.COINS_FILE)
             if txt and #txt > 0 then ORBIT.COINS = tonumber(txt) or 0 end
         end
-        if isfile("orbit_v21_owned.json") then
-            local txt = readfile("orbit_v21_owned.json")
+        if isfile(ORBIT.OWNED_FILE) then
+            local txt = readfile(ORBIT.OWNED_FILE)
             if txt and #txt > 0 then
                 local data = HttpService:JSONDecode(txt)
                 for _, name in ipairs(data or {}) do ORBIT.OWNED_SHAPES[name] = true end
@@ -97,7 +83,7 @@ local function loadStorage()
 end
 
 -- ============================================================
---       ПАЛИТРА (24 цвета)
+--       ПАЛИТРА
 -- ============================================================
 local PALETTE = {
     Color3.fromRGB(255, 60, 60),   Color3.fromRGB(255, 140, 40),
@@ -123,8 +109,7 @@ local COLOR_NAMES = {
 }
 
 -- ============================================================
---       УНИВЕРСАЛЬНЫЙ ТАП (Delta/Android)
---       Down + Touch + Activated, плюс защита от двойного срабатывания
+--       onClick
 -- ============================================================
 local function onClick(btn, fn, releaseOnly)
     local deb = false
@@ -159,9 +144,8 @@ local function onClick(btn, fn, releaseOnly)
     btn.Activated:Connect(call)
 end
 
-
 -- ============================================================
---       РЕГИСТРАЦИЯ 2D И 3D ФИГУР
+--       РЕГИСТРАЦИЯ КАСТОМНЫХ ФИГУР
 -- ============================================================
 local function registerCustomShape(shape)
     local name = shape.name or ("СВОЯ_" .. (#ORBIT.CUSTOM_SHAPES))
@@ -199,10 +183,10 @@ local function registerCustomShape(shape)
     end
 
     -- 2D
+    if not shape.pixels then return end
     local rows = #shape.pixels
     local cols = #shape.pixels[1]
     local pixelData = {}
-
     for r = 1, rows do
         pixelData[r] = {}
         local row = shape.pixels[r]
@@ -221,7 +205,6 @@ local function registerCustomShape(shape)
             end
         end
     end
-
     table.insert(SHAPE_PRESETS, {
         name = name, isCustom = true,
         create = function(shapeSize, partName)
@@ -252,6 +235,27 @@ for _, shape in ipairs(ORBIT.CUSTOM_SHAPES) do
     registerCustomShape(shape)
 end
 ORBIT.registerCustomShape = registerCustomShape
+
+-- ✨ Удаление кастомной фигуры по имени
+function ORBIT.deleteCustomShape(shapeName)
+    if not shapeName then return false end
+    local found = false
+    for i = #SHAPE_PRESETS, 1, -1 do
+        local sp = SHAPE_PRESETS[i]
+        if sp.name == shapeName and sp.isCustom then
+            table.remove(SHAPE_PRESETS, i)
+            found = true
+        end
+    end
+    for i = #ORBIT.CUSTOM_SHAPES, 1, -1 do
+        if ORBIT.CUSTOM_SHAPES[i].name == shapeName then
+            table.remove(ORBIT.CUSTOM_SHAPES, i)
+        end
+    end
+    ORBIT.OWNED_SHAPES[shapeName] = nil
+    if found then saveStorage() end
+    return found
+end
 
 -- ============================================================
 --       ПРЕВЬЮ АВАТАРА
@@ -299,52 +303,49 @@ local function createAvatarPreview(parent, size)
 
     for _, p in ipairs(avatar:GetDescendants()) do
         if p:IsA("BasePart") then
-            p.Anchored = true
-            p.CanCollide = false
+            p.Anchored = true; p.CanCollide = false
         end
     end
     pcall(function() avatar:PivotTo(CFrame.new(0, 0, 0)) end)
     avatar.Parent = world
-
     cam.CFrame = CFrame.new(Vector3.new(0, 1.5, -8), Vector3.new(0, 1.5, 0))
-
     return vp, world, cam, avatar
 end
 
 local function buildDemoRing(world, shapeIndex, color3, sizeMult, blockCount)
     local old = world:FindFirstChild("_DemoRing")
     if old then old:Destroy() end
-
     local folder = Instance.new("Folder")
     folder.Name = "_DemoRing"
     folder.Parent = world
-
     local shape = SHAPE_PRESETS[shapeIndex] or SHAPE_PRESETS[1]
+    if not shape then return folder, {} end
     local size = 1.2 * (sizeMult or 1.0)
     local count = blockCount or 8
     local blocks = {}
-
     for i = 1, count do
-        local data = shape.create(size, "D_" .. i)
-        local refPart = data.part
-        if not data.isModel then
-            refPart.Material = Enum.Material.Neon
-            refPart.Anchored = true
-            refPart.CanCollide = false
-            refPart.Color = color3
+        local ok, data = pcall(shape.create, size, "D_" .. i)
+        if ok and data then
+            local refPart = data.part
+            if not data.isModel then
+                refPart.Material = Enum.Material.Neon
+                refPart.Anchored = true
+                refPart.CanCollide = false
+                refPart.Color = color3
+            end
+            if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
+            table.insert(blocks, {
+                part = refPart, model = data.model, isModel = data.isModel or false,
+                bodyParts = data.bodyParts, index = i,
+                angleOffset = (i-1) * (360/count),
+            })
         end
-        if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
-        table.insert(blocks, {
-            part = refPart, model = data.model, isModel = data.isModel or false,
-            bodyParts = data.bodyParts, index = i,
-            angleOffset = (i-1) * (360/count),
-        })
     end
     return folder, blocks
 end
 
 -- ============================================================
---              МАГАЗИН (логика без изменений)
+--              МАГАЗИН
 -- ============================================================
 local shopOpen = false
 local shopGui
@@ -365,8 +366,9 @@ local SHOP_CATEGORIES = {
     { name = "ОСНОВНЫЕ", shapes = {"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"} },
     { name = "ОРУЖИЕ",   shapes = {"МЕЧ","ЩИТ"} },
     { name = "МАГИЯ",    shapes = {"ГЛАЗ","ИНЬ-ЯН","МОЛНИЯ","ГАСТЕР БЛАСТЕР"} },
-    { name = "СУЩЕСТВА", shapes = {"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ","СКАЛА"} },
-    { name = "СВОИ",     custom = true },
+    { name = "СУЩЕСТВА", shapes = {"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ","СКАЛА","ДРАКОН","ЦВЕТОК ФЛАУИ","ОМЕГА ФЛАУИ"} },
+    { name = "НОВЫЕ",    shapes = {"КОРОНА","ФЕНИКС","ПОРТАЛ"} },
+    { name = "МОИ ФИГУРЫ", custom = true },
 }
 
 local function getShopShapes()
@@ -392,8 +394,8 @@ local function openShop()
     if shopOpen and shopGui then return end
     shopOpen = true
 
-    local shopW = IS_MOBILE and 320 or 560
-    local shopH = IS_MOBILE and 540 or 500
+    local shopW = IS_MOBILE and 340 or 620
+    local shopH = IS_MOBILE and 560 or 520
 
     shopGui = Instance.new("Frame")
     shopGui.Name = "_OrbitShop"
@@ -412,7 +414,7 @@ local function openShop()
     if ORBIT.ui.fitToScreen then ORBIT.ui.fitToScreen(shopGui, shopW, shopH) end
 
     local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -100, 0, 28)
+    title.Size = UDim2.new(1, -180, 0, 28)
     title.Position = UDim2.new(0, 16, 0, 8)
     title.BackgroundTransparency = 1
     title.Text = "🛒  МАГАЗИН"
@@ -424,8 +426,8 @@ local function openShop()
     title.Parent = shopGui
 
     local coinsLbl = Instance.new("TextLabel")
-    coinsLbl.Size = UDim2.new(0, 130, 0, 26)
-    coinsLbl.Position = UDim2.new(1, -170, 0, 10)
+    coinsLbl.Size = UDim2.new(0, 110, 0, 26)
+    coinsLbl.Position = UDim2.new(1, -150, 0, 10)
     coinsLbl.BackgroundColor3 = Color3.fromRGB(60, 40, 80)
     coinsLbl.BorderSizePixel = 0
     coinsLbl.Text = "💰 " .. (ORBIT.COINS or 0)
@@ -449,11 +451,12 @@ local function openShop()
     Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
 
     local open3DBtn = Instance.new("TextButton")
-    open3DBtn.Size = UDim2.new(0, 130, 0, 26)
+    open3DBtn.Size = UDim2.new(0, 120, 0, 24)
+    open3DBtn.Position = UDim2.new(1, -270, 0, 10)
     open3DBtn.BackgroundColor3 = Color3.fromRGB(80, 45, 130)
     open3DBtn.TextColor3 = Color3.fromRGB(230, 200, 255)
     open3DBtn.Font = Enum.Font.GothamBold
-    open3DBtn.TextSize = 11
+    open3DBtn.TextSize = 10
     open3DBtn.Text = "🔮 3D-РЕДАКТОР"
     open3DBtn.ZIndex = 11
     open3DBtn.Parent = shopGui
@@ -462,8 +465,6 @@ local function openShop()
     if IS_MOBILE then
         open3DBtn.Position = UDim2.new(0, 16, 0, 40)
         headerExtraY = 32
-    else
-        open3DBtn.Position = UDim2.new(1, -310, 0, 10)
     end
     onClick(open3DBtn, function()
         if ORBIT.openEditor3D then
@@ -474,7 +475,7 @@ local function openShop()
     end)
 
     local previewW = IS_MOBILE and (shopW - 32) or 240
-    local previewH = IS_MOBILE and 200 or 300
+    local previewH = IS_MOBILE and 220 or 300
     local previewFrame = Instance.new("Frame")
     previewFrame.Size = UDim2.new(0, previewW, 0, previewH)
     previewFrame.Position = UDim2.new(0, 16, 0, 44 + headerExtraY)
@@ -489,7 +490,7 @@ local function openShop()
 
     local rightX = IS_MOBILE and 16 or 272
     local rightY = IS_MOBILE and (44 + headerExtraY + previewH + 8) or 44
-    local rightW = IS_MOBILE and (shopW - 32) or 272
+    local rightW = IS_MOBILE and (shopW - 32) or 332
     local rightH = IS_MOBILE and (shopH - rightY - 60) or (shopH - 100)
 
     local rightPanel = Instance.new("ScrollingFrame")
@@ -518,7 +519,6 @@ local function openShop()
         lbl.ZIndex = 12
         lbl.Parent = rightPanel
         ry = ry + 16
-
         if hintText then
             local hint = Instance.new("TextLabel")
             hint.Size = UDim2.new(1, -12, 0, 12)
@@ -533,7 +533,6 @@ local function openShop()
             hint.Parent = rightPanel
             ry = ry + 12
         end
-
         local holder = Instance.new("Frame")
         holder.Size = UDim2.new(1, -12, 0, 30)
         holder.Position = UDim2.new(0, 6, 0, ry)
@@ -631,25 +630,54 @@ local function openShop()
     Instance.new("UICorner", buyShapeBtn).CornerRadius = UDim.new(0, 6)
     ry = ry + 32
 
+    -- ✨ Кнопка удаления (только для кастомных)
+    local delShapeBtn = Instance.new("TextButton")
+    delShapeBtn.Size = UDim2.new(1, -12, 0, 28)
+    delShapeBtn.Position = UDim2.new(0, 6, 0, ry)
+    delShapeBtn.BackgroundColor3 = Color3.fromRGB(90, 40, 45)
+    delShapeBtn.TextColor3 = Color3.fromRGB(255, 170, 170)
+    delShapeBtn.Font = Enum.Font.GothamBold
+    delShapeBtn.TextSize = 11
+    delShapeBtn.Text = "🗑 УДАЛИТЬ СВОЮ ФИГУРУ"
+    delShapeBtn.Visible = false
+    delShapeBtn.ZIndex = 12
+    delShapeBtn.Parent = rightPanel
+    Instance.new("UICorner", delShapeBtn).CornerRadius = UDim.new(0, 6)
+    ry = ry + 32
+
     refreshShapeLbl = function()
         refreshShopShapeList()
         local sp = SHAPE_PRESETS[shopState.shapeIndex]
-        if not sp then return end
+        if not sp then
+            sV.Text = "—"
+            buyShapeBtn.Visible = false
+            delShapeBtn.Visible = false
+            return
+        end
         sV.Text = sp.name
+        buyShapeBtn.Visible = true
         local owned = ORBIT.OWNED_SHAPES[sp.name]
         local price = SHAPE_PRICES[sp.name] or 0
-        if owned then
-            buyShapeBtn.Text = "✅ УЖЕ КУПЛЕНО"
-            buyShapeBtn.BackgroundColor3 = Color3.fromRGB(40,70,50)
-            buyShapeBtn.TextColor3 = Color3.fromRGB(160,255,180)
-        elseif price == 0 then
-            buyShapeBtn.Text = "🆓 БЕСПЛАТНО (нажми)"
-            buyShapeBtn.BackgroundColor3 = Color3.fromRGB(40,60,60)
-            buyShapeBtn.TextColor3 = Color3.fromRGB(180,230,255)
+        if sp.isCustom then
+            buyShapeBtn.Text = "✨ ВАША ФИГУРА"
+            buyShapeBtn.BackgroundColor3 = Color3.fromRGB(50,60,80)
+            buyShapeBtn.TextColor3 = Color3.fromRGB(180,220,255)
+            delShapeBtn.Visible = true
         else
-            buyShapeBtn.Text = "💰 КУПИТЬ за " .. price
-            buyShapeBtn.BackgroundColor3 = Color3.fromRGB(60,45,90)
-            buyShapeBtn.TextColor3 = Color3.fromRGB(255,220,150)
+            delShapeBtn.Visible = false
+            if owned then
+                buyShapeBtn.Text = "✅ УЖЕ КУПЛЕНО"
+                buyShapeBtn.BackgroundColor3 = Color3.fromRGB(40,70,50)
+                buyShapeBtn.TextColor3 = Color3.fromRGB(160,255,180)
+            elseif price == 0 then
+                buyShapeBtn.Text = "🆓 БЕСПЛАТНО (нажми)"
+                buyShapeBtn.BackgroundColor3 = Color3.fromRGB(40,60,60)
+                buyShapeBtn.TextColor3 = Color3.fromRGB(180,230,255)
+            else
+                buyShapeBtn.Text = "💰 КУПИТЬ за " .. price
+                buyShapeBtn.BackgroundColor3 = Color3.fromRGB(60,45,90)
+                buyShapeBtn.TextColor3 = Color3.fromRGB(255,220,150)
+            end
         end
     end
 
@@ -672,7 +700,7 @@ local function openShop()
 
     onClick(buyShapeBtn, function()
         local sp = SHAPE_PRESETS[shopState.shapeIndex]
-        if not sp then return end
+        if not sp or sp.isCustom then return end
         if ORBIT.OWNED_SHAPES[sp.name] then
             ORBIT.notify("✅ Уже куплено", Color3.fromRGB(160,255,180), 2)
             return
@@ -689,6 +717,21 @@ local function openShop()
         ORBIT.notify("✅ Куплено: " .. sp.name, Color3.fromRGB(160,255,180), 3)
         coinsLbl.Text = "💰 " .. (ORBIT.COINS or 0)
         refreshShapeLbl()
+    end)
+
+    -- ✨ Удаление своей фигуры
+    onClick(delShapeBtn, function()
+        local sp = SHAPE_PRESETS[shopState.shapeIndex]
+        if not sp or not sp.isCustom then return end
+        local ok = ORBIT.deleteCustomShape(sp.name)
+        if ok then
+            ORBIT.notify("🗑 Удалена: " .. sp.name, Color3.fromRGB(255,150,150), 3)
+            shopShapeIdx = 1
+            refreshShapeLbl()
+            refreshDemo()
+        else
+            ORBIT.notify("❌ Не удалось удалить", Color3.fromRGB(255,100,100), 2)
+        end
     end)
 
     local cL, cV, cR = shopRow("🎨 ЦВЕТ КОЛЬЦА")
@@ -777,7 +820,6 @@ local function openShop()
             return
         end
         local t = tick()
-
         if avatar then
             pcall(function()
                 local rootPart = avatar.PrimaryPart or avatar:FindFirstChild("HumanoidRootPart") or avatar:FindFirstChild("Torso")
@@ -786,7 +828,6 @@ local function openShop()
                 end
             end)
         end
-
         local col = P.COLORS[shopState.colorIndex]
         local c3 = col.c or Color3.fromRGB(0, 180, 255)
         if col.rainbow then c3 = Color3.fromHSV((t*0.2) % 1, 0.9, 1) end
@@ -850,7 +891,7 @@ local function openShop()
 
     onClick(applyBtn, function()
         local sp = SHAPE_PRESETS[shopState.shapeIndex]
-        if sp and not ORBIT.OWNED_SHAPES[sp.name] then
+        if sp and not sp.isCustom and not ORBIT.OWNED_SHAPES[sp.name] then
             local price = SHAPE_PRICES[sp.name] or 0
             if price > 0 then
                 ORBIT.notify("🔒 Сначала купи «" .. sp.name .. "»", Color3.fromRGB(255,180,120), 3)
@@ -877,21 +918,18 @@ local function openShop()
 end
 
 -- ============================================================
---       2D-РЕДАКТОР v3
+--       2D-РЕДАКТОР
 -- ============================================================
 local editorOpen = false
 local editorGui
 local editorConns = {}
-local P2 = "Orbit2D_"   -- префикс имён всех элементов 2D-редактора
+local P2 = "Orbit2D_"
 
 local GRID_OPTIONS = {16, 20, 24}
-local GRID = 16   -- по умолчанию 16×16 (крупные клетки)
+local GRID = 16
 
 local Ed2D = {
-    Cells = {},
-    Tool = "paint",     -- "paint" / "eraser" / "fill" / "pick"  (v23.10: размер кисти вынесен в Brush)
-    Brush = 1,          -- размер кисти 1..5 (для кисти и ластика)
-    Color = 1,
+    Cells = {}, Tool = "paint", Brush = 1, Color = 1,
     States = {}, StateIdx = 0, MaxHistory = 20,
 }
 
@@ -903,7 +941,6 @@ local function resizeGrid(newN)
         Ed2D.Cells[r] = {}
         for c = 1, newN do Ed2D.Cells[r][c] = 0 end
     end
-    -- старые клетки сохраняются в пределах нового размера
     for r = 1, math.min(oldN, newN) do
         for c = 1, math.min(oldN, newN) do
             if oldCells[r] and oldCells[r][c] then
@@ -914,13 +951,9 @@ local function resizeGrid(newN)
     GRID = newN
 end
 
--- История: States[StateIdx] — текущее состояние, commit вызывается ПОСЛЕ изменения
 local function snapshot2D()
     local s = {}
-    for r = 1, GRID do
-        s[r] = {}
-        for c = 1, GRID do s[r][c] = Ed2D.Cells[r][c] end
-    end
+    for r = 1, GRID do s[r] = {}; for c = 1, GRID do s[r][c] = Ed2D.Cells[r][c] end end
     return s
 end
 local function restore2D(s)
@@ -938,8 +971,7 @@ local function commit2D()
     table.insert(Ed2D.States, snapshot2D())
     Ed2D.StateIdx = #Ed2D.States
     while #Ed2D.States > Ed2D.MaxHistory + 1 do
-        table.remove(Ed2D.States, 1)
-        Ed2D.StateIdx = Ed2D.StateIdx - 1
+        table.remove(Ed2D.States, 1); Ed2D.StateIdx = Ed2D.StateIdx - 1
     end
     if Ed2D.OnHistory then pcall(Ed2D.OnHistory) end
 end
@@ -961,7 +993,6 @@ end
 resizeGrid(GRID)
 resetHistory2D()
 
--- Заливка: свой стек + seen (без рекурсии). Возвращает true, если что-то изменилось
 local function floodFill2D(r0, c0, newColor)
     local old = Ed2D.Cells[r0][c0]
     if old == newColor then return false end
@@ -975,17 +1006,14 @@ local function floodFill2D(r0, c0, newColor)
             if not seen[k] and Ed2D.Cells[r][c] == old then
                 seen[k] = true
                 Ed2D.Cells[r][c] = newColor
-                table.insert(stack, {r + 1, c})
-                table.insert(stack, {r - 1, c})
-                table.insert(stack, {r, c + 1})
-                table.insert(stack, {r, c - 1})
+                table.insert(stack, {r + 1, c}); table.insert(stack, {r - 1, c})
+                table.insert(stack, {r, c + 1}); table.insert(stack, {r, c - 1})
             end
         end
     end
     return true
 end
 
--- Шаблоны (1 = основной цвет, 2 = цвет деталей)
 local HEART_PATTERN = {
     "01100110", "11111111", "11111111", "11111111",
     "01111110", "00111100", "00011000",
@@ -1004,7 +1032,6 @@ local function openEditor()
     local editorW = IS_MOBILE and 360 or 700
     local editorH = IS_MOBILE and 620 or 470
 
-    -- --- маленькие помощники с префиксом имён ---
     local function mk(class, props, parent)
         local o = Instance.new(class)
         for k, v in pairs(props or {}) do
@@ -1039,12 +1066,11 @@ local function openEditor()
         Ed2D.SetGridSize = nil
         for _, cn in ipairs(editorConns) do pcall(function() cn:Disconnect() end) end
         editorConns = {}
-        Ed2D.OnHistory = nil   -- кнопки уничтожены
+        Ed2D.OnHistory = nil
         if editorGui then pcall(function() editorGui:Destroy() end) end
         editorGui = nil
     end
 
-    -- Заголовок
     mk("TextLabel", {
         Name = "Title", Size = UDim2.new(1, -200, 0, 26), Position = UDim2.new(0, 16, 0, 8),
         BackgroundTransparency = 1, Text = "🎨 2D-РЕДАКТОР", TextColor3 = Color3.fromRGB(230, 200, 255),
@@ -1072,9 +1098,6 @@ local function openEditor()
     corner(closeBtn, 8)
     onClick(closeBtn, closeEditor)
 
-    -- ============================================================
-    --       СЕТКА (подложка темнее клеток, у каждой клетки UIStroke)
-    -- ============================================================
     local leftX, topY = 16, 42
     local gridPx = IS_MOBILE and 328 or 400
     local pitch = 1
@@ -1123,8 +1146,7 @@ local function openEditor()
                     ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
                 }, f)
                 if c % 4 == 1 or r % 4 == 1 then
-                    st.Color = Color3.fromRGB(90, 70, 140)
-                    st.Thickness = 1.5
+                    st.Color = Color3.fromRGB(90, 70, 140); st.Thickness = 1.5
                 end
                 cellFrames[r][c] = f
             end
@@ -1132,15 +1154,10 @@ local function openEditor()
         refreshAllCells()
     end
 
-    -- ============================================================
-    --       РИСОВАНИЕ (один оверлей: тап и протяжка пальцем)
-    -- ============================================================
     local countLbl
     local function countFilled()
         local n = 0
-        for r = 1, GRID do for c = 1, GRID do
-            if Ed2D.Cells[r][c] > 0 then n = n + 1 end
-        end end
+        for r = 1, GRID do for c = 1, GRID do if Ed2D.Cells[r][c] > 0 then n = n + 1 end end end
         return n
     end
     local function refreshCount()
@@ -1155,7 +1172,6 @@ local function openEditor()
         return true
     end
 
-    -- v23.10 (I3): кисти 1×1 … 5×5 работают и для кисти, и для ластика; добавлена пипетка
     local function stampBrush(r, c, color)
         local n = Ed2D.Brush or 1
         local lo = -math.floor((n - 1) / 2)
@@ -1174,8 +1190,7 @@ local function openEditor()
         local changed = false
         if tool == "fill" then
             if isStart and floodFill2D(r, c, Ed2D.Color) then
-                changed = true
-                refreshAllCells()
+                changed = true; refreshAllCells()
             end
         elseif tool == "pick" then
             if isStart then
@@ -1216,10 +1231,7 @@ local function openEditor()
     local function endStroke()
         if not painting then return end
         painting, activeInput = false, nil
-        if strokeChanged then
-            commit2D()
-            refreshCount()
-        end
+        if strokeChanged then commit2D(); refreshCount() end
         strokeChanged = false
     end
 
@@ -1234,7 +1246,6 @@ local function openEditor()
         lastR, lastC = r, c
         if applyTool(r, c, true) then strokeChanged = true end
     end)
-
     overlay.InputChanged:Connect(function(input)
         if not painting then return end
         local t = input.UserInputType
@@ -1246,7 +1257,6 @@ local function openEditor()
             end
         end
     end)
-
     overlay.InputEnded:Connect(function(input)
         local t = input.UserInputType
         if t == Enum.UserInputType.MouseButton1 or (t == Enum.UserInputType.Touch and input == activeInput) then
@@ -1260,9 +1270,6 @@ local function openEditor()
         end
     end))
 
-    -- ============================================================
-    --       ПАНЕЛЬ УПРАВЛЕНИЯ (вертикальный скролл, одна колонка)
-    -- ============================================================
     local ctrlX = IS_MOBILE and 16 or (leftX + gridPx + 12)
     local ctrlY = IS_MOBILE and (topY + gridPx + 8) or topY
     local ctrlW = IS_MOBILE and (editorW - 32) or (editorW - ctrlX - 16)
@@ -1286,7 +1293,6 @@ local function openEditor()
     list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(fitCanvas)
 
     local secOrder = 0
-    -- v23.11 (L3): единый масштаб кнопок +12% (мобилка); высоты секций масштабируются так же
     local BTN_SCALE = 1.12
     local function sc(v) return math.floor(v * BTN_SCALE + 0.5) end
 
@@ -1314,7 +1320,6 @@ local function openEditor()
     local BTN = Color3.fromRGB(45, 38, 65)
     local BTN_OFF = Color3.fromRGB(34, 30, 46)
 
-    -- Активная кнопка: белая обводка + «✓» перед текстом
     local function markActive(b, on)
         if not b then return end
         local base = b:GetAttribute("BaseText")
@@ -1359,11 +1364,7 @@ local function openEditor()
         end
         local function setSize(n)
             if n == GRID then return end
-            resizeGrid(n)
-            resetHistory2D()
-            rebuildGridUI()
-            paintSizes()
-            refreshCount()
+            resizeGrid(n); resetHistory2D(); rebuildGridUI(); paintSizes(); refreshCount()
             ORBIT.notify("📐 Сетка: " .. n .. "×" .. n, Color3.fromRGB(180, 220, 255), 1.5)
         end
         local items = {}
@@ -1372,7 +1373,6 @@ local function openEditor()
         end
         btns = buttonRow(body, items, 0, 32, 12)
         paintSizes()
-        -- v23.12 (Y5): вызывается помощником («размер сетки 20»); возвращает true, если размер допустим
         Ed2D.SetGridSize = function(n)
             for _, g in ipairs(GRID_OPTIONS) do
                 if g == n then setSize(n); return true end
@@ -1385,7 +1385,7 @@ local function openEditor()
     local swatch
     do
         local body, titleLbl = section("🎨 ПАЛИТРА", Color3.fromRGB(100, 60, 140), 54)
-        body.Parent.LayoutOrder = 0   -- v23.11 (L3): палитра — первая секция, сразу под сеткой
+        body.Parent.LayoutOrder = 0
         swatch = mk("Frame", {
             Name = "Swatch", Size = UDim2.new(0, 26, 0, 12), Position = UDim2.new(1, -30, 0, 3),
             BackgroundColor3 = PALETTE[Ed2D.Color], BorderSizePixel = 0,
@@ -1437,7 +1437,7 @@ local function openEditor()
         Ed2D.refreshPal = refreshPal
     end
 
-    -- 🔲 РАЗМЕР КИСТИ (v23.10: крупные кисти до 5×5, кнопки по 38 px)
+    -- 🔲 РАЗМЕР КИСТИ
     do
         local body = section("🔲 РАЗМЕР КИСТИ", Color3.fromRGB(100, 80, 40), 38)
         local btns = {}
@@ -1455,7 +1455,7 @@ local function openEditor()
         Ed2D.paintBrush()
     end
 
-    -- 🛠 ИНСТРУМЕНТ (кисть / ластик / заливка / пипетка)
+    -- 🛠 ИНСТРУМЕНТ
     do
         local body = section("🛠 ИНСТРУМЕНТ", Color3.fromRGB(120, 90, 50), 38)
         local tools = {
@@ -1498,7 +1498,6 @@ local function openEditor()
                 commit2D(); refreshAllCells(); refreshCount()
             end},
         }, 0, 32, 11)
-        -- серые, когда нечего отменять/возвращать; яркие, когда можно
         Ed2D.OnHistory = function()
             local canUndo = Ed2D.StateIdx > 1
             local canRedo = Ed2D.StateIdx < #Ed2D.States
@@ -1540,19 +1539,14 @@ local function openEditor()
                 end
                 commit2D(); refreshAllCells(); refreshCount()
             end},
-            {text = "❤ Сердце", color = purple, fn = function()
-                placeTemplate(HEART_PATTERN, {["1"] = 1})
-            end},
-            {text = "☺ Смайл", color = purple, fn = function()
-                placeTemplate(SMILE_PATTERN, {["1"] = 3, ["2"] = 21})
-            end},
+            {text = "❤ Сердце", color = purple, fn = function() placeTemplate(HEART_PATTERN, {["1"] = 1}) end},
+            {text = "☺ Смайл", color = purple, fn = function() placeTemplate(SMILE_PATTERN, {["1"] = 3, ["2"] = 21}) end},
         }, 0, 32, 10)
     end
 
     -- 💾 СОХРАНЕНИЕ
     do
-        -- bodyH = 220: countLbl(0..16) + nameInput(20..52) + saveBtn(58..94) + sellBtn(100..132) + shareBtn(138..174) + importBtn(178..214)
-        local body = section("💾 СОХРАНЕНИЕ", Color3.fromRGB(100, 60, 140), 220)
+        local body = section("💾 СОХРАНЕНИЕ", Color3.fromRGB(100, 60, 140), 260)
 
         countLbl = mk("TextLabel", {
             Name = "Count", Size = UDim2.new(1, -4, 0, 16), Position = UDim2.new(0, 2, 0, 0),
@@ -1585,7 +1579,6 @@ local function openEditor()
         }, body)
         corner(sellBtn, 8)
 
-        -- 🆕 📤 Поделиться фигурой (упаковывает текущую сетку в строку ОРБИТЫ и открывает панель)
         local shareBtn = mk("TextButton", {
             Name = "Share", Size = UDim2.new(1, -4, 0, 36), Position = UDim2.new(0, 2, 0, 138),
             BackgroundColor3 = Color3.fromRGB(70, 60, 130), TextColor3 = Color3.fromRGB(220, 210, 255),
@@ -1594,7 +1587,6 @@ local function openEditor()
         }, body)
         corner(shareBtn, 8)
 
-        -- 🆕 📥 Импорт чужой фигуры (открывает панель шаринга для приёма строки)
         local importBtn = mk("TextButton", {
             Name = "Import", Size = UDim2.new(1, -4, 0, 36), Position = UDim2.new(0, 2, 0, 178),
             BackgroundColor3 = Color3.fromRGB(50, 80, 110), TextColor3 = Color3.fromRGB(200, 230, 255),
@@ -1602,6 +1594,15 @@ local function openEditor()
             AutoButtonColor = false, BorderSizePixel = 0,
         }, body)
         corner(importBtn, 8)
+
+        -- ✨ Кнопка «Очистить всё» (сбросить всю сетку)
+        local clearAllBtn = mk("TextButton", {
+            Name = "ClearAll", Size = UDim2.new(1, -4, 0, 32), Position = UDim2.new(0, 2, 0, 218),
+            BackgroundColor3 = Color3.fromRGB(90, 40, 45), TextColor3 = Color3.fromRGB(255, 180, 180),
+            Font = Enum.Font.GothamBold, TextSize = 12, Text = "🧹 ОЧИСТИТЬ ВСЁ",
+            AutoButtonColor = false, BorderSizePixel = 0,
+        }, body)
+        corner(clearAllBtn, 8)
 
         onClick(saveBtn, function()
             local data = {}
@@ -1661,13 +1662,11 @@ local function openEditor()
             if ORBIT.playBuy then pcall(ORBIT.playBuy) end
         end)
 
-        -- 📤 Поделиться: упаковать текущую сетку в строку и открыть share-панель
         onClick(shareBtn, function()
             if not ORBIT.share or not ORBIT.share.encodeShape then
                 ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
                 return
             end
-            -- собираем пиксели
             local data = {}
             local filled = 0
             for r = 1, GRID do
@@ -1686,20 +1685,14 @@ local function openEditor()
             if nm == "" or not len or len > 20 then
                 nm = "СВОЯ_" .. (#SHAPE_PRESETS + 1)
             end
-            local str, err = ORBIT.share.encodeShape({
-                name = nm,
-                grid = GRID,
-                pixels = data,
-            })
+            local str, err = ORBIT.share.encodeShape({ name = nm, grid = GRID, pixels = data })
             if not str then
                 ORBIT.notify("❌ " .. tostring(err), Color3.fromRGB(255,150,150), 3)
                 return
             end
-            -- открыть панель шаринга со строкой уже в поле «отдать»
             ORBIT.share.open(str)
         end)
 
-        -- 📥 Импорт: открыть панель шаринга (пустую), пользователь вставит строку
         onClick(importBtn, function()
             if not ORBIT.share or not ORBIT.share.open then
                 ORBIT.notify("❌ Модуль шаринга не загружен", Color3.fromRGB(255,150,150), 3)
@@ -1707,9 +1700,14 @@ local function openEditor()
             end
             ORBIT.share.open()
         end)
+
+        onClick(clearAllBtn, function()
+            for r = 1, GRID do for c = 1, GRID do Ed2D.Cells[r][c] = 0 end end
+            commit2D(); refreshAllCells(); refreshCount()
+            ORBIT.notify("🧹 Очищено", Color3.fromRGB(255, 200, 200), 2)
+        end)
     end
 
-    -- Первичная сборка сетки
     rebuildGridUI()
     refreshCount()
     fitCanvas()
@@ -1721,14 +1719,12 @@ end
 if ORBIT.ui.openShopBtn then
     onClick(ORBIT.ui.openShopBtn, function() openShop() end)
 end
-
 if ORBIT.ui.openEditorBtn then
     onClick(ORBIT.ui.openEditorBtn, function() openEditor() end)
 end
 
 ORBIT.openShop = openShop
 ORBIT.openEditor = openEditor
--- v23.12 (Y5): доступ помощника к состоянию 2D-редактора
 Ed2D.GridOptions = GRID_OPTIONS
 Ed2D.SetBrush = function(n)
     n = math.clamp(math.floor(tonumber(n) or 1), 1, 5)
@@ -1742,7 +1738,7 @@ ORBIT.PALETTE = PALETTE
 ORBIT.saveStorage = saveStorage
 
 if ORBIT.notify then
-    ORBIT.notify("🎨 2D + 🔮 3D редакторы v23.9", Color3.fromRGB(220,200,255), 3)
+    ORBIT.notify("🎨 Магазин v24.2 (с удалением своих фигур)", Color3.fromRGB(220,200,255), 3)
 end
 
 return true
