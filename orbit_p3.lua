@@ -1,25 +1,7 @@
--- ORBIT v24.0 | orbit_p3.lua
--- v24.0: Died → sans.say + deathFx (только режим "sans"); animations.attach в buildRing;
---        saveSettings/loadSettings + gasterUnlocked, gasterWeaponUnlocked, playerMode, theme, achievements; ORBIT.setMode.
--- ОРБИТА v23.5 — P3: ЛОГИКА
--- ИЗМЕНЕНИЯ v23.4 (относительно v23.3):
---   fix: FPS всегда показывал 60 — statsData.fpsLastCheck хранил абсолютный tick(),
---        а t — относительное время. Теперь счётчик сбрасывается в startUpdateLoop.
---   fix: ESP пропадал после респавна цели — пересоздаётся.
---   fix: кольца на игроке, который вышел, оставались в Workspace — PlayerRemoving.
---   fix: боты: при внешнем удалении модели оставалась папка колец — removeBot.
---   fix: сбор кольца у бота: activeLightCount раздувался — countActiveLights.
---   fix: повторный запуск скрипта оставлял старые подключения — все через conns.
---   fix: загрузка сохранений: валидация индексов.
---   new: перекраска блоков ограничена ~30 Гц + кэш.
---   new: ScaleTo реже, эффект появления кольца, ORBIT.paintBlock.
---   fix (v23.4b): материал применяется к моделям; «Свечение» управляет PointLight.
---
--- ИЗМЕНЕНИЯ v23.5:
---   new: экспорт ORBIT.collectSaveDataForShare / ORBIT.encodeSettingsForShare /
---        ORBIT.decodeSettingsForShare / ORBIT.applySaveData — нужны модулю
---        orbit_share.lua (кнопки ВЫДАТЬ / ЗАГРУЗИТЬ в панели SHARE).
-
+-- ORBIT v24.2 | orbit_p3.lua
+-- Логика: аура, огонь, боты, ESP, кольца, сохранения, режим игрока.
+-- v24.2: совместим с новым sans (фразы), deathFx (lastSaid), abilities (hideElement),
+--        shop (deleteCustomShape), loader (экран режима). setMode + onPlayerDied уже здесь.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
 
@@ -90,7 +72,7 @@ local function applyPattern(pattern, angle, radius, height, seed)
 end
 ORBIT.applyPattern = applyPattern
 
--- ==================== ОБЩИЕ ХЕЛПЕРЫ v23.4 ====================
+-- ==================== ОБЩИЕ ХЕЛПЕРЫ ====================
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 local alive = true
 local conns = {}
@@ -107,7 +89,6 @@ local auraRecolorDue   = makeThrottle(1/30)
 local targetRecolorDue = makeThrottle(1/30)
 local mainRecolorDue   = makeThrottle(1/30)
 
--- быстрая перекраска блока: список перекрашиваемых частей кэшируется один раз
 local function paintBlock(b, col)
     if b.bodyParts then
         local list = b.recolorParts
@@ -134,7 +115,7 @@ local SPAWN_TIME = 0.4
 if SETTINGS.SpawnAnim == nil then SETTINGS.SpawnAnim = true end
 if SETTINGS.SpawnFlash == nil then SETTINGS.SpawnFlash = true end
 
--- отключаем все подключения P3 при выгрузке скрипта
+-- отключаем все подключения P3 при выгрузке
 local prevUnload = ORBIT.unload
 ORBIT.unload = function()
     alive = false
@@ -154,20 +135,15 @@ local function getAuraColor(i, total)
 end
 local function getAuraShapeSize() return ORBIT.getCurrentShapeSize() * SETTINGS.AuraShapeScale end
 
--- ==================== ТРЕЙЛЫ: ЕДИНАЯ НАСТРОЙКА (v23.6, фикс B3) ====================
--- Причина пропадания шлейфов: ширина Trail = расстояние между attachment * WidthScale,
--- поэтому у маленьких фигур + тонкого шлейфа реальная ширина ~0, а Lifetime < 0.1 с
--- короче кадра, из-за чего сегмент гаснет, не успев отрисоваться. Здесь задаём
--- безопасные минимумы и общие свойства для ВСЕХ трейлов проекта.
-local TRAIL_MIN_LIFETIME = 0.12   -- сек, меньше не видно на 30 FPS
-local TRAIL_MIN_WORLD_WIDTH = 0.09 -- студы, минимальная реальная ширина
+local TRAIL_MIN_LIFETIME = 0.12
+local TRAIL_MIN_WORLD_WIDTH = 0.09
 
 function ORBIT.configureTrail(trail, lifetime, widthScale, span)
     if not trail then return end
     if span then trail:SetAttribute("OrbitSpan", span) end
     local sp = trail:GetAttribute("OrbitSpan") or 0.5
-    local base = math.max(2 * sp, 0.05)               -- дистанция между attachment
-    local minScale = TRAIL_MIN_WORLD_WIDTH / base      -- минимальный WidthScale
+    local base = math.max(2 * sp, 0.05)
+    local minScale = TRAIL_MIN_WORLD_WIDTH / base
     local w = math.max(widthScale or 0.5, minScale)
     trail.Lifetime = math.max(lifetime or 0.25, TRAIL_MIN_LIFETIME)
     trail.WidthScale = NumberSequence.new({
@@ -179,13 +155,10 @@ function ORBIT.configureTrail(trail, lifetime, widthScale, span)
     trail.LightEmission = 0.6
 end
 
--- ==================== АУРА: ГРАДИЕНТ И СВЕЧЕНИЕ (v23.7, A2) ====================
--- Сдвиг оттенка даёт «градиент» между кольцом, гало и внутренним кольцом.
 local function shiftHue(c, d)
     local h, sa, v = c:ToHSV()
     return Color3.fromHSV((h + d) % 1, sa, v)
 end
--- Градиент для частиц: цвет → соседний оттенок → цвет
 local function auraGradient(c)
     return ColorSequence.new({
         ColorSequenceKeypoint.new(0, c),
@@ -193,12 +166,8 @@ local function auraGradient(c)
         ColorSequenceKeypoint.new(1, shiftHue(c, -0.07)),
     })
 end
+local function easeSine(x) return -(math.cos(math.pi * x) - 1) / 2 end
 
--- Плавная кривая «sine ease-in-out» для пульсации: вход 0..1 -> выход 0..1
-local function easeSine(x)
-    return -(math.cos(math.pi * x) - 1) / 2
-end
--- Три стиля частиц ауры: 1 — искры, 2 — дым, 3 — звёзды
 ORBIT.AURA_PARTICLE_STYLES = {
     { name = "ИСКРЫ",  tex = "rbxasset://textures/particles/sparkles_main.dds", emission = 0.6, sizeMul = 1.0, spin = false },
     { name = "ДЫМ",    tex = "rbxasset://textures/particles/smoke_main.dds",    emission = 0.1, sizeMul = 1.9, spin = false },
@@ -209,13 +178,12 @@ local AURA_SEG_COUNT = 24
 function ORBIT.setupAura()
     if ORBIT.auraFolder then ORBIT.auraFolder:Destroy(); ORBIT.auraFolder = nil end
     ORBIT.auraParts = {}; ORBIT.auraBlocks = {}
-    ORBIT.auraSmoothCol = nil   -- v23.7 (A2): сглаженный цвет пересчитается заново
+    ORBIT.auraSmoothCol = nil
     if not SETTINGS.AuraEnabled then return end
     ORBIT.auraFolder = Instance.new("Folder")
     ORBIT.auraFolder.Name = "OrbitAura_" .. tostring(math.random(1, 999999))
     ORBIT.auraFolder.Parent = Workspace
 
-    -- Кольцо
     if SETTINGS.AuraRing then
         local ring = Instance.new("Part")
         ring.Name = "AuraRing"; ring.Shape = Enum.PartType.Cylinder
@@ -225,7 +193,6 @@ function ORBIT.setupAura()
         ring.Material = SETTINGS.AuraMaterial or Enum.Material.Neon; ring.Color = getAuraColor(1, 1); ring.Transparency = 0.3
         ring.Parent = ORBIT.auraFolder
         table.insert(ORBIT.auraParts, ring)
-        -- v23.7 (A2): широкое прозрачное гало и узкое внутреннее кольцо (другие оттенки = градиент)
         local ringCol = getAuraColor(1, 1)
         local function extraRing(nm, mult, thickMult, transp, hueShift)
             local r = Instance.new("Part")
@@ -239,7 +206,6 @@ function ORBIT.setupAura()
         end
         extraRing("AuraHalo", 1.28, 0.45, 0.65, 0.07)
         extraRing("AuraInner", 0.72, 0.6, 0.55, -0.07)
-        -- градиент ПО КРУГУ: кольцо из сегментов, оттенок плавно «бежит» вдоль окружности (позиции — в updateAura)
         local arc = (2 * math.pi * SETTINGS.AuraSize / AURA_SEG_COUNT) * 0.95
         for i = 1, AURA_SEG_COUNT do
             local sg = Instance.new("Part")
@@ -253,7 +219,6 @@ function ORBIT.setupAura()
         end
     end
 
-    -- Частицы
     if SETTINGS.AuraParticles then
         local emitter = Instance.new("Part")
         emitter.Name = "AuraEmitter"; emitter.Size = Vector3.new(0.1,0.1,0.1); emitter.Transparency = 1
@@ -287,7 +252,6 @@ function ORBIT.setupAura()
             })
             pe.Parent = emitter
         end
-        -- v23.7 (A2): мягкое свечение — крупные полупрозрачные частицы; сила = SETTINGS.AuraGlow (0 = выкл)
         local glow = SETTINGS.AuraGlow
         if glow == nil then glow = 1 end
         if glow > 0 then
@@ -312,7 +276,6 @@ function ORBIT.setupAura()
         table.insert(ORBIT.auraParts, emitter)
     end
 
-    -- Свет ауры
     if SETTINGS.AuraLightEnabled then
         local lightPart = Instance.new("Part")
         lightPart.Name = "AuraLightHolder"
@@ -334,48 +297,48 @@ function ORBIT.setupAura()
         table.insert(ORBIT.auraParts, lightPart)
     end
 
-    -- Фигуры
     if SETTINGS.AuraShapes then
         local folder = Instance.new("Folder"); folder.Name = "AuraShapes"; folder.Parent = ORBIT.auraFolder
         local shape = SHAPE_PRESETS[ORBIT.auraShapeIndex] or SHAPE_PRESETS[1]
         local size = getAuraShapeSize()
         local count = math.max(4, math.floor(SETTINGS.BlockCount * 0.75))
         for i = 1, count do
-            local data = shape.create(size, "Aura_" .. i)
-            local refPart = data.part
-            if not data.isModel then
-                refPart.Material = SETTINGS.AuraMaterial or SETTINGS.Material
-                refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
-                refPart.CanQuery = false; refPart.CanTouch = false
-                refPart.Transparency = SETTINGS.Transparency
-                refPart.Color = getAuraColor(i, count)
-            elseif SETTINGS.AuraMaterial and SETTINGS.AuraMaterial ~= Enum.Material.Neon and data.bodyParts then
-                -- v23.6 (A1): материал ауры для частей модели (кроме помеченных NoRecolor)
-                for _, bp in ipairs(data.bodyParts) do
-                    pcall(function()
-                        if not bp:GetAttribute("NoRecolor") then bp.Material = SETTINGS.AuraMaterial end
-                    end)
+            local ok, data = pcall(shape.create, size, "Aura_" .. i)
+            if ok and data then
+                local refPart = data.part
+                if not data.isModel then
+                    refPart.Material = SETTINGS.AuraMaterial or SETTINGS.Material
+                    refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+                    refPart.CanQuery = false; refPart.CanTouch = false
+                    refPart.Transparency = SETTINGS.Transparency
+                    refPart.Color = getAuraColor(i, count)
+                elseif SETTINGS.AuraMaterial and SETTINGS.AuraMaterial ~= Enum.Material.Neon and data.bodyParts then
+                    for _, bp in ipairs(data.bodyParts) do
+                        pcall(function()
+                            if not bp:GetAttribute("NoRecolor") then bp.Material = SETTINGS.AuraMaterial end
+                        end)
+                    end
                 end
-            end
-            if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
-            local trail = nil
-            if SETTINGS.AuraTrailEnabled then
-                local span = (data.visualSize or size) * 0.35
-                local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span,0,0); a0.Parent = refPart
-                local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span,0,0); a1.Parent = refPart
-                trail = Instance.new("Trail")
-                trail.Attachment0 = a0; trail.Attachment1 = a1
-                trail.Color = ColorSequence.new(getAuraColor(i, count))
-                ORBIT.configureTrail(trail, SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth, span)
-                trail.Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
+                if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
+                local trail = nil
+                if SETTINGS.AuraTrailEnabled then
+                    local span = (data.visualSize or size) * 0.35
+                    local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span,0,0); a0.Parent = refPart
+                    local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span,0,0); a1.Parent = refPart
+                    trail = Instance.new("Trail")
+                    trail.Attachment0 = a0; trail.Attachment1 = a1
+                    trail.Color = ColorSequence.new(getAuraColor(i, count))
+                    ORBIT.configureTrail(trail, SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth, span)
+                    trail.Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
+                    })
+                    trail.Parent = refPart
+                end
+                table.insert(ORBIT.auraBlocks, {
+                    part = refPart, model = data.model, isModel = data.isModel or false,
+                    bodyParts = data.bodyParts, index = i, total = count, trail = trail,
                 })
-                trail.Parent = refPart
             end
-            table.insert(ORBIT.auraBlocks, {
-                part = refPart, model = data.model, isModel = data.isModel or false,
-                bodyParts = data.bodyParts, index = i, total = count, trail = trail,
-            })
         end
     end
 end
@@ -388,7 +351,6 @@ local function updateAura(dt)
     if not hrp then return end
     local baseCol = getAuraColor(1, 1)
     local recolor = auraRecolorDue(tick())
-    -- v23.7 (A2): плавная интерполяция цвета ауры (без рывков при смене цвета / радуге)
     local acfg = P.COLORS[P.auraColorIndex]
     local targetCol = acfg.rainbow and baseCol or (acfg.c or SETTINGS.AuraColor)
     if not ORBIT.auraSmoothCol then ORBIT.auraSmoothCol = targetCol end
@@ -398,7 +360,6 @@ local function updateAura(dt)
 
     for _, part in ipairs(ORBIT.auraParts) do
         if part.Name == "AuraRing" or part.Name == "AuraHalo" or part.Name == "AuraInner" then
-            -- v23.7 (A2): плавное следование (экспоненциальное сглаживание) и «дыхание» прозрачности/размера
             local target = CFrame.new(hrp.Position - Vector3.new(0, 2.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
             local alpha = 1 - math.exp(-dt * 22)
             part.CFrame = part.CFrame:Lerp(target, alpha)
@@ -417,7 +378,6 @@ local function updateAura(dt)
                 part.Transparency = 0.55 + math.sin(tt * 2.6 + 2) * 0.12
             end
         elseif part.Name == "AuraSeg" then
-            -- сегмент градиентного кольца: бежит по окружности, оттенок меняется плавно вдоль круга
             local i = part:GetAttribute("SegIndex") or 1
             local a = (i - 1) / AURA_SEG_COUNT * math.pi * 2 + nowT * 0.6
             local R = SETTINGS.AuraSize
@@ -437,8 +397,7 @@ local function updateAura(dt)
             part.CFrame = hrp.CFrame
             local pl = part:FindFirstChildOfClass("PointLight")
             if pl then
-                local col = smoothCol
-                pl.Color = col
+                pl.Color = smoothCol
                 pl.Range = SETTINGS.AuraLightRange or 8
                 pl.Brightness = SETTINGS.AuraLightBrightness or 2
             end
@@ -473,7 +432,6 @@ local function updateAura(dt)
             end
             local pulseScale = 1.0
             if SETTINGS.AuraPulseEnabled then
-                -- v23.7 (A2): плавная кривая sine ease-in-out вместо «острой» синусоиды
                 local ph = (t * 0.64 + data.index * 0.17) % 1
                 local tri = ph < 0.5 and ph * 2 or (1 - ph) * 2
                 pulseScale = 1.0 + (easeSine(tri) * 2 - 1) * 0.15
@@ -537,13 +495,8 @@ local function updateFire()
     end
 end
 
--- ============================================================
---       ESP
--- ============================================================
-ORBIT.ESP = ORBIT.ESP or {
-    Enabled = false, MaxDistance = 500, UpdateInterval = 0.1,
-    LastUpdate = 0, Tags = {},
-}
+-- ==================== ESP ====================
+ORBIT.ESP = ORBIT.ESP or { Enabled = false, MaxDistance = 500, UpdateInterval = 0.1, LastUpdate = 0, Tags = {} }
 
 local function makeESPTag(player)
     local char = player.Character
@@ -673,17 +626,10 @@ local function spawnFireworks(position, color3)
     pe.Lifetime = NumberRange.new(0.8, 1.5)
     pe.Speed = NumberRange.new(15, 30)
     pe.SpreadAngle = Vector2.new(180, 180)
-    pe.Size = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 1.2),
-        NumberSequenceKeypoint.new(1, 0),
-    })
+    pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0) })
     pe.Color = ColorSequence.new(color3)
-    pe.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(1, 1),
-    })
-    pe.LightEmission = 1
-    pe.LightInfluence = 0
+    pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+    pe.LightEmission = 1; pe.LightInfluence = 0
     pe.Parent = part
     pe:Emit(40)
     task.delay(2, function() pcall(function() part:Destroy() end) end)
@@ -706,9 +652,7 @@ function ORBIT.tagCheater(player, enable)
     if not player or player == LocalPlayer then return false end
     if enable then
         ORBIT.taggedPlayers[player] = true
-        GENV.ORBIT_CHEATERS[player.UserId] = {
-            name = player.Name, time = os.time(), reason = "manual",
-        }
+        GENV.ORBIT_CHEATERS[player.UserId] = { name = player.Name, time = os.time(), reason = "manual" }
         ORBIT.addSession("cheatersTagged")
         warn("[Orbit " .. tostring(ORBIT.version) .. "] Помечен: " .. player.Name)
         if ORBIT.notify then ORBIT.notify("Помечен: " .. player.Name, Color3.fromRGB(255, 120, 120)) end
@@ -732,9 +676,7 @@ function ORBIT.clearAllTags()
     for p in pairs(ORBIT.taggedPlayers) do ORBIT.tagCheater(p, false) end
 end
 
--- ============================================================
---       ПОЛНОЕ КОПИРОВАНИЕ НА ЧУЖИХ
--- ============================================================
+-- ==================== ПОЛНОЕ КОПИРОВАНИЕ НА ЧУЖИХ ====================
 ORBIT.targetRings = ORBIT.targetRings or {}
 
 local function attachTrail(refPart, span, color, length, width)
@@ -775,36 +717,38 @@ function ORBIT.buildTargetRings(player, slot)
             ringFolder.Parent = rootFolder
             local blocks = {}
             for i = 1, SETTINGS.BlockCount do
-                local data = shape.create(size, "TR_" .. ri .. "_" .. i, i)
-                local refPart = data.part
-                local visualSize = data.visualSize or size
-                if not data.isModel then
-                    refPart.Material = SETTINGS.Material
-                    refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
-                    refPart.CanQuery = false; refPart.CanTouch = false
-                    refPart.Transparency = SETTINGS.Transparency
-                    refPart.Color = SETTINGS.FixedColor
-                end
-                if data.bodyParts then
-                    for _, bp in ipairs(data.bodyParts) do
-                        pcall(function()
-                            bp.Transparency = SETTINGS.Transparency
-                            bp.CanQuery = false; bp.CanTouch = false
-                        end)
+                local ok, data = pcall(shape.create, size, "TR_" .. ri .. "_" .. i, i)
+                if ok and data then
+                    local refPart = data.part
+                    local visualSize = data.visualSize or size
+                    if not data.isModel then
+                        refPart.Material = SETTINGS.Material
+                        refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+                        refPart.CanQuery = false; refPart.CanTouch = false
+                        refPart.Transparency = SETTINGS.Transparency
+                        refPart.Color = SETTINGS.FixedColor
                     end
+                    if data.bodyParts then
+                        for _, bp in ipairs(data.bodyParts) do
+                            pcall(function()
+                                bp.Transparency = SETTINGS.Transparency
+                                bp.CanQuery = false; bp.CanTouch = false
+                            end)
+                        end
+                    end
+                    if data.isModel then data.model.Parent = ringFolder else refPart.Parent = ringFolder end
+                    local trail = nil
+                    if SETTINGS.TrailEnabled then
+                        trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
+                            SETTINGS.TrailLength, SETTINGS.TrailWidth)
+                    end
+                    table.insert(blocks, {
+                        part = refPart, model = data.model, isModel = data.isModel or false,
+                        bodyParts = data.bodyParts, trail = trail,
+                        angleOffset = (i-1)*(360/SETTINGS.BlockCount) + rings[ri].angleShift,
+                        index = i,
+                    })
                 end
-                if data.isModel then data.model.Parent = ringFolder else refPart.Parent = ringFolder end
-                local trail = nil
-                if SETTINGS.TrailEnabled then
-                    trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
-                        SETTINGS.TrailLength, SETTINGS.TrailWidth)
-                end
-                table.insert(blocks, {
-                    part = refPart, model = data.model, isModel = data.isModel or false,
-                    bodyParts = data.bodyParts, trail = trail,
-                    angleOffset = (i-1)*(360/SETTINGS.BlockCount) + rings[ri].angleShift,
-                    index = i,
-                })
             end
             table.insert(ringData, { ri = ri, folder = ringFolder, blocks = blocks, angle = 0 })
         end
@@ -852,10 +796,7 @@ function ORBIT.buildTargetRings(player, slot)
                     NumberSequenceKeypoint.new(1, cfg.size[3]),
                 })
                 pe.Color = ColorSequence.new(SETTINGS.AuraColor)
-                pe.Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.1),
-                    NumberSequenceKeypoint.new(1, 1),
-                })
+                pe.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
                 pe.Parent = auraEmitter
             end
         end
@@ -865,26 +806,28 @@ function ORBIT.buildTargetRings(player, slot)
             local size = ORBIT.getCurrentShapeSize() * SETTINGS.AuraShapeScale
             local count = math.max(4, math.floor(SETTINGS.BlockCount * 0.75))
             for i = 1, count do
-                local data = shape.create(size, "TA_" .. i)
-                local refPart = data.part
-                if not data.isModel then
-                    refPart.Material = SETTINGS.Material
-                    refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
-                    refPart.CanQuery = false; refPart.CanTouch = false
-                    refPart.Transparency = SETTINGS.Transparency
-                    refPart.Color = SETTINGS.AuraColor
+                local ok, data = pcall(shape.create, size, "TA_" .. i)
+                if ok and data then
+                    local refPart = data.part
+                    if not data.isModel then
+                        refPart.Material = SETTINGS.Material
+                        refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+                        refPart.CanQuery = false; refPart.CanTouch = false
+                        refPart.Transparency = SETTINGS.Transparency
+                        refPart.Color = SETTINGS.AuraColor
+                    end
+                    if data.isModel then data.model.Parent = auraFolder else refPart.Parent = auraFolder end
+                    local trail = nil
+                    if SETTINGS.AuraTrailEnabled then
+                        local span = (data.visualSize or size) * 0.35
+                        trail = attachTrail(refPart, span, SETTINGS.AuraColor,
+                            SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth)
+                    end
+                    table.insert(auraBlocks, {
+                        part = refPart, model = data.model, isModel = data.isModel or false,
+                        bodyParts = data.bodyParts, index = i, total = count, trail = trail,
+                    })
                 end
-                if data.isModel then data.model.Parent = auraFolder else refPart.Parent = auraFolder end
-                local trail = nil
-                if SETTINGS.AuraTrailEnabled then
-                    local span = (data.visualSize or size) * 0.35
-                    trail = attachTrail(refPart, span, SETTINGS.AuraColor,
-                        SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth)
-                end
-                table.insert(auraBlocks, {
-                    part = refPart, model = data.model, isModel = data.isModel or false,
-                    bodyParts = data.bodyParts, index = i, total = count, trail = trail,
-                })
             end
         end
         auraData = {
@@ -1046,9 +989,7 @@ local function updateTargetRings(dt)
     end
 end
 
--- ============================================================
---       БОТЫ
--- ============================================================
+-- ==================== БОТЫ ====================
 ORBIT.bots = {}
 ORBIT.botIdCounter = 0
 ORBIT.botSettings = ORBIT.botSettings or {
@@ -1177,28 +1118,30 @@ local function buildBotPlayerRings(botRoot, botId)
             ringFolder.Parent = folder
             local blocks = {}
             for i = 1, SETTINGS.BlockCount do
-                local data = shape.create(size, "BR_" .. ri .. "_" .. i, i)
-                local refPart = data.part
-                local visualSize = data.visualSize or size
-                if not data.isModel then
-                    refPart.Material = SETTINGS.Material
-                    refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
-                    refPart.CanQuery = false; refPart.CanTouch = false
-                    refPart.Transparency = SETTINGS.Transparency
-                    refPart.Color = SETTINGS.FixedColor
+                local ok, data = pcall(shape.create, size, "BR_" .. ri .. "_" .. i, i)
+                if ok and data then
+                    local refPart = data.part
+                    local visualSize = data.visualSize or size
+                    if not data.isModel then
+                        refPart.Material = SETTINGS.Material
+                        refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+                        refPart.CanQuery = false; refPart.CanTouch = false
+                        refPart.Transparency = SETTINGS.Transparency
+                        refPart.Color = SETTINGS.FixedColor
+                    end
+                    if data.isModel then data.model.Parent = ringFolder else refPart.Parent = ringFolder end
+                    local trail = nil
+                    if SETTINGS.TrailEnabled then
+                        trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
+                            SETTINGS.TrailLength, SETTINGS.TrailWidth)
+                    end
+                    table.insert(blocks, {
+                        part = refPart, model = data.model, isModel = data.isModel or false,
+                        bodyParts = data.bodyParts, trail = trail,
+                        angleOffset = (i-1)*(360/SETTINGS.BlockCount) + rings[ri].angleShift,
+                        index = i,
+                    })
                 end
-                if data.isModel then data.model.Parent = ringFolder else refPart.Parent = ringFolder end
-                local trail = nil
-                if SETTINGS.TrailEnabled then
-                    trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
-                        SETTINGS.TrailLength, SETTINGS.TrailWidth)
-                end
-                table.insert(blocks, {
-                    part = refPart, model = data.model, isModel = data.isModel or false,
-                    bodyParts = data.bodyParts, trail = trail,
-                    angleOffset = (i-1)*(360/SETTINGS.BlockCount) + rings[ri].angleShift,
-                    index = i,
-                })
             end
             table.insert(ringData, { ri = ri, folder = ringFolder, blocks = blocks, angle = 0 })
         end
@@ -1231,26 +1174,28 @@ function ORBIT.createBot(shapeIndex, position, targetSlot)
     local blockCount = 4 + math.random(0, 4)
     local blocks = {}
     for i = 1, blockCount do
-        local data = shape.create(ringSize, "Bot_R" .. i, i)
-        local refPart = data.part
-        if data.bodyParts then
-            for _, bp in ipairs(data.bodyParts) do
-                pcall(function() bp.CanQuery = false; bp.CanTouch = false end)
+        local ok, data = pcall(shape.create, ringSize, "Bot_R" .. i, i)
+        if ok and data then
+            local refPart = data.part
+            if data.bodyParts then
+                for _, bp in ipairs(data.bodyParts) do
+                    pcall(function() bp.CanQuery = false; bp.CanTouch = false end)
+                end
             end
+            if not data.isModel then
+                refPart.Material = Enum.Material.Neon
+                refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
+                refPart.CanQuery = false; refPart.CanTouch = false
+                refPart.Transparency = 0.1
+                refPart.Color = Color3.fromHSV(hueBase, 0.85, 1)
+            end
+            if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
+            table.insert(blocks, {
+                part = refPart, model = data.model, isModel = data.isModel or false,
+                bodyParts = data.bodyParts, index = i,
+                angleOffset = (i - 1) * (360 / blockCount),
+            })
         end
-        if not data.isModel then
-            refPart.Material = Enum.Material.Neon
-            refPart.CanCollide = false; refPart.Anchored = true; refPart.CastShadow = false
-            refPart.CanQuery = false; refPart.CanTouch = false
-            refPart.Transparency = 0.1
-            refPart.Color = Color3.fromHSV(hueBase, 0.85, 1)
-        end
-        if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
-        table.insert(blocks, {
-            part = refPart, model = data.model, isModel = data.isModel or false,
-            bodyParts = data.bodyParts, index = i,
-            angleOffset = (i - 1) * (360 / blockCount),
-        })
     end
     local botId = ORBIT.botIdCounter + 1
     ORBIT.botIdCounter = botId
@@ -1447,9 +1392,7 @@ function ORBIT.getBotCount()
     return n
 end
 
--- ============================================================
---       КОЛЬЦА (главные)
--- ============================================================
+-- ==================== КОЛЬЦА (главные) ====================
 function ORBIT.applyTrailSettings(trail)
     if not trail then return end
     ORBIT.configureTrail(trail, SETTINGS.TrailLength, SETTINGS.TrailWidth)
@@ -1491,71 +1434,73 @@ function ORBIT.buildRing(ri)
     local size = ORBIT.getCurrentShapeSize()
     for i = 1, SETTINGS.BlockCount do
         local blockName = "R" .. ri .. "_S" .. i
-        local data = shape.create(size, blockName, i)
-        local refPart = data.part
-        local visualSize = data.visualSize or size
-        if not data.isModel then
-            refPart.Material = SETTINGS.Material
-            refPart.CanCollide = false; refPart.Anchored = true
-            refPart.CastShadow = SETTINGS.CastShadow or false
-            refPart.CanQuery = false; refPart.CanTouch = false
-            refPart.Transparency = SETTINGS.Transparency
-            refPart.Color = SETTINGS.FixedColor
-        end
-        if data.bodyParts then
-            for _, bp in ipairs(data.bodyParts) do
-                pcall(function()
-                    bp.Transparency = SETTINGS.Transparency
-                    bp.CanQuery = false; bp.CanTouch = false
-                    if SETTINGS.Material ~= Enum.Material.Neon and not bp:GetAttribute("NoRecolor") then
-                        bp.Material = SETTINGS.Material
-                    end
-                end)
+        local ok, data = pcall(shape.create, size, blockName, i)
+        if ok and data then
+            local refPart = data.part
+            local visualSize = data.visualSize or size
+            if not data.isModel then
+                refPart.Material = SETTINGS.Material
+                refPart.CanCollide = false; refPart.Anchored = true
+                refPart.CastShadow = SETTINGS.CastShadow or false
+                refPart.CanQuery = false; refPart.CanTouch = false
+                refPart.Transparency = SETTINGS.Transparency
+                refPart.Color = SETTINGS.FixedColor
             end
-        end
-        if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
-        local light = nil
-        if SETTINGS.LightEnabled and ORBIT.activeLightCount < SETTINGS.LightLimit then
-            light = Instance.new("PointLight")
-            light.Name = blockName .. "_Light"
-            light.Color = SETTINGS.FixedColor
-            light.Range = SETTINGS.LightRange
-            light.Brightness = SETTINGS.GlowIntensity or 1
-            light.Enabled = (SETTINGS.GlowEnabled ~= false)
-            light.Parent = refPart
-            ORBIT.activeLightCount = ORBIT.activeLightCount + 1
-        end
-        local trail = nil
-        if SETTINGS.TrailEnabled then
-            trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
-                SETTINGS.TrailLength, SETTINGS.TrailWidth)
-        end
-        local nameGui = Instance.new("BillboardGui")
-        nameGui.Size = UDim2.new(0, 140, 0, 30)
-        nameGui.StudsOffset = Vector3.new(0, visualSize*0.9 + 1, 0)
-        nameGui.AlwaysOnTop = true; nameGui.LightInfluence = 0
-        nameGui.Adornee = refPart
-        nameGui.Enabled = SETTINGS.ShowBlockNames
-        nameGui.Parent = refPart
-        local nameLabel = Instance.new("TextLabel")
-        nameLabel.Size = UDim2.new(1, 0, 1, 0)
-        nameLabel.BackgroundTransparency = 1
-        nameLabel.Text = blockName
-        nameLabel.TextScaled = true
-        nameLabel.TextColor3 = SETTINGS.NameColor
-        nameLabel.Font = Enum.Font.GothamBold
-        nameLabel.TextStrokeTransparency = 0.3
-        nameLabel.Parent = nameGui
-        local newBlock = {
-            part = refPart, model = data.model, isModel = data.isModel or false,
-            bodyParts = data.bodyParts, light = light, trail = trail, lastTrailUpdate = 0,
-            nameGui = nameGui, nameLabel = nameLabel, visualSize = visualSize,
-            angleOffset = (i-1)*(360/SETTINGS.BlockCount) + ring.angleShift,
-        }
-        table.insert(ring.blocks, newBlock)
-        -- v24.0: подключаем анимации фигуры (если модуль загружен)
-        if ORBIT.animations and ORBIT.animations.attach then
-            pcall(ORBIT.animations.attach, newBlock, shape.name)
+            if data.bodyParts then
+                for _, bp in ipairs(data.bodyParts) do
+                    pcall(function()
+                        bp.Transparency = SETTINGS.Transparency
+                        bp.CanQuery = false; bp.CanTouch = false
+                        if SETTINGS.Material ~= Enum.Material.Neon and not bp:GetAttribute("NoRecolor") then
+                            bp.Material = SETTINGS.Material
+                        end
+                    end)
+                end
+            end
+            if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
+            local light = nil
+            if SETTINGS.LightEnabled and ORBIT.activeLightCount < SETTINGS.LightLimit then
+                light = Instance.new("PointLight")
+                light.Name = blockName .. "_Light"
+                light.Color = SETTINGS.FixedColor
+                light.Range = SETTINGS.LightRange
+                light.Brightness = SETTINGS.GlowIntensity or 1
+                light.Enabled = (SETTINGS.GlowEnabled ~= false)
+                light.Parent = refPart
+                ORBIT.activeLightCount = ORBIT.activeLightCount + 1
+            end
+            local trail = nil
+            if SETTINGS.TrailEnabled then
+                trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
+                    SETTINGS.TrailLength, SETTINGS.TrailWidth)
+            end
+            local nameGui = Instance.new("BillboardGui")
+            nameGui.Size = UDim2.new(0, 140, 0, 30)
+            nameGui.StudsOffset = Vector3.new(0, visualSize*0.9 + 1, 0)
+            nameGui.AlwaysOnTop = true; nameGui.LightInfluence = 0
+            nameGui.Adornee = refPart
+            nameGui.Enabled = SETTINGS.ShowBlockNames
+            nameGui.Parent = refPart
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Size = UDim2.new(1, 0, 1, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = blockName
+            nameLabel.TextScaled = true
+            nameLabel.TextColor3 = SETTINGS.NameColor
+            nameLabel.Font = Enum.Font.GothamBold
+            nameLabel.TextStrokeTransparency = 0.3
+            nameLabel.Parent = nameGui
+            local newBlock = {
+                part = refPart, model = data.model, isModel = data.isModel or false,
+                bodyParts = data.bodyParts, light = light, trail = trail, lastTrailUpdate = 0,
+                nameGui = nameGui, nameLabel = nameLabel, visualSize = visualSize,
+                angleOffset = (i-1)*(360/SETTINGS.BlockCount) + ring.angleShift,
+            }
+            table.insert(ring.blocks, newBlock)
+            -- v24.2: подключаем анимации фигуры
+            if ORBIT.animations and ORBIT.animations.attach then
+                pcall(ORBIT.animations.attach, newBlock, shape.name)
+            end
         end
     end
     statsData.totalShapes = statsData.totalShapes + #ring.blocks
@@ -1630,7 +1575,6 @@ function ORBIT.setEnabled(state)
     end
 end
 
--- вспышка искр при включении кольца
 function ORBIT.ringFlash(ri)
     if SETTINGS.SpawnFlash == false then return end
     local char = LocalPlayer.Character
@@ -1669,9 +1613,7 @@ function ORBIT.applyShapes()
     end
 end
 
--- ============================================================
---       МГНОВЕННЫЙ CLEANUP ПРИ СМЕРТИ
--- ============================================================
+-- ==================== CLEANUP ПРИ СМЕРТИ ====================
 local function cleanupOnDeath()
     for ri in pairs(rings) do
         pcall(ORBIT.destroyRing, ri)
@@ -1682,7 +1624,7 @@ local function cleanupOnDeath()
     warn("[Orbit] Смерть - все элементы убраны мгновенно")
 end
 
--- v24.0: эффект смерти + фраза Санса (только режим "sans"). Фраза — ПЕРВОЙ, deathFx переиспользует её.
+-- v24.2: фраза Санса ПЕРВОЙ (deathFx переиспользует её из S.lastSaid)
 local function onPlayerDied()
     if ORBIT.mode ~= "sans" then return end
     local char = LocalPlayer.Character
@@ -1734,9 +1676,7 @@ function ORBIT.setupRespawnHook()
     end))
 end
 
--- ============================================================
---       ПРОИЗВОДИТЕЛЬНОСТЬ
--- ============================================================
+-- ==================== ПРОИЗВОДИТЕЛЬНОСТЬ ====================
 local PERFORMANCE = {
     Enabled = true, Level = "auto", CurrentLevel = "high",
     LastCheck = 0, CheckInterval = 3.0,
@@ -2011,7 +1951,6 @@ local function collectSaveData()
         soundEnabled=ORBIT.SOUNDS and ORBIT.SOUNDS.Enabled,
         soundVolume=ORBIT.SOUNDS and ORBIT.SOUNDS.Volume,
         spawnAnim=SETTINGS.SpawnAnim, spawnFlash=SETTINGS.SpawnFlash,
-        -- v23.6: поля, которые раньше терялись при перезагрузке
         material=(tostring(SETTINGS.Material):gsub("Enum%.Material%.", "")),
         transparency=SETTINGS.Transparency, glowEnabled=SETTINGS.GlowEnabled,
         glowIntensity=SETTINGS.GlowIntensity, castShadow=SETTINGS.CastShadow,
@@ -2138,7 +2077,6 @@ local function applySaveData(d)
     if d.spawnAnim ~= nil then SETTINGS.SpawnAnim = d.spawnAnim end
     if d.spawnFlash ~= nil then SETTINGS.SpawnFlash = d.spawnFlash end
 
-    -- v23.6: восстановление полей, которые раньше не сохранялись
     local needRebuild = false
     if type(d.material) == "string" then
         local okM, mat = pcall(function() return Enum.Material[d.material] end)
@@ -2156,10 +2094,8 @@ local function applySaveData(d)
         P.auraSpinAxisIndex = d.auraSpinAxisIndex
         SETTINGS.AuraSpinAxis = P.AURA_SPIN_AXIS[P.auraSpinAxisIndex].value
     end
-    -- цвет ауры: индекс сохранялся, а сам цвет не пересчитывался
     local ac = P.COLORS[P.auraColorIndex]
     if ac and ac.c then SETTINGS.AuraColor = ac.c end
-    -- атмосфера / шлейф-поток / искры (читаются модулем extras напрямую из SETTINGS)
     if type(d.atmoEnabled) == "boolean" then SETTINGS.AtmoEnabled = d.atmoEnabled end
     if type(d.atmoType) == "string" then SETTINGS.AtmoType = d.atmoType end
     if type(d.atmoIntensity) == "string" then SETTINGS.AtmoIntensity = d.atmoIntensity end
@@ -2180,15 +2116,13 @@ local function applySaveData(d)
     if type(d.gradientSpeed) == "number" then SETTINGS.GradientSpeed = math.clamp(d.gradientSpeed, 0.05, 5) end
 
     pcall(function() if ORBIT.extras and ORBIT.extras.syncFromSettings then ORBIT.extras.syncFromSettings() end end)
-    -- цвет колец: пересчитать Rainbow/FixedColor из colorIndex
     pcall(function() if ORBIT.applyColor then ORBIT.applyColor() end end)
     if needRebuild then pcall(function() if ORBIT.rebuildAllRings then ORBIT.rebuildAllRings() end end) end
-    -- обновить ауру и огонь, если они уже созданы
     pcall(function() if ORBIT.enabled and ORBIT.setupAura then ORBIT.setupAura() end end)
     pcall(function() if ORBIT.enabled and ORBIT.setupFire then ORBIT.setupFire() end end)
 end
 
--- v24.0: миграция сейвов v23.x — недостающим полям ставим дефолты, старые поля не трогаем
+-- v24.2: миграция сейвов старых версий
 local function migrateV24(d)
     if type(d) ~= "table" then return end
     local sd = ORBIT.saveData or {}
@@ -2206,7 +2140,7 @@ end
 function ORBIT.saveSettings()
     local ok, data = pcall(collectSaveData)
     if not ok then return false, "Сбор данных" end
-    do -- v24.0: новые поля (только в основной файл, не в именные сейвы и не в SHARE)
+    do
         local sd = ORBIT.saveData or {}
         data.gasterUnlocked = (ORBIT.gasterUnlocked == true) or (sd.gasterUnlocked == true)
         data.gasterWeaponUnlocked = (ORBIT.gasterWeaponUnlocked == true) or (sd.gasterWeaponUnlocked == true)
@@ -2238,14 +2172,16 @@ function ORBIT.loadSettings()
     return true
 end
 
--- v24.0: переключение режима игрока ("sans" — фразы и эффект смерти, "normal" — тишина)
+-- v24.2: переключение режима игрока (Обычный / Санс) — используется loader-экраном
 function ORBIT.setMode(m)
     if m ~= "sans" and m ~= "normal" then return false end
     ORBIT.mode = m
     ORBIT.saveData = ORBIT.saveData or {}
     ORBIT.saveData.playerMode = m
     pcall(ORBIT.saveSettings)
-    if ORBIT.notify then ORBIT.notify(m == "sans" and "🎭 Режим: Санс" or "🎭 Режим: Обычный", Color3.fromRGB(200,200,255), 2) end
+    if ORBIT.notify then
+        ORBIT.notify(m == "sans" and "🎭 Режим: Санс" or "🎭 Режим: Обычный", Color3.fromRGB(200,200,255), 2)
+    end
     return true
 end
 
@@ -2294,15 +2230,13 @@ function ORBIT.startLogic()
     end
 end
 
--- ==================== ЭКСПОРТ ДЛЯ SHARE-МОДУЛЯ (v23.5) ====================
--- Отдаём наружу приватные функции, которые нужны orbit_share.lua.
--- Без них кнопка «ВЫДАТЬ МОИ НАСТРОЙКИ» падает с ошибкой (поле остаётся пустым).
+-- ==================== ЭКСПОРТ ДЛЯ SHARE-МОДУЛЯ ====================
 ORBIT.collectSaveDataForShare = collectSaveData
 ORBIT.encodeSettingsForShare  = enc
 ORBIT.decodeSettingsForShare  = dec
 ORBIT.applySaveData           = applySaveData
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v24.0 (логика + экспорт для SHARE)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v24.2 (логика + setMode + экспорт для SHARE)", Color3.fromRGB(180,255,180), 3) end
 
 return true
