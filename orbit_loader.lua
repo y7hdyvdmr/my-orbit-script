@@ -1,6 +1,8 @@
 -- ORBIT v24.0 | orbit_loader.lua
--- Главный загрузчик: стаб ORBIT, выбор платформы и режима, загрузка 16 файлов с прогрессом
--- v24.0-fix1: readSavedMode сначала смотрит orbit_v21_settings.json (правильное имя).
+-- Единственный загрузчик. Грузит 17 файлов из корня репо (без папки v24/).
+-- v24.0-fix2: добавлен orbit_p4b.lua.
+-- v24.0-fix3: убран fallback на v24/ — все файлы лежат в корне.
+--             p1 больше не содержит встроенного загрузчика.
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
@@ -37,32 +39,33 @@ shared.ORBIT = ORBIT
 rawset(_G, "ORBIT", ORBIT)
 GENV.ORBIT = ORBIT
 
--- флаг: p4 не грузит shop/minigame сам
+-- флаг: p1 не запускает встроенный загрузчик
 GENV._OrbitV24Loader = true
+shared._OrbitV24Loader = true
 
 -- ==================== адреса ====================
 local BASE = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
-local V24  = BASE .. "v24/"
 
 local FILES = {
-    { "orbit_p1.lua", BASE, false },
-    { "orbit_p2.lua", BASE, false },
-    { "orbit_p3.lua", BASE, false },
-    { "orbit_p4.lua", BASE, false },
-    { "orbit_sans.lua", V24, true },
-    { "orbit_abilities.lua", V24, true },
-    { "orbit_animations.lua", V24, true },
-    { "orbit_death_fx.lua", V24, true },
-    { "orbit_gaster.lua", V24, true },
-    { "orbit_new_figures.lua", V24, true },
-    { "orbit_p4_shop.lua", BASE, false },
-    { "orbit_editor3d.lua", BASE, false },
-    { "orbit_minigame.lua", BASE, false },
-    { "orbit_extras.lua", V24, true },
-    { "orbit_tools.lua", V24, true },
-    { "orbit_anticheat.lua", V24, true },
+    { "orbit_p1.lua" },
+    { "orbit_p2.lua" },
+    { "orbit_p3.lua" },
+    { "orbit_p4.lua" },
+    { "orbit_p4b.lua" },
+    { "orbit_sans.lua" },
+    { "orbit_abilities.lua" },
+    { "orbit_animations.lua" },
+    { "orbit_death_fx.lua" },
+    { "orbit_gaster.lua" },
+    { "orbit_new_figures.lua" },
+    { "orbit_p4_shop.lua" },
+    { "orbit_editor3d.lua" },
+    { "orbit_minigame.lua" },
+    { "orbit_extras.lua" },
+    { "orbit_tools.lua" },
+    { "orbit_anticheat.lua" },
 }
-local TOTAL = #FILES
+local TOTAL = #FILES   -- = 17
 
 -- ==================== окружение ====================
 local function curOrbit()
@@ -318,7 +321,7 @@ barGrad.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 140, 255)),
 })
 
--- скелетон-чипы (16 штук, сетка 8x2)
+-- скелетон-чипы (17 штук)
 local chipHolder = Instance.new("Frame")
 chipHolder.Position = UDim2.new(0, 14, 0, 50)
 chipHolder.Size = UDim2.new(1, -28, 0, 56)
@@ -465,14 +468,10 @@ local failed = {}
 local function loadAll()
     for i, f in ipairs(FILES) do
         if not alive then return end
-        local name, root, hasFallback = f[1], f[2], f[3]
+        local name = f[1]
         statusLbl.Text = string.format("Загрузка %d/%d: %s", i, TOTAL, name)
         logLine("▶ " .. name)
-        local ok, err = fetchAndRun(root .. name, name, 3)
-        if not ok and hasFallback then
-            logLine("  ↳ v24 не сработал, пробую корень", Color3.fromRGB(255, 210, 120))
-            ok, err = fetchAndRun(BASE .. name, name, 3)
-        end
+        local ok, err = fetchAndRun(BASE .. name, name, 3)
         ORBIT = curOrbit()
         if i == 1 then
             ORBIT.PLATFORM = GENV._OrbitPlatform
@@ -549,6 +548,7 @@ local function installUnload()
         GENV._OrbitLoaderGui = nil
         GENV._OrbitPlatform = nil
         GENV._OrbitMode = nil
+        shared._OrbitV24Loader = nil
         shared.ORBIT = nil
         rawset(_G, "ORBIT", nil)
         GENV.ORBIT = nil
@@ -573,7 +573,7 @@ local function beginLoad()
         installUnload()
         if #failed == 0 then
             statusLbl.Text = "✅ Всё загружено"
-            logLine("Готово: 16/16", Color3.fromRGB(130, 255, 160))
+            logLine("Готово: " .. TOTAL .. "/" .. TOTAL, Color3.fromRGB(130, 255, 160))
         else
             statusLbl.Text = "⚠️ Загружено с ошибками: " .. #failed
             logLine("Не загрузились: " .. table.concat(failed, ", "), Color3.fromRGB(255, 130, 130))
