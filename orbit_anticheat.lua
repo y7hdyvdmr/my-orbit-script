@@ -1,6 +1,7 @@
--- ORBIT v24.0 | orbit_anticheat.lua
--- Античит v13.0: 18 защит, анимации защиты, фразы Санса, учёт abilityMoveUntil
--- Автономный: ORBIT может отсутствовать, тогда всё работает без фраз и общих звуков
+-- ORBIT v24.2 | orbit_anticheat.lua
+-- Античит v14.0: 18 защит, анимации защиты, фразы Санса, крестик панели
+-- v24.2: добавлен крестик закрытия панели в правом верхнем углу.
+-- Автономный: ORBIT может отсутствовать, тогда всё работает без фраз и общих звуков.
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
@@ -95,7 +96,7 @@ local function track(conn)
     return conn
 end
 
--- ==================== состояние античита (фразы Санса) ====================
+-- ==================== состояние ====================
 local AC = {
     lastAttackTime = tick(),
     lastSay        = 0,
@@ -150,12 +151,10 @@ task.spawn(function()
     pcall(function() ContentProvider:PreloadAsync(soundFolder:GetChildren()) end)
 end)
 
--- очередь звуков (без наложения)
 local SOUND_QUEUE = { Playing = false, List = {} }
 
 local function playSound(name, volume, pitch)
     if not SETTINGS.Sounds then return end
-    -- общий звуковой модуль ORBIT, если он есть
     local O = getOrbit()
     if O and O.Sfx and O.Sfx.play then
         local ok = pcall(O.Sfx.play, name, volume or 1, pitch or 1)
@@ -210,7 +209,6 @@ local function sfxIntrusion() playSound("intrusion", 0.7, 1.5) end
 local function sfxMarkCheater() playSound("signal", 0.4, 0.8) end
 
 -- ==================== фразы Санса ====================
--- при атаке (внутри sans.noteAttack есть throttle 5 сек)
 local function onAttack()
     AC.lastAttackTime = tick()
     local O = getOrbit()
@@ -219,7 +217,6 @@ local function onAttack()
     end
 end
 
--- серьёзная защита (внутри sans.say есть throttle 10 сек)
 local function sayVictory()
     local O = getOrbit()
     if O and O.sans and O.sans.say and O.mode ~= "normal" then
@@ -231,7 +228,6 @@ local function sayVictory()
     end
 end
 
--- рывок/телепорт способностей не считаем атакой
 local function abilityMoving()
     local O = getOrbit()
     return O and O.abilityMoveUntil and tick() < O.abilityMoveUntil or false
@@ -247,7 +243,6 @@ local function getFxFolder()
     return fxFolder
 end
 
--- мигание + купол + искры (не чаще раза в 0.8 сек)
 local function protectFx(char)
     if not AC.alive or not char then return end
     local now = tick()
@@ -256,7 +251,6 @@ local function protectFx(char)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    -- мигание игрока 0.2 -> 0 -> 0.2 (3 раза за 0.5 сек)
     task.spawn(function()
         local saved = {}
         for _, p in ipairs(char:GetDescendants()) do
@@ -266,25 +260,16 @@ local function protectFx(char)
         end
         for i = 1, 3 do
             if not AC.alive then break end
-            for p in pairs(saved) do
-                if p.Parent then p.Transparency = 0.2 end
-            end
+            for p in pairs(saved) do if p.Parent then p.Transparency = 0.2 end end
             task.wait(0.085)
-            for p in pairs(saved) do
-                if p.Parent then p.Transparency = 0 end
-            end
+            for p in pairs(saved) do if p.Parent then p.Transparency = 0 end end
             task.wait(0.04)
-            for p in pairs(saved) do
-                if p.Parent then p.Transparency = 0.2 end
-            end
+            for p in pairs(saved) do if p.Parent then p.Transparency = 0.2 end end
             task.wait(0.04)
         end
-        for p, orig in pairs(saved) do
-            if p.Parent then p.Transparency = orig end
-        end
+        for p, orig in pairs(saved) do if p.Parent then p.Transparency = orig end end
     end)
 
-    -- купол ForceField
     pcall(function()
         local dome = Instance.new("Part")
         dome.Name = "AcDome"
@@ -303,7 +288,6 @@ local function protectFx(char)
         Debris:AddItem(dome, 1)
     end)
 
-    -- искры
     pcall(function()
         local sp = Instance.new("Part")
         sp.Name = "AcSparks"
@@ -527,7 +511,6 @@ local function disableFallDamage(char)
     pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false) end)
 end
 
--- слежение за уроном: любое падение здоровья = атака
 local function hookHealth(char)
     if STATE.healthConn then pcall(function() STATE.healthConn:Disconnect() end); STATE.healthConn = nil end
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -765,7 +748,6 @@ local function lockPosition(char, hrp)
     if STATE.lastSafeCFrame then pcall(function() char:PivotTo(STATE.lastSafeCFrame) end) end
 end
 
--- анти-суперкольцо: один цикл на модуль
 local superRingRunning = false
 local function antiSuperRing()
     if superRingRunning then return end
@@ -1140,8 +1122,8 @@ local function enableProtection()
         if not hrp then return end
         pcall(handleProtection, dt, char, hrp)
     end)
-    notify("🛡 Анти-Чит v13.0 ВКЛ", Color3.fromRGB(120, 255, 180), 3)
-    log("Анти-Чит v13.0 активен.")
+    notify("🛡 Анти-Чит v14.0 ВКЛ", Color3.fromRGB(120, 255, 180), 3)
+    log("Анти-Чит v14.0 активен.")
 end
 
 local function disableProtection()
@@ -1160,7 +1142,7 @@ track(Workspace.DescendantAdded:Connect(function(obj)
     end
 end))
 
--- ==================== таймер бездействия (60 сек без атак -> idle) ====================
+-- ==================== таймер бездействия ====================
 task.spawn(function()
     while AC.alive do
         task.wait(2)
@@ -1173,6 +1155,7 @@ task.spawn(function()
         end
     end
 end)
+
 -- ==================== UI ====================
 local screen = Instance.new("ScreenGui")
 screen.Name = "_OrbitAC_" .. tostring(math.random(100000, 999999))
@@ -1221,16 +1204,36 @@ local panelScale = Instance.new("UIScale")
 panelScale.Parent = panel
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 30)
+title.Size = UDim2.new(1, -50, 0, 30)
 title.Position = UDim2.new(0, 0, 0, 6)
 title.BackgroundTransparency = 1
-title.Text = "🛡  ОРБИТА АНТИ-ЧИТ v13.0"
+title.Text = "🛡  ОРБИТА АНТИ-ЧИТ v14.0"
 title.TextColor3 = Color3.fromRGB(255, 200, 200)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 15
 title.Parent = panel
 
--- раскладка по вертикали: курсор Y растёт сам
+-- ✨ КРЕСТИК ЗАКРЫТИЯ ПАНЕЛИ
+local panelCloseX = Instance.new("TextButton")
+panelCloseX.Name = "PanelCloseX"
+panelCloseX.Size = UDim2.new(0, 28, 0, 28)
+panelCloseX.Position = UDim2.new(1, -34, 0, 6)
+panelCloseX.BackgroundColor3 = Color3.fromRGB(120, 40, 50)
+panelCloseX.BackgroundTransparency = 0.1
+panelCloseX.TextColor3 = Color3.fromRGB(255, 160, 160)
+panelCloseX.Font = Enum.Font.GothamBold
+panelCloseX.TextSize = 16
+panelCloseX.Text = "✖"
+panelCloseX.AutoButtonColor = false
+panelCloseX.ZIndex = 5
+panelCloseX.Parent = panel
+Instance.new("UICorner", panelCloseX).CornerRadius = UDim.new(0, 8)
+local pcxStroke = Instance.new("UIStroke", panelCloseX)
+pcxStroke.Color = Color3.fromRGB(255, 100, 100)
+pcxStroke.Thickness = 1
+pcxStroke.Transparency = 0.3
+
+-- раскладка
 local curY = 42
 
 local function createSection(text, color)
@@ -1466,6 +1469,11 @@ local function setPanel(open)
     end
 end
 
+-- КРЕСТИК: закрывает панель
+onClick(panelCloseX, function()
+    setPanel(false)
+end, true)
+
 onClick(mainButton, function()
     if moved then moved = false; return end
     setPanel(not panelOpen)
@@ -1694,14 +1702,16 @@ end))
 -- ==================== автозапуск ====================
 task.spawn(function()
     task.wait(1)
-    notify("🛡 ОРБИТА АНТИ-ЧИТ v13.0", Color3.fromRGB(255, 200, 200), 3)
+    notify("🛡 ОРБИТА АНТИ-ЧИТ v14.0", Color3.fromRGB(255, 200, 200), 3)
     task.wait(0.3)
     notify("✨ Анимации защиты + фразы Санса", Color3.fromRGB(255, 220, 180), 3)
     task.wait(0.3)
     notify("🎮 K — вкл/выкл защиту", Color3.fromRGB(200, 220, 255), 3)
+    task.wait(0.3)
+    notify("✖ Крестик — закрыть панель", Color3.fromRGB(200, 255, 200), 3)
 end)
 
--- ==================== регистрация в ORBIT + цепочка unload ====================
+-- ==================== регистрация в ORBIT ====================
 do
     local O = getOrbit()
     if O then
@@ -1715,6 +1725,6 @@ do
     end
 end
 
-print("[Orbit Anti-Cheat v13.0] Запущен ✅")
+print("[Orbit Anti-Cheat v14.0] Запущен ✅")
 
 return true
