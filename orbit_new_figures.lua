@@ -1,6 +1,9 @@
--- ORBIT v24.0 | orbit_new_figures.lua
+-- ORBIT v24.2 | orbit_new_figures.lua
 -- Новые фигуры: КОРОНА, ФЕНИКС, ПОРТАЛ (регистрация в ORBIT.SHAPE_PRESETS через #+1)
 -- Имена деталей совпадают с контрактом orbit_animations.lua (Feather<слой>_*, Flame<слой>, Disk*, Rim*)
+-- v24.2-fix1: регистрация "ФЕНИКС" в ORBIT.animations отложена — модуль анимаций
+--             грузится ПОЗЖЕ new_figures (loader-очередь), поэтому повторяем попытку
+--             в фоновом polling'е, пока animations не появится (или 15 сек).
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] newfigures: нет ORBIT"); return false end
@@ -126,7 +129,7 @@ local FIGS = {
   { name = "ФЕНИКС", create = function(s, n) return createPhoenix(s, C3(255, 140, 30), n) end },
   { name = "ПОРТАЛ", create = function(s, n) return createPortal(s, C3(170, 60, 255), n) end },
 }
-local function register()
+local function registerShapes()
   local pr = ORBIT.SHAPE_PRESETS
   if type(pr) ~= "table" then return false end
   for _, f in ipairs(FIGS) do
@@ -134,20 +137,44 @@ local function register()
     for _, p in ipairs(pr) do if p.name == f.name then exists = true; break end end
     if not exists then pr[#pr + 1] = { name = f.name, isModel = true, create = f.create } end
   end
-  if ORBIT.animations and ORBIT.animations.register then
-    pcall(ORBIT.animations.register, "ФЕНИКС", { "flames", "feathers" })
-  end
   ORBIT.loaded.newfigures = true
   return true
 end
-if not register() then
+
+-- v24.2-fix1: регистрация анимаций через polling (animations грузится ПОСЛЕ new_figures).
+local animRegDone = false
+local function tryRegisterAnimations()
+  if animRegDone then return end
+  if not (ORBIT.animations and ORBIT.animations.register) then return end
+  pcall(ORBIT.animations.register, "ФЕНИКС", { "flames", "feathers" })
+  animRegDone = true
+end
+
+local shapesDone = registerShapes()
+if not shapesDone then
   task.spawn(function() -- p2 ещё не загрузился: ждём до 15 с
     for _ = 1, 30 do
       task.wait(0.5)
-      if register() then return end
+      if registerShapes() then break end
     end
-    warn("[ORBIT] newfigures: SHAPE_PRESETS не появился")
+    if not ORBIT.SHAPE_PRESETS then
+      warn("[ORBIT] newfigures: SHAPE_PRESETS не появился")
+    end
   end)
 end
+
+-- Анимации: пытаемся сразу, потом в фоне до 15 сек
+tryRegisterAnimations()
+if not animRegDone then
+  task.spawn(function()
+    for _ = 1, 30 do
+      task.wait(0.5)
+      tryRegisterAnimations()
+      if animRegDone then return end
+    end
+    warn("[ORBIT] newfigures: ORBIT.animations.register не появился")
+  end)
+end
+
 ORBIT.newFigures = { create = { crown = createCrown, phoenix = createPhoenix, portal = createPortal } }
 return true
