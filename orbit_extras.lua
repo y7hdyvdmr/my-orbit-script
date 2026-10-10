@@ -100,8 +100,6 @@ end
 --              R6/R15 — вспомогательные
 -- ============================================================
 local function rigOfLocal()
-    -- сначала спрашиваем ORBIT (устанавливается animations.lua),
-    -- потом считаем сами
     if ORBIT.RigType == "R6" or ORBIT.RigType == "R15" then return ORBIT.RigType end
     local c = ORBIT.LocalPlayer and ORBIT.LocalPlayer.Character
     local h = c and c:FindFirstChildOfClass("Humanoid")
@@ -113,7 +111,6 @@ local function rigOfLocal()
     return "R15"
 end
 local function isR15Local() return rigOfLocal() == "R15" end
--- обновление кэша при спавне
 task.spawn(function()
     local LP = ORBIT.LocalPlayer
     if not LP then return end
@@ -212,7 +209,6 @@ local function sayBubble(text, sec)
 end
 
 -- name: "sans" | "laugh" | "dance" | "greet" | "dodge"
--- v24.0-fix1: dance/laugh/greet учитывают R6/R15
 function Sfx.emote(name)
     local now = os.clock()
     local cd = emoteCooldown[name] or 0
@@ -230,7 +226,6 @@ function Sfx.emote(name)
     elseif name == "laugh" then
         if not voiceFree() then return false end
         takeVoice(1.8)
-        -- laugh есть и на R6, и на R15; запас — cheer
         local ok = playRobloxEmote("Laugh", 2)
         if not ok then pcall(function()
             local hum = ORBIT.LocalPlayer.Character and ORBIT.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
@@ -243,7 +238,6 @@ function Sfx.emote(name)
         playRobloxEmote(dances[math.random(1, #dances)], 6)
         return true
     elseif name == "greet" then
-        -- wave работает и на R6, и на R15
         playRobloxEmote("wave", 2.5)
         if ORBIT.mode ~= "normal" then sayBubble("привет!", 2) end
         return true
