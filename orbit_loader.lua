@@ -10,6 +10,7 @@
 --          в цикле unload добавлен ключ deathfx (на случай опечатки).
 -- r3: + orbit_nolight.lua (💡 кнопка света) и + orbit_focus.lua (🎮 режим игры).
 --     Оба грузятся последними, оба выгружаются через .destroy.
+
 local BUILD = "v24.2-r3"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
@@ -256,7 +257,6 @@ ORBIT.DEFAULT_SETTINGS = {
     ReactSparksEnabled = false, ReactSparksColorIndex = 1,
 }
 ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
-
 -- ============================================================
 --                    ПРЕСЕТЫ
 -- ============================================================
@@ -352,6 +352,7 @@ P.fireSizeIndex = 2
 P.FIRE_HEAT = {{name="Холодный",value=3},{name="Тёплый",value=8},{name="Горячий",value=15},{name="Пламя",value=22},{name="Инферно",value=30}}
 P.fireHeatIndex = 2
 ORBIT.P = P
+
 -- ============================================================
 --                    СОСТОЯНИЕ
 -- ============================================================
@@ -516,7 +517,6 @@ function ORBIT.saveSavesList()
     if not ORBIT.HAS_FS then return false end
     return pcall(function() writefile(ORBIT.SAVES_FILE, HttpService:JSONEncode(ORBIT.SAVES)) end)
 end
-
 -- ============================================================
 --       UNLOAD (v24.2-r3: + nolight, focus)
 -- ============================================================
@@ -609,6 +609,7 @@ local TOTAL_LOADED = #QUEUE
 for _, it in ipairs(QUEUE) do
     if ORBIT.loaded[it.key] == nil then ORBIT.loaded[it.key] = false end
 end
+
 -- ============================================================
 --                    GUI ЗАГРУЗЧИКА
 -- ============================================================
