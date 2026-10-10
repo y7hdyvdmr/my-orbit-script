@@ -1,5 +1,5 @@
--- ORBIT v24.3-ai-fix2 | orbit_p2.lua
--- ОРБИТА v24.3-ai-fix2 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
+-- ORBIT v24.3-ai-fix3 | orbit_p2.lua
+-- ОРБИТА v24.3-ai-fix3 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
 -- v24.0: сердце 7×6, HEART_COLORS {name, c}.
 -- v24.2-fix1: финальный блок не подменяет ORBIT.SHAPE_PRESETS целиком.
 -- v24.3-ai: + САНС (№29), + ГАСТЕР (№30), перерисованы ФЛАУИ и ОМЕГА ФЛАУИ.
@@ -8,11 +8,12 @@
 --   * ГАСТЕР: EyeGlow сдвинут вперёд на 0.12.
 --   * ФЛАУИ: hexagon() пересчитан правильно (SQ3*L вместо 2*SQ3*L).
 -- v24.3-ai-fix2:
---   * create3DBlasterPlaceholder перерисован под STRONG-форму (силуэт из Blender).
---   * В mkw (локальная обёртка WedgePart) добавлен NoRecolor и CanQuery/CanTouch=false
---   * В add добавлены CanQuery/CanTouch=false — чтобы превью в магазине не мешало рейкастам.
---   * Убрана пустая заглушка bar(..., 0, 0), торчавшая из-под купола.
--- v24.3-ai-fix3 (этот файл): закрыт createFlowey_V2, убраны лишние строки в конце.
+--   * create3DBlasterPlaceholder перерисован под STRONG-форму.
+--   * В mkw добавлен NoRecolor + CanQuery/CanTouch=false.
+--   * В add добавлены CanQuery/CanTouch=false.
+-- v24.3-ai-fix3 (этот файл):
+--   * Закрыт createFlowey_V2 (добавлены return + end перед OmegaFlowey).
+--   * Убраны висячие строки return/end в конце файла.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -699,10 +700,8 @@ local function createSpiral(size, color, name)
             prev2 = cur
         end
     end
-    return model, root, bodies
-end
--- ============================================================
---  v24.3-ai-fix2: create3DBlasterPlaceholder (STRONG) — форма из orbit_gaster.lua
+    -- ============================================================
+--  v24.3-ai-fix2: create3DBlasterPlaceholder (STRONG)
 -- ============================================================
 local function create3DBlasterPlaceholder(size, color, name)
     local V3, C3, CF = Vector3.new, Color3.fromRGB, CFrame.new
@@ -1077,8 +1076,8 @@ local function createDragon(size, color, name)
         blk(Vector3.new(s*0.20, s*0.42, s*0.20), Vector3.new( s*0.24, -s*0.46, s*0.48))
     end
     return model, root, bodies
-end
--- ============================================================
+    end
+    -- ============================================================
 --  v24.3-ai: НОВЫЕ И ПЕРЕРИСОВАННЫЕ ФИГУРЫ UNDERTALE
 -- ============================================================
 local function makeFigureKit(model, bodies)
@@ -1567,7 +1566,7 @@ local function createOmegaFlowey_V2(size, color, name)
 end
 
 -- ============================================================
---  РЕГИСТРАЦИЯ 30 ФИГУР (v24.3-ai-fix2)
+--  РЕГИСТРАЦИЯ 30 ФИГУР
 -- ============================================================
 if type(ORBIT.SHAPE_PRESETS) ~= "table" then
     ORBIT.SHAPE_PRESETS = {}
@@ -1677,3 +1676,5 @@ if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
 if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., ai-fix3)", Color3.fromRGB(180,255,180), 3) end
 
 return true
+    return model, root, bodies
+end
