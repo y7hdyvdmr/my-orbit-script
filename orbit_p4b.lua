@@ -1,6 +1,9 @@
 -- ORBIT v24.2 | orbit_p4b.lua
 -- Вторая половина UI: обработчики кнопок, крестики стихий, меню фраз Санса,
 -- «Мои фигуры», «Импорт фигуры», палитра, FPS-цикл, API.
+-- v24.2-fix1: убран дублирующий fetchRun (shop/minigame грузит только loader);
+--             ORBIT.start оборачивает предыдущий обработчик через prevStart;
+--             NB.applyStyle включает кольца через ORBIT.setRingEnabled.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4b] P1 не загружен"); return end
 if ORBIT.P4b and ORBIT.P4b.ready then warn("[Orbit P4b] уже загружен"); return end
@@ -227,11 +230,11 @@ NB.rebuildPeopleList = function()
 
         onClick(ringB, function()
             if ORBIT.toggleTargetRings then ORBIT.toggleTargetRings(info.player) end
-            task.wait(0.1); NB.rebuildPeopleList()
+            task.delay(0.1, NB.rebuildPeopleList)
         end)
         onClick(tagB, function()
             if ORBIT.toggleTagCheater then ORBIT.toggleTagCheater(info.player) end
-            task.wait(0.1); NB.rebuildPeopleList()
+            task.delay(0.1, NB.rebuildPeopleList)
         end)
     end
 end
@@ -331,7 +334,7 @@ onClick(NB.btn.shape, function()
     ORBIT.applyShapes(); ORBIT.rebuildAllRings()
 end)
 
--- ✨ «Мои фигуры» — открывает магазин на категории СВОИ
+-- «Мои фигуры» — открывает магазин на категории СВОИ
 onClick(NB.btn.myFigs, function()
     if ORBIT.openShop then
         ORBIT.openShop()
@@ -340,7 +343,7 @@ onClick(NB.btn.myFigs, function()
         ORBIT.notify("❌ Модуль магазина не загружен", Color3.fromRGB(255,150,150), 3)
     end
 end)
--- ✨ «Импорт фигуры» — открывает панель SHARE (пользователь вставит строку)
+-- «Импорт фигуры» — открывает панель SHARE
 onClick(NB.btn.importFig, function()
     if ORBIT.share and ORBIT.share.open then
         ORBIT.share.open()
@@ -1187,18 +1190,6 @@ NB.rebuildSavesList()
 -- ============================================================
 NB.elementHidden = {}   -- локальный кэш: id -> true
 
-local function applyElementVisibility()
-    -- Прячем/показываем строки стихий
-    local y = nil
-    for i, row in ipairs(NB.elementRows) do
-        local id = row.id
-        local hidden = NB.elementHidden[id]
-        row.holder.Visible = not hidden
-    end
-    -- Переупаковываем строки по порядку (без дыр)
-    relayout()
-end
-
 for i, row in ipairs(NB.elementRows) do
     local st = row.def
     local btn = row.btn
@@ -1208,7 +1199,6 @@ for i, row in ipairs(NB.elementRows) do
 
     onClick(xBtn, function()
         local id = st.id
-        -- ставим флаг в abilities
         if ORBIT.abilities and ORBIT.abilities.hideElement then
             pcall(ORBIT.abilities.hideElement, id)
         end
@@ -1463,6 +1453,7 @@ NB.makeRandomStyle = function()
     return st
 end
 
+-- v24.2-fix1: включение колец через ORBIT.setRingEnabled (единообразие)
 NB.applyStyle = function(st)
     if st.random then st = NB.makeRandomStyle() end
     local ci = NB.idxByName(P.COLORS, st.color); if ci then P.colorIndex = ci end
@@ -1481,10 +1472,14 @@ NB.applyStyle = function(st)
     SETTINGS.PulseEnabled = st.pulse == true
     SETTINGS.LightEnabled = true
     SETTINGS.GradientEnabled = false
+    -- v24.2-fix1: включаем/выключаем кольца через setRingEnabled
     for ri = 1, 5 do
         local want = (ri == 1) or (st.rings and st.rings[ri] == true)
-        if want and not rings[ri].enabled then rings[ri].enabled = true
-        elseif not want and rings[ri].enabled then ORBIT.setRingEnabled(ri, false) end
+        if want and not rings[ri].enabled then
+            ORBIT.setRingEnabled(ri, true)
+        elseif not want and rings[ri].enabled then
+            ORBIT.setRingEnabled(ri, false)
+        end
     end
     SETTINGS.AuraEnabled = st.aura == true
     if st.aura then
@@ -1793,44 +1788,25 @@ ORBIT.unload = function()
     if prevUnload then pcall(prevUnload) end
 end
 
+-- v24.2-fix1: не теряем предыдущий ORBIT.start (если уже был)
+local prevStart = ORBIT.start
 ORBIT.start = function()
     local genv = rawget(_G, "getgenv") and getgenv() or _G
     if genv._OrbitLoaderGui then pcall(function() genv._OrbitLoaderGui:Destroy() end) end
-    ORBIT.startLogic()
+    if ORBIT.startLogic then pcall(ORBIT.startLogic) end
     pcall(NB.refreshAllLabels)
     ORBIT.notify("✨ ОРБИТА " .. tostring(ORBIT.version) .. " запущена!", Color3.fromRGB(200,200,255), 3)
+    -- если кто-то определил start ДО нас и он не равен startLogic — вызываем
+    if prevStart and prevStart ~= ORBIT.startLogic and prevStart ~= ORBIT.start then
+        pcall(prevStart)
+    end
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4b v24.2 (крестики стихий + фразы Санса + фигуры)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4b v24.2-fix1 (крестики стихий + фразы Санса + фигуры)", Color3.fromRGB(180,255,180), 3) end
 
--- ПОДГРУЗКА МАГАЗИНА И МИНИ-ИГРЫ
-do
-    local BASE = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
-    local function fetchRun(file, key, tries)
-        for attempt = 1, tries do
-            local ok, body = pcall(function() return game:HttpGet(BASE .. file .. "?t=" .. os.time() .. "&a=" .. attempt) end)
-            if ok and type(body) == "string" and #body > 100 then
-                local fn, err = loadstring(body)
-                if fn then
-                    local rok, rerr = pcall(fn)
-                    if rok then ORBIT.loaded[key] = true; return true end
-                    warn("[Orbit] " .. file .. " runtime: " .. tostring(rerr))
-                else
-                    warn("[Orbit] " .. file .. " compile: " .. tostring(err))
-                end
-            end
-            task.wait(0.6)
-        end
-        if ORBIT.notify then ORBIT.notify("⚠️ Не загрузился " .. file, Color3.fromRGB(255,200,120), 3) end
-        return false
-    end
-    local ext = (rawget(_G, "getgenv") and getgenv() or _G)._OrbitV24Loader
-    if not ext then
-        task.spawn(function() fetchRun("orbit_p4_shop.lua", "shop", 3) end)
-        task.spawn(function() task.wait(0.5); fetchRun("orbit_minigame.lua", "minigame", 3) end)
-    end
-end
+-- v24.2-fix1: магазин и мини-игра грузятся ТОЛЬКО загрузчиком (orbit_loader.lua).
+-- Здесь больше никакого fetchRun — иначе двойная загрузка и перезапись обработчиков.
 
 -- ============================================================
 --       ЭКСПОРТ
