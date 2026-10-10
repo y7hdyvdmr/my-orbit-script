@@ -1,10 +1,10 @@
--- ORBIT v24.6 | orbit_sans.lua
+-- ORBIT v24.2 | orbit_sans.lua
 -- Фразы Санса во всём проекте. Лучшие фразы + дерзкие.
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[Orbit Sans] ORBIT не загружен"); return false end
-if ORBIT.sans and ORBIT.sans.ready and ORBIT.sans.version == "v24.6" then
-    warn("[Orbit Sans] v24.6 уже загружен"); return false
+if ORBIT.sans and ORBIT.sans.ready and ORBIT.sans.version == "v24.2" then
+    warn("[Orbit Sans] v24.2 уже загружен"); return false
 end
 if ORBIT.sans and ORBIT.sans.destroy then pcall(ORBIT.sans.destroy) end
 ORBIT.loaded = ORBIT.loaded or {}
@@ -21,7 +21,7 @@ local V3, CF, C3 = Vector3.new, CFrame.new, Color3.fromRGB
 
 ORBIT.sans = ORBIT.sans or {}
 local S = ORBIT.sans
-S.version = "v24.6"
+S.version = "v24.2"
 S.ready = true
 
 -- ============================================================
@@ -382,6 +382,15 @@ function S.say(category, force)
     if not S.ENABLED then return false end
     if ORBIT.mode ~= "sans" and not force then return false end
     category = category or "greet"
+    -- v24.2: "random" — случайная категория из S.phrases
+    if category == "random" then
+        local keys = {}
+        for k, v in pairs(S.phrases) do
+            if type(v) == "table" and #v > 0 then keys[#keys + 1] = k end
+        end
+        table.sort(keys)
+        if #keys > 0 then category = keys[math.random(1, #keys)] end
+    end
     local list = S.phrases[category] or S.phrases.greet
     if not list or #list == 0 then return false end
 
@@ -469,6 +478,9 @@ end
 
 function S.noteAttack()
     S.lastActivity = tick()
+    -- v24.2: помечаем атаку без фразы — skullEyes (animations) видит lastCat == "attack"
+    S.lastCat = "attack"
+    S.lastCatTime = tick()
     return true
 end
 
@@ -610,7 +622,7 @@ task.spawn(function()
     local total = 0
     for _, list in pairs(S.phrases) do total = total + #list end
     if ORBIT.notify then
-        ORBIT.notify("💀 Санс v24.6 (" .. tostring(total) .. " фраз, работает везде)",
+        ORBIT.notify("💀 Санс v24.2 (" .. tostring(total) .. " фраз, работает везде)",
             C3(200, 220, 255), 3)
     end
 end)
