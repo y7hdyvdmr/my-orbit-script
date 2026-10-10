@@ -2,6 +2,8 @@
 -- Логика: аура, огонь, боты, ESP, кольца, сохранения, режим игрока.
 -- v24.2: совместим с новым sans (фразы), deathFx (lastSaid), abilities (hideElement),
 --        shop (deleteCustomShape), loader (экран режима). setMode + onPlayerDied уже здесь.
+-- v24.2-fix1: findGroundY исключает все Orbit-объекты (кольца, аура, огонь, target-rings,
+--             фейерверки, SFX) — иначе бот мог «сесть» на своё же кольцо.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
 
@@ -115,7 +117,6 @@ local SPAWN_TIME = 0.4
 if SETTINGS.SpawnAnim == nil then SETTINGS.SpawnAnim = true end
 if SETTINGS.SpawnFlash == nil then SETTINGS.SpawnFlash = true end
 
--- отключаем все подключения P3 при выгрузке
 local prevUnload = ORBIT.unload
 ORBIT.unload = function()
     alive = false
@@ -494,7 +495,6 @@ local function updateFire()
         if part.Parent then part.CFrame = hrp.CFrame end
     end
 end
-
 -- ==================== ESP ====================
 ORBIT.ESP = ORBIT.ESP or { Enabled = false, MaxDistance = 500, UpdateInterval = 0.1, LastUpdate = 0, Tags = {} }
 
@@ -1034,15 +1034,30 @@ function ORBIT.getBotAvatarTemplate()
     return nil
 end
 
+-- v24.2-fix1: исключаем из рейкаста ВСЕ Orbit-объекты, иначе бот может
+-- «сесть» на своё кольцо / ауру / огонь / чужое target-кольцо / фейерверк / SFX.
 local function findGroundY(x, z, fromY)
     local origin = Vector3.new(x, fromY + 10, z)
     local dir = Vector3.new(0, -100, 0)
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
-    local ignore = {LocalPlayer.Character}
+    local ignore = {}
+    if LocalPlayer.Character then table.insert(ignore, LocalPlayer.Character) end
     for _, b in pairs(ORBIT.bots) do
         if b.model then table.insert(ignore, b.model) end
     end
+    for ri = 1, 5 do
+        local r = rings[ri]
+        if r and r.folder then table.insert(ignore, r.folder) end
+    end
+    if ORBIT.auraFolder then table.insert(ignore, ORBIT.auraFolder) end
+    if ORBIT.fireFolder then table.insert(ignore, ORBIT.fireFolder) end
+    for _, data in pairs(ORBIT.targetRings or {}) do
+        if data.folder then table.insert(ignore, data.folder) end
+    end
+    if ORBIT.fireworkFolder then table.insert(ignore, ORBIT.fireworkFolder) end
+    if ORBIT.sfxFolder then table.insert(ignore, ORBIT.sfxFolder) end
+    if ORBIT.auraFolder then table.insert(ignore, ORBIT.auraFolder) end
     params.FilterDescendantsInstances = ignore
     local result = Workspace:Raycast(origin, dir, params)
     if result then return result.Position.Y end
@@ -1102,7 +1117,6 @@ local function createDummyCharacter(position, useSkin)
     model.Parent = Workspace
     return model
 end
-
 local function buildBotPlayerRings(botRoot, botId)
     if not ORBIT.botSettings.ShowPlayerRing then return nil end
     local folder = Instance.new("Folder")
@@ -1497,7 +1511,6 @@ function ORBIT.buildRing(ri)
                 angleOffset = (i-1)*(360/SETTINGS.BlockCount) + ring.angleShift,
             }
             table.insert(ring.blocks, newBlock)
-            -- v24.2: подключаем анимации фигуры
             if ORBIT.animations and ORBIT.animations.attach then
                 pcall(ORBIT.animations.attach, newBlock, shape.name)
             end
@@ -1624,7 +1637,6 @@ local function cleanupOnDeath()
     warn("[Orbit] Смерть - все элементы убраны мгновенно")
 end
 
--- v24.2: фраза Санса ПЕРВОЙ (deathFx переиспользует её из S.lastSaid)
 local function onPlayerDied()
     if ORBIT.mode ~= "sans" then return end
     local char = LocalPlayer.Character
@@ -2122,7 +2134,6 @@ local function applySaveData(d)
     pcall(function() if ORBIT.enabled and ORBIT.setupFire then ORBIT.setupFire() end end)
 end
 
--- v24.2: миграция сейвов старых версий
 local function migrateV24(d)
     if type(d) ~= "table" then return end
     local sd = ORBIT.saveData or {}
@@ -2172,7 +2183,6 @@ function ORBIT.loadSettings()
     return true
 end
 
--- v24.2: переключение режима игрока (Обычный / Санс) — используется loader-экраном
 function ORBIT.setMode(m)
     if m ~= "sans" and m ~= "normal" then return false end
     ORBIT.mode = m
@@ -2237,6 +2247,6 @@ ORBIT.decodeSettingsForShare  = dec
 ORBIT.applySaveData           = applySaveData
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v24.2 (логика + setMode + экспорт для SHARE)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v24.2-fix1 (логика + setMode + findGroundY fix)", Color3.fromRGB(180,255,180), 3) end
 
 return true
