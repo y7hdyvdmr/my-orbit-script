@@ -4,6 +4,7 @@
 --        трейл догорает после попадания); клавиши 1-0,-,= (12 стихий), панель в 1-2 ряда;
 --        5 новых комбо; вспышка экрана, тряска камеры, разлёт осколков, двойные кольца;
 --        все эффекты масштабируются под мобилку (LOD).
+-- v24.9: buildSkull перерисован в STRONG-силуэт (по orbit_gaster), mouthPos синхронизирован.
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] abilities: нет ORBIT"); return false end
@@ -497,24 +498,87 @@ local function spawnBones(origin, dir, n, step, mul, ch)
     addProj({ part = p, extra = ex, vel = d * C.bone.speed * (ch and C.charge.speed or 1), life = 2.2, rad = 3, onHit = onBone, ch = ch, mul = mul })
   end
 end
-
--- череп-бластер: смотрит вдоль -Z, рот на (0, -0.45, -2.95) * масштаб
+-- череп-бластер (STRONG-силуэт из orbit_gaster): смотрит вдоль -Z, рот на (0, -0.55, -2.70) * sc
 local function buildSkull(cf, sc)
   local ents = {}
-  local white = C3(245, 245, 245)
-  local function add(size, off, col, shape, mat, tr)
-    local p = mkpart(shape or PT_BLOCK, size * sc, col, mat or MAT.SmoothPlastic, tr or 0)
-    p.CFrame = cf * CF(off * sc)
+  local WHITE = C3(245, 245, 250)
+  local DARK  = C3(15, 15, 20)
+  local RIB   = C3(215, 220, 230)
+  local ENG   = C3(60, 55, 50)
+  local GLOW  = BL_COL
+  local CYL   = Enum.PartType.Cylinder
+  -- size задаётся в "единицах", домножается на sc; опц. поворот в градусах (rx, ry, rz)
+  local function add(size, off, col, shape, mat, tr, rx, ry, rz)
+    local p = mkpart(shape or PT_BLOCK, size * sc, col, mat or MAT.Marble, tr or 0)
+    local rot = CFrame.Angles(math.rad(rx or 0), math.rad(ry or 0), math.rad(rz or 0))
+    p.CFrame = cf * CF(off * sc) * rot
+    p:SetAttribute("NoRecolor", true)
     ents[#ents + 1] = p
     return p
   end
-  add(V3(2.6, 2.2, 3), V3(0, 0, 0), white)
-  add(V3(2, 1.1, 1.6), V3(0, -0.5, -2.2), white)
-  add(V3(1.8, 0.5, 1.8), V3(0, -1.2, -1.8), C3(225, 225, 225))
-  add(V3(0.6, 0.6, 0.6), V3(-0.65, 0.4, -1.45), C3(15, 15, 20), PT_BALL)
-  add(V3(0.6, 0.6, 0.6), V3(0.65, 0.4, -1.45), C3(15, 15, 20), PT_BALL)
-  add(V3(0.28, 0.28, 0.28), V3(0.65, 0.4, -1.72), BL_COL, PT_BALL, MAT.Neon)
-  local mouth = add(V3(0.4, 0.4, 0.4), V3(0, -0.45, -2.95), BL_COL, PT_BALL, MAT.Neon, 0.2)
+
+  -- ===== череп =====
+  add(V3(2.40, 1.90, 2.20), V3(0,  0.30, -0.90), WHITE)                       -- затылок
+  add(V3(1.90, 0.90, 1.80), V3(0,  1.45, -1.05), WHITE)                       -- купол
+  add(V3(1.40, 1.15, 1.90), V3(0, -0.15, -2.10), WHITE)                       -- морда
+  add(V3(0.55, 0.35, 0.50), V3(0, -0.15, -3.00), RIB, PT_BLOCK, MAT.Metal)    -- носовая пластина
+  add(V3(1.50, 0.85, 1.60), V3(0, -0.85, -2.05), WHITE)                       -- челюсть
+  add(V3(0.90, 0.50, 0.60), V3(0, -1.25, -1.55), WHITE)                       -- подбородок
+
+  -- ===== щёки и боковые отростки =====
+  for _, sd in ipairs({-1, 1}) do
+    add(V3(0.55, 1.10, 1.20), V3(sd * 1.05, 0.10, -1.00), WHITE)
+    add(V3(0.35, 0.60, 1.60), V3(sd * 1.30, 0.55, -0.90), WHITE, PT_BLOCK, MAT.Marble, 0, 0, 0, -sd * 20)
+  end
+
+  -- ===== зубы =====
+  for _, sd in ipairs({-1, 1}) do
+    for i = 0, 3 do
+      add(V3(0.18, 0.36, 0.24), V3(sd * (0.30 + 0.20 * i), -0.35, -2.85 + 0.06 * i), WHITE)
+    end
+    for i = 0, 2 do
+      add(V3(0.16, 0.30, 0.22), V3(sd * (0.25 + 0.18 * i), -0.80, -2.85 + 0.06 * i), WHITE)
+    end
+  end
+
+  -- ===== пасть =====
+  add(V3(0.95, 0.55, 0.50), V3(0, -0.55, -2.35), DARK, PT_BLOCK, MAT.SmoothPlastic)
+  local mouth = add(V3(0.45, 0.45, 0.45), V3(0, -0.55, -2.70), GLOW, PT_BALL, MAT.Neon, 0.15)
+  local ml = Instance.new("PointLight")
+  ml.Name = "MouthLight"; ml.Color = GLOW; ml.Range = 8; ml.Brightness = 1.2; ml.Parent = mouth
+
+  -- ===== глазницы (STRONG: цилиндр-впадина + неоновое кольцо + зрачок) =====
+  for _, sd in ipairs({-1, 1}) do
+    local ex = sd * 0.75
+    add(V3(0.25, 1.05, 1.05), V3(ex, 0.35, -1.85), DARK, CYL, MAT.SmoothPlastic, 0, 0, 90, 0)
+    add(V3(0.10, 0.80, 0.80), V3(ex, 0.35, -1.94), GLOW, CYL, MAT.Neon,          0, 0, 90, 0)
+    add(V3(0.10, 0.55, 0.55), V3(ex, 0.35, -2.00), DARK, CYL, MAT.SmoothPlastic, 0, 0, 90, 0)
+    local pupil = add(V3(0.32, 0.32, 0.32), V3(ex, 0.35, -2.10), GLOW, PT_BALL, MAT.Neon)
+    local pl = Instance.new("PointLight")
+    pl.Name = "EyeLight"; pl.Color = GLOW; pl.Range = 7; pl.Brightness = 1.4; pl.Parent = pupil
+  end
+
+  -- ===== гребень =====
+  add(V3(0.35, 0.75, 1.40), V3(0, 1.85, -0.60), WHITE, PT_BLOCK, MAT.Marble,        0, 20, 0, 0)
+  add(V3(0.20, 0.45, 0.90), V3(0, 1.80, -0.55), DARK,  PT_BLOCK, MAT.SmoothPlastic, 0, 20, 0, 0)
+
+  -- ===== боковые "крылья" черепа (STRONG) =====
+  local wings = {
+    { V3(0.45, 1.10, 1.10), V3(1.05, 1.50, -0.40),   0 },
+    { V3(0.35, 0.95, 0.95), V3(1.35, 1.20, -1.20), -10 },
+    { V3(0.30, 0.85, 0.85), V3(1.55, 0.90, -1.90), -20 },
+  }
+  for _, sd in ipairs({-1, 1}) do
+    for _, w in ipairs(wings) do
+      add(w[1], V3(sd * w[2].X, w[2].Y, w[2].Z), WHITE, PT_BLOCK, MAT.Marble, 0, 0, 0, sd * w[3])
+    end
+  end
+
+  -- ===== гравировка на затылке =====
+  for _, y in ipairs({-0.40, 0.0, 0.40}) do
+    add(V3(1.60, 0.08, 0.12), V3(0, y, -0.05), ENG, PT_BLOCK, MAT.SmoothPlastic)
+  end
+
   return ents, mouth
 end
 
@@ -525,7 +589,7 @@ local function fireBlaster(spos, dirv, mul, wm)
   local wind = C.blaster.windup
   local ents, mouth = buildSkull(cf, sc)
   for _, p in ipairs(ents) do Debris:AddItem(p, wind + 1.4) end
-  local mouthPos = (cf * CF(V3(0, -0.45, -2.95) * sc)).Position
+  local mouthPos = (cf * CF(V3(0, -0.55, -2.70) * sc)).Position
   local rng = C.blaster.range
   local endPos = mouthPos + dirv * rng
   local res = WS:Raycast(mouthPos, dirv * rng, rayParams())
@@ -832,7 +896,6 @@ FIRE.hand = function(ch, origin, dir, target, c, h, r)
   local p = clampPt(r.Position, target, C.hand.range)
   spawnHand(groundAt(p), ch and 1.5 or 1, r.Position, C.hand.dmg * (ch and C.charge.dmg or 1))
 end
-
 -- ===== Комбо =====
 local COMBOS = {}
 COMBOS["fire+lightning"] = function(origin, dir, target, c, h, r)
