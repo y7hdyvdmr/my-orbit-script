@@ -1,6 +1,8 @@
--- ORBIT v24.0 | orbit_p2.lua
--- ОРБИТА v24.0 — ЧАСТЬ 2/4: ФИГУРЫ (28 шт.)
--- v24.0: сердце 7×6 (PIX_HEART), HEART_COLORS {nm, c}, экспорт ORBIT.createPixelHeart / HEART_COLORS / PIX_HEART.
+-- ORBIT v24.2 | orbit_p2.lua
+-- ОРБИТА v24.2 — ЧАСТЬ 2/4: ФИГУРЫ (28 шт.)
+-- v24.0: сердце 7×6 (PIX_HEART), HEART_COLORS {name, c}, экспорт ORBIT.createPixelHeart / HEART_COLORS / PIX_HEART.
+-- v24.2-fix1: финальный блок не подменяет ORBIT.SHAPE_PRESETS целиком —
+--             использует table.insert, ссылка на таблицу сохраняется.
 --
 -- ИСТОРИЯ:
 --   v22.8 — новая фигура «СКАЛА» (createRock v2) — крепыш в фиолетовом бархатном костюме.
@@ -8,6 +10,7 @@
 --   v23.7 (F2) — детали у 11 фигур.
 --           + фигура №27 «ЦВЕТОК ФЛАУИ» (createFlowey).
 --           + фигура №28 «ОМЕГА ФЛАУИ» (createOmegaFlowey).
+--   v24.2 — HEART_COLORS: поле nm → name; цвет сердца без idx берётся из P.COLORS (heartColorByIdx).
 --
 -- ВАЖНО: все идентификаторы латиницей, кириллица только в комментариях и текстах.
 
@@ -271,17 +274,27 @@ local function createPixelHeart(sizeStuds, color, name)
 end
 
 local HEART_COLORS = {
-    { nm = "ОРАНЖЕВЫЙ", c = Color3.fromRGB(245, 145, 40) },
-    { nm = "ЖЁЛТЫЙ",    c = Color3.fromRGB(240, 230, 40) },
-    { nm = "МАДЖЕНТА",  c = Color3.fromRGB(230, 30, 200) },
-    { nm = "КРАСНЫЙ",   c = Color3.fromRGB(200, 25, 30) },
-    { nm = "ЛАЙМ",      c = Color3.fromRGB(120, 240, 60) },
-    { nm = "СИНИЙ",     c = Color3.fromRGB(30, 60, 230) },
-    { nm = "БИРЮЗОВЫЙ", c = Color3.fromRGB(60, 230, 200) },
+    { name = "ОРАНЖЕВЫЙ", c = Color3.fromRGB(245, 145, 40) },
+    { name = "ЖЁЛТЫЙ",    c = Color3.fromRGB(240, 230, 40) },
+    { name = "МАДЖЕНТА",  c = Color3.fromRGB(230, 30, 200) },
+    { name = "КРАСНЫЙ",   c = Color3.fromRGB(200, 25, 30) },
+    { name = "ЛАЙМ",      c = Color3.fromRGB(120, 240, 60) },
+    { name = "СИНИЙ",     c = Color3.fromRGB(30, 60, 230) },
+    { name = "БИРЮЗОВЫЙ", c = Color3.fromRGB(60, 230, 200) },
 }
 ORBIT.createPixelHeart = createPixelHeart
 ORBIT.HEART_COLORS = HEART_COLORS
 ORBIT.PIX_HEART = HEART_PATTERN
+
+local function heartColorByIdx(idx)
+    if idx then
+        return HEART_COLORS[((idx - 1) % #HEART_COLORS) + 1].c
+    end
+    local P = ORBIT.P
+    local pc = P and P.COLORS and P.COLORS[P.colorIndex or 1]
+    if pc and pc.c then return pc.c end
+    return HEART_COLORS[1].c
+end
 
 local function createPalmPlate(model, bodies, cf, size, color)
     local half = size*0.5; local cornerR = size*0.22
@@ -844,9 +857,7 @@ local function create3DBlasterPlaceholder(size, color, name)
     return model, root, bodies
 end
 
--- ============================================================
---   СКАЛА v2: крепыш в фиолетовом бархатном костюме (по фото)
--- ============================================================
+-- СКАЛА v2: крепыш в фиолетовом бархатном костюме (по фото)
 local function createRock(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -919,9 +930,7 @@ local function createRock(size, color, name)
     return model, root, bodies
 end
 
--- ============================================================
---                  ДРАКОН (фигура №26)
--- ============================================================
+-- ДРАКОН (фигура №26)
 local function createDragon(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -975,9 +984,7 @@ local function createDragon(size, color, name)
     return model, root, bodies
 end
 
--- ============================================================
---  №27 ЦВЕТОК ФЛАУИ
--- ============================================================
+-- №27 ЦВЕТОК ФЛАУИ
 local function createFlowey(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local u = size * 0.42
@@ -1030,9 +1037,7 @@ local function createFlowey(size, color, name)
     return model, root, bodies
 end
 
--- ============================================================
---  №28 ОМЕГА ФЛАУИ
--- ============================================================
+-- №28 ОМЕГА ФЛАУИ
 local function createOmegaFlowey(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -1094,96 +1099,110 @@ local function createOmegaFlowey(size, color, name)
     end
     return model, root, bodies
 end
+-- ============================================================
+--  РЕГИСТРАЦИЯ 28 ФИГУР (v24.2-fix1)
+--  По правилам проекта НЕ подменяем ORBIT.SHAPE_PRESETS целиком —
+--  используем table.insert, ссылка на таблицу сохраняется.
+--  Старые записи (например, повторная загрузка скрипта без перезапуска
+--  Roblox) аккуратно вычищаем через table.remove до пустого состояния.
+-- ============================================================
+if type(ORBIT.SHAPE_PRESETS) ~= "table" then
+    ORBIT.SHAPE_PRESETS = {}
+end
+do
+    local PR = ORBIT.SHAPE_PRESETS
+    for i = #PR, 1, -1 do PR[i] = nil end
 
-ORBIT.SHAPE_PRESETS = {
-    { name = "БЛОК", create = function(size, name)
+    local function reg(shape) table.insert(PR, shape) end
+
+    reg({ name = "БЛОК", create = function(size, name)
         local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Block; p.Size = Vector3.new(size,size,size)
-        return { part = p } end },
-    { name = "ШАР", create = function(size, name)
+        return { part = p } end })
+    reg({ name = "ШАР", create = function(size, name)
         local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Ball; p.Size = Vector3.new(size,size,size)
-        return { part = p } end },
-    { name = "ЦИЛИНДР", create = function(size, name)
+        return { part = p } end })
+    reg({ name = "ЦИЛИНДР", create = function(size, name)
         local p = Instance.new("Part"); p.Name = name; p.Shape = Enum.PartType.Cylinder; p.Size = Vector3.new(size,size,size)
-        return { part = p } end },
-    { name = "КЛИН", create = function(size, name)
+        return { part = p } end })
+    reg({ name = "КЛИН", create = function(size, name)
         local p = Instance.new("WedgePart"); p.Name = name; p.Size = Vector3.new(size,size,size)
-        return { part = p } end },
-    { name = "ГОЛОВА", create = function(s, n)
+        return { part = p } end })
+    reg({ name = "ГОЛОВА", create = function(s, n)
         local m, r, b = createHead(s, Color3.fromRGB(255,220,60), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s } end },
-    { name = "СЕРДЦЕ", create = function(s, n, idx)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s } end })
+    reg({ name = "СЕРДЦЕ", create = function(s, n, idx)
         local hs = s*1.8
-        local hc = HEART_COLORS[((idx or 1)-1) % #HEART_COLORS + 1].c
+        local hc = heartColorByIdx(idx)
         local m, r, b = createPixelHeart(hs, hc, n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=hs } end },
-    { name = "ЗВЕЗДА", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=hs } end })
+    reg({ name = "ЗВЕЗДА", create = function(s, n)
         local m, r, b = create3DStar(s, Color3.fromRGB(255,200,40), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s } end },
-    { name = "ТРЕУГОЛЬНИК", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s } end })
+    reg({ name = "ТРЕУГОЛЬНИК", create = function(s, n)
         local m, r, b = create3DTriangle(s, Color3.fromRGB(0,255,120), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.5 } end },
-    { name = "РОМБ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.5 } end })
+    reg({ name = "РОМБ", create = function(s, n)
         local m, r, b = create3DDiamond(s, Color3.fromRGB(0,200,255), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.5 } end },
-    { name = "КРЕСТ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.5 } end })
+    reg({ name = "КРЕСТ", create = function(s, n)
         local m, r, b = create3DCross(s, Color3.fromRGB(230,220,200), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.8 } end },
-    { name = "ЧЕРЕП", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.8 } end })
+    reg({ name = "ЧЕРЕП", create = function(s, n)
         local m, r, b = create3DSkull(s, Color3.fromRGB(235,230,215), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.4 } end },
-    { name = "МОЛНИЯ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.4 } end })
+    reg({ name = "МОЛНИЯ", create = function(s, n)
         local m, r, b = create3DLightning(s, Color3.fromRGB(255,230,60), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.5 } end },
-    { name = "РУКА", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.5 } end })
+    reg({ name = "РУКА", create = function(s, n)
         local m, r, b = create3DHand(s, Color3.fromRGB(235,230,215), n, false)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.2 } end },
-    { name = "РУКА-СЕРДЦЕ", create = function(s, n, idx)
-        local hc = HEART_COLORS[((idx or 1)-1) % #HEART_COLORS + 1].c
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.2 } end })
+    reg({ name = "РУКА-СЕРДЦЕ", create = function(s, n, idx)
+        local hc = heartColorByIdx(idx)
         local m, r, b = create3DHand(s, Color3.fromRGB(235,230,215), n, true, hc)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.2 } end },
-    { name = "ГАСТЕР БЛАСТЕР", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.2 } end })
+    reg({ name = "ГАСТЕР БЛАСТЕР", create = function(s, n)
         local m, r, b = create3DBlasterPlaceholder(s, Color3.fromRGB(240,240,245), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.6 } end },
-    { name = "МЕЧ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.6 } end })
+    reg({ name = "МЕЧ", create = function(s, n)
         local m, r, b = createSword(s, Color3.fromRGB(220,230,245), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.0 } end },
-    { name = "ЩИТ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.0 } end })
+    reg({ name = "ЩИТ", create = function(s, n)
         local m, r, b = createShield(s, Color3.fromRGB(200,220,240), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.2 } end },
-    { name = "КОСТЬ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.2 } end })
+    reg({ name = "КОСТЬ", create = function(s, n)
         local m, r, b = createBone(s, Color3.fromRGB(245,240,220), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.8 } end },
-    { name = "ПИРАМИДА", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.8 } end })
+    reg({ name = "ПИРАМИДА", create = function(s, n)
         local m, r, b = createPyramid(s, Color3.fromRGB(255,200,100), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.6 } end },
-    { name = "ИНЬ-ЯН", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.6 } end })
+    reg({ name = "ИНЬ-ЯН", create = function(s, n)
         local m, r, b = createYinYang(s, Color3.fromRGB(220,220,240), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.8 } end },
-    { name = "ГЛАЗ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.8 } end })
+    reg({ name = "ГЛАЗ", create = function(s, n)
         local m, r, b = createEye(s, Color3.fromRGB(255,200,200), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.6 } end },
-    { name = "СПИРАЛЬ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.6 } end })
+    reg({ name = "СПИРАЛЬ", create = function(s, n)
         local m, r, b = createSpiral(s, Color3.fromRGB(120,200,255), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.8 } end },
-    { name = "КРЫЛЬЯ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*1.8 } end })
+    reg({ name = "КРЫЛЬЯ", create = function(s, n)
         local m, r, b = createWings(s, Color3.fromRGB(240,240,255), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.2 } end },
-    { name = "ЩУПАЛЬЦЕ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.2 } end })
+    reg({ name = "ЩУПАЛЬЦЕ", create = function(s, n)
         local m, r, b = createTentacle(s, Color3.fromRGB(150,80,180), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.0 } end },
-    { name = "СКАЛА", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.0 } end })
+    reg({ name = "СКАЛА", create = function(s, n)
         local m, r, b = createRock(s, Color3.fromRGB(70,22,92), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.2 } end },
-    { name = "ДРАКОН", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.2 } end })
+    reg({ name = "ДРАКОН", create = function(s, n)
         local m, r, b = createDragon(s, Color3.fromRGB(45,35,60), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.4 } end },
-    { name = "ЦВЕТОК ФЛАУИ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.4 } end })
+    reg({ name = "ЦВЕТОК ФЛАУИ", create = function(s, n)
         local m, r, b = createFlowey(s, Color3.fromRGB(255, 230, 20), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.4 } end },
-    { name = "ОМЕГА ФЛАУИ", create = function(s, n)
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.4 } end })
+    reg({ name = "ОМЕГА ФЛАУИ", create = function(s, n)
         local m, r, b = createOmegaFlowey(s, Color3.fromRGB(225, 135, 140), n)
-        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.2 } end },
-}
+        return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.2 } end })
+end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
 if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (28 шт.)", Color3.fromRGB(180,255,180), 3) end
