@@ -1,6 +1,9 @@
--- ORBIT v24.4 | orbit_gaster.lua
+-- ORBIT v24.2 | orbit_gaster.lua
 -- 16 осколков + ловушки + босс-файт + белое оружие.
--- v24.4: "ЗАКРЫТЬ" прячет UI, но НЕ сбрасывает игру.
+-- v24.2: "ЗАКРЫТЬ" прячет UI, но НЕ сбрасывает игру.
+-- v24.2-fix1: G.destroy корректно восстанавливает ab.fireId (иначе хук навсегда
+--             оставался обёрнутым, и после перезагрузки abilities накапливались
+--             «мёртвые» обёртки). Плюс сохраняем ссылку на оригинал в G._origFireId.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -18,6 +21,7 @@ local LP = Players.LocalPlayer
 local V3, CF, C3 = Vector3.new, CFrame.new, Color3.fromRGB
 local PT_BLOCK, PT_BALL, MAT = Enum.PartType.Block, Enum.PartType.Ball, Enum.Material
 
+-- v24.2-fix1: подтверждаем — луч белый
 local COL_BEAM   = C3(255, 255, 255)
 local COL_CHARGE = C3(240, 250, 255)
 local COL_GLOW   = C3(230, 240, 255)
@@ -34,6 +38,7 @@ local G = {
   timer = 120,
   shapeRegistered = false,
   uiHidden = false,
+  _origFireId = nil,   -- v24.2-fix1
 }
 local alive, folder, token = true, nil, 0
 
@@ -146,7 +151,6 @@ function G.registerShape()
   return true
 end
 G.create = createGaster
-
 -- ============================================================
 --       Мир: осколки + ловушки
 -- ============================================================
@@ -248,6 +252,7 @@ end
 -- ============================================================
 local function onClick(btn, fn, releaseOnly)
   local deb = false
+  local down, downT, lastRelT = false, 0, 0
   local function call()
     if deb then return end
     deb = true
@@ -255,9 +260,22 @@ local function onClick(btn, fn, releaseOnly)
     pcall(fn)
   end
   local function inScroll() return releaseOnly or btn:FindFirstAncestorOfClass("ScrollingFrame") ~= nil end
-  btn.MouseButton1Down:Connect(function() if not inScroll() then call() end end)
-  btn.MouseButton1Click:Connect(function() if inScroll() then call() end end)
-  btn.Activated:Connect(call)
+  local function press()
+    if down and tick() - downT < 1 then return end
+    down, downT = true, tick()
+    if not inScroll() then call() end
+  end
+  local function release()
+    local now = tick()
+    if down then
+      down = false; lastRelT = now
+      if inScroll() then call() end
+    elseif now - lastRelT > 0.2 then
+      lastRelT = now; call()
+    end
+  end
+  btn.MouseButton1Down:Connect(press)
+  btn.Activated:Connect(release)
 end
 local function fmtTime(t) t = math.max(0, math.floor(t)); return string.format("%d:%02d", math.floor(t / 60), t % 60) end
 
@@ -358,13 +376,11 @@ local function buildUI()
   end
   onClick(u.btnStart, function() G.start() end, true)
   onClick(u.btnReset, function() G.reset() end, true)
-  -- ✨ v24.4: СКРЫТЬ — просто прячет UI, игра продолжается
   onClick(u.btnClose, function() G.hideUI() end, true)
   G.ui = u
   uiRefresh()
 end
 
--- ✨ v24.4: отдельные функции для показа/скрытия UI
 function G.hideUI()
   if G.ui and G.ui.sg then
     G.ui.sg.Enabled = false
@@ -380,14 +396,12 @@ function G.showUI()
     G.ui.sg.Enabled = true
     G.uiHidden = false
   else
-    -- UI нет — пересоздаём
     buildUI()
     G.uiHidden = false
   end
 end
 
 function G.close()
-  -- полное закрытие (с выгрузкой UI, но игра тоже)
   G.hideUI()
 end
 
@@ -456,7 +470,6 @@ local function hideBossUI()
   if G.bossUI and G.bossUI.sg then pcall(function() G.bossUI.sg:Destroy() end) end
   G.bossUI = nil
 end
-
 -- ============================================================
 --       Игра
 -- ============================================================
@@ -596,6 +609,8 @@ function G.startBoss()
     if not ab then return end
     if ab._gasterHook then return end
     ab._gasterHook = true
+    -- v24.2-fix1: сохраняем ссылку на оригинал — восстановим в G.destroy
+    G._origFireId = ab.fireId
     local origFire = ab.fireId
     ab.fireId = function(id, ch)
       local r = origFire(id, ch)
@@ -974,7 +989,6 @@ end)
 
 function G.open()
   if not alive then return false end
-  -- ✨ v24.4: если игра уже идёт — просто показываем UI
   if (G.state == "collecting" or G.state == "boss") then
     if G.ui then
       G.showUI()
@@ -987,6 +1001,7 @@ function G.open()
   return true
 end
 
+-- v24.2-fix1: восстанавливаем ab.fireId, если он был обёрнут
 function G.destroy()
   if not alive then return end
   alive = false
@@ -1000,7 +1015,14 @@ function G.destroy()
   if G.cc then pcall(function() G.cc:Destroy() end); G.cc = nil end
   if folder then pcall(function() folder:Destroy() end); folder = nil end
   local ab = ORBIT.abilities
-  if ab and ab._gasterHook then ab._gasterHook = nil end
+  if ab and ab._gasterHook then
+    -- v24.2-fix1: возвращаем оригинал fireId, если он у нас сохранён.
+    if G._origFireId and ab.fireId ~= G._origFireId then
+      pcall(function() ab.fireId = G._origFireId end)
+    end
+    ab._gasterHook = nil
+    G._origFireId = nil
+  end
 end
 
 -- ============================================================
@@ -1219,7 +1241,7 @@ end
 RS.Heartbeat:Connect(function(dt) if alive then W.update(dt) end end)
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v24.4 (16 осколков + босс + скрываемый UI)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v24.2-fix1 (16 осколков + босс + скрываемый UI)", C3(220, 200, 255), 3)
 end
 
 return true
