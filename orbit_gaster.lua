@@ -1,9 +1,8 @@
--- ORBIT v24.2 | orbit_gaster.lua
+-- ORBIT v24.2-fix2 | orbit_gaster.lua
 -- 16 осколков + ловушки + босс-файт + белое оружие.
 -- v24.2: "ЗАКРЫТЬ" прячет UI, но НЕ сбрасывает игру.
--- v24.2-fix1: G.destroy корректно восстанавливает ab.fireId (иначе хук навсегда
---             оставался обёрнутым, и после перезагрузки abilities накапливались
---             «мёртвые» обёртки). Плюс сохраняем ссылку на оригинал в G._origFireId.
+-- v24.2-fix1: G.destroy восстанавливает ab.fireId (сохраняем в G._origFireId).
+-- v24.2-fix2: createGaster перерисован (STRONG) по силуэту из Blender-файла.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -20,8 +19,8 @@ local UIS_W = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local V3, CF, C3 = Vector3.new, CFrame.new, Color3.fromRGB
 local PT_BLOCK, PT_BALL, MAT = Enum.PartType.Block, Enum.PartType.Ball, Enum.Material
+local PT_CYL = Enum.PartType.Cylinder
 
--- v24.2-fix1: подтверждаем — луч белый
 local COL_BEAM   = C3(255, 255, 255)
 local COL_CHARGE = C3(240, 250, 255)
 local COL_GLOW   = C3(230, 240, 255)
@@ -38,7 +37,7 @@ local G = {
   timer = 120,
   shapeRegistered = false,
   uiHidden = false,
-  _origFireId = nil,   -- v24.2-fix1
+  _origFireId = nil,
 }
 local alive, folder, token = true, nil, 0
 
@@ -77,7 +76,7 @@ local function getChar()
 end
 
 -- ============================================================
---       Белый Гастер
+--       Белый Гастер (STRONG-версия по силуэту из Blender)
 -- ============================================================
 local function mkp(model, name, size, cf, col, mat, nr, tr)
   local p
@@ -90,6 +89,16 @@ local function mkp(model, name, size, cf, col, mat, nr, tr)
   p.Material = mat or MAT.Metal; p.Transparency = tr or 0; p.CanQuery = false; p.CanTouch = false
   return p
 end
+local function mkw(model, name, size, cf, col, mat, tr)
+  local p = Instance.new("WedgePart")
+  p.Name = name; p.Size = size; p.CFrame = cf; p.Anchored = true
+  p.CanCollide = false; p.CastShadow = false; p.Color = col
+  p.Material = mat or MAT.Marble; p.Transparency = tr or 0
+  p.CanQuery = false; p.CanTouch = false
+  p:SetAttribute("NoRecolor", true)
+  p.Parent = model
+  return p
+end
 local function shell(name)
   if ORBIT.newModelShell then return ORBIT.newModelShell(name) end
   local m = Instance.new("Model"); m.Name = name
@@ -100,35 +109,141 @@ local function shell(name)
 end
 local function createGaster(size, name)
   local s = size
+  local u = s * 0.75
+  local tiny = s < 1
   local model, root = shell(name or "Gaster")
   local bodies = {}
-  local bone, black, white = C3(250, 245, 235), C3(10, 10, 14), C3(255, 255, 255)
+  local BONE, DARK, ENG = C3(245, 245, 250), C3(15, 15, 20), C3(60, 55, 50)
+  local RIB, GLOW = C3(215, 220, 230), C3(210, 235, 255)
   local function add(n, sz, cf, col, mat, nr, tr)
     local p = mkp(model, n, sz, cf, col, mat, nr, tr)
     table.insert(bodies, p)
     return p
   end
-  add("Skull", V3(0.9 * s, 0.8 * s, 1.0 * s), CF(0, 0.15 * s, 0.25 * s), bone)
-  add("Brow", V3(0.95 * s, 0.18 * s, 0.5 * s), CF(0, 0.55 * s, -0.15 * s), bone)
-  for _, sd in ipairs({ -1, 1 }) do
-    add("Cheek", V3(0.12 * s, 0.5 * s, 0.8 * s), CF(sd * 0.5 * s, 0.05 * s, 0.05 * s) * CFrame.Angles(0, 0, math.rad(8) * sd), bone)
-    add("Horn", V3(0.14 * s, 0.9 * s, 0.18 * s), CF(sd * 0.55 * s, 0.6 * s, 0.55 * s) * CFrame.Angles(math.rad(-25), 0, math.rad(15) * sd), bone)
-    add("EyeSocket", V3(0.26 * s, 0.3 * s, 0.12 * s), CF(sd * 0.27 * s, 0.2 * s, -0.28 * s), black, MAT.SmoothPlastic, true)
-    add("EyeGlint", V3(0.08 * s, 0.1 * s, 0.05 * s), CF(sd * 0.27 * s, 0.2 * s, -0.35 * s), C3(120, 230, 255), MAT.Neon, true)
+  local function U(p) return V3(p.X * u, (p.Z - 1.7) * u, (p.Y - 1.6) * u) end
+  local function bar(n, a, b, w, h, col, mat, tr)
+    local pa, pb = U(a), U(b)
+    local len = (pb - pa).Magnitude
+    if len < 0.01 then return nil end
+    return add(n, V3(w * u, h * u, len), CFrame.lookAt((pa + pb) / 2, pb), col or BONE, mat or MAT.Marble, true, tr)
   end
-  add("Snout", V3(0.55 * s, 0.32 * s, 1.1 * s), CF(0, -0.02 * s, -0.85 * s), bone)
-  add("Jaw", V3(0.5 * s, 0.2 * s, 1.0 * s), CF(0, -0.42 * s, -0.65 * s) * CFrame.Angles(math.rad(6), 0, 0), bone)
-  add("Nose", V3(0.1 * s, 0.08 * s, 0.05 * s), CF(0, 0.1 * s, -1.41 * s), black, MAT.SmoothPlastic, true)
-  for i = 0, 2 do
-    local z = -0.5 * s - i * 0.28 * s
-    for _, sd in ipairs({ -1, 1 }) do
-      add("ToothU", V3(0.06 * s, 0.14 * s, 0.08 * s), CF(sd * 0.2 * s, -0.24 * s, z), white, MAT.Marble, true)
-      add("ToothL", V3(0.06 * s, 0.12 * s, 0.08 * s), CF(sd * 0.18 * s, -0.3 * s, z - 0.1 * s), white, MAT.Marble, true)
+  local function wedge(n, a, b, th, wd, col, mat)
+    local pa, pb = U(a), U(b)
+    local len = (pb - pa).Magnitude
+    if len < 0.01 then return nil end
+    local p = mkw(model, n, V3(th * u, wd * u, len), CFrame.lookAt((pa + pb) / 2, pb), col or BONE, mat)
+    table.insert(bodies, p)
+    return p
+  end
+
+  -- ===== череп =====
+  bar("Skull", V3(0, 0.1, 0.8), V3(0, 1.3, 2.0), 1.25, 1.0)
+  bar("SkullBack", V3(0, 1.2, 1.9), V3(0, 2.7, 3.2), 2.0, 1.0)
+  bar("Dome", V3(0, 2.0, 2.6), V3(0, 3.0, 3.4), 1.7, 0.7)
+  bar("Brow", V3(-0.75, 0.9, 2.0), V3(0.75, 0.9, 2.0), 0.35, 0.28)
+  for _, sd in ipairs({ -1, 1 }) do
+    bar("Cheek", V3(sd * 0.55, 0.3, 0.7), V3(sd * 0.95, 1.6, 1.4), 0.3, 0.35)
+  end
+  -- морда, нос
+  bar("Snout", V3(0, -0.2, 1.2), V3(0, 1.0, 1.6), 0.65, 0.5)
+  bar("NosePlate", V3(0, -0.22, 1.55), V3(0, 0.6, 1.85), 0.3, 0.12, RIB, MAT.Metal)
+  -- челюсть, боковые отростки
+  bar("Jaw", V3(0, -0.2, 0.35), V3(0, 1.3, 0.75), 0.6, 0.28)
+  bar("Chin", V3(0, -0.28, 0.2), V3(0, 0.1, 0.45), 0.4, 0.3)
+  for _, sd in ipairs({ -1, 1 }) do
+    bar("JawSide", V3(sd * 0.4, 0.4, 0.55), V3(sd * 1.2, 2.4, 1.25), 0.2, 0.16)
+    wedge("JawSpike", V3(sd * 1.2, 2.4, 1.25), V3(sd * 1.55, 3.0, 1.3), 0.14, 0.3)
+    wedge("JawSpike", V3(sd * 0.9, 1.5, 0.95), V3(sd * 1.4, 1.9, 1.05), 0.12, 0.24)
+  end
+  -- зубы
+  for _, sd in ipairs({ -1, 1 }) do
+    for i = 0, 3 do
+      local c = U(V3(sd * (0.2 + 0.07 * i), 0.0 + 0.3 * i, 0.83))
+      local t = mkw(model, "ToothU", V3(0.1 * u, 0.3 * u, 0.12 * u), CF(c) * CFrame.Angles(math.pi, 0, 0), BONE, MAT.Marble)
+      table.insert(bodies, t)
+    end
+    for i = 0, 2 do
+      local c = U(V3(sd * (0.17 + 0.06 * i), 0.1 + 0.3 * i, 0.63))
+      local t = mkw(model, "ToothL", V3(0.09 * u, 0.26 * u, 0.12 * u), CF(c), BONE, MAT.Marble)
+      table.insert(bodies, t)
     end
   end
-  local charge = add("Charge", V3(0.3 * s, 0.3 * s, 0.3 * s), CF(0, -0.22 * s, -1.35 * s), COL_CHARGE, MAT.Neon, true, 0.2)
+  -- пасть
+  bar("MouthDark", V3(0, 0.15, 0.75), V3(0, 1.5, 0.9), 0.5, 0.4, DARK, MAT.SmoothPlastic)
+  local mg = add("MouthGlow", V3(0.4 * u, 0.4 * u, 0.4 * u), CF(U(V3(0, 0.5, 0.75))), GLOW, MAT.Neon, true, 0.35)
+  mg.Shape = PT_BALL
+  local ml = Instance.new("PointLight"); ml.Name = "MouthLight"; ml.Color = GLOW; ml.Range = 8; ml.Brightness = 1.2; ml.Parent = mg
+  -- глазницы
+  for _, sd in ipairs({ -1, 1 }) do
+    local pos = U(V3(sd * 0.64, 0.85, 1.7))
+    local dir = V3(sd * 0.85, 0.2, -0.5).Unit
+    local base = CFrame.lookAt(pos, pos + dir) * CFrame.Angles(0, math.rad(90), 0)
+    local sock = add("EyeSocket", V3(0.12 * u, 0.72 * u, 0.72 * u), base, DARK, MAT.SmoothPlastic, true)
+    sock.Shape = PT_CYL
+    local ring = add("EyeRing", V3(0.05 * u, 0.5 * u, 0.5 * u), base + dir * (0.07 * u), GLOW, MAT.Neon, true)
+    ring.Shape = PT_CYL
+    local inner = add("EyeInner", V3(0.05 * u, 0.34 * u, 0.34 * u), base + dir * (0.095 * u), DARK, MAT.SmoothPlastic, true)
+    inner.Shape = PT_CYL
+    local pupil = add("EyeGlint", V3(0.2 * u, 0.2 * u, 0.2 * u), base + dir * (0.13 * u), GLOW, MAT.Neon, true)
+    pupil.Shape = PT_BALL
+    local pl = Instance.new("PointLight"); pl.Name = "EyeLight"; pl.Color = GLOW; pl.Range = 7; pl.Brightness = 1.4; pl.Parent = pupil
+  end
+  -- крылья
+  local wings = {
+    { V3(0.45, 2.3, 2.9), V3(1.0, 3.5, 3.8), 0.8 },
+    { V3(0.8, 2.3, 2.4), V3(1.35, 3.45, 3.15), 0.7 },
+    { V3(1.05, 2.2, 1.8), V3(1.6, 3.25, 2.3), 0.6 },
+  }
+  for _, sd in ipairs({ -1, 1 }) do
+    for _, w in ipairs(wings) do
+      local a = V3(sd * w[1].X, w[1].Y, w[1].Z)
+      local b = V3(sd * w[2].X, w[2].Y, w[2].Z)
+      wedge("Wing", a, b, 0.14, w[3], BONE, MAT.Marble)
+      local inA = V3(a.X - sd * 0.09, a.Y, a.Z)
+      local inB = V3(a.X - sd * 0.09, a.Y, a.Z) + (b - a) * 0.86
+      wedge("WingInner", inA, inB, 0.1, w[3] * 0.7, DARK, MAT.SmoothPlastic)
+      if not tiny then
+        bar("WingRib", V3(a.X + sd * 0.08, a.Y, a.Z), V3(b.X + sd * 0.08, b.Y, b.Z) , 0.06, 0.06, RIB, MAT.Metal)
+      end
+    end
+  end
+  wedge("Crest", V3(0, 2.6, 3.2), V3(0, 3.5, 3.8), 0.22, 0.6, BONE, MAT.Marble)
+  wedge("CrestInner", V3(0, 2.6, 3.2), V3(0, 3.3, 3.65), 0.1, 0.4, DARK, MAT.SmoothPlastic)
+
+  if not tiny then
+    local A2, B2, NUP = V3(0, 1.2, 1.9), V3(0, 2.7, 3.2), V3(0, -0.6549, 0.7556)
+    local function top(t, x, off) return A2 + (B2 - A2) * t + NUP * (0.5 + off) + V3(x, 0, 0) end
+    -- гравировка
+    bar("Engrave", top(0.15, 0, 0.01), top(0.85, 0, 0.01), 0.06, 0.02, ENG, MAT.SmoothPlastic)
+    for _, sd in ipairs({ -1, 1 }) do
+      bar("Engrave", top(0.25, sd * 0.5, 0.01), top(0.8, sd * 0.5, 0.01), 0.05, 0.02, ENG, MAT.SmoothPlastic)
+    end
+    for _, t in ipairs({ 0.4, 0.6, 0.8 }) do
+      bar("Engrave", top(t, -0.45, 0.01), top(t, 0.45, 0.01), 0.05, 0.02, ENG, MAT.SmoothPlastic)
+    end
+    -- рёбра жёсткости
+    for _, t in ipairs({ 0.3, 0.5, 0.7 }) do
+      bar("Rib", top(t, -0.8, 0.04), top(t, 0.8, 0.04), 0.09, 0.08, RIB, MAT.Metal)
+    end
+    for _, sd in ipairs({ -1, 1 }) do
+      bar("Rib", top(0.15, sd * 0.8, 0.04), top(0.9, sd * 0.8, 0.04), 0.1, 0.08, RIB, MAT.Metal)
+    end
+    -- аура
+    local aura = add("Aura", V3(2.6 * u, 2.6 * u, 2.6 * u), CF(U(V3(0, 2.4, 2.9))), GLOW, MAT.Neon, true, 0.92)
+    aura.Shape = PT_BALL
+    local ad = V3(0, 0.6549, 0.7556)
+    for _, r in ipairs({ { V3(0, 2.2, 2.7), 2.5, 0.8 }, { V3(0, 2.7, 3.2), 1.9, 0.75 } }) do
+      local pos = U(r[1])
+      local ar = add("AuraRing", V3(0.05 * u, r[2] * u, r[2] * u), CFrame.lookAt(pos, pos + ad) * CFrame.Angles(0, math.rad(90), 0), GLOW, MAT.Neon, true, r[3])
+      ar.Shape = PT_CYL
+    end
+  end
+
+  -- Charge / Beam
+  local cz = U(V3(0, -0.38, 0.72))
+  local charge = add("Charge", V3(0.3 * s, 0.3 * s, 0.3 * s), CF(cz), COL_CHARGE, MAT.Neon, true, 0.2)
   charge.Shape = PT_BALL
-  add("Beam", V3(0.28 * s, 0.22 * s, 1.4 * s), CF(0, -0.22 * s, -2.1 * s), COL_BEAM, MAT.Neon, true, 0.3)
+  add("Beam", V3(0.28 * s, 0.22 * s, 1.4 * s), CF(cz.X, cz.Y, cz.Z - 0.75 * s), COL_BEAM, MAT.Neon, true, 0.3)
   local l = Instance.new("PointLight")
   l.Name = "GLight"; l.Color = COL_GLOW; l.Range = 12; l.Brightness = 1.5; l.Parent = charge
   local e = Instance.new("ParticleEmitter")
@@ -240,7 +355,7 @@ function G.spawnParts()
     G.traps[#G.traps + 1] = {
       part = p, r = r, baseAngle = a, baseRadius = d, angle = a,
       angleSpeed = 0.4 + math.random() * 0.4,
-      baseY = pos.Y, bobPhase = math.random() * 6,
+      baseY = pos.y or pos.Y, bobPhase = math.random() * 6,
       hitCooldown = 0,
     }
   end
@@ -470,6 +585,7 @@ local function hideBossUI()
   if G.bossUI and G.bossUI.sg then pcall(function() G.bossUI.sg:Destroy() end) end
   G.bossUI = nil
 end
+
 -- ============================================================
 --       Игра
 -- ============================================================
@@ -563,7 +679,6 @@ local function trapHit(trap)
   e:Emit(50)
   Debris:AddItem(bp, 1.5)
 end
-
 -- ============================================================
 --       БОСС
 -- ============================================================
@@ -609,7 +724,6 @@ function G.startBoss()
     if not ab then return end
     if ab._gasterHook then return end
     ab._gasterHook = true
-    -- v24.2-fix1: сохраняем ссылку на оригинал — восстановим в G.destroy
     G._origFireId = ab.fireId
     local origFire = ab.fireId
     ab.fireId = function(id, ch)
@@ -1016,7 +1130,6 @@ function G.destroy()
   if folder then pcall(function() folder:Destroy() end); folder = nil end
   local ab = ORBIT.abilities
   if ab and ab._gasterHook then
-    -- v24.2-fix1: возвращаем оригинал fireId, если он у нас сохранён.
     if G._origFireId and ab.fireId ~= G._origFireId then
       pcall(function() ab.fireId = G._origFireId end)
     end
@@ -1241,7 +1354,7 @@ end
 RS.Heartbeat:Connect(function(dt) if alive then W.update(dt) end end)
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v24.2-fix1 (16 осколков + босс + скрываемый UI)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v24.2-fix2 (16 осколков + босс + новый череп)", C3(220, 200, 255), 3)
 end
 
 return true
