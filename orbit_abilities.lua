@@ -1,5 +1,9 @@
--- ORBIT v24.7 | orbit_abilities.lua
--- 9 стихий + крестики скрытия + кнопка возврата + прицел + комбо
+-- ORBIT v24.8 | orbit_abilities.lua
+-- 12 стихий (+ КОСТЬ, БЛАСТЕР, РУКА) + крестики скрытия + кнопка возврата + прицел + комбо
+-- v24.8: трейлы больше не нулевой ширины (Attachment разнесены, Lifetime >= 0.15,
+--        трейл догорает после попадания); клавиши 1-0,-,= (12 стихий), панель в 1-2 ряда;
+--        5 новых комбо; вспышка экрана, тряска камеры, разлёт осколков, двойные кольца;
+--        все эффекты масштабируются под мобилку (LOD).
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] abilities: нет ORBIT"); return false end
@@ -27,6 +31,9 @@ local EL = {
   { id = "speed", nm = "СКОРОСТЬ", ic = "💨", col = C3(120, 255, 190) },
   { id = "wind", nm = "ВЕТЕР", ic = "🌪️", col = C3(225, 240, 255) },
   { id = "poison", nm = "ЯД", ic = "☠️", col = C3(90, 210, 70) },
+  { id = "bone", nm = "КОСТЬ", ic = "🦴", col = C3(240, 240, 225) },
+  { id = "blaster", nm = "БЛАСТЕР", ic = "🔫", col = C3(120, 210, 255) },
+  { id = "hand", nm = "РУКА", ic = "🖐️", col = C3(150, 150, 215) },
 }
 local IDX = {}
 for i, e in ipairs(EL) do IDX[e.id] = i end
@@ -43,6 +50,9 @@ local C = {
   speed = { dist = 20, mult = 1.8, dur = 3, cd = 5 },
   wind = { r = 15, knock = 25, cd = 4 },
   poison = { dps = 8, r = 8, dur = 5, cd = 6 },
+  bone = { dmg = 20, spread = 16, speed = 95, cd = 1.4 },
+  blaster = { dmg = 50, range = 70, cd = 3.5, windup = 0.45 },
+  hand = { dmg = 30, r = 5, range = 60, cd = 3, delay = 0.45 },
   combo = { cd = 6, window = 6 },
   charge = { time = 1, dmg = 2, speed = 1.5, size = 1.5 },
 }
@@ -61,6 +71,9 @@ local hitMarkerUntil = 0
 local sm = nil
 local helperWrapped, origInterp = false, nil
 local speedRestoreToken = 0
+local LOD = MOB and 0.6 or 1        -- множитель числа частиц и осколков для мобилки
+local shards, risers = {}, {}       -- осколки и «вылезающие» объекты (рука, шипы)
+local shakeUntil, shakeMag, shakeHum = 0, 0, nil
 local function connect(sig, fn) local c = sig:Connect(fn); conns[#conns + 1] = c; return c end
 local function ping(n, v, p) if ORBIT.Sfx and ORBIT.Sfx.play then pcall(ORBIT.Sfx.play, n, v or 1, p or 1) end end
 local function fold()
@@ -97,11 +110,11 @@ local function mkpart(shape, size, col, mat, tr)
   return p
 end
 local function glow(p, col, rate)
-  local l = Instance.new("PointLight"); l.Color = col; l.Range = 10; l.Brightness = 2; l.Parent = p
+  local l = Instance.new("PointLight"); l.Color = col; l.Range = 14; l.Brightness = 3.5; l.Parent = p
   local e = Instance.new("ParticleEmitter")
-  e.Color = ColorSequence.new(col); e.LightEmission = 1; e.Size = NumberSequence.new(0.7, 0)
+  e.Color = ColorSequence.new(col); e.LightEmission = 1; e.Size = NumberSequence.new(0.9, 0)
   e.Lifetime = NumberRange.new(0.3, 0.6); e.Speed = NumberRange.new(1, 4)
-  e.SpreadAngle = Vector2.new(180, 180); e.Rate = rate or 40; e.Parent = p
+  e.SpreadAngle = Vector2.new(180, 180); e.Rate = math.floor((rate or 40) * LOD); e.Parent = p
 end
 local function rodp(a, b, th, col)
   if (b - a).Magnitude < 0.05 then return nil end
@@ -125,7 +138,9 @@ local function burst(pos, col, n, spd)
   e.Color = ColorSequence.new(col); e.Size = NumberSequence.new(0.6, 0)
   e.Lifetime = NumberRange.new(0.4, 0.9); e.Speed = NumberRange.new(spd or 12, (spd or 12) * 2)
   e.SpreadAngle = Vector2.new(180, 180); e.Rate = 0; e.LightEmission = 1; e.Parent = p
-  e:Emit(n or 20)
+  e:Emit(math.max(4, math.floor((n or 20) * LOD)))
+  local fl = Instance.new("PointLight"); fl.Color = col; fl.Range = 16; fl.Brightness = 5; fl.Parent = p
+  T(fl, 0.3, { Brightness = 0 })
   Debris:AddItem(p, 1.5)
 end
 local function impactRing(pos, col, r, th)
@@ -137,7 +152,114 @@ local function impactRing(pos, col, r, th)
   p2.CFrame = p.CFrame
   T(p2, 0.28, { Size = V3(0.3, r * 1.2, r * 1.2), Transparency = 1 })
   Debris:AddItem(p2, 0.4)
+  -- второе кольцо с задержкой (двойная волна)
+  task.delay(0.08, function()
+    if not alive then return end
+    local p3 = mkpart(Enum.PartType.Cylinder, V3(0.25, r * 0.4, r * 0.4), col, MAT.Neon, 0.35)
+    p3.CFrame = CF(pos) * CFrame.Angles(0, 0, math.rad(90))
+    T(p3, 0.4, { Size = V3(0.25, r * 2.6, r * 2.6), Transparency = 1 })
+    Debris:AddItem(p3, 0.5)
+  end)
 end
+-- ===== v24.8: вспышка экрана, тряска, осколки, «вылезающие» объекты =====
+local I = CFrame.new()
+local function flashScreen(col, alpha, dur)
+  local f = ui.flash
+  if not f or not f.Parent then return end
+  f.BackgroundColor3 = col
+  f.BackgroundTransparency = alpha or 0.85
+  T(f, dur or 0.25, { BackgroundTransparency = 1 })
+end
+local function shake(mag, dur)
+  shakeMag = math.max(shakeMag, mag)
+  shakeUntil = math.max(shakeUntil, tick() + dur)
+end
+local function stepShake()
+  local t = tick()
+  if t < shakeUntil then
+    local c, h = getChar()
+    if h then
+      shakeHum = h
+      local m = shakeMag * math.clamp((shakeUntil - t) / 0.35, 0, 1)
+      pcall(function() h.CameraOffset = V3((math.random() - 0.5) * m, (math.random() - 0.5) * m, 0) end)
+    end
+  elseif shakeHum then
+    local h = shakeHum
+    shakeHum = nil
+    shakeMag = 0
+    pcall(function() h.CameraOffset = V3() end)
+  end
+end
+local function spawnShards(pos, col, n, spd, mat)
+  n = math.floor(n * LOD)
+  for _ = 1, n do
+    if #shards >= 70 then return end
+    local s = 0.22 + math.random() * 0.3
+    local p = mkpart(PT_BLOCK, V3(s, s, s * 1.6), col, mat or MAT.Neon, 0)
+    p.CFrame = CF(pos) * CFrame.Angles(math.random() * 6, math.random() * 6, math.random() * 6)
+    local dv = V3(math.random() - 0.5, math.random() * 0.8 + 0.25, math.random() - 0.5)
+    if dv.Magnitude < 0.05 then dv = V3(0, 1, 0) end
+    shards[#shards + 1] = {
+      part = p,
+      vel = dv.Unit * (spd or 18) * (0.5 + math.random()),
+      rot = V3(math.random() * 12, math.random() * 12, math.random() * 12),
+      endt = tick() + 0.7 + math.random() * 0.4,
+    }
+  end
+end
+local function stepShards(dt)
+  local t = tick()
+  for i = #shards, 1, -1 do
+    local s = shards[i]
+    if t >= s.endt or not s.part.Parent then
+      pcall(function() s.part:Destroy() end)
+      table.remove(shards, i)
+    else
+      s.vel = s.vel + V3(0, -45 * dt, 0)
+      s.part.CFrame = (s.part.CFrame * CFrame.Angles(s.rot.X * dt, s.rot.Y * dt, s.rot.Z * dt)) + s.vel * dt
+      s.part.Transparency = math.clamp(1 - (s.endt - t) / 0.5, 0, 1)
+    end
+  end
+end
+-- объект вылезает из-под земли, держится и уходит обратно
+-- ents = { { p = part, off = CFrame, wig = bool } }, base = CFrame на уровне земли
+local function placeRiser(r, lift, t)
+  local bcf = r.base * CF(0, lift, 0)
+  for j, e in ipairs(r.ents) do
+    if e.p.Parent then
+      local w = (e.wig and lift > -0.01) and CFrame.Angles(math.sin(t * 10 + j) * r.wig, 0, 0) or I
+      e.p.CFrame = bcf * e.off * w
+    end
+  end
+end
+local function addRiser(base, ents, rise, hold, wig)
+  local r = { base = base, ents = ents, rise = rise, t0 = tick(), up = 0.22, hold = hold or 0.6, down = 0.3, wig = wig or 0 }
+  risers[#risers + 1] = r
+  placeRiser(r, -rise, r.t0)
+end
+local function stepRisers(dt)
+  local t = tick()
+  for i = #risers, 1, -1 do
+    local r = risers[i]
+    local el = t - r.t0
+    if el >= r.up + r.hold + r.down then
+      for _, e in ipairs(r.ents) do pcall(function() e.p:Destroy() end) end
+      table.remove(risers, i)
+    else
+      local k
+      if el < r.up then
+        local x = el / r.up
+        k = 1 - (1 - x) * (1 - x)
+      elseif el < r.up + r.hold then
+        k = 1
+      else
+        k = 1 - (el - r.up - r.hold) / r.down
+      end
+      placeRiser(r, -r.rise * (1 - k), t)
+    end
+  end
+end
+
 local function blast(pos, r, col)
   impactRing(pos, col, r, 0.4)
   local p = mkpart(PT_BALL, V3(1, 1, 1), col, MAT.Neon, 0.35)
@@ -145,6 +267,7 @@ local function blast(pos, r, col)
   T(p, 0.35, { Size = V3(r * 2, r * 2, r * 2), Transparency = 1 })
   Debris:AddItem(p, 0.5)
   burst(pos, col, 25, r * 3)
+  spawnShards(pos, col, 6 + math.floor(r), r * 2.5)
 end
 local function bolt(a, b, col, th)
   local segs, d = 8, b - a
@@ -181,15 +304,20 @@ local function isSolid(inst)
   local m = inst:FindFirstAncestorOfClass("Model")
   return m ~= nil and m:FindFirstChildOfClass("Humanoid") ~= nil
 end
-local function attachTrail(part, col)
-  local a0 = Instance.new("Attachment"); a0.Position = V3(0, 0, 0); a0.Parent = part
-  local a1 = Instance.new("Attachment"); a1.Position = V3(0, 0, 0); a1.Parent = part
+local function attachTrail(part, col, life, wmul)
+  -- Attachment разнесены по X на размер части: иначе ширина трейла = 0 и он невидим
+  local span = math.max(0.3, math.max(part.Size.X, part.Size.Y) * 0.5)
+  local a0 = Instance.new("Attachment"); a0.Position = V3(-span, 0, 0); a0.Parent = part
+  local a1 = Instance.new("Attachment"); a1.Position = V3(span, 0, 0); a1.Parent = part
   local tr = Instance.new("Trail")
   tr.Attachment0 = a0; tr.Attachment1 = a1
-  tr.Lifetime = 0.35
+  tr.Lifetime = math.max(life or 0.35, 0.15)
   tr.Color = ColorSequence.new(col)
-  tr.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) })
+  -- ширина в мире = расстояние между Attachment × WidthScale; минимум 0.09 студа
+  local ws = math.max(wmul or 1, 0.09 / (2 * span))
+  tr.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, ws), NumberSequenceKeypoint.new(1, 0) })
   tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+  tr.MinLength = 0.02
   tr.LightEmission = 1; tr.FaceCamera = true
   tr.Parent = part
   return tr
@@ -292,12 +420,15 @@ local function addProj(q) q.born = tick(); A.projectiles[#A.projectiles + 1] = q
 local function onFire(q, pos)
   local r = C.fire.r * (q.ch and C.charge.size or 1)
   blast(pos, r, EL[1].col)
+  flashScreen(EL[1].col, 0.9, 0.22); shake(0.35, 0.25)
   for _, t in ipairs(near(pos, r)) do dmg(t, C.fire.dmg * q.mul); burn(t, C.fire.burn) end
   ping("ping", 1, 1.2)
 end
 local function onEarth(q, pos)
   burst(pos, C3(140, 105, 70), 25, 14)
   impactRing(pos, C3(180, 140, 90), 5, 0.4)
+  spawnShards(pos, C3(125, 95, 60), 12, 18, MAT.Slate)
+  shake(0.7, 0.35)
   for _, t in ipairs(near(pos, 5)) do
     dmg(t, C.earth.dmg * q.mul)
     knock(t.root, t.root.Position - pos, C.earth.knock)
@@ -307,9 +438,190 @@ end
 local function onIce(q, pos)
   burst(pos, EL[4].col, 14, 10)
   impactRing(pos, EL[4].col, 3.2, 0.3)
+  spawnShards(pos, C3(190, 235, 255), 8, 16, MAT.Glass)
   for _, t in ipairs(near(pos, 3.2)) do dmg(t, C.ice.dmg * q.mul); slowEnemy(t.hum, 0.3, C.ice.slow) end
   ping("ping", 0.8, 1.6)
 end
+-- ===== v24.8: кость, бластер, рука =====
+local BONE_COL, BL_COL, HAND_COL = EL[IDX.bone].col, EL[IDX.blaster].col, EL[IDX.hand].col
+local BONE_WHITE = C3(238, 238, 226)
+
+-- снаряд «догорает»: прячем и отключаем частицы, чтобы трейл успел растаять
+local function retire(part)
+  pcall(function()
+    for _, d in ipairs(part:GetDescendants()) do
+      if d:IsA("ParticleEmitter") then d.Enabled = false
+      elseif d:IsA("PointLight") then d:Destroy()
+      elseif d:IsA("BasePart") then d.Transparency = 1 end
+    end
+    part.Transparency = 1
+  end)
+  Debris:AddItem(part, 0.5)
+end
+
+local function buildBone(len, th)
+  local p = mkpart(PT_BLOCK, V3(th, th, len), BONE_WHITE, MAT.SmoothPlastic, 0)
+  local ex = {}
+  local offs
+  if MOB then
+    offs = { V3(0, 0, len / 2), V3(0, 0, -len / 2) }
+  else
+    offs = { V3(th * 0.45, 0, len / 2), V3(-th * 0.45, 0, len / 2), V3(th * 0.45, 0, -len / 2), V3(-th * 0.45, 0, -len / 2) }
+  end
+  for _, o in ipairs(offs) do
+    local k = mkpart(PT_BALL, V3(th * 1.1, th * 1.1, th * 1.1), BONE_WHITE, MAT.SmoothPlastic, 0)
+    k.Parent = p
+    ex[#ex + 1] = { p = k, off = CF(o) }
+  end
+  return p, ex
+end
+local function onBone(q, pos)
+  burst(pos, BONE_COL, 12, 12)
+  impactRing(pos, BONE_COL, 3, 0.3)
+  spawnShards(pos, BONE_WHITE, 6, 16, MAT.SmoothPlastic)
+  for _, t in ipairs(near(pos, 3.5)) do
+    dmg(t, C.bone.dmg * q.mul)
+    knock(t.root, t.root.Position - pos, 6)
+  end
+  ping("ping", 0.9, 1.8)
+end
+local function spawnBones(origin, dir, n, step, mul, ch)
+  for k = 1, n do
+    local ang = (k - (n + 1) / 2) * step
+    local d = CFrame.Angles(0, math.rad(ang), 0):VectorToWorldSpace(dir)
+    local p, ex = buildBone(2.8 * (ch and 1.25 or 1), 0.45 * (ch and 1.3 or 1))
+    p.CFrame = CFrame.lookAt(origin, origin + d)
+    for _, e in ipairs(ex) do e.p.CFrame = p.CFrame * e.off end
+    local l = Instance.new("PointLight"); l.Color = BONE_COL; l.Range = 8; l.Brightness = 1.6; l.Parent = p
+    attachTrail(p, BONE_COL, 0.3)
+    addProj({ part = p, extra = ex, vel = d * C.bone.speed * (ch and C.charge.speed or 1), life = 2.2, rad = 3, onHit = onBone, ch = ch, mul = mul })
+  end
+end
+
+-- череп-бластер: смотрит вдоль -Z, рот на (0, -0.45, -2.95) * масштаб
+local function buildSkull(cf, sc)
+  local ents = {}
+  local white = C3(245, 245, 245)
+  local function add(size, off, col, shape, mat, tr)
+    local p = mkpart(shape or PT_BLOCK, size * sc, col, mat or MAT.SmoothPlastic, tr or 0)
+    p.CFrame = cf * CF(off * sc)
+    ents[#ents + 1] = p
+    return p
+  end
+  add(V3(2.6, 2.2, 3), V3(0, 0, 0), white)
+  add(V3(2, 1.1, 1.6), V3(0, -0.5, -2.2), white)
+  add(V3(1.8, 0.5, 1.8), V3(0, -1.2, -1.8), C3(225, 225, 225))
+  add(V3(0.6, 0.6, 0.6), V3(-0.65, 0.4, -1.45), C3(15, 15, 20), PT_BALL)
+  add(V3(0.6, 0.6, 0.6), V3(0.65, 0.4, -1.45), C3(15, 15, 20), PT_BALL)
+  add(V3(0.28, 0.28, 0.28), V3(0.65, 0.4, -1.72), BL_COL, PT_BALL, MAT.Neon)
+  local mouth = add(V3(0.4, 0.4, 0.4), V3(0, -0.45, -2.95), BL_COL, PT_BALL, MAT.Neon, 0.2)
+  return ents, mouth
+end
+
+-- выстрел бластера: spos — где появляется череп, dirv — единичное направление, mul — множитель урона, wm — ширина
+local function fireBlaster(spos, dirv, mul, wm)
+  local cf = CFrame.lookAt(spos, spos + dirv)
+  local sc = 0.9 * wm
+  local wind = C.blaster.windup
+  local ents, mouth = buildSkull(cf, sc)
+  for _, p in ipairs(ents) do Debris:AddItem(p, wind + 1.4) end
+  local mouthPos = (cf * CF(V3(0, -0.45, -2.95) * sc)).Position
+  local rng = C.blaster.range
+  local endPos = mouthPos + dirv * rng
+  local res = WS:Raycast(mouthPos, dirv * rng, rayParams())
+  if res and isSolid(res.Instance) then endPos = res.Position end
+  -- накопление заряда: рот растёт, видна тонкая линия прицеливания
+  T(mouth, wind, { Size = V3(2.2, 2.2, 2.2) * sc, Transparency = 0 })
+  local ml = Instance.new("PointLight"); ml.Color = BL_COL; ml.Range = 14; ml.Brightness = 0; ml.Parent = mouth
+  T(ml, wind, { Brightness = 6 })
+  burst(mouthPos, BL_COL, 8, 6)
+  local warn_ = rodp(mouthPos, endPos, 0.15, BL_COL)
+  if warn_ then warn_.Transparency = 0.6; Debris:AddItem(warn_, wind) end
+  ping("snap", 0.8, 0.5)
+  task.delay(wind, function()
+    if not alive then return end
+    local len = (endPos - mouthPos).Magnitude
+    if len < 1 then return end
+    local th = 1.8 * wm
+    local core = mkpart(PT_BLOCK, V3(th, th, len), C3(255, 255, 255), MAT.Neon, 0)
+    core.CFrame = CFrame.lookAt((mouthPos + endPos) / 2, endPos)
+    local outer = mkpart(PT_BLOCK, V3(th * 2.2, th * 2.2, len), BL_COL, MAT.Neon, 0.55)
+    outer.CFrame = core.CFrame
+    local l = Instance.new("PointLight"); l.Color = BL_COL; l.Range = 24; l.Brightness = 6; l.Parent = core
+    T(core, 0.55, { Size = V3(0.1, 0.1, len) })
+    T(outer, 0.6, { Size = V3(0.2, 0.2, len), Transparency = 1 })
+    T(l, 0.6, { Brightness = 0 })
+    Debris:AddItem(core, 0.7); Debris:AddItem(outer, 0.7)
+    for _, e in ipairs(enemies()) do
+      local rel = e.root.Position - mouthPos
+      local tp = math.clamp(rel:Dot(dirv), 0, len)
+      if (e.root.Position - (mouthPos + dirv * tp)).Magnitude <= th + 2 then
+        dmg(e, C.blaster.dmg * mul)
+        knock(e.root, dirv, 12)
+      end
+    end
+    flashScreen(C3(255, 255, 255), 0.55, 0.35)
+    shake(0.8, 0.5)
+    impactRing(endPos, BL_COL, 6, 0.4)
+    burst(endPos, BL_COL, 24, 22)
+    burst(mouthPos, C3(255, 255, 255), 14, 14)
+    spawnShards(endPos, C3(255, 255, 255), 8, 22)
+    ping("snap", 1, 0.5)
+    task.delay(0.6, function()
+      if not alive then return end
+      for _, p in ipairs(ents) do T(p, 0.3, { Transparency = 1 }) end
+    end)
+  end)
+end
+
+-- рука Гастера: рука смотрит ладонью (-Z) на faceTo
+local function buildHand(base, scale)
+  local ents = {}
+  local col = C3(235, 235, 245)
+  local function add(size, off, rotz, c, shape, mat, wig)
+    local p = mkpart(shape or PT_BLOCK, size * scale, c or col, mat or MAT.SmoothPlastic, 0)
+    ents[#ents + 1] = { p = p, off = CF(off * scale) * CFrame.Angles(0, 0, math.rad(rotz or 0)), wig = wig }
+    return p
+  end
+  add(V3(3.2, 3.2, 0.9), V3(0, 1.6, 0), 0)
+  add(V3(0.62, 2.4, 0.62), V3(-1.2, 4.3, 0), 4, nil, nil, nil, true)
+  add(V3(0.62, 2.9, 0.62), V3(-0.4, 4.55, 0), 1, nil, nil, nil, true)
+  add(V3(0.62, 3.0, 0.62), V3(0.4, 4.6, 0), -1, nil, nil, nil, true)
+  add(V3(0.62, 2.5, 0.62), V3(1.2, 4.35, 0), -4, nil, nil, nil, true)
+  add(V3(0.65, 1.9, 0.65), V3(2.1, 1.9, 0), -40, nil, nil, nil, true)
+  add(V3(0.9, 0.9, 0.9), V3(0, 1.9, -0.5), 0, C3(15, 15, 20), PT_BALL)
+  local l = Instance.new("PointLight"); l.Color = HAND_COL; l.Range = 12; l.Brightness = 2.5; l.Parent = ents[1].p
+  return ents
+end
+local function spawnHand(ground, scale, faceTo, dmgv, radius, delay)
+  local R = radius or C.hand.r * scale
+  delay = delay or C.hand.delay
+  -- предупреждение: сужающийся круг на земле
+  local ring = mkpart(Enum.PartType.Cylinder, V3(0.2, R * 2, R * 2), HAND_COL, MAT.Neon, 0.55)
+  ring.CFrame = CF(ground + V3(0, 0.2, 0)) * CFrame.Angles(0, 0, math.rad(90))
+  T(ring, delay, { Transparency = 0.9, Size = V3(0.2, R * 1.4, R * 1.4) }, Enum.EasingStyle.Linear)
+  Debris:AddItem(ring, delay + 0.1)
+  task.delay(delay, function()
+    if not alive then return end
+    local fx = V3(faceTo.X, ground.Y, faceTo.Z)
+    local base = ((fx - ground).Magnitude > 1) and CFrame.lookAt(ground, fx) or CF(ground)
+    addRiser(base, buildHand(base, scale), 6.5 * scale, 0.7, 0.12)
+    impactRing(ground + V3(0, 0.3, 0), HAND_COL, R, 0.4)
+    burst(ground, HAND_COL, 22, 16)
+    spawnShards(ground, C3(120, 100, 90), 8, 18, MAT.Slate)
+    shake(0.55, 0.35)
+    for _, e in ipairs(near(ground, R)) do
+      dmg(e, dmgv)
+      knock(e.root, V3(0, 1, 0) + (e.root.Position - ground) * 0.1, 14)
+    end
+    ping("snap", 1, 0.6)
+  end)
+end
+local function groundAt(p)
+  local res = WS:Raycast(p + V3(0, 30, 0), V3(0, -80, 0), rayParams())
+  return res and res.Position or p
+end
+
 local function stepProj(dt)
   local list = A.projectiles
   if #list == 0 then return end
@@ -318,7 +630,9 @@ local function stepProj(dt)
     local q = list[i]
     local part = q.part
     if not part or not part.Parent or tick() - q.born > q.life then
-      if part then pcall(function() part:Destroy() end) end
+      if part and part.Parent then
+        if q.visual then pcall(function() part:Destroy() end) else retire(part) end
+      end
       table.remove(list, i)
     else
       if q.g then q.vel = q.vel + V3(0, -q.g * dt, 0) end
@@ -337,12 +651,15 @@ local function stepProj(dt)
       if hitPos then
         table.remove(list, i)
         pcall(q.onHit, q, hitPos)
-        pcall(function() part:Destroy() end)
+        if q.visual then pcall(function() part:Destroy() end) else retire(part) end
       elseif q.spin then
         q.rot = (q.rot or 0) + dt * 8
         part.CFrame = CF(to) * CFrame.Angles(q.rot, q.rot * 0.7, 0)
       else
         part.CFrame = CFrame.lookAt(to, to + q.vel)
+      end
+      if q.extra and part.Parent then
+        for _, ex in ipairs(q.extra) do ex.p.CFrame = part.CFrame * ex.off end
       end
     end
   end
@@ -381,6 +698,7 @@ FIRE.lightning = function(ch, origin, dir)
   bolt(origin, to, EL[5].col, ch and 0.6 or 0.35)
   burst(to, EL[5].col, 18, 14)
   impactRing(to, EL[5].col, 4, 0.3)
+  flashScreen(C3(255, 255, 220), 0.82, 0.18); shake(0.3, 0.2)
   local mul = ch and C.charge.dmg or 1
   if t then
     dmg(t, C.lightning.dmg * mul); slowEnemy(t.hum, 0, C.lightning.stun)
@@ -497,6 +815,24 @@ FIRE.poison = function(ch, origin, dir, target, c, h, r)
   ping("snap", 0.8, 0.5)
 end
 
+FIRE.bone = function(ch, origin, dir)
+  local n = ch and 5 or 3
+  local step = ch and C.bone.spread * 0.7 or C.bone.spread
+  spawnBones(origin, dir, n, step, ch and C.charge.dmg or 1, ch)
+  ping("snap", 0.9, 1.8)
+end
+FIRE.blaster = function(ch, origin, dir, target, c, h, r)
+  local spos = origin + V3(0, 3, 0) - dir * 1.5
+  local d = target - spos
+  if d.Magnitude < 1 then d = dir end
+  fireBlaster(spos, d.Unit, ch and C.charge.dmg or 1, ch and 1.5 or 1)
+  if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack") end
+end
+FIRE.hand = function(ch, origin, dir, target, c, h, r)
+  local p = clampPt(r.Position, target, C.hand.range)
+  spawnHand(groundAt(p), ch and 1.5 or 1, r.Position, C.hand.dmg * (ch and C.charge.dmg or 1))
+end
+
 -- ===== Комбо =====
 local COMBOS = {}
 COMBOS["fire+lightning"] = function(origin, dir, target, c, h, r)
@@ -593,6 +929,72 @@ COMBOS["speed+wind"] = function(origin, dir, target, c, h, r)
     end)
   end
   toast("💨🌪️ УСКОРЕНИЕ ВЕТРА")
+end
+
+COMBOS["blaster+bone"] = function(origin, dir, target, c, h, r)
+  local spos = origin + V3(0, 3, 0) - dir * 1.5
+  local d = target - spos
+  if d.Magnitude < 1 then d = dir end
+  fireBlaster(spos, d.Unit, 1.5, 1.6)
+  spawnBones(origin + dir * 1.5, dir, 7, 11, 1.2, false)
+  toast("🔫🦴 КОСТЯНОЙ ЛУЧ")
+end
+COMBOS["blaster+hand"] = function(origin, dir, target, c, h, r)
+  local g = groundAt(clampPt(r.Position, target, C.hand.range))
+  for k = 0, 2 do
+    local a = k * math.pi * 2 / 3
+    spawnHand(g + V3(math.cos(a) * 7, 0, math.sin(a) * 7), 1, r.Position, C.hand.dmg, nil, 0.45 + k * 0.1)
+  end
+  fireBlaster(g + V3(0, 30, 0), V3(0, -1, 0), 1.5, 1.8)
+  toast("🔫🖐️ ГНЕВ ГАСТЕРА")
+end
+COMBOS["bone+ice"] = function(origin, dir, target, c, h, r)
+  local g = groundAt(clampPt(r.Position, target, 55))
+  local n = math.floor(10 * math.max(LOD, 0.7))
+  for i = 1, n do
+    local a, rr = math.random() * math.pi * 2, 2 + math.random() * 9
+    local base = CF(g + V3(math.cos(a) * rr, 0, math.sin(a) * rr)) * CFrame.Angles(math.rad(math.random(-14, 14)), math.random() * 6.28, math.rad(math.random(-14, 14)))
+    local hgt = 2.6 + math.random() * 2
+    local isIce = i % 2 == 0
+    task.delay(i * 0.04, function()
+      if not alive then return end
+      local sp = mkpart(PT_BLOCK, V3(0.8, hgt, 0.8), isIce and EL[4].col or BONE_WHITE, isIce and MAT.Glass or MAT.SmoothPlastic, 0)
+      addRiser(base, { { p = sp, off = CF(0, hgt / 2, 0) } }, hgt, 0.5, 0)
+    end)
+  end
+  burst(g, EL[4].col, 24, 18)
+  impactRing(g, EL[4].col, 11, 0.4)
+  impactRing(g, BONE_COL, 7, 0.3)
+  spawnShards(g, C3(200, 235, 255), 10, 20, MAT.Glass)
+  shake(0.5, 0.3)
+  for _, e in ipairs(near(g, 11)) do dmg(e, 40); slowEnemy(e.hum, 0.3, 2.5) end
+  toast("🦴❄️ ЛЕДЯНЫЕ КОСТИ")
+end
+COMBOS["earth+hand"] = function(origin, dir, target, c, h, r)
+  local g = groundAt(clampPt(r.Position, target, C.hand.range))
+  spawnHand(g, 2.2, r.Position, 70, 11, 0.5)
+  task.delay(0.5, function()
+    if alive then blast(g, 11, C3(180, 140, 90)) end
+  end)
+  toast("🌍🖐️ КУЛАК ЗЕМЛИ")
+end
+COMBOS["blaster+lightning"] = function(origin, dir, target, c, h, r)
+  local spos = origin + V3(0, 3, 0) - dir * 1.5
+  local d = target - spos
+  if d.Magnitude < 1 then d = dir end
+  local dn = d.Unit
+  fireBlaster(spos, dn, 1.5, 1.4)
+  local mouth = spos + dn * 2.6
+  for i = 1, 6 do
+    task.delay(C.blaster.windup + i * 0.06, function()
+      if not alive then return end
+      local pt = mouth + dn * (8 + i * 9) + V3(math.random(-3, 3), 0, math.random(-3, 3))
+      bolt(pt + V3(0, 22, 0), pt, EL[5].col, 0.45)
+      burst(pt, EL[5].col, 10, 12)
+      for _, e in ipairs(near(pt, 5)) do dmg(e, 25) end
+    end)
+  end
+  toast("🔫⚡ ГРОМОВОЙ ЛУЧ")
 end
 
 local function cdLeft(id) return math.max(0, (A.cooldowns[id] or 0) - tick()) end
@@ -856,7 +1258,7 @@ local function ruLower(s)
   s = s:gsub("\208\129", "\209\145")
   return s
 end
-local NAMES = { { "огонь", "fire" }, { "земл", "earth" }, { "вод", "water" }, { "лёд", "ice" }, { "лед", "ice" }, { "молни", "lightning" }, { "телепорт", "teleport" }, { "скорост", "speed" }, { "ветер", "wind" }, { "яд", "poison" } }
+local NAMES = { { "огонь", "fire" }, { "земл", "earth" }, { "вод", "water" }, { "лёд", "ice" }, { "лед", "ice" }, { "молни", "lightning" }, { "телепорт", "teleport" }, { "скорост", "speed" }, { "ветер", "wind" }, { "яд", "poison" }, { "кост", "bone" }, { "бластер", "blaster" }, { "рук", "hand" } }
 function A.interpret(raw)
   local t = ruLower(raw)
   local function has(s) return t:find(s, 1, true) ~= nil end
@@ -891,14 +1293,31 @@ end
 -- ===== UI =====
 local function onClick(btn, fn)
   local deb = false
+  -- флаг «нажатие уже обработано» (защита от двойного срабатывания Down + Activated)
+  local down, downT, lastRelT = false, 0, 0
   local function call()
     if deb then return end
     deb = true
     task.delay(0.12, function() deb = false end)
     pcall(fn)
   end
-  connect(btn.MouseButton1Down, call)
-  connect(btn.Activated, call)
+  -- нажатие: срабатываем сразу
+  local function press()
+    if down and tick() - downT < 1 then return end
+    down, downT = true, tick()
+    call()
+  end
+  -- отпускание: если нажатие было — только сбрасываем флаг, иначе (клавиатура/геймпад) вызываем с защитой 0.2 с
+  local function release()
+    local now = tick()
+    if down then
+      down = false; lastRelT = now
+    elseif now - lastRelT > 0.2 then
+      lastRelT = now; call()
+    end
+  end
+  connect(btn.MouseButton1Down, press)
+  connect(btn.Activated, release)
 end
 local function mkBtn(parent, text, w, h, pos, anchor)
   local b = Instance.new("TextButton")
@@ -912,7 +1331,8 @@ local function mkBtn(parent, text, w, h, pos, anchor)
   return b
 end
 local KEYN = {}
-for i, k in ipairs({ "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine" }) do KEYN[Enum.KeyCode[k]] = i end
+for i, k in ipairs({ "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Zero", "Minus", "Equals" }) do KEYN[Enum.KeyCode[k]] = i end
+local KEYLBL = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=" }
 
 local function mkUI()
   local pg = LP:FindFirstChildOfClass("PlayerGui")
@@ -920,13 +1340,18 @@ local function mkUI()
   local sg = Instance.new("ScreenGui")
   sg.Name = "OrbitAbilitiesGui"; sg.ResetOnSpawn = false; sg.IgnoreGuiInset = true; sg.DisplayOrder = 20; sg.Parent = pg
   ui.sg = sg
+  -- вспышка экрана (под всеми кнопками, события не перехватывает)
+  local fl = Instance.new("Frame")
+  fl.Name = "Flash"; fl.Size = UDim2.fromScale(1, 1); fl.BackgroundColor3 = C3(255, 255, 255)
+  fl.BackgroundTransparency = 1; fl.BorderSizePixel = 0; fl.Active = false; fl.ZIndex = 1; fl.Parent = sg
+  ui.flash = fl
   local cm = cam()
   local vp = cm and cm.ViewportSize or Vector2.new(800, 400)
-  local slot = math.clamp(math.floor((vp.X - 24) / 9) - 3, 30, 46)
+  local slot = math.clamp(math.floor((vp.X - 24) / #EL) - 3, 30, 46)
   ui.slot = slot
   local pan = Instance.new("Frame")
   pan.Name = "Panel"; pan.AnchorPoint = Vector2.new(0.5, 1); pan.Position = UDim2.new(0.5, 0, 1, -8)
-  pan.Size = UDim2.fromOffset(9 * slot + 8 * 3 + 12, slot + 12)
+  pan.Size = UDim2.fromOffset(#EL * slot + (#EL - 1) * 3 + 12, slot + 12)
   pan.BackgroundColor3 = C3(18, 18, 24); pan.BackgroundTransparency = 0.25; pan.Parent = sg
   Instance.new("UICorner", pan).CornerRadius = UDim.new(0, 10)
   ui.panel = pan
@@ -947,7 +1372,7 @@ local function mkUI()
     sh.BorderSizePixel = 0; sh.ZIndex = 2; sh.Parent = b
     local kl = Instance.new("TextLabel")
     kl.Size = UDim2.fromOffset(12, 12); kl.Position = UDim2.fromOffset(2, 1); kl.BackgroundTransparency = 1
-    kl.Text = tostring(i); kl.TextColor3 = C3(190, 190, 200); kl.Font = Enum.Font.Code; kl.TextSize = 10; kl.ZIndex = 3; kl.Parent = b
+    kl.Text = KEYLBL[i] or tostring(i); kl.TextColor3 = C3(190, 190, 200); kl.Font = Enum.Font.Code; kl.TextSize = 10; kl.ZIndex = 3; kl.Parent = b
     onClick(b, function() A.setCurrent(el.id) end)
 
     -- ✨ Крестик — отдельный элемент в xLayer, позиционируется поверх кнопки
@@ -1011,28 +1436,40 @@ local function mkUI()
     end
 
     local total = #visible
+    local cm2 = cam()
+    local vpx = cm2 and cm2.ViewportSize.X or 800
+    -- на узком экране панель переносится во второй ряд
+    local cols = math.max(1, math.min(math.max(total, 1), math.floor((vpx - 24) / (slot + 3))))
+    local rows = math.max(1, math.ceil(total / cols))
     for i, e in ipairs(visible) do
       local s = ui.slots[e.id]
       if s then
-        local px = 6 + (i - 1) * (slot + 3)
-        s.btn.Position = UDim2.fromOffset(px, 6)
-        s.idxLabel.Text = tostring(i)
+        local cx, cy = (i - 1) % cols, math.floor((i - 1) / cols)
+        local px = 6 + cx * (slot + 3)
+        local py = 6 + cy * (slot + 3)
+        s.btn.Position = UDim2.fromOffset(px, py)
+        s.idxLabel.Text = KEYLBL[i] or tostring(i)
         -- крестик — в правом верхнем углу кнопки
-        if s.xBtn then
-          s.xBtn.Position = UDim2.fromOffset(px + slot - 18, 4)
-        end
+        if s.xBtn then s.xBtn.Position = UDim2.fromOffset(px + slot - 18, py - 2) end
       end
     end
-
+    local ph = rows * slot + (rows - 1) * 3 + 12
+    ui.panelH = ph
     if total > 0 then
-      ui.panel.Size = UDim2.fromOffset(total * slot + math.max(0, total - 1) * 3 + 12, slot + 12)
+      ui.panel.Size = UDim2.fromOffset(cols * slot + (cols - 1) * 3 + 12, ph)
       xLayer.Size = ui.panel.Size
       ui.panel.Visible = true
     else
       ui.panel.Visible = false
     end
-
-    if ui.resetBtn then ui.resetBtn.Visible = anyHidden end
+    -- элементы над панелью подстраиваются под её высоту
+    if ui.combo then ui.combo.Position = UDim2.new(0.5, 0, 1, -(ph + 12)) end
+    if ui.pairLbl then ui.pairLbl.Position = UDim2.new(0.5, 0, 1, -(ph + 48)) end
+    if ui.toast then ui.toast.Position = UDim2.new(0.5, 0, 1, -(ph + 74)) end
+    if ui.resetBtn then
+      ui.resetBtn.Position = UDim2.new(1, -18, 1, -(ph + 34))
+      ui.resetBtn.Visible = anyHidden
+    end
   end
 
   -- Кнопка КОМБО
@@ -1112,7 +1549,7 @@ local function mkUI()
     local ab = mkBtn(sg, "🎯", 46, 46, UDim2.new(1, -16, 1, -262), Vector2.new(1, 1))
     onClick(ab, function() A.aim() end)
     local menu = Instance.new("Frame")
-    menu.AnchorPoint = Vector2.new(1, 1); menu.Position = UDim2.new(1, -120, 1, -190); menu.Size = UDim2.fromOffset(3 * 48 + 16, 3 * 48 + 16)
+    menu.AnchorPoint = Vector2.new(1, 1); menu.Position = UDim2.new(1, -120, 1, -190); menu.Size = UDim2.fromOffset(4 * 48 + 16, 3 * 48 + 16)
     menu.BackgroundColor3 = C3(18, 18, 24); menu.BackgroundTransparency = 0.2; menu.Visible = false; menu.Parent = sg
     Instance.new("UICorner", menu).CornerRadius = UDim.new(0, 10)
     local gl = Instance.new("UIGridLayout")
@@ -1192,7 +1629,10 @@ connect(UIS.InputBegan, function(i, gp)
     if gp then return end
     local k = i.KeyCode
     local n = KEYN[k]
-    if n and not hidden[EL[n].id] then A.setCurrent(EL[n].id)
+    if n then
+      -- номер клавиши = номер среди видимых стихий (как подписано на кнопках)
+      local vis = A.getVisibleElements()
+      if vis[n] then A.setCurrent(vis[n].id) end
     elseif k == Enum.KeyCode.Q then A.prev()
     elseif k == Enum.KeyCode.E then A.next()
     elseif k == Enum.KeyCode.R then A.alt()
@@ -1232,6 +1672,9 @@ connect(RS.Heartbeat, function(dt)
   if not alive then return end
   local t = tick()
   stepProj(dt)
+  stepShards(dt)
+  stepRisers(dt)
+  stepShake()
   if (waterHeld and A.current == "water") or t < waterUntil then waterTick(dt) end
   for i = #dots, 1, -1 do
     local d = dots[i]
@@ -1285,6 +1728,17 @@ function A.destroy()
   for _, q in ipairs(A.projectiles) do pcall(function() q.part:Destroy() end) end
   A.projectiles = {}
   for _, cl in ipairs(clouds) do pcall(function() cl.part:Destroy() end) end
+  for _, s in ipairs(shards) do pcall(function() s.part:Destroy() end) end
+  shards = {}
+  for _, rr in ipairs(risers) do
+    for _, e in ipairs(rr.ents) do pcall(function() e.p:Destroy() end) end
+  end
+  risers = {}
+  if shakeHum then
+    local sh = shakeHum
+    shakeHum = nil
+    pcall(function() sh.CameraOffset = V3() end)
+  end
   clouds, dots, hitWatch, lastFire = {}, {}, {}, {}
   A.cooldowns = {}
   if folder then pcall(function() folder:Destroy() end); folder = nil end
