@@ -697,10 +697,14 @@ local function createSpiral(size, color, name)
             local angle = t*math.pi*2*turns + math.pi
             local cur = Vector3.new(math.cos(angle)*radius, -height*0.5+t*height, math.sin(angle)*radius)
             table.insert(bodies, makeRod(model, prev2, cur, thickness*0.8, thickness*0.8, color))
-            prev2 = cur
+                        prev2 = cur
         end
     end
-    -- ============================================================
+
+    return model, root, bodies
+end
+
+-- ============================================================
 --  v24.3-ai-fix2: create3DBlasterPlaceholder (STRONG)
 -- ============================================================
 local function create3DBlasterPlaceholder(size, color, name)
@@ -1676,5 +1680,3 @@ if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
 if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., ai-fix3)", Color3.fromRGB(180,255,180), 3) end
 
 return true
-    return model, root, bodies
-end
