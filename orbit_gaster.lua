@@ -203,7 +203,7 @@ local function createGaster(size, name)
       local inB = V3(a.X - sd * 0.09, a.Y, a.Z) + (b - a) * 0.86
       wedge("WingInner", inA, inB, 0.1, w[3] * 0.7, DARK, MAT.SmoothPlastic)
       if not tiny then
-        bar("WingRib", V3(a.X + sd * 0.08, a.Y, a.Z), V3(b.X + sd * 0.08, b.Y, b.Z) , 0.06, 0.06, RIB, MAT.Metal)
+        bar("WingRib", V3(a.X + sd * 0.08, a.Y, a.Z), V3(b.X + sd * 0.08, b.Y, b.Z), 0.06, 0.06, RIB, MAT.Metal)
       end
     end
   end
