@@ -1,6 +1,8 @@
 -- ORBIT v24.2 | orbit_anticheat.lua
 -- Античит v14.0: 18 защит, анимации защиты, фразы Санса, крестик панели
 -- v24.2: добавлен крестик закрытия панели в правом верхнем углу.
+-- v24.2-r2: ORBIT.enableProtection / ORBIT.disableProtection / ORBIT.anticheat для p3;
+--            тихое автосохранение и автозагрузка настроек (orbit_ac_settings.json).
 -- Автономный: ORBIT может отсутствовать, тогда всё работает без фраз и общих звуков.
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
@@ -17,6 +19,8 @@ end
 local function onClick(btn, fn, releaseOnly)
     local deb = false
     local touchStart = nil
+    -- флаг «нажатие уже обработано» (защита от двойного срабатывания Down + Activated)
+    local down, downT, lastRelT = false, 0, 0
     local function call()
         if deb then return end
         deb = true
@@ -30,22 +34,38 @@ local function onClick(btn, fn, releaseOnly)
         return releaseOnly or btn:GetAttribute("ReleaseOnly")
             or btn:FindFirstAncestorOfClass("ScrollingFrame") ~= nil
     end
-    btn.MouseButton1Down:Connect(function() if not inScroll() then call() end end)
-    btn.MouseButton1Click:Connect(function() if inScroll() then call() end end)
+    -- нажатие: вне скролла срабатываем сразу, в скролле ждём отпускания
+    local function press()
+        if down and tick() - downT < 1 then return end
+        down, downT = true, tick()
+        if not inScroll() then call() end
+    end
+    -- отпускание: если нажатие было — завершаем его, иначе (клавиатура/геймпад) вызываем с защитой 0.2 с
+    local function release()
+        local now = tick()
+        if down then
+            down = false; lastRelT = now
+            if inScroll() then call() end
+        elseif now - lastRelT > 0.2 then
+            lastRelT = now; call()
+        end
+    end
+    btn.MouseButton1Down:Connect(press)
     btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch then
             touchStart = input.Position
-            if not inScroll() then call() end
+            press()
         end
     end)
+    btn.MouseButton1Click:Connect(release)
     btn.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch and touchStart then
             local moved = (input.Position - touchStart).Magnitude
             touchStart = nil
-            if inScroll() and moved < 12 then call() end
+            if moved < 12 then release() else down = false; lastRelT = tick() end
         end
     end)
-    btn.Activated:Connect(call)
+    btn.Activated:Connect(release)
 end
 
 -- ==================== защита от повторного запуска ====================
@@ -118,6 +138,39 @@ local SETTINGS = {
     SmartFloorDelay = 5,
     ButtonPosition = UDim2.new(0, 20, 0, 200),
 }
+
+-- ==================== файл настроек (тихое сохранение/загрузка) ====================
+local SAVE_FILE = "orbit_ac_settings.json"
+local HAS_FS = (writefile and readfile and isfile and type(writefile) == "function")
+
+-- Тихое сохранение: без уведомлений, ошибки не прерывают работу
+local function saveSettingsSilent()
+    if not HAS_FS then return false end
+    local ok = pcall(function()
+        local data = {}
+        for k, v in pairs(SETTINGS) do
+            if type(v) ~= "userdata" and type(v) ~= "function" then data[k] = v end
+        end
+        writefile(SAVE_FILE, HttpService:JSONEncode(data))
+    end)
+    return ok
+end
+
+-- Тихая загрузка при старте. Enabled не восстанавливаем:
+-- состояние защиты при запуске решает ORBIT.enableProtection (автовключение).
+local function loadSettingsSilent()
+    if not HAS_FS then return end
+    pcall(function()
+        if not isfile(SAVE_FILE) then return end
+        local data = HttpService:JSONDecode(readfile(SAVE_FILE))
+        for k, v in pairs(data) do
+            if k ~= "Enabled" and SETTINGS[k] ~= nil and type(SETTINGS[k]) == type(v) then
+                SETTINGS[k] = v
+            end
+        end
+    end)
+end
+loadSettingsSilent()
 
 local SESSION = { defenses = 0, dodges = 0, cheatersMarked = 0, intrusions = 0, startTime = tick() }
 local MARKED = {}
@@ -1596,8 +1649,7 @@ onClick(btnTestSnd, function()
 end)
 
 -- ==================== сохранение ====================
-local SAVE_FILE = "orbit_ac_settings.json"
-local HAS_FS = (writefile and readfile and isfile and type(writefile) == "function")
+-- SAVE_FILE и HAS_FS объявлены выше (рядом с SETTINGS)
 
 onClick(btnSave, function()
     if not HAS_FS then
@@ -1665,6 +1717,11 @@ GENV._ORBIT_AC_UNLOAD = function()
     if soundFolder then pcall(function() soundFolder:Destroy() end) end
     local O = getOrbit()
     if O and O.loaded then O.loaded.anticheat = false end
+    if O then
+        O.enableProtection = nil
+        O.disableProtection = nil
+        O.anticheat = nil
+    end
     GENV._ORBIT_AC_LOADED = nil
     GENV._ORBIT_AC_UNLOAD = nil
     GENV._ORBIT_AC_NOTIFY = nil
@@ -1717,6 +1774,23 @@ do
     if O then
         O.loaded = O.loaded or {}
         O.loaded.anticheat = true
+
+        -- Публичное API для p3 и других модулей (вызов через ORBIT.*)
+        O.enableProtection = function()
+            SETTINGS.Enabled = true
+            if applyToggleState then applyToggleState() end
+            saveSettingsSilent()
+        end
+        O.disableProtection = function()
+            SETTINGS.Enabled = false
+            if applyToggleState then applyToggleState() end
+            saveSettingsSilent()
+        end
+        O.anticheat = {
+            enable  = O.enableProtection,
+            disable = O.disableProtection,
+        }
+
         local prevUnload = O.unload
         O.unload = function()
             pcall(function() if GENV._ORBIT_AC_UNLOAD then GENV._ORBIT_AC_UNLOAD() end end)
