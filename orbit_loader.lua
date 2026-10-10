@@ -1,6 +1,6 @@
 -- ORBIT v24.2 | orbit_loader.lua
--- ЕДИНЫЙ файл: ядро + GUI + загрузчик 16 модулей
--- BUILD: v24.2-r2
+-- ЕДИНЫЙ файл: ядро + GUI + загрузчик 18 модулей
+-- BUILD: v24.2-r3
 -- r1: добавлен ЭКРАН 1.5 — выбор режима игрока (Обычный / Санс).
 --     Санс: фразы, эффект смерти, реакции. Обычный: тихо.
 -- r2: v24.0-fix — 5 дефолтов в DEFAULT_SETTINGS (CastShadow, GlowEnabled, GlowIntensity,
@@ -8,7 +8,9 @@
 --     ORBIT.stub сбрасывается при запуске.
 -- r2-fix1: anticheat выгружается через GENV._ORBIT_AC_UNLOAD (у него нет .destroy);
 --          в цикле unload добавлен ключ deathfx (на случай опечатки).
-local BUILD = "v24.2-r2"
+-- r3: + orbit_nolight.lua (💡 кнопка света) и + orbit_focus.lua (🎮 режим игры).
+--     Оба грузятся последними, оба выгружаются через .destroy.
+local BUILD = "v24.2-r3"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
 do
@@ -135,6 +137,7 @@ ORBIT.loaded = {
     extras = false, tools = false, abilities = false, sans = false,
     deathfx = false, gaster = false, newfigures = false, animations = false,
     shop = false, editor3d = false, minigame = false, anticheat = false,
+    nolight = false, focus = false,
 }
 
 ORBIT.saveData = {
@@ -201,6 +204,7 @@ pcall(function()
         end
     end)
 end)
+
 -- ============================================================
 --                    НАСТРОЙКИ
 -- ============================================================
@@ -348,7 +352,6 @@ P.fireSizeIndex = 2
 P.FIRE_HEAT = {{name="Холодный",value=3},{name="Тёплый",value=8},{name="Горячий",value=15},{name="Пламя",value=22},{name="Инферно",value=30}}
 P.fireHeatIndex = 2
 ORBIT.P = P
-
 -- ============================================================
 --                    СОСТОЯНИЕ
 -- ============================================================
@@ -513,8 +516,9 @@ function ORBIT.saveSavesList()
     if not ORBIT.HAS_FS then return false end
     return pcall(function() writefile(ORBIT.SAVES_FILE, HttpService:JSONEncode(ORBIT.SAVES)) end)
 end
+
 -- ============================================================
---       UNLOAD (v24.2-r2-fix1: anticheat через GENV._ORBIT_AC_UNLOAD)
+--       UNLOAD (v24.2-r3: + nolight, focus)
 -- ============================================================
 ORBIT.unload = function()
     ORBIT.unloaded = true
@@ -552,13 +556,10 @@ ORBIT.unload = function()
         end
     end
     if ORBIT.helperClose then pcall(ORBIT.helperClose) end
-    -- v24.2-r2-fix1: у anticheat нет .destroy — выгрузка через GENV._ORBIT_AC_UNLOAD.
-    -- Вызываем ЕГО ДО общего цикла, чтобы он успел почистить свои коннекты/папки,
-    -- а не остался висеть после обнуления ORBIT.
     if GENV._ORBIT_AC_UNLOAD then
         pcall(GENV._ORBIT_AC_UNLOAD)
     end
-    for _, k in ipairs({ "sans", "abilities", "animations", "deathFx", "deathfx", "gaster", "tools", "anticheat", "extras", "shop", "minigame", "editor3d" }) do
+    for _, k in ipairs({ "sans", "abilities", "animations", "deathFx", "deathfx", "gaster", "tools", "anticheat", "extras", "shop", "minigame", "editor3d", "nolight", "focus" }) do
         local m = ORBIT[k]
         if type(m) == "table" and type(m.destroy) == "function" then pcall(m.destroy) end
     end
@@ -582,7 +583,7 @@ ORBIT.refreshLoaderStatus = function() end
 ORBIT.currentFile = nil
 
 -- ============================================================
---                    ОЧЕРЕДЬ МОДУЛЕЙ
+--                    ОЧЕРЕДЬ МОДУЛЕЙ (18 шт.)
 -- ============================================================
 local QUEUE = {
     { file = "orbit_p2.lua",          key = "p2",         short = "P2",   tag = "🔷 Фигуры",        cover = "ФИГУРЫ",       icon = "🔷", color = Color3.fromRGB(120, 200, 255), critical = true },
@@ -601,12 +602,13 @@ local QUEUE = {
     { file = "orbit_editor3d.lua",    key = "editor3d",   short = "3D",   tag = "🔮 Редактор 3D",   cover = "РЕДАКТОР 3D",  icon = "🔮", color = Color3.fromRGB(200, 160, 255) },
     { file = "orbit_minigame.lua",    key = "minigame",   short = "MG",   tag = "🎮 Мини-игра",     cover = "МИНИ-ИГРА",    icon = "🎮", color = Color3.fromRGB(255, 200, 100) },
     { file = "orbit_anticheat.lua",   key = "anticheat",  short = "AC",   tag = "🛡 Античит",       cover = "АНТИЧИТ",      icon = "🛡", color = Color3.fromRGB(200, 255, 180) },
+    { file = "orbit_nolight.lua",     key = "nolight",    short = "NL",   tag = "💡 Свет",          cover = "УПРАВЛЕНИЕ СВЕТОМ", icon = "💡", color = Color3.fromRGB(255, 240, 180) },
+    { file = "orbit_focus.lua",       key = "focus",      short = "FOC",  tag = "🎮 Режим игры",    cover = "РЕЖИМ ИГРЫ",   icon = "🎮", color = Color3.fromRGB(180, 255, 200) },
 }
 local TOTAL_LOADED = #QUEUE
 for _, it in ipairs(QUEUE) do
     if ORBIT.loaded[it.key] == nil then ORBIT.loaded[it.key] = false end
 end
-
 -- ============================================================
 --                    GUI ЗАГРУЗЧИКА
 -- ============================================================
