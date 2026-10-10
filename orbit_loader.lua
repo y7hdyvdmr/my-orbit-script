@@ -1,9 +1,14 @@
 -- ORBIT v24.2 | orbit_loader.lua
 -- ЕДИНЫЙ файл: ядро + GUI + загрузчик 16 модулей
--- BUILD: v24.2-r1
+-- BUILD: v24.2-r2
 -- r1: добавлен ЭКРАН 1.5 — выбор режима игрока (Обычный / Санс).
 --     Санс: фразы, эффект смерти, реакции. Обычный: тихо.
-local BUILD = "v24.2-r1"
+-- r2: v24.0-fix — 5 дефолтов в DEFAULT_SETTINGS (CastShadow, GlowEnabled, GlowIntensity,
+--     SpawnAnim, SpawnFlash); unload чистит shop / editor3d / minigame / extras;
+--     ORBIT.stub сбрасывается при запуске.
+-- r2-fix1: anticheat выгружается через GENV._ORBIT_AC_UNLOAD (у него нет .destroy);
+--          в цикле unload добавлен ключ deathfx (на случай опечатки).
+local BUILD = "v24.2-r2"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
 do
@@ -107,7 +112,7 @@ ORBIT.build = BUILD
 ORBIT.started = false
 ORBIT.PLATFORM = nil
 ORBIT.enabled = true
-ORBIT.mode = "sans"  -- по умолчанию Санс, изменится после экрана выбора
+ORBIT.mode = "sans"
 ORBIT.RigType = "R15"
 ORBIT.abilityMoveUntil = 0
 
@@ -196,7 +201,6 @@ pcall(function()
         end
     end)
 end)
-
 -- ============================================================
 --                    НАСТРОЙКИ
 -- ============================================================
@@ -205,6 +209,8 @@ ORBIT.DEFAULT_SETTINGS = {
     SpeedMultiplier = 1.0, SpinSpeedMultiplier = 1.0, BobAmplitude = 0.8,
     Material = Enum.Material.Neon, Transparency = 0.1,
     LightRange = 6, LightLimit = 20, LightEnabled = true,
+    CastShadow = false, GlowEnabled = true, GlowIntensity = 1,
+    SpawnAnim = true, SpawnFlash = true,
     Rainbow = true, FixedColor = Color3.fromRGB(0, 180, 255),
     ShowBlockNames = false, NameColor = Color3.fromRGB(255, 255, 255),
     LerpSpeed = 5.0,
@@ -248,7 +254,7 @@ ORBIT.DEFAULT_SETTINGS = {
 ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
 
 -- ============================================================
---                    ПРЕСЕТЫ (сокращено до нужного)
+--                    ПРЕСЕТЫ
 -- ============================================================
 local P = {}
 P.SPIN_SPEED = {{name="0.5x",value=0.5},{name="1x",value=1.0},{name="2x",value=2.0},{name="3x",value=3.0},{name="5x",value=5.0},{name="10x",value=10.0}}
@@ -280,7 +286,6 @@ P.SHAPE_CATEGORIES = {
 }
 P.shapeCategoryIndex = 1
 
--- ЦВЕТА (сокращённо до 50)
 P.COLORS = {
     {name="РАДУГА",rainbow=true},
     {name="КРАСНЫЙ",c=Color3.fromRGB(255,50,50)},{name="АЛЫЙ",c=Color3.fromRGB(220,20,60)},
@@ -425,7 +430,7 @@ function ORBIT.setMusicId(idText)
     return true
 end
 
--- ЗВУКИ (заглушка, потом extras заменит)
+-- ЗВУКИ
 ORBIT.SOUNDS = { Enabled = true, Volume = 1.0, ClickId = "rbxasset://sounds/button.wav", DodgeId = "rbxasset://sounds/snap.mp3", AfterDodgeId = "rbxasset://sounds/electronicpingshort.wav", SansVoiceId = "rbxasset://sounds/electronicpingshort.wav", BotId = "rbxasset://sounds/electronicpingshort.wav" }
 function ORBIT.playSound(id, volume, pitch)
     if not ORBIT.SOUNDS.Enabled then return end
@@ -508,8 +513,9 @@ function ORBIT.saveSavesList()
     if not ORBIT.HAS_FS then return false end
     return pcall(function() writefile(ORBIT.SAVES_FILE, HttpService:JSONEncode(ORBIT.SAVES)) end)
 end
-
--- UNLOAD
+-- ============================================================
+--       UNLOAD (v24.2-r2-fix1: anticheat через GENV._ORBIT_AC_UNLOAD)
+-- ============================================================
 ORBIT.unload = function()
     ORBIT.unloaded = true
     if ORBIT.logConn then pcall(function() ORBIT.logConn:Disconnect() end); ORBIT.logConn = nil end
@@ -532,8 +538,27 @@ ORBIT.unload = function()
     if ORBIT.sfxFolder then pcall(function() ORBIT.sfxFolder:Destroy() end); ORBIT.sfxFolder = nil end
     if ORBIT.musicSound then pcall(function() ORBIT.musicSound:Destroy() end); ORBIT.musicSound = nil end
     if ORBIT.stopUltra then pcall(ORBIT.stopUltra) end
+    if ORBIT.closeMiniGame then pcall(ORBIT.closeMiniGame) end
+    if ORBIT.stopRewardAnimation then pcall(ORBIT.stopRewardAnimation) end
+    if type(ORBIT.Editor3D) == "table" and type(ORBIT.Editor3D.Close) == "function" then pcall(ORBIT.Editor3D.Close) end
+    if type(ORBIT.Editor2D) == "table" then pcall(function() ORBIT.Editor2D.Open = false end) end
+    do
+        local sg = ORBIT.ui and ORBIT.ui.screenGui
+        if sg then
+            for _, nm in ipairs({ "_OrbitShop", "_OrbitEditor2D", "_Orbit3DEditor", "_OrbitShareWindow", "_OrbitHelper" }) do
+                local w = sg:FindFirstChild(nm)
+                if w then pcall(function() w:Destroy() end) end
+            end
+        end
+    end
     if ORBIT.helperClose then pcall(ORBIT.helperClose) end
-    for _, k in ipairs({ "sans", "abilities", "animations", "deathFx", "gaster", "tools", "anticheat" }) do
+    -- v24.2-r2-fix1: у anticheat нет .destroy — выгрузка через GENV._ORBIT_AC_UNLOAD.
+    -- Вызываем ЕГО ДО общего цикла, чтобы он успел почистить свои коннекты/папки,
+    -- а не остался висеть после обнуления ORBIT.
+    if GENV._ORBIT_AC_UNLOAD then
+        pcall(GENV._ORBIT_AC_UNLOAD)
+    end
+    for _, k in ipairs({ "sans", "abilities", "animations", "deathFx", "deathfx", "gaster", "tools", "anticheat", "extras", "shop", "minigame", "editor3d" }) do
         local m = ORBIT[k]
         if type(m) == "table" and type(m.destroy) == "function" then pcall(m.destroy) end
     end
@@ -1031,7 +1056,7 @@ fillGradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 150, 255)),
 })
 
-local progText = mkLabel(progHolder, "ГОТОВ К СТАРТУ", UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), Color3.fromRGB(20, 40, 28), Enum.Font.GothamBold, 11, 5)
+local progText = mkLabel(progHolder, "ГОТОВ К СТАРТУ", UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0), Color3.fromRGB(220, 240, 220), Enum.Font.GothamBold, 11, 5)
 
 local startBtn = Instance.new("TextButton")
 startBtn.Size = UDim2.new(1, -32, 0, 46)
@@ -1179,6 +1204,7 @@ onTap(startBtn, function()
     end
     if ORBIT.started then return end
     ORBIT.started = true
+    ORBIT.stub = false
     startBtn.Text = "РАБОТАЕТ..."
     setCover("🚀", "ЗАПУСК ОРБИТЫ", "включаю все системы...", C_GREEN)
     addLog("OK", "Запуск ОРБИТЫ...")
@@ -1197,11 +1223,15 @@ local function selectPlatform(platform)
     ORBIT.applyPlatformDefaults()
 
     TweenService:Create(platformScreen, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
-    for _, ch in ipairs(platformScreen:GetChildren()) do
-        if ch:IsA("TextLabel") then
+    for _, ch in ipairs(platformScreen:GetDescendants()) do
+        if ch:IsA("TextLabel") or ch:IsA("TextButton") then
             pcall(function() TweenService:Create(ch, TweenInfo.new(0.25), { TextTransparency = 1 }):Play() end)
-        elseif ch:IsA("TextButton") or ch:IsA("Frame") then
+        end
+        if ch:IsA("TextButton") or ch:IsA("Frame") then
             pcall(function() TweenService:Create(ch, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play() end)
+        end
+        if ch:IsA("UIStroke") then
+            pcall(function() TweenService:Create(ch, TweenInfo.new(0.25), { Transparency = 1 }):Play() end)
         end
     end
     task.wait(0.28)
@@ -1216,7 +1246,6 @@ local function selectPlatform(platform)
     for _ in pairs(ORBIT.SAVES) do saveCount = saveCount + 1 end
     addLog("OK", "Найдено сохранений: " .. saveCount)
 
-    -- показываем экран выбора режима
     setCover("🎭", "ВЫБЕРИ РЕЖИМ", "Обычный или Санс", C_GREEN)
     modeScreen.Visible = true
     mScale.Scale = computeLoaderScale(460, 500) * 0.9
@@ -1233,11 +1262,15 @@ local function selectMode(mode)
     addLog("OK", "Режим: " .. (mode == "sans" and "САНС" or "ОБЫЧНЫЙ"))
 
     TweenService:Create(modeScreen, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
-    for _, ch in ipairs(modeScreen:GetChildren()) do
-        if ch:IsA("TextLabel") then
+    for _, ch in ipairs(modeScreen:GetDescendants()) do
+        if ch:IsA("TextLabel") or ch:IsA("TextButton") then
             pcall(function() TweenService:Create(ch, TweenInfo.new(0.25), { TextTransparency = 1 }):Play() end)
-        elseif ch:IsA("TextButton") or ch:IsA("Frame") then
+        end
+        if ch:IsA("TextButton") or ch:IsA("Frame") then
             pcall(function() TweenService:Create(ch, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play() end)
+        end
+        if ch:IsA("UIStroke") then
+            pcall(function() TweenService:Create(ch, TweenInfo.new(0.25), { Transparency = 1 }):Play() end)
         end
     end
     task.wait(0.28)
