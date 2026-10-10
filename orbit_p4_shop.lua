@@ -114,6 +114,8 @@ local COLOR_NAMES = {
 local function onClick(btn, fn, releaseOnly)
     local deb = false
     local touchStart = nil
+    -- флаг «нажатие уже обработано» (защита от двойного срабатывания Down + Activated)
+    local down, downT, lastRelT = false, 0, 0
     local function call()
         if deb then return end
         deb = true
@@ -126,22 +128,38 @@ local function onClick(btn, fn, releaseOnly)
         return releaseOnly or btn:GetAttribute("ReleaseOnly")
             or btn:FindFirstAncestorOfClass("ScrollingFrame") ~= nil
     end
-    btn.MouseButton1Down:Connect(function() if not inScroll() then call() end end)
-    btn.MouseButton1Click:Connect(function() if inScroll() then call() end end)
+    -- нажатие: вне скролла срабатываем сразу, в скролле ждём отпускания
+    local function press()
+        if down and tick() - downT < 1 then return end
+        down, downT = true, tick()
+        if not inScroll() then call() end
+    end
+    -- отпускание: если нажатие было — завершаем его, иначе (клавиатура/геймпад) вызываем с защитой 0.2 с
+    local function release()
+        local now = tick()
+        if down then
+            down = false; lastRelT = now
+            if inScroll() then call() end
+        elseif now - lastRelT > 0.2 then
+            lastRelT = now; call()
+        end
+    end
+    btn.MouseButton1Down:Connect(press)
     btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch then
             touchStart = input.Position
-            if not inScroll() then call() end
+            press()
         end
     end)
+    btn.MouseButton1Click:Connect(release)
     btn.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch and touchStart then
             local moved = (input.Position - touchStart).Magnitude
             touchStart = nil
-            if inScroll() and moved < 12 then call() end
+            if moved < 12 then release() else down = false; lastRelT = tick() end
         end
     end)
-    btn.Activated:Connect(call)
+    btn.Activated:Connect(release)
 end
 
 -- ============================================================
@@ -1859,16 +1877,7 @@ local function openEditor()
     fitCanvas()
 end
 
--- ============================================================
---       ПРИВЯЗКА
--- ============================================================
-if ORBIT.ui.openShopBtn then
-    onClick(ORBIT.ui.openShopBtn, function() openShop() end)
-end
-if ORBIT.ui.openEditorBtn then
-    onClick(ORBIT.ui.openEditorBtn, function() openEditor() end)
-end
-
+-- Кнопки «Магазин»/«Редактор» привязаны в orbit_p4b.lua (один источник правды).
 ORBIT.openShop = openShop
 ORBIT.openEditor = openEditor
 Ed2D.GridOptions = GRID_OPTIONS
