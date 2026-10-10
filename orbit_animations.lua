@@ -321,7 +321,7 @@ REG["ЧЕРЕП"] = { "skullEyes" }
 REG["ЗВЕЗДА"] = { "spinStar" }
 REG["ИНЬ-ЯН"] = { "yin" }
 REG["КОРОНА"] = { "sway" }
-REG["ФЕНИКС"] = { "flames" }
+REG["ФЕНИКС"] = { "flames", "feathers" }
 REG["ПОРТАЛ"] = { "portal" }
 -- ===== API =====
 local function norm(fig)
