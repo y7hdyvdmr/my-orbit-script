@@ -133,8 +133,7 @@ function D.play(pos)
   model.Parent = fold(); mark(model)
   pcall(function() model:PivotTo(CF(base)) end)
 
-  -- ✨ v24.2: сначала пробуем взять ПОСЛЕДНЮЮ фразу Санса (say теперь возвращает текст).
-  -- Если есть showAt — показываем её над сердцем.
+  -- v24.2: сначала пробуем взять ПОСЛЕДНЮЮ фразу Санса (say теперь возвращает текст).
   local text = nil
   local S = ORBIT.sans
   if S then
