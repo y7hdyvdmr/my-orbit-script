@@ -10,10 +10,9 @@
 -- v24.3-ai-fix2:
 --   * create3DBlasterPlaceholder перерисован под STRONG-форму (силуэт из Blender).
 --   * В mkw (локальная обёртка WedgePart) добавлен NoRecolor и CanQuery/CanTouch=false
---     — иначе зубы/крылья перекрашивались бы в цвет игрока.
---   * В add добавлены CanQuery/CanTouch=false — чтобы превью в магазине
---     не мешало рейкастам.
+--   * В add добавлены CanQuery/CanTouch=false — чтобы превью в магазине не мешало рейкастам.
 --   * Убрана пустая заглушка bar(..., 0, 0), торчавшая из-под купола.
+-- v24.3-ai-fix3 (этот файл): закрыт createFlowey_V2, убраны лишние строки в конце.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -702,7 +701,6 @@ local function createSpiral(size, color, name)
     end
     return model, root, bodies
 end
-
 -- ============================================================
 --  v24.3-ai-fix2: create3DBlasterPlaceholder (STRONG) — форма из orbit_gaster.lua
 -- ============================================================
@@ -722,8 +720,6 @@ local function create3DBlasterPlaceholder(size, color, name)
     local BONE, DARK, ENG = C3(245, 245, 250), C3(15, 15, 20), C3(60, 55, 50)
     local RIB, GLOW = C3(215, 220, 230), C3(210, 235, 255)
 
-    -- локальная обёртка для WedgePart
-    -- v24.3-ai-fix2: добавлен NoRecolor + CanQuery/CanTouch = false
     local function mkw(m, n, sz, cf, col, mat)
         local w = Instance.new("WedgePart")
         w.Name = n; w.Size = sz; w.CFrame = cf
@@ -735,7 +731,6 @@ local function create3DBlasterPlaceholder(size, color, name)
         return w
     end
 
-    -- v24.3-ai-fix2: добавлены CanQuery/CanTouch = false
     local function add(n, sz, cf, col, mat, nr, tr)
         local p = newPart(model, n, sz, cf, col, nr)
         if mat then p.Material = mat end
@@ -760,7 +755,6 @@ local function create3DBlasterPlaceholder(size, color, name)
         return p
     end
 
-    -- череп
     bar("Skull", V3(0, 0.1, 0.8), V3(0, 1.3, 2.0), 1.25, 1.0)
     bar("SkullBack", V3(0, 1.2, 1.9), V3(0, 2.7, 3.2), 2.0, 1.0)
     bar("Dome", V3(0, 2.0, 2.6), V3(0, 3.0, 3.4), 1.7, 0.7)
@@ -768,10 +762,8 @@ local function create3DBlasterPlaceholder(size, color, name)
     for _, sd in ipairs({ -1, 1 }) do
         bar("Cheek", V3(sd * 0.55, 0.3, 0.7), V3(sd * 0.95, 1.6, 1.4), 0.3, 0.35)
     end
-    -- морда, нос
     bar("Snout", V3(0, -0.2, 1.2), V3(0, 1.0, 1.6), 0.65, 0.5)
     bar("NosePlate", V3(0, -0.22, 1.55), V3(0, 0.6, 1.85), 0.3, 0.12, RIB, MAT.Metal)
-    -- челюсть, боковые отростки
     bar("Jaw", V3(0, -0.2, 0.35), V3(0, 1.3, 0.75), 0.6, 0.28)
     bar("Chin", V3(0, -0.28, 0.2), V3(0, 0.1, 0.45), 0.4, 0.3)
     for _, sd in ipairs({ -1, 1 }) do
@@ -779,7 +771,6 @@ local function create3DBlasterPlaceholder(size, color, name)
         wedge("JawSpike", V3(sd * 1.2, 2.4, 1.25), V3(sd * 1.55, 3.0, 1.3), 0.14, 0.3)
         wedge("JawSpike", V3(sd * 0.9, 1.5, 0.95), V3(sd * 1.4, 1.9, 1.05), 0.12, 0.24)
     end
-    -- зубы
     for _, sd in ipairs({ -1, 1 }) do
         for i = 0, 3 do
             local c = U(V3(sd * (0.2 + 0.07 * i), 0.0 + 0.3 * i, 0.83))
@@ -792,12 +783,10 @@ local function create3DBlasterPlaceholder(size, color, name)
             table.insert(bodies, t)
         end
     end
-    -- пасть
     bar("MouthDark", V3(0, 0.15, 0.75), V3(0, 1.5, 0.9), 0.5, 0.4, DARK, MAT.SmoothPlastic)
     local mg = add("MouthGlow", V3(0.4 * u, 0.4 * u, 0.4 * u), CF(U(V3(0, 0.5, 0.75))), GLOW, MAT.Neon, true, 0.35)
     mg.Shape = Enum.PartType.Ball
     local ml = Instance.new("PointLight"); ml.Name = "MouthLight"; ml.Color = GLOW; ml.Range = 8; ml.Brightness = 1.2; ml.Parent = mg
-    -- глазницы
     for _, sd in ipairs({ -1, 1 }) do
         local pos = U(V3(sd * 0.64, 0.85, 1.7))
         local dir = V3(sd * 0.85, 0.2, -0.5).Unit
@@ -812,7 +801,6 @@ local function create3DBlasterPlaceholder(size, color, name)
         pupil.Shape = Enum.PartType.Ball
         local pl = Instance.new("PointLight"); pl.Name = "EyeLight"; pl.Color = GLOW; pl.Range = 7; pl.Brightness = 1.4; pl.Parent = pupil
     end
-    -- крылья
     local wings = {
         { V3(0.45, 2.3, 2.9), V3(1.0, 3.5, 3.8), 0.8 },
         { V3(0.8, 2.3, 2.4), V3(1.35, 3.45, 3.15), 0.7 },
@@ -1090,7 +1078,6 @@ local function createDragon(size, color, name)
     end
     return model, root, bodies
 end
-
 -- ============================================================
 --  v24.3-ai: НОВЫЕ И ПЕРЕРИСОВАННЫЕ ФИГУРЫ UNDERTALE
 -- ============================================================
@@ -1153,7 +1140,6 @@ local function createSans(size, color, name)
     local function V(x, y, z) return Vector3.new(x*s, y*s, z*s) end
     local function P(x, y, z) return CFrame.new(x*s, y*s, z*s) end
 
-    -- ГОЛОВА
     local HX, HY, HZ, HC = 0.65, 0.50, 0.525, 1.0
     local function surfZ(x, y)
         local k = 1 - (x/HX)^2 - ((y-HC)/HY)^2
@@ -1164,13 +1150,13 @@ local function createSans(size, color, name)
 
     for _, sd in ipairs({-1, 1}) do
         local ex, ey = sd*0.27, 1.04
-        local sock = blk("Socket", V(0.31, 0.35, 0.12), CFrame.new(ex*s, ey*s, (surfZ(ex, ey) + 0.01)*s) * CFrame.Angles(0, 0, math.rad(-sd*10)),
+        blk("Socket", V(0.31, 0.35, 0.12), CFrame.new(ex*s, ey*s, (surfZ(ex, ey) + 0.01)*s) * CFrame.Angles(0, 0, math.rad(-sd*10)),
             black, true, plastic, SPH)
     end
     do
         local ex, ey = -0.27, 1.02
         local z = surfZ(ex, ey)
-        local pupil = blk("EyeGlow", V(0.11, 0.11, 0.06), P(ex, ey, z - 0.10), cyan, true, Enum.Material.Neon, SPH)
+        blk("EyeGlow", V(0.11, 0.11, 0.06), P(ex, ey, z - 0.10), cyan, true, Enum.Material.Neon, SPH)
         local aura = blk("EyeAura", V(0.20, 0.20, 0.07), P(ex, ey, z - 0.105), cyan, true, Enum.Material.Neon, SPH)
         aura.Transparency = 0.65
     end
@@ -1195,7 +1181,6 @@ local function createSans(size, color, name)
         end
     end
 
-    -- ТЕЛО
     local TY = -0.05
     blk("Hoodie", V(1.00, 0.85, 0.62), P(0, TY, 0), blue, false, fabric)
     blk("Hem", V(1.06, 0.12, 0.66), P(0, -0.47, 0), blueDark, false, fabric)
@@ -1213,7 +1198,6 @@ local function createSans(size, color, name)
         blk("Fur", V(0.27, 0.25, 0.27), P(math.cos(a)*0.50, 0.44, math.sin(a)*0.36), white, true, fabric, SPH)
     end
 
-    -- РУКИ
     do
         local shoulder = V(-0.55, 0.22, 0)
         local pocket   = V(-0.33, -0.30, -0.30)
@@ -1233,13 +1217,11 @@ local function createSans(size, color, name)
         end
     end
 
-    -- ШОРТЫ
     blk("Shorts", V(1.00, 0.42, 0.62), P(0, -0.68, 0), black, true, fabric)
     for _, sd in ipairs({-1, 1}) do
         blk("Stripe", V(0.035, 0.42, 0.64), P(sd*0.50, -0.68, 0), white, true, fabric)
     end
 
-    -- НОГИ и ТАПОЧКИ
     for _, sd in ipairs({-1, 1}) do
         rod(V(sd*0.21, -0.86, 0), V(sd*0.21, -1.36, 0), 0.20*s, 0.20*s, bone, true, plastic)
         blk("Slipper", V(0.42, 0.20, 0.64), P(sd*0.21, -1.45, -0.10), white, true, fabric)
@@ -1270,7 +1252,6 @@ local function createGasterBody(size, color, name)
     local function V(x, y, z) return Vector3.new(x*s, y*s, z*s) end
     local function P(x, y, z) return CFrame.new(x*s, y*s, z*s) end
 
-    -- ЧЕРЕП
     local HX, HY, HZ, HC = 0.65, 0.625, 0.575, 1.0
     local function surfZ(x, y)
         local k = 1 - (x/HX)^2 - ((y-HC)/HY)^2
@@ -1314,7 +1295,6 @@ local function createGasterBody(size, color, name)
         rod(surfPt(-0.28, 1.50), surfPt(-0.20, 1.42), 0.03*s, 0.03*s, crackCol, true, plastic)
     end
 
-    -- БАЛАХОН
     local ROBE_T = 0.15
     local function robe(p) p.Transparency = ROBE_T; return p end
     robe(blk("Shoulders", V(1.50, 0.70, 0.90), P(0, 0.12, 0.05), robeCol, false, fabric, SPH))
@@ -1336,7 +1316,6 @@ local function createGasterBody(size, color, name)
         rod(robeFront(0.55,  0.38, top), vTip, 0.09*s, 0.05*s, white, true, plastic)
     end
 
-    -- РУКИ (через create3DHand)
     local function attachHand(side)
         local hs = s*0.30
         local hm, hr, hb = create3DHand(hs, Color3.fromRGB(240, 238, 230), "GasterHand", false)
@@ -1446,7 +1425,11 @@ local function createFlowey_V2(size, color, name)
         local m2 = Instance.new("SpecialMesh"); m2.MeshType = Enum.MeshType.Sphere; m2.Parent = jg
         table.insert(bodies, jg)
     end
-    -- №28 ОМЕГА ФЛАУИ v2
+
+    return model, root, bodies
+end
+
+-- №28 ОМЕГА ФЛАУИ v2
 local function createOmegaFlowey_V2(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local u = size * 0.34
@@ -1471,7 +1454,6 @@ local function createOmegaFlowey_V2(size, color, name)
         return kit.blk(nm, Vu(sx, sy, sz), CFrame.new(x*u, y*u, z*u), col, nr, mat or plastic, SPH)
     end
 
-    -- ПЛОТЬ
     sph("Flesh", 3.0, 2.6, 1.7,   0,    0,    0.25, flesh, false)
     sph("Flesh", 2.0, 1.7, 1.2,  -1.7, -0.3,  0.35, flesh, false)
     sph("Flesh", 2.0, 1.7, 1.2,   1.7, -0.3,  0.35, flesh, false)
@@ -1480,7 +1462,6 @@ local function createOmegaFlowey_V2(size, color, name)
     sph("Flesh", 1.0, 0.9, 0.8,   0.9,  0.95, 0.20, flesh, false)
     sph("Flesh", 0.7, 0.6, 0.6,   0,    1.2,  0.25, fleshDark, false)
 
-    -- TV
     kit.blk("TvFrame", Vu(1.35, 1.10, 0.45), CFrame.new(0, 0.15*u, -0.62*u), black, true, plastic)
     kit.blk("TvScreen", Vu(1.10, 0.85, 0.06), CFrame.new(0, 0.15*u, -0.87*u), Color3.fromRGB(30, 150, 140), true, neon)
     for _, sx in ipairs({-1, 1}) do
@@ -1491,7 +1472,6 @@ local function createOmegaFlowey_V2(size, color, name)
         kit.blk("TvSmile", Vu(0.15, 0.06, 0.05), CFrame.new(x*u, (0.15 + y)*u, -0.91*u), black, true, plastic)
     end
 
-    -- ДЕМОНИЧЕСКИЕ ГЛАЗА
     local function giantEye(side, irisCol)
         local ex, ey = side*1.75, 0.45
         sph("EyeSocket", 1.50, 1.40, 0.80, ex, ey, -0.25, lipRed, false)
@@ -1505,7 +1485,6 @@ local function createOmegaFlowey_V2(size, color, name)
     giantEye(-1, Color3.fromRGB(110, 150, 40))
     giantEye( 1, Color3.fromRGB(35, 150, 175))
 
-    -- ПАСТИ
     local function mouth(cx, cy, cz, w)
         sph("MouthLip",   w, w*0.52, 0.50, cx, cy, cz, lipRed, false)
         sph("MouthInner", w*0.84, w*0.34, 0.30, cx, cy, cz - 0.20, mouthIn, true)
@@ -1519,7 +1498,6 @@ local function createOmegaFlowey_V2(size, color, name)
     mouth( 1.75, -1.20, -0.15, 1.00)
     mouth( 0,     1.40, -0.10, 0.90)
 
-    -- ЛИАНЫ
     local function vine(side, pts, th0, withDiamonds)
         for i = 1, #pts - 1 do
             local a = Vector3.new(side*pts[i][1], pts[i][2], pts[i][3]) * u
@@ -1542,7 +1520,6 @@ local function createOmegaFlowey_V2(size, color, name)
         vine(side, vineB, 0.26, false)
     end
 
-    -- ТРУБЫ
     local pipeCols = {
         Color3.fromRGB(40, 85, 205),
         Color3.fromRGB(190, 35, 35),
@@ -1563,7 +1540,6 @@ local function createOmegaFlowey_V2(size, color, name)
         end
     end
 
-    -- РОГА
     for _, side in ipairs({-1, 1}) do
         local horns = {
             { {0.5, 1.2, 0.2}, {0.95, 2.0, 0.1}, {0.70, 2.8, 0.0} },
@@ -1579,7 +1555,6 @@ local function createOmegaFlowey_V2(size, color, name)
         end
     end
 
-    -- ИСКРА
     sph("Spark", 0.55, 0.55, 0.55, 0, -1.70, -0.45, Color3.fromRGB(90, 255, 130), true, neon)
     local halo = sph("SparkHalo", 1.0, 1.0, 1.0, 0, -1.70, -0.45, Color3.fromRGB(90, 255, 130), true, neon)
     halo.Transparency = 0.6
@@ -1593,8 +1568,6 @@ end
 
 -- ============================================================
 --  РЕГИСТРАЦИЯ 30 ФИГУР (v24.3-ai-fix2)
---  По правилам проекта НЕ подменяем ORBIT.SHAPE_PRESETS целиком —
---  используем table.insert, ссылка на таблицу сохраняется.
 -- ============================================================
 if type(ORBIT.SHAPE_PRESETS) ~= "table" then
     ORBIT.SHAPE_PRESETS = {}
@@ -1701,8 +1674,6 @@ do
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., ai-fix2)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., ai-fix3)", Color3.fromRGB(180,255,180), 3) end
 
 return true
-    return model, root, bodies
-end
