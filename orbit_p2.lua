@@ -298,7 +298,6 @@ local function heartColorByIdx(idx)
     if pc and pc.c then return pc.c end
     return HEART_COLORS[1].c
 end
-
 local function createPalmPlate(model, bodies, cf, size, color)
     local half = size*0.5; local cornerR = size*0.22
     local holeR = size*0.26; local depth = size*0.22
@@ -561,7 +560,6 @@ local function createPyramid(size, color, name)
     addBall(model, bodies, s*0.2, Vector3.new(0, totalH*0.1, -baseW*0.3), Color3.fromRGB(120, 255, 255), true)
     return model, root, bodies
 end
-
 local function createYinYang(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size; local R = s*0.95; local depth = s*0.22
@@ -1448,10 +1446,7 @@ local function createFlowey_V2(size, color, name)
         local m2 = Instance.new("SpecialMesh"); m2.MeshType = Enum.MeshType.Sphere; m2.Parent = jg
         table.insert(bodies, jg)
     end
-
-    return model, root, bodies
-end
--- №28 ОМЕГА ФЛАУИ v2
+    -- №28 ОМЕГА ФЛАУИ v2
 local function createOmegaFlowey_V2(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local u = size * 0.34
@@ -1709,3 +1704,5 @@ if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
 if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., ai-fix2)", Color3.fromRGB(180,255,180), 3) end
 
 return true
+    return model, root, bodies
+end
