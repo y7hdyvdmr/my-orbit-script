@@ -1,6 +1,8 @@
--- ORBIT v25.1 | orbit_rewards.lua
--- Экран наград: показывает все награды за Санса и Гастера, монеты, прогресс.
--- Открывается кнопкой 🎁 в меню или через ORBIT.rewards.open().
+-- ORBIT v25.1-fix1 | orbit_rewards.lua
+-- Экран наград: все награды за Санса и Гастера, монеты, прогресс.
+-- v25.1: базовый модуль.
+-- v25.1-fix1: фон-оверлей больше не блокирует кнопки прицела/стрельбы,
+--             destroyUI с принудительной очисткой по имени.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] rewards: нет ORBIT"); return false end
@@ -12,7 +14,6 @@ local TS = game:GetService("TweenService")
 local LP = Players.LocalPlayer
 local V3, CF, C3 = Vector3.new, CFrame.new, Color3.fromRGB
 
--- Реестр наград
 local REWARDS = {
   -- Санс
   { id = "sans_knife",            boss = "Санс",    icon = "🦴", name = "Костяной клинок",    desc = "Оружие: веер из 3 костей" },
@@ -35,7 +36,6 @@ local D = {
   open = false,
   sg = nil,
   frame = nil,
-  folder = nil,
 }
 
 local function getSave()
@@ -88,6 +88,14 @@ local function destroyUI()
   if D.sg then pcall(function() D.sg:Destroy() end) end
   D.sg, D.frame = nil, nil
   D.open = false
+  -- v25.1-fix1: страховка — снести по имени, если ссылка потерялась
+  pcall(function()
+    local pg = LP:FindFirstChildOfClass("PlayerGui")
+    if pg then
+      local old = pg:FindFirstChild("_OrbitRewardsUI")
+      if old then old:Destroy() end
+    end
+  end)
 end
 
 local function buildUI()
@@ -103,24 +111,19 @@ local function buildUI()
   sg.Parent = pg
   D.sg = sg
 
-  -- Задний фон
+  -- Задний фон (использует только один невидимый кнопочный слой)
   local bg = Instance.new("Frame")
   bg.Size = UDim2.fromScale(1, 1)
   bg.BackgroundColor3 = C3(0, 0, 0)
   bg.BackgroundTransparency = 0.5
   bg.BorderSizePixel = 0
   bg.ZIndex = 1
+  bg.Active = false  -- v25.1-fix1: фон НЕ активен, чтобы не блокировать тач
   bg.Parent = sg
-  -- клик по фону закрывает
-  local bgBtn = Instance.new("TextButton")
-  bgBtn.Size = UDim2.fromScale(1, 1)
-  bgBtn.BackgroundTransparency = 1
-  bgBtn.Text = ""
-  bgBtn.ZIndex = 1
-  bgBtn.Parent = bg
-  bgBtn.Activated:Connect(function() destroyUI() end)
 
-  -- Окно
+  -- v25.1-fix1: клик-ловушка ТОЛЬКО в области окна, а не на весь экран
+  -- (убран полноэкранный bgBtn, который блокировал кнопки под ним)
+
   local cm = game:GetService("Workspace").CurrentCamera
   local vp = cm and cm.ViewportSize or Vector2.new(800, 600)
   local w = math.min(560, vp.X - 24)
@@ -166,7 +169,7 @@ local function buildUI()
   Instance.new("UICorner", close).CornerRadius = UDim.new(0, 8)
   close.Activated:Connect(function() destroyUI() end)
 
-  -- Статистика — верхняя панель
+  -- Статистика
   local stats = getStats()
   local statsBar = Instance.new("Frame")
   statsBar.Size = UDim2.new(1, -32, 0, 68)
@@ -177,9 +180,9 @@ local function buildUI()
   statsBar.Parent = frame
   Instance.new("UICorner", statsBar).CornerRadius = UDim.new(0, 10)
 
-  local function stat(x, y, w, icon, text, col)
+  local function stat(x, y, w2, icon, text, col)
     local l = Instance.new("TextLabel")
-    l.Size = UDim2.fromOffset(w, 26)
+    l.Size = UDim2.fromOffset(w2, 26)
     l.Position = UDim2.fromOffset(x, y)
     l.BackgroundTransparency = 1
     l.Text = icon .. " " .. text
@@ -197,7 +200,7 @@ local function buildUI()
   stat(220, 8, 200, "💀", "Санс: " .. stats.sans.got .. " / " .. stats.sans.total, C3(200, 220, 255))
   stat(220, 36, 200, "👁", "Гастер: " .. stats.gaster.got .. " / " .. stats.gaster.total, C3(220, 180, 255))
 
-  -- Прогресс-бар (общий)
+  -- Прогресс-бар
   local progBg = Instance.new("Frame")
   progBg.Size = UDim2.new(1, -32, 0, 8)
   progBg.Position = UDim2.fromOffset(16, 124)
@@ -217,7 +220,7 @@ local function buildUI()
   local gr = Instance.new("UIGradient", progFill)
   gr.Color = ColorSequence.new(C3(120, 200, 255), C3(200, 150, 255))
 
-  -- Скролл со списком наград
+  -- Скролл со списком
   local sc = Instance.new("ScrollingFrame")
   sc.Position = UDim2.fromOffset(16, 142)
   sc.Size = UDim2.new(1, -32, 1, -158)
@@ -239,7 +242,6 @@ local function buildUI()
   pad.PaddingLeft = UDim.new(0, 4)
   pad.PaddingRight = UDim.new(0, 4)
 
-  -- Разделитель «САНС»
   local function sectionHeader(text, color, order)
     local h = Instance.new("Frame")
     h.Size = UDim2.new(1, -8, 0, 28)
@@ -259,7 +261,6 @@ local function buildUI()
     l.Parent = h
   end
 
-  -- Карточка награды
   local function rewardCard(r, order)
     local got = hasReward(r.id)
     local card = Instance.new("Frame")
@@ -275,7 +276,6 @@ local function buildUI()
     cs.Thickness = 1.5
     cs.Transparency = got and 0.2 or 0.5
 
-    -- Иконка
     local ic = Instance.new("TextLabel")
     ic.Size = UDim2.fromOffset(46, 46)
     ic.Position = UDim2.fromOffset(8, 6)
@@ -289,7 +289,6 @@ local function buildUI()
     ic.Parent = card
     Instance.new("UICorner", ic).CornerRadius = UDim.new(0, 8)
 
-    -- Название
     local nm = Instance.new("TextLabel")
     nm.Size = UDim2.new(1, -110, 0, 20)
     nm.Position = UDim2.fromOffset(62, 8)
@@ -302,7 +301,6 @@ local function buildUI()
     nm.ZIndex = 5
     nm.Parent = card
 
-    -- Описание
     local ds = Instance.new("TextLabel")
     ds.Size = UDim2.new(1, -110, 0, 26)
     ds.Position = UDim2.fromOffset(62, 28)
@@ -317,7 +315,6 @@ local function buildUI()
     ds.ZIndex = 5
     ds.Parent = card
 
-    -- Статус
     local stt = Instance.new("TextLabel")
     stt.Size = UDim2.fromOffset(40, 20)
     stt.Position = UDim2.new(1, -48, 0, 6)
@@ -329,7 +326,6 @@ local function buildUI()
     stt.ZIndex = 5
     stt.Parent = card
 
-    -- Подсказка «как получить» для заблокированных
     if not got then
       local hint = Instance.new("TextLabel")
       hint.Size = UDim2.new(1, -110, 0, 14)
@@ -345,7 +341,6 @@ local function buildUI()
     end
   end
 
-  -- Секция Санса
   sectionHeader("💀 САНС", C3(200, 220, 255), 1)
   local order = 2
   for _, r in ipairs(REWARDS) do
@@ -354,7 +349,6 @@ local function buildUI()
     end
   end
 
-  -- Секция Гастера
   sectionHeader("👁 ГАСТЕР", C3(220, 180, 255), order); order = order + 1
   for _, r in ipairs(REWARDS) do
     if r.boss == "Гастер" then
@@ -362,19 +356,14 @@ local function buildUI()
     end
   end
 
-  -- Плавное появление
   frame.Size = UDim2.fromOffset(w * 0.9, h * 0.9)
   TS:Create(frame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
     Size = UDim2.fromOffset(w, h)
   }):Play()
 end
 
--- ============================================================
---       API
--- ============================================================
 function D.open()
   if D.sg and D.sg.Parent then
-    -- уже открыт — закрываем (toggle)
     destroyUI()
     return true
   end
@@ -432,7 +421,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("🎁 Модуль наград загружен", C3(220, 200, 255), 3)
+  ORBIT.notify("🎁 Модуль наград загружен (v25.1-fix1)", C3(220, 200, 255), 3)
 end
 
 return true
