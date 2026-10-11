@@ -34,7 +34,6 @@ if SETTINGS.HeartScale == nil then SETTINGS.HeartScale = 1 end
 local function isDetailed()
     return (SETTINGS.BlockCount or 8) <= 8
 end
-
 local function addBall(model, bodies, diameter, pos, color, noRecolor)
     local p = newPart(model, "Ball", Vector3.new(diameter, diameter, diameter), CFrame.new(pos), color, noRecolor)
     p.Material = Enum.Material.SmoothPlastic
@@ -302,7 +301,6 @@ local function heartColorByIdx(idx)
     if pc and pc.c then return pc.c end
     return HEART_COLORS[1].c
 end
-
 local function createPalmPlate(model, bodies, cf, size, color)
     local half = size*0.5; local cornerR = size*0.22
     local holeR = size*0.26; local depth = size*0.22
@@ -398,7 +396,6 @@ local function create3DDiamond(size, color, name)
     end
     return model, root, bodies
 end
-
 local function createSword(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size; local gripColor = Color3.fromRGB(90,60,40)
@@ -566,7 +563,6 @@ local function createPyramid(size, color, name)
     addBall(model, bodies, s*0.2, Vector3.new(0, totalH*0.1, -baseW*0.3), Color3.fromRGB(120, 255, 255), true)
     return model, root, bodies
 end
-
 local function createYinYang(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size; local R = s*0.95; local depth = s*0.22
@@ -704,10 +700,14 @@ local function createSpiral(size, color, name)
             local angle = t*math.pi*2*turns + math.pi
             local cur = Vector3.new(math.cos(angle)*radius, -height*0.5+t*height, math.sin(angle)*radius)
             table.insert(bodies, makeRod(model, prev2, cur, thickness*0.8, thickness*0.8, color))
-            prev2 = cur
+                        prev2 = cur
         end
     end
-    -- ============================================================
+
+    return model, root, bodies
+end
+
+-- ============================================================
 --  v24.3-ai-fix2: create3DBlasterPlaceholder (STRONG)
 -- ============================================================
 local function create3DBlasterPlaceholder(size, color, name)
@@ -867,7 +867,6 @@ local function create3DBlasterPlaceholder(size, color, name)
 
     return { model = model, part = root, isModel = true, bodyParts = bodies, visualSize = s * 3.4 }
 end
-
 local function createWings(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -1084,9 +1083,8 @@ local function createDragon(size, color, name)
         blk(Vector3.new(s*0.20, s*0.42, s*0.20), Vector3.new( s*0.24, -s*0.46, s*0.48))
     end
     return model, root, bodies
-end
-
--- ============================================================
+    end
+    -- ============================================================
 --  v24.3-ai: НОВЫЕ И ПЕРЕРИСОВАННЫЕ ФИГУРЫ UNDERTALE
 -- ============================================================
 local function makeFigureKit(model, bodies)
@@ -1340,9 +1338,8 @@ local function createGasterBody(size, color, name)
     end
 
     return model, root, bodies
-    end 
-    return model, root, bodies
 end
+
 -- №27 ЦВЕТОК ФЛАУИ v2
 local function createFlowey_V2(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
@@ -1682,6 +1679,6 @@ do
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., ai-fix3)", Color3.fromRGB(180,255,180), 3) end
 
 return true
