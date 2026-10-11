@@ -1,8 +1,10 @@
--- ORBIT v25.0 | orbit_orbit_combo.lua
+-- ORBIT v25.0-fix1 | orbit_orbit_combo.lua
 -- Орбит-комбо: Санс + Гастер крутятся вокруг игрока, атакуют врагов.
 -- Требуется победа над обоими боссами.
 -- Санс: раз в 2 сек веер костей в ближайшего врага.
 -- Гастер: раз в 3 сек бластер по ближайшему.
+-- v25.0-fix1: мобильная кнопка 🌀 — двойной обработчик (MouseButton1Down + Activated)
+--             с дебаунсом 250мс. Одиночный Activated на Delta Mobile срабатывает ненадёжно.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] orbit_combo: нет ORBIT"); return false end
@@ -326,7 +328,20 @@ local function buildMobileBtn()
   b.AutoButtonColor = false; b.Parent = sg
   Instance.new("UICorner", b).CornerRadius = UDim.new(0, 28)
   local st = Instance.new("UIStroke", b); st.Color = C3(150, 130, 255); st.Thickness = 2
-  b.Activated:Connect(function() O.toggle() end)
+
+  -- v25.0-fix1: двойной обработчик с дебаунсом.
+  -- На Delta Mobile одиночный Activated срабатывает через раз —
+  -- ловим и MouseButton1Down (мгновенно при касании), и Activated (страховка).
+  local lastClick = 0
+  local function fire()
+    local t = tick()
+    if t - lastClick < 0.25 then return end
+    lastClick = t
+    pcall(O.toggle)
+  end
+  b.MouseButton1Down:Connect(fire)
+  b.Activated:Connect(fire)
+
   O.mobileBtn = sg
 end
 buildMobileBtn()
@@ -364,7 +379,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("🌀 Орбит-комбо v25.0 загружено (Санс + Гастер вокруг)", C3(200, 220, 255), 3)
+  ORBIT.notify("🌀 Орбит-комбо v25.0-fix1 загружено (Санс + Гастер вокруг)", C3(200, 220, 255), 3)
 end
 
 return true
