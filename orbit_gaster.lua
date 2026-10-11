@@ -1,12 +1,10 @@
--- ORBIT v25.0 | orbit_gaster.lua
+-- ORBIT v25.1 | orbit_gaster.lua
 -- 16 осколков + ловушки + босс-файт + белое оружие.
--- v24.2: "ЗАКРЫТЬ" прячет UI, но НЕ сбрасывает игру.
--- v24.2-fix1: G.destroy восстанавливает ab.fireId (сохраняем в G._origFireId).
--- v24.2-fix2: createGaster перерисован (STRONG) по силуэту из Blender-файла.
--- v25.0:
---   * HP босса 500 → 650.
---   * Ротация 4 атак: бластер, веер костей, рука, двойной бластер.
---   * +2 награды: скин «Гастер-босс», синий глаз-тик. Монеты +800.
+-- v24.2: ЗАКРЫТЬ прячет UI, но НЕ сбрасывает игру.
+-- v24.2-fix1: G.destroy восстанавливает ab.fireId.
+-- v24.2-fix2: createGaster перерисован (STRONG).
+-- v25.0: HP 500→650, 4 атаки (бластер, кости, рука, двойной).
+-- v25.1: 7 наград — скин, глаз-тик, шлем, двойной бластер, портал, частицы, монеты.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -80,7 +78,7 @@ local function getChar()
 end
 
 -- ============================================================
---       Белый Гастер (STRONG-версия по силуэту из Blender)
+--       Белый Гастер (STRONG-версия)
 -- ============================================================
 local function mkp(model, name, size, cf, col, mat, nr, tr)
   local p
@@ -672,6 +670,7 @@ local function trapHit(trap)
   e:Emit(50)
   Debris:AddItem(bp, 1.5)
 end
+
 -- ============================================================
 --       БОСС (v25.0: 650 HP + 4 атаки)
 -- ============================================================
@@ -791,7 +790,7 @@ function G.winBoss()
   ORBIT.saveData = ORBIT.saveData or {}
   ORBIT.saveData.gasterUnlocked = true
   ORBIT.saveData.gasterWeaponUnlocked = true
-  -- v25.0: новые награды
+  -- v25.1: 7 наград
   ORBIT.saveData.rewards = ORBIT.saveData.rewards or {}
   local newRewards = {}
   if not ORBIT.saveData.rewards["gaster_boss_skin"] then
@@ -801,6 +800,24 @@ function G.winBoss()
   if not ORBIT.saveData.rewards["blue_eye_tick"] then
     ORBIT.saveData.rewards["blue_eye_tick"] = true
     newRewards[#newRewards + 1] = "💧 Синий глаз-тик: раз в 45 сек — предупреждение"
+  end
+  if not ORBIT.saveData.rewards["gaster_skull_helmet"] then
+    ORBIT.saveData.rewards["gaster_skull_helmet"] = true
+    newRewards[#newRewards + 1] = "💀 Костяной шлем — косметика в магазине"
+  end
+  if not ORBIT.saveData.rewards["gaster_double_blaster"] then
+    ORBIT.saveData.rewards["gaster_double_blaster"] = true
+    newRewards[#newRewards + 1] = "⚡ Двойной бластер: скорость стрельбы ×2"
+    local W = G.weapon
+    if W then W.cdUntil = 0 end
+  end
+  if not ORBIT.saveData.rewards["gaster_portal_fx"] then
+    ORBIT.saveData.rewards["gaster_portal_fx"] = true
+    newRewards[#newRewards + 1] = "🌀 Тёмный портал — пассивный эффект за спиной"
+  end
+  if not ORBIT.saveData.rewards["gaster_blue_particles"] then
+    ORBIT.saveData.rewards["gaster_blue_particles"] = true
+    newRewards[#newRewards + 1] = "💠 Синие частицы — шлейф при движении"
   end
   if ORBIT.saveSettings then pcall(ORBIT.saveSettings) end
   if ORBIT.COINS then
@@ -945,9 +962,7 @@ local function showWarningLine(from, to)
   Debris:AddItem(p, 0.5)
 end
 
--- ============================================================
---       v25.0: НОВЫЕ АТАКИ ГАСТЕРА
--- ============================================================
+-- v25.0: 3 новые атаки
 local function attackBonesVolley(center, model)
   local ab = ORBIT.abilities
   if not ab or not ab.spawnBones then return end
@@ -1022,7 +1037,6 @@ local function stepBoss(dt, t)
   if k < 1 then return end
 
   local phase = b.hp > b.maxHp * 0.66 and 1 or (b.hp > b.maxHp * 0.33 and 2 or 3)
-  -- v25.0: ротация 4 атак
   b.attackRot = (b.attackRot or 0)
   b.nextAttack = b.nextAttack or (t + 2)
 
@@ -1208,6 +1222,9 @@ function G.destroy()
   if G.weapon and G.weapon.destroy then pcall(G.weapon.destroy) end
   if G.cc then pcall(function() G.cc:Destroy() end); G.cc = nil end
   if folder then pcall(function() folder:Destroy() end); folder = nil end
+  -- v25.1: очистка пассивных эффектов
+  if portalModel then pcall(function() portalModel:Destroy() end); portalModel = nil end
+  if fxFolder then pcall(function() fxFolder:Destroy() end); fxFolder = nil end
   local ab = ORBIT.abilities
   if ab and ab._gasterHook then
     if G._origFireId and ab.fireId ~= G._origFireId then
@@ -1219,7 +1236,7 @@ function G.destroy()
 end
 
 -- ============================================================
---       Оружие (белое)
+--       Оружие (белое, v25.1 с двойным бластером)
 -- ============================================================
 local W = { equipped = false, models = {}, proj = {}, cdUntil = 0, conns = {}, side = 1 }
 local wFolder, wGui, wBtn = nil, nil, nil
@@ -1285,7 +1302,12 @@ function W.shoot()
   if t < W.cdUntil then return false end
   local c, h = getChar()
   if not c or h.Health <= 0 then return false end
-  W.cdUntil = t + 0.8
+  -- v25.1: если разблокирован «Двойной бластер» — КД 0.4
+  local cd = 0.8
+  if ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_double_blaster"] then
+    cd = 0.4
+  end
+  W.cdUntil = t + cd
   W.side = -W.side
   local m = W.models[W.side == 1 and "R" or "L"] or W.models.R or W.models.L
   local charge = m and m:FindFirstChild("Charge")
@@ -1419,7 +1441,7 @@ end
 G.weapon = W
 
 -- ============================================================
---       Экспорт
+--       ЭКСПОРТ
 -- ============================================================
 ORBIT.gaster = G
 if ORBIT.gasterUnlocked == nil then ORBIT.gasterUnlocked = false end
@@ -1433,8 +1455,81 @@ end
 
 RS.Heartbeat:Connect(function(dt) if alive then W.update(dt) end end)
 
+-- ============================================================
+--       v25.1: ПАССИВНЫЕ ЭФФЕКТЫ ОТ НАГРАД
+-- ============================================================
+local fxFolder, portalModel, trailAcc = nil, nil, 0
+local function fxFold()
+  if fxFolder and fxFolder.Parent then return fxFolder end
+  fxFolder = Instance.new("Folder"); fxFolder.Name = "OrbitGasterFx_" .. LP.UserId; fxFolder.Parent = WS
+  return fxFolder
+end
+
+-- Тёмный портал (если награда получена)
+local function ensurePortal()
+  if not (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_portal_fx"]) then return end
+  local c = LP.Character
+  if not c or not c:FindFirstChild("HumanoidRootPart") then return end
+  if portalModel and portalModel.Parent then
+    local r = c.HumanoidRootPart
+    local pos = r.Position + r.CFrame.LookVector * -3 + V3(0, 1.5, 0)
+    pcall(function() portalModel:PivotTo(CFrame.lookAt(pos, pos + r.CFrame.LookVector)) end)
+    return
+  end
+  local m = Instance.new("Model"); m.Name = "OrbitPortal"
+  local root = Instance.new("Part"); root.Name = "Root"; root.Size = V3(0.1,0.1,0.1); root.Transparency = 1
+  root.Anchored = true; root.CanCollide = false; root.Parent = m; m.PrimaryPart = root
+  for i = 1, 3 do
+    local ring = Instance.new("Part")
+    ring.Name = "Ring" .. i
+    ring.Shape = Enum.PartType.Cylinder
+    ring.Size = V3(0.15, 3 - i * 0.5, 3 - i * 0.5)
+    ring.Anchored = true; ring.CanCollide = false; ring.CastShadow = false
+    ring.CanQuery = false; ring.CanTouch = false
+    ring.Material = Enum.Material.Neon
+    ring.Color = i == 1 and C3(120, 60, 200) or (i == 2 and C3(80, 40, 160) or C3(40, 20, 100))
+    ring.Transparency = 0.3 - i * 0.05
+    ring.Parent = m
+  end
+  m.Parent = fxFold()
+  portalModel = m
+end
+
+-- Синие частицы (шлейф)
+local function spawnBlueTrail(dt)
+  if not (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_blue_particles"]) then return end
+  local c = LP.Character
+  if not c or not c:FindFirstChild("HumanoidRootPart") then return end
+  local h = c:FindFirstChildOfClass("Humanoid")
+  if not h or h.MoveDirection.Magnitude < 0.1 then return end
+  trailAcc = trailAcc + dt
+  if trailAcc < 0.06 then return end
+  trailAcc = 0
+  local r = c.HumanoidRootPart
+  local p = Instance.new("Part")
+  p.Anchored = true; p.CanCollide = false; p.CastShadow = false
+  p.CanQuery = false; p.CanTouch = false
+  p.Shape = Enum.PartType.Ball
+  p.Size = V3(0.35, 0.35, 0.35)
+  p.Material = Enum.Material.Neon
+  p.Color = C3(120, 180, 255)
+  p.Transparency = 0.15
+  p.CFrame = CF(r.Position + V3(math.random(-0.5, 0.5), -0.5, math.random(-0.5, 0.5)))
+  p.Parent = fxFold()
+  local l = Instance.new("PointLight"); l.Color = C3(120, 180, 255); l.Range = 5; l.Brightness = 1.5; l.Parent = p
+  TS:Create(p, TweenInfo.new(0.5), { Transparency = 1, Size = V3(0.05, 0.05, 0.05) }):Play()
+  TS:Create(l, TweenInfo.new(0.5), { Brightness = 0 }):Play()
+  Debris:AddItem(p, 0.6)
+end
+
+RS.Heartbeat:Connect(function(dt)
+  if not alive then return end
+  pcall(ensurePortal)
+  pcall(spawnBlueTrail, dt)
+end)
+
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v25.0 (650 HP + 4 атаки + новые награды)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v25.1 (650 HP + 4 атаки + 7 наград)", C3(220, 200, 255), 3)
 end
 
 return true
