@@ -1,7 +1,7 @@
--- ORBIT v24.2 | orbit_animations.lua
--- v24.2-fix: R6/R15 — универсальный tryEmote с fallback через Animator.
---            P.dance/laugh/greet больше не падают и пробуют несколько вариантов.
--- КОНТРАКТ ИМЁН ЧАСТЕЙ (front фигуры = -Z, top = +Y):
+-- ORBIT v25.0 | orbit_animations.lua
+-- v24.2-fix: универсальный tryEmote с fallback через Animator.
+-- v25.0: + живые анимации игрока (idleWave, hurtReaction).
+-- КОНТРАКТ ИМЁН ЧАСТЕЙ:
 --   ДРАКОН: WingL*/WingR*, Tail1..N, Head*   ФЛАУИ: Head*, Petal*
 --   ОМЕГА: Screen*, Vine*   ГЛАЗ: Lid*, Pupil*   МЕЧ: Blade*
 --   ЩИТ: Crack*   КРЫЛЬЯ: Feather<слой>_*   ЧЕРЕП: EyeL/EyeR
@@ -32,6 +32,7 @@ local function fold()
   folder = Instance.new("Folder"); folder.Name = "OrbitSfx_Anim"; folder.Parent = WS
   return folder
 end
+
 -- ===== Хелперы частей =====
 local function rootOf(fig) return (fig.model and fig.model.PrimaryPart) or fig.part end
 local function grab(model, prefix)
@@ -70,6 +71,7 @@ local function lpRoot()
   return c and c:FindFirstChild("HumanoidRootPart")
 end
 local I = CFrame.new()
+
 -- ===== Определения анимаций =====
 DEFS.wings = {
   init = function(fig, d) d.L = grab(fig.model, "WingL"); d.R = grab(fig.model, "WingR") end,
@@ -307,6 +309,7 @@ DEFS.portal = {
   end,
   cleanup = function(fig, d) for _, p in ipairs(d.fx or {}) do pcall(function() p:Destroy() end) end end,
 }
+
 -- ===== Реестр =====
 REG["ДРАКОН"] = { "wings", "tail", "headTrack" }
 REG["ЦВЕТОК ФЛАУИ"] = { "nod", "petals" }
@@ -323,6 +326,7 @@ REG["ИНЬ-ЯН"] = { "yin" }
 REG["КОРОНА"] = { "sway" }
 REG["ФЕНИКС"] = { "flames", "feathers" }
 REG["ПОРТАЛ"] = { "portal" }
+
 -- ===== API =====
 local function norm(fig)
   if type(fig) == "table" then return fig.model and fig or nil end
@@ -385,6 +389,7 @@ local function scan()
     end
   end
 end
+
 -- ===== Проверка рига R6 / R15 =====
 local function rigOf(hum)
   if not hum then return "R15" end
@@ -393,6 +398,7 @@ end
 local function isR15(hum)
   return rigOf(hum) == "R15"
 end
+
 -- ===== Анимации игрока =====
 local P = {}
 local function hum()
@@ -414,19 +420,13 @@ local function say(text, sec)
   local head = LP.Character and LP.Character:FindFirstChild("Head")
   if head and ORBIT.sans and ORBIT.sans.showAt then pcall(ORBIT.sans.showAt, head.Position + V3(0, 2, 0), text, sec or 2.5) end
 end
-
--- ✨ v24.2-fix: универсальный запуск эмоции — работает и на R6, и на R15.
--- Сначала пробует PlayEmote с разными именами. Если всё падает —
--- пытается найти Animation-объект с таким именем и загрузить через Animator.
 local function tryEmote(h, names)
   if not h then return false, nil end
   if type(names) == "string" then names = { names } end
-  -- 1) пробуем PlayEmote
   for _, n in ipairs(names) do
     local ok, res = pcall(function() return h:PlayEmote(n) end)
     if ok and res then return true, n end
   end
-  -- 2) fallback через Animator (если в character есть Animation-объекты)
   local animator = h:FindFirstChildOfClass("Animator")
   if animator then
     local char = LP.Character
@@ -459,7 +459,6 @@ function P.laugh()
   ping("laugh", 1, 1)
   if ORBIT.emote and ORBIT.emote("laugh") then return true end
   local rig = rigOf(h)
-  -- laugh есть и на R6, и на R15; fallback — cheer и point
   local names = (rig == "R15") and { "laugh", "cheer", "point" } or { "laugh", "cheer", "point" }
   local ok = tryEmote(h, names)
   task.delay(2, function() if alive then stopEmote(h) end end)
@@ -470,7 +469,6 @@ function P.greet()
   if not h then return false end
   say("привет!", 2.5)
   if ORBIT.emote and ORBIT.emote("greet") then return true end
-  -- wave есть и на R6, и на R15; fallback — point
   local names = { "wave", "point" }
   local ok = tryEmote(h, names)
   return ok
@@ -506,6 +504,64 @@ function P.dodge(side)
   ping("dodge", 1, 1)
   return true
 end
+
+-- ============================================================
+--       v25.0: ЖИВЫЕ АНИМАЦИИ ИГРОКА
+-- ============================================================
+local idleSince = tick()
+local lastIdleAnim = 0
+local lastHurt = 0
+
+function P.idleWave()
+  local h, r = hum()
+  if not h or h.Health <= 0 or not r then return false end
+  if h.MoveDirection.Magnitude > 0.1 then idleSince = tick(); return false end
+  if tick() - idleSince < 5 then return false end
+  if tick() - lastIdleAnim < 6 then return false end
+  lastIdleAnim = tick()
+  task.spawn(function()
+    for i = 0, 16 do
+      if not alive or not h.Parent then return end
+      local k = i / 16
+      local wave = math.sin(k * math.pi * 2) * 0.12
+      pcall(function() h.CameraOffset = V3(wave, 0, 0) end)
+      task.wait(0.05)
+    end
+    pcall(function() h.CameraOffset = V3() end)
+  end)
+  return true
+end
+
+function P.hurtReaction(amount)
+  local h, r = hum()
+  if not h or h.Health <= 0 or not r then return false end
+  local now = tick()
+  if now - lastHurt < 1 then return false end
+  lastHurt = now
+  local amt = math.clamp((amount or 5) / 20, 0.15, 0.5)
+  task.spawn(function()
+    local cam = WS.CurrentCamera
+    if not cam then return end
+    local right = cam.CFrame.RightVector
+    for i = 0, 6 do
+      if not alive or not h.Parent then return end
+      local k = i / 6
+      local s = math.sin(k * math.pi) * amt
+      pcall(function() h.CameraOffset = right * s end)
+      task.wait(0.03)
+    end
+    pcall(function() h.CameraOffset = V3() end)
+  end)
+  return true
+end
+
+task.spawn(function()
+  while alive and ORBIT.animations == A do
+    task.wait(3)
+    pcall(P.idleWave)
+  end
+end)
+
 A.player = P
 A.rigOf = rigOf
 A.isR15 = isR15
@@ -518,13 +574,21 @@ local function hook(char)
   local last = h.Health
   hpRatio = h.MaxHealth > 0 and h.Health / h.MaxHealth or 1
   hpConn = h.HealthChanged:Connect(function(hp)
-    if hp < last - 0.01 then dmgT = tick(); ORBIT.lastDamageTime = dmgT end
+    local drop = last - hp
+    if drop > 0.01 then
+      dmgT = tick()
+      ORBIT.lastDamageTime = dmgT
+      -- v25.0: вызов реакции на урон
+      pcall(P.hurtReaction, drop)
+    end
     last = hp
     hpRatio = h.MaxHealth > 0 and hp / h.MaxHealth or 1
   end)
 end
+
 if LP.Character then task.spawn(hook, LP.Character) end
 charConn = LP.CharacterAdded:Connect(function(ch) task.spawn(hook, ch) end)
+
 -- ===== Главный цикл =====
 local scanAcc = 0
 conn = RS.Heartbeat:Connect(function(dt)
@@ -548,6 +612,8 @@ conn = RS.Heartbeat:Connect(function(dt)
     end
   end
 end)
+
+-- ===== Очистка =====
 function A.destroy()
   if not alive then return end
   alive = false
@@ -560,11 +626,14 @@ function A.destroy()
   list = {}
   if folder then pcall(function() folder:Destroy() end); folder = nil end
 end
+
 ORBIT.animations = A
 ORBIT.loaded.animations = true
+
 local prevUnload = ORBIT.unload
 ORBIT.unload = function()
   pcall(A.destroy)
   if prevUnload then pcall(prevUnload) end
 end
+
 return true
