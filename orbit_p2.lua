@@ -1,9 +1,8 @@
--- orbit_p2.lua v24.4-ai-figures-fix4
--- ОРБИТА v24.4-ai-figures-fix4 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
--- v24.4-ai-figures-fix4 (этот файл):
---   * САНС: ИСПРАВЛЕН вызов createBone — (boneModel, _, boneBodies).
---   * САНС: бластеры 0.675, отодвинуты на ±3.20*s (не закрывают фигуру).
---   * САНС: убраны кетчуп, тромбон, хот-дог — остались только кость и бластеры.
+-- orbit_p2.lua v24.4-ai-figures-fix5
+-- ОРБИТА v24.4-ai-figures-fix5 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
+-- v24.4-ai-figures-fix5 (этот файл):
+--   * САНС: кость 0.65, бластеры 0.95, отодвинуты на ±4.40*s.
+--   * САНС: череп крупнее, добавлены брови, 7 зубов ухмылки, розовые тапки.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -1113,7 +1112,7 @@ local function makeFigureKit(model, bodies)
     return kit
 end
 
--- №29 САНС (SANS) — v24.4-fix4: только Санс + кость + бластеры
+-- №29 САНС (SANS) — v24.4-fix5: крупная кость 0.65, бластеры 0.95, белые тапки
 local function createSans(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -1142,67 +1141,76 @@ local function createSans(size, color, name)
         l.Color = col; l.Range = 6; l.Brightness = 1; l.Parent = p
     end
 
-    local HX, HY, HZ, HC = 0.65, 0.50, 0.525, 1.95
+    local HX, HY, HZ, HC = 0.75, 0.58, 0.60, 2.00
     local function surfZ(x, y)
         local k = 1 - (x/HX)^2 - ((y-HC)/HY)^2
         return HZ * math.sqrt(math.max(0, k))
     end
 
-    -- голова
+    -- голова (крупнее)
     blk("Skull", V(HX*2, HY*2, HZ*2), P(0, HC, 0), bone, true, plastic, SPH)
-    blk("Jaw", V(0.84, 0.18, 0.40), P(0, 1.48, 0.27), bone, true, plastic)
+    blk("Jaw", V(0.96, 0.22, 0.46), P(0, 1.48, 0.31), bone, true, plastic)
+    -- брови-валики над глазницами
     for _, sd in ipairs({-1, 1}) do
-        local ex, ey = sd*0.27, 2.02
-        blk("Socket", V(0.30, 0.34, 0.10), CFrame.new(ex*s, ey*s, surfZ(ex, ey)*s) * CFrame.Angles(0, 0, math.rad(sd*10)),
+        blk("Brow", V(0.40, 0.10, 0.16),
+            CFrame.new(sd*0.27*s, 2.32*s, surfZ(sd*0.27, 2.32)*s) * CFrame.Angles(math.rad(-10), 0, math.rad(-sd*6)),
+            bone, true, plastic, SPH)
+    end
+    -- глазницы
+    for _, sd in ipairs({-1, 1}) do
+        local ex, ey = sd*0.30, 2.02
+        blk("Socket", V(0.38, 0.42, 0.12), CFrame.new(ex*s, ey*s, surfZ(ex, ey)*s) * CFrame.Angles(0, 0, math.rad(sd*10)),
             black, true, plastic, SPH)
     end
+    -- голубой глаз
     do
-        local gz = surfZ(0.27, 2.02)
-        local eye = blk("EyeGlow", V(0.12, 0.12, 0.06), P(0.27, 2.00, gz + 0.05), cyanEye, true, neon, SPH)
+        local gz = surfZ(0.30, 2.02)
+        local eye = blk("EyeGlow", V(0.16, 0.16, 0.08), P(0.30, 2.00, gz + 0.06), cyanEye, true, neon, SPH)
         glow(eye, cyanEye)
     end
-    for i = 0, 4 do
-        local x = -0.40 + i*0.20
-        local y = 1.64 + 0.5*x*x
-        blk("Smile", V(0.045, 0.16, 0.04), P(x, y, surfZ(x, y) + 0.005), black, true, plastic)
+    -- ухмылка: 7 зубов с дугой
+    for i = 0, 6 do
+        local x = -0.48 + i*0.16
+        local y = 1.58 + 0.42*x*x
+        blk("Smile", V(0.055, 0.19, 0.05), P(x, y, surfZ(x, y) + 0.005), black, true, plastic)
     end
 
     -- толстовка
-    blk("Hoodie", V(1.00, 0.70, 0.62), P(0, 1.17, 0), blue, false, plastic)
-    blk("HoodRoll", V(0.86, 0.42, 0.40), P(0, 1.52, -0.30), blue, false, plastic, SPH)
+    blk("Hoodie", V(1.05, 0.74, 0.66), P(0, 1.17, 0), blue, false, plastic)
+    blk("HoodRoll", V(0.90, 0.44, 0.42), P(0, 1.54, -0.32), blue, false, plastic, SPH)
 
     -- руки
     for _, sd in ipairs({-1, 1}) do
-        local shoulder = V(sd*0.58, 1.42, 0)
-        local elbow    = V(sd*0.64, 1.02, 0.02)
-        local wrist    = V(sd*0.66, 0.74, 0.10)
+        local shoulder = V(sd*0.60, 1.42, 0)
+        local elbow    = V(sd*0.66, 1.02, 0.02)
+        local wrist    = V(sd*0.68, 0.72, 0.12)
         cyl("Sleeve", shoulder, elbow, 0.30*s, blue, false, plastic)
-        cyl("Forearm", elbow, wrist, 0.13*s, bone, true, plastic)
-        blk("Hand", V(0.20, 0.20, 0.20), P(sd*0.66, 0.64, 0.12), bone, true, plastic, SPH)
+        cyl("Forearm", elbow, wrist, 0.14*s, bone, true, plastic)
+        blk("Hand", V(0.22, 0.22, 0.22), P(sd*0.68, 0.62, 0.14), bone, true, plastic, SPH)
     end
 
-    -- ноги
-    blk("Shorts", V(1.00, 0.52, 0.60), P(0, 0.56, 0), black, true, plastic)
+    -- ноги: чёрные шорты + БЕЛЫЕ тапки
+    blk("Shorts", V(1.05, 0.54, 0.62), P(0, 0.56, 0), black, true, plastic)
     for _, sd in ipairs({-1, 1}) do
-        blk("Slipper", V(0.42, 0.30, 0.68), CFrame.new(sd*0.27*s, 0.15*s, 0.10*s) * CFrame.Angles(0, math.rad(sd*10), 0),
+        blk("Slipper", V(0.44, 0.32, 0.70), CFrame.new(sd*0.28*s, 0.16*s, 0.10*s) * CFrame.Angles(0, math.rad(sd*10), 0),
             white, true, plastic, SPH)
     end
 
-    -- реквизит: настоящая фигура «КОСТЬ» из ОРБИТЫ — за головой
+    -- реквизит: настоящая фигура «КОСТЬ» из ОРБИТЫ — за головой (0.65 — крупнее)
     do
-        local boneModel, _, boneBodies = createBone(0.35, boneCy, "SansBone")
+        local boneModel, _, boneBodies = createBone(0.65, boneCy, "SansBone")
         if boneModel then
-            boneModel:PivotTo(CFrame.new(0, 2.40*s, -1.15*s))
+            boneModel:PivotTo(CFrame.new(0, 3.60*s, -1.40*s))
             boneModel.Parent = model
             for _, p in ipairs(boneBodies or {}) do table.insert(bodies, p) end
         end
     end
-    -- реквизит: ДВА гастер-бластера (0.675), отодвинуты на ±3.20*s
+    -- реквизит: ДВА гастер-бластера (0.95 — крупные), отодвинуты на ±4.40*s
     for _, sd in ipairs({-1, 1}) do
-        local bData = create3DBlasterPlaceholder(0.675, Color3.fromRGB(240,240,245), "SansBlaster")
+        local bData = create3DBlasterPlaceholder(0.95, Color3.fromRGB(240,240,245), "SansBlaster")
         if bData and bData.model then
             local sub = bData.model
-            sub:PivotTo(CFrame.new(sd*3.20*s, 2.80*s, -0.20*s) * CFrame.Angles(0, math.rad(-sd*35), 0))
+            sub:PivotTo(CFrame.new(sd*4.40*s, 3.40*s, -0.30*s) * CFrame.Angles(0, math.rad(-sd*38), 0))
             sub.Parent = model
             for _, p in ipairs(bData.bodyParts or {}) do table.insert(bodies, p) end
         end
@@ -1211,7 +1219,7 @@ local function createSans(size, color, name)
     return model, root, bodies
 end
 
--- №30 ГАСТЕР (GASTER) — v24.4-fix4: плащ + ноги + бластер, руки 0.45
+-- №30 ГАСТЕР (GASTER) — v24.4-fix5: плащ + ноги + бластер, руки 0.45
 local function createGasterBody(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -1656,6 +1664,6 @@ do
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix4)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix5)", Color3.fromRGB(180,255,180), 3) end
 
 return true
