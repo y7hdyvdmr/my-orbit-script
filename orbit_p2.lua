@@ -1,8 +1,8 @@
--- orbit_p2.lua v24.4-ai-figures-fix5
--- ОРБИТА v24.4-ai-figures-fix5 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
--- v24.4-ai-figures-fix5 (этот файл):
---   * САНС: кость 0.65, бластеры 0.95, отодвинуты на ±4.40*s.
---   * САНС: череп крупнее, добавлены брови, 7 зубов ухмылки, розовые тапки.
+-- orbit_p2.lua v24.4-ai-figures-fix6
+-- ОРБИТА v24.4-ai-figures-fix6 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
+-- v24.4-ai-figures-fix6 (этот файл):
+--   * ФЛАУИ перерисован (плоский мультяшный, октагональная голова, ромб-лепестки).
+--   * ОМЕГА ФЛАУИ перерисован (биомех: TV-экран, красные глаза, лозы, цветные трубы).
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -1112,7 +1112,7 @@ local function makeFigureKit(model, bodies)
     return kit
 end
 
--- №29 САНС (SANS) — v24.4-fix5: крупная кость 0.65, бластеры 0.95, белые тапки
+-- №29 САНС (SANS) — v24.4-fix5: кость 0.65, бластеры 0.95, белые тапки
 local function createSans(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -1168,7 +1168,7 @@ local function createSans(size, color, name)
         local eye = blk("EyeGlow", V(0.16, 0.16, 0.08), P(0.30, 2.00, gz + 0.06), cyanEye, true, neon, SPH)
         glow(eye, cyanEye)
     end
-    -- ухмылка: 7 зубов с дугой
+    -- ухмылка: 7 зубов
     for i = 0, 6 do
         local x = -0.48 + i*0.16
         local y = 1.58 + 0.42*x*x
@@ -1196,7 +1196,7 @@ local function createSans(size, color, name)
             white, true, plastic, SPH)
     end
 
-    -- реквизит: настоящая фигура «КОСТЬ» из ОРБИТЫ — за головой (0.65 — крупнее)
+    -- реквизит: настоящая фигура «КОСТЬ» из ОРБИТЫ (0.65 — крупная)
     do
         local boneModel, _, boneBodies = createBone(0.65, boneCy, "SansBone")
         if boneModel then
@@ -1325,118 +1325,102 @@ local function createGasterBody(size, color, name)
 
     return model, root, bodies
 end
--- №27 ЦВЕТОК ФЛАУИ v2
+-- №27 ЦВЕТОК ФЛАУИ v3 — плоский мультяшный по референсу Sketchfab
 local function createFlowey_V2(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
-    local u = size * 0.42
-    local petalCol = color or Color3.fromRGB(255, 225, 20)
-    local black = Color3.fromRGB(12, 12, 14)
-    local white = Color3.fromRGB(255, 255, 240)
-    local green = Color3.fromRGB(75, 190, 60)
-    local SQ3 = math.sqrt(3) / 2
+    local u = size * 0.5
+    local petalCol = color or Color3.fromRGB(255, 220, 30)
+    local black = Color3.fromRGB(15, 15, 18)
+    local white = Color3.fromRGB(250, 250, 245)
+    local green = Color3.fromRGB(120, 220, 70)
     local plastic = Enum.Material.SmoothPlastic
 
-    local function hexagon(cx, cy, cz, L, thick, col, nr, rot)
-        local before = #bodies
-        local c, sn = math.cos(rot), math.sin(rot)
-        local function pt(x, y) return Vector3.new(cx + x*c - y*sn, cy + x*sn + y*c, cz) end
-        local core = newPart(model, "Hex", Vector3.new(L, SQ3*L, thick), CFrame.new(cx, cy, cz) * CFrame.Angles(0, 0, rot), col, nr)
-        core.Material = plastic; table.insert(bodies, core)
-        addTriangle(model, pt( L/2,  SQ3*L/2), pt( L, 0), pt( L/2, -SQ3*L/2), thick, col, bodies)
-        addTriangle(model, pt(-L/2,  SQ3*L/2), pt(-L, 0), pt(-L/2, -SQ3*L/2), thick, col, bodies)
-        if nr then
-            for i = before + 1, #bodies do bodies[i]:SetAttribute("NoRecolor", true) end
-        end
+    local function V(x, y, z) return Vector3.new(x*u, y*u, z*u) end
+
+    -- СТЕБЕЛЬ: зигзаг, 2 сегмента с толстым контуром
+    local function stemSeg(a, b, w)
+        local dir = b - a
+        local len = dir.Magnitude
+        local cf = CFrame.lookAt((a+b)*0.5, b) * CFrame.Angles(math.rad(90), 0, 0)
+        local outline = newPart(model, "StemOut", Vector3.new(w*u*1.25, w*u*1.25, len*1.02), cf, black, true)
+        outline.Material = plastic; table.insert(bodies, outline)
+        local p = newPart(model, "Stem", Vector3.new(w*u, w*u, len), cf, green, true)
+        p.Material = plastic; table.insert(bodies, p)
+    end
+    local sb, sm, st = V(0, -2.1, 0), V(0.35, -1.05, 0), V(-0.05, 0, 0)
+    stemSeg(sb, sm, 0.55)
+    stemSeg(sm, st, 0.55)
+
+    -- ГОЛОВА: октагон из двух крест-накрест блоков (белый с чёрным контуром)
+    local hc = V(0, 1.05, 0)
+    local o1 = newPart(model, "HeadOut", Vector3.new(2.15*u, 2.15*u, 0.30*u), CFrame.new(hc), black, true)
+    o1.Material = plastic; table.insert(bodies, o1)
+    local o2 = newPart(model, "HeadOut", Vector3.new(2.15*u, 2.15*u, 0.32*u),
+        CFrame.new(hc) * CFrame.Angles(0, 0, math.rad(45)), black, true)
+    o2.Material = plastic; table.insert(bodies, o2)
+    local h1 = newPart(model, "Head", Vector3.new(1.80*u, 1.80*u, 0.38*u), CFrame.new(hc + V(0,0,0.06)), white, true)
+    h1.Material = plastic; table.insert(bodies, h1)
+    local h2 = newPart(model, "Head", Vector3.new(1.80*u, 1.80*u, 0.40*u),
+        CFrame.new(hc + V(0,0,0.06)) * CFrame.Angles(0, 0, math.rad(45)), white, true)
+    h2.Material = plastic; table.insert(bodies, h2)
+
+    -- ГЛАЗА: чёрные ромбы
+    for _, sd in ipairs({-1, 1}) do
+        local eye = newPart(model, "Eye", Vector3.new(0.30*u, 0.30*u, 0.06*u),
+            CFrame.new(sd*0.44*u, 1.34*u, 0.26*u) * CFrame.Angles(0, 0, math.rad(45)), black, true)
+        eye.Material = plastic; table.insert(bodies, eye)
     end
 
-    local y0 = 1.1*u
-    local Lp, Rp = 0.74*u, 1.55*u
+    -- УЛЫБКА: широкая чёрная дуга из 11 блоков
+    for i = 0, 10 do
+        local t = i / 10
+        local x = -0.66 + t * 1.32
+        local y = 0.72 + 0.55 * (x*x) * 1.4
+        local angle = math.rad((t - 0.5) * 62)
+        local sm = newPart(model, "Smile", Vector3.new(0.18*u, 0.18*u, 0.06*u),
+            CFrame.new(x*u, y*u, 0.26*u) * CFrame.Angles(0, 0, angle), black, true)
+        sm.Material = plastic; table.insert(bodies, sm)
+    end
+
+    -- ЛЕПЕСТКИ: 6 жёлтых ромбовидных с толстым контуром
+    local petalR = 1.70 * u
     for k = 0, 5 do
-        local a = math.rad(k*60)
-        local cx, cy = math.cos(a)*Rp, y0 + math.sin(a)*Rp
-        hexagon(cx, cy, 0.06*u, Lp*1.18, 0.20*u, black, true, a)
-        hexagon(cx, cy, 0.00,   Lp,      0.20*u, petalCol, false, a)
-    end
-    local Lf = 0.80*u
-    hexagon(0, y0, -0.12*u, Lf*1.15, 0.24*u, black, true, 0)
-    hexagon(0, y0, -0.16*u, Lf,      0.24*u, white, true, 0)
-
-    local ez = -0.30*u
-    for _, sx in ipairs({-1, 1}) do
-        local cx, cy = sx*0.30*u, y0 + 0.16*u
-        local top   = Vector3.new(cx,          cy + 0.27*u, ez)
-        local right = Vector3.new(cx + 0.14*u, cy,          ez)
-        local bot   = Vector3.new(cx,          cy - 0.27*u, ez)
-        local left  = Vector3.new(cx - 0.14*u, cy,          ez)
-        local before = #bodies
-        addTriangle(model, top, right, left, 0.08*u, black, bodies)
-        addTriangle(model, bot, right, left, 0.08*u, black, bodies)
-        for i = before + 1, #bodies do bodies[i]:SetAttribute("NoRecolor", true) end
-    end
-
-    do
-        local pts = {}
-        local N = 8
-        for i = 0, N do
-            local x = -0.60 + i*(1.2/N)
-            local y = y0 - 0.14*u - 0.20*u * (1 - (x/0.60)^2)
-            pts[#pts+1] = Vector3.new(x*u, y, ez)
-        end
-        for i = 1, N do
-            local r = makeRod(model, pts[i], pts[i+1], 0.10*u, 0.08*u, black)
-            r.Material = plastic; r:SetAttribute("NoRecolor", true); table.insert(bodies, r)
-        end
-        for _, sx in ipairs({-1, 1}) do
-            local p = newPart(model, "Corner", Vector3.new(0.12*u, 0.16*u, 0.08*u),
-                CFrame.new(sx*0.62*u, y0 - 0.12*u, ez), black, true)
-            p.Material = plastic; table.insert(bodies, p)
-        end
-    end
-
-    do
-        local p0 = Vector3.new(0,        y0 - 0.90*u, 0.05*u)
-        local p1 = Vector3.new(-0.70*u,  y0 - 2.30*u, 0.05*u)
-        local p2 = Vector3.new( 0.35*u,  y0 - 4.10*u, 0.05*u)
-        local back = Vector3.new(0, 0, 0.05*u)
-        local function seg(a, b)
-            local o = makeRod(model, a + back, b + back, 0.60*u, 0.24*u, black)
-            o.Material = plastic; o:SetAttribute("NoRecolor", true); table.insert(bodies, o)
-            local g = makeRod(model, a, b, 0.38*u, 0.24*u, green)
-            g.Material = plastic; g:SetAttribute("NoRecolor", true); table.insert(bodies, g)
-        end
-        seg(p0, p1)
-        seg(p1, p2)
-        local jb = newPart(model, "JointB", Vector3.new(0.62*u, 0.62*u, 0.24*u), CFrame.new(p1 + back), black, true)
-        jb.Material = plastic
-        local m1 = Instance.new("SpecialMesh"); m1.MeshType = Enum.MeshType.Sphere; m1.Parent = jb
-        table.insert(bodies, jb)
-        local jg = newPart(model, "JointG", Vector3.new(0.40*u, 0.40*u, 0.26*u), CFrame.new(p1), green, true)
-        jg.Material = plastic
-        local m2 = Instance.new("SpecialMesh"); m2.MeshType = Enum.MeshType.Sphere; m2.Parent = jg
-        table.insert(bodies, jg)
+        local a = math.rad(k * 60 + 90)
+        local px = math.cos(a) * petalR
+        local py = math.sin(a) * petalR + 1.05*u
+        local outP = newPart(model, "PetalOut", Vector3.new(1.05*u, 1.05*u, 0.22*u),
+            CFrame.new(px, py, -0.12*u) * CFrame.Angles(0, 0, a + math.rad(45)), black, true)
+        outP.Material = plastic; table.insert(bodies, outP)
+        local petal = newPart(model, "Petal", Vector3.new(0.86*u, 0.86*u, 0.32*u),
+            CFrame.new(px, py, 0.02*u) * CFrame.Angles(0, 0, a + math.rad(45)), petalCol, false)
+        petal.Material = plastic; table.insert(bodies, petal)
     end
 
     return model, root, bodies
 end
 
--- №28 ОМЕГА ФЛАУИ v2
+-- №28 ОМЕГА ФЛАУИ v3 — биомех по референсу Sketchfab
 local function createOmegaFlowey_V2(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local u = size * 0.34
-    local detailed = isDetailed()
     local kit = makeFigureKit(model, bodies)
 
-    local flesh     = color or Color3.fromRGB(140, 35, 48)
-    local fleshDark = Color3.fromRGB(95, 20, 32)
-    local lipRed    = Color3.fromRGB(205, 30, 45)
-    local mouthIn   = Color3.fromRGB(50, 6, 14)
-    local black     = Color3.fromRGB(10, 10, 14)
-    local vineCol   = Color3.fromRGB(70, 150, 45)
-    local spikeCol  = Color3.fromRGB(45, 110, 35)
-    local diaCol    = Color3.fromRGB(150, 230, 70)
-    local hornCol   = Color3.fromRGB(125, 55, 175)
-    local toothCol  = Color3.fromRGB(250, 245, 230)
-    local plastic, metal, neon, fabric = Enum.Material.SmoothPlastic, Enum.Material.Metal, Enum.Material.Neon, Enum.Material.Fabric
+    local dark     = Color3.fromRGB(20, 8, 8)
+    local flesh    = color or Color3.fromRGB(120, 30, 40)
+    local fleshD   = Color3.fromRGB(70, 15, 20)
+    local lipRed   = Color3.fromRGB(200, 30, 45)
+    local mouthIn  = Color3.fromRGB(30, 4, 8)
+    local toothCol = Color3.fromRGB(250, 245, 230)
+    local eyeRed   = Color3.fromRGB(255, 40, 40)
+    local eyeGreen = Color3.fromRGB(60, 200, 90)
+    local eyeTeal  = Color3.fromRGB(40, 180, 200)
+    local vineCol  = Color3.fromRGB(50, 130, 40)
+    local thornCol = Color3.fromRGB(200, 40, 50)
+    local pipeA    = Color3.fromRGB(120, 60, 190)
+    local pipeB    = Color3.fromRGB(50, 90, 220)
+    local pipeC    = Color3.fromRGB(220, 80, 180)
+    local pipeD    = Color3.fromRGB(40, 180, 200)
+    local plastic, metal, neon = Enum.Material.SmoothPlastic, Enum.Material.Metal, Enum.Material.Neon
     local SPH = Enum.MeshType.Sphere
 
     local function Vu(x, y, z) return Vector3.new(x*u, y*u, z*u) end
@@ -1444,114 +1428,98 @@ local function createOmegaFlowey_V2(size, color, name)
         return kit.blk(nm, Vu(sx, sy, sz), CFrame.new(x*u, y*u, z*u), col, nr, mat or plastic, SPH)
     end
 
-    sph("Flesh", 3.0, 2.6, 1.7,   0,    0,    0.25, flesh, false)
-    sph("Flesh", 2.0, 1.7, 1.2,  -1.7, -0.3,  0.35, flesh, false)
-    sph("Flesh", 2.0, 1.7, 1.2,   1.7, -0.3,  0.35, flesh, false)
-    sph("Flesh", 1.8, 1.3, 1.1,   0,   -1.05, 0.10, fleshDark, false)
-    sph("Flesh", 1.0, 0.9, 0.8,  -0.9,  0.95, 0.20, flesh, false)
-    sph("Flesh", 1.0, 0.9, 0.8,   0.9,  0.95, 0.20, flesh, false)
-    sph("Flesh", 0.7, 0.6, 0.6,   0,    1.2,  0.25, fleshDark, false)
+    -- ТУЛОВИЩЕ
+    sph("Body",   3.4, 2.8, 1.8,    0,    0,    0.30, dark, false)
+    sph("Body",   2.4, 2.0, 1.4,   -1.6, -0.4,  0.35, flesh, false)
+    sph("Body",   2.4, 2.0, 1.4,    1.6, -0.4,  0.35, flesh, false)
+    sph("Body",   2.0, 1.4, 1.2,    0,   -1.1,  0.15, fleshD, false)
+    sph("Body",   1.2, 1.0, 0.9,   -0.9,  0.95, 0.20, flesh, false)
+    sph("Body",   1.2, 1.0, 0.9,    0.9,  0.95, 0.20, flesh, false)
 
-    kit.blk("TvFrame", Vu(1.35, 1.10, 0.45), CFrame.new(0, 0.15*u, -0.62*u), black, true, plastic)
-    kit.blk("TvScreen", Vu(1.10, 0.85, 0.06), CFrame.new(0, 0.15*u, -0.87*u), Color3.fromRGB(30, 150, 140), true, neon)
+    -- ЦЕНТРАЛЬНЫЙ TV-ЭКРАН со смайлом
+    kit.blk("TvFrame", Vu(1.55, 1.25, 0.55), CFrame.new(0, 0.20*u, -0.75*u), dark, true, plastic)
+    kit.blk("TvScreen", Vu(1.20, 0.92, 0.06), CFrame.new(0, 0.20*u, -1.05*u), Color3.fromRGB(20, 30, 30), true, plastic)
     for _, sx in ipairs({-1, 1}) do
-        kit.blk("TvEye", Vu(0.14, 0.20, 0.05), CFrame.new(sx*0.24*u, 0.30*u, -0.91*u), Color3.fromRGB(255, 40, 40), true, neon)
+        local ex = sx * 0.28 * u
+        kit.blk("TvEyeH", Vu(0.20, 0.04, 0.04), CFrame.new(ex, 0.32*u, -1.08*u), Color3.fromRGB(255, 60, 60), true, neon)
     end
-    for _, x in ipairs({-0.36, -0.18, 0, 0.18, 0.36}) do
-        local y = -0.14 + 0.10*(x/0.36)^2
-        kit.blk("TvSmile", Vu(0.15, 0.06, 0.05), CFrame.new(x*u, (0.15 + y)*u, -0.91*u), black, true, plastic)
+    for i = 0, 4 do
+        local t = i/4
+        local x = -0.36 + t*0.72
+        local y = -0.05 - 0.12*(1 - (x/0.36)^2)
+        kit.blk("TvSmile", Vu(0.14, 0.05, 0.04), CFrame.new(x*u, (y+0.20)*u, -1.08*u), Color3.fromRGB(255, 60, 60), true, neon)
     end
 
-    local function giantEye(side, irisCol)
-        local ex, ey = side*1.75, 0.45
-        sph("EyeSocket", 1.50, 1.40, 0.80, ex, ey, -0.25, lipRed, false)
-        sph("EyeWhite",  1.15, 1.10, 0.60, ex, ey, -0.52, Color3.fromRGB(250, 232, 225), true)
-        sph("EyeIris",   0.72, 0.72, 0.30, ex, ey, -0.76, irisCol, true)
-        sph("EyePupil",  0.30, 0.30, 0.14, ex, ey, -0.88, Color3.fromRGB(110, 12, 25), true)
-        sph("EyeGlint",  0.10, 0.10, 0.06, ex + side*0.12, ey + 0.13, -0.93, Color3.fromRGB(255, 255, 255), true, neon)
-        sph("LidTop",    1.45, 0.55, 0.80, ex, ey + 0.50, -0.50, lipRed, false)
-        sph("LidBot",    1.30, 0.40, 0.70, ex, ey - 0.55, -0.45, lipRed, false)
+    -- ДВА БОЛЬШИХ ВЫПУКЛЫХ ГЛАЗА
+    local function bigEye(side, irisCol)
+        local ex, ey = side*1.55, 0.55
+        sph("EyeRim",   1.55, 1.45, 0.85, ex, ey, -0.15, eyeRed, false)
+        sph("EyeWhite", 1.20, 1.15, 0.65, ex, ey, -0.48, Color3.fromRGB(250, 240, 235), true)
+        sph("EyeIris",  0.78, 0.78, 0.32, ex, ey, -0.78, irisCol, true)
+        sph("EyePupil", 0.34, 0.34, 0.16, ex, ey, -0.94, Color3.fromRGB(15, 15, 20), true)
+        sph("EyeGlint", 0.12, 0.12, 0.07, ex + side*0.14, ey + 0.16, -1.00, Color3.fromRGB(255,255,255), true, neon)
+        sph("LidT", 1.55, 0.50, 0.85, ex, ey + 0.55, -0.40, eyeRed, false)
+        sph("LidB", 1.40, 0.42, 0.75, ex, ey - 0.58, -0.38, eyeRed, false)
     end
-    giantEye(-1, Color3.fromRGB(110, 150, 40))
-    giantEye( 1, Color3.fromRGB(35, 150, 175))
+    bigEye(-1, eyeGreen)
+    bigEye( 1, eyeTeal)
 
-    local function mouth(cx, cy, cz, w)
-        sph("MouthLip",   w, w*0.52, 0.50, cx, cy, cz, lipRed, false)
-        sph("MouthInner", w*0.84, w*0.34, 0.30, cx, cy, cz - 0.20, mouthIn, true)
-        for _, k in ipairs({-0.28, 0, 0.28}) do
-            kit.spike("Tooth", Vu(cx + k*w, cy + w*0.12, cz - 0.36), Vector3.new(0, -1, 0), w*0.26*u, w*0.16*u, toothCol, true)
-            kit.spike("Tooth", Vu(cx + k*w, cy - w*0.12, cz - 0.36), Vector3.new(0,  1, 0), w*0.26*u, w*0.16*u, toothCol, true)
+    -- ЦЕНТРАЛЬНЫЙ РОТ с ОСТРЫМИ ЗУБАМИ
+    sph("MouthLip",   1.10, 0.55, 0.55, 0, -0.55, -0.35, lipRed, false)
+    sph("MouthInner", 0.85, 0.38, 0.32, 0, -0.55, -0.62, mouthIn, true)
+    for k = -2, 2 do
+        kit.spike("ToothUp", Vu(k*0.22, -0.35, -0.78), Vector3.new(0, -1, 0), 0.32*u, 0.14*u, toothCol, true)
+    end
+    for k = -2, 2 do
+        kit.spike("ToothDn", Vu(k*0.22, -0.78, -0.78), Vector3.new(0, 1, 0), 0.30*u, 0.13*u, toothCol, true)
+    end
+
+    -- КОЛЮЧИЕ ЛОЗЫ ПО БОКАМ
+    local function thornVine(side, baseX)
+        local pts = {}
+        for i = 0, 6 do
+            local t = i/6
+            pts[#pts+1] = Vector3.new(side*(baseX + t*3.2), math.sin(t*4)*0.6 - 0.1, 0.05 + math.cos(t*4)*0.3) * u
+        end
+        for i = 1, #pts-1 do
+            kit.rod(pts[i], pts[i+1], 0.22*u, 0.22*u, vineCol, true, plastic)
+            local mid = (pts[i] + pts[i+1]) * 0.5
+            local dy = (i % 2 == 0) and 1 or -1
+            kit.spike("Thorn", mid + Vector3.new(0, dy*0.15*u, 0), Vector3.new(0, dy, 0.3), 0.45*u, 0.24*u, thornCol, true, plastic)
+            sph("Bud", 0.24, 0.24, 0.24, mid.X/u, mid.Y/u + dy*0.35, mid.Z/u, thornCol, true, neon)
         end
     end
-    mouth( 0,    -1.15, -0.35, 1.30)
-    mouth(-1.75, -1.20, -0.15, 1.00)
-    mouth( 1.75, -1.20, -0.15, 1.00)
-    mouth( 0,     1.40, -0.10, 0.90)
+    thornVine(-1, 1.4)
+    thornVine( 1, 1.4)
 
-    local function vine(side, pts, th0, withDiamonds)
-        for i = 1, #pts - 1 do
-            local a = Vector3.new(side*pts[i][1], pts[i][2], pts[i][3]) * u
-            local b = Vector3.new(side*pts[i+1][1], pts[i+1][2], pts[i+1][3]) * u
-            local th = math.max(0.12, th0 - 0.04*(i-1))
-            kit.rod(a, b, th*u, th*u, vineCol, true, plastic)
-            local dirY = (i % 2 == 0) and -1 or 1
-            kit.spike("VineSpike", b, Vector3.new(side*0.3, dirY, 0), 0.55*u, 0.22*u, spikeCol, true, plastic)
-            if withDiamonds and i % 2 == 0 then
-                local mid = (a + b) * 0.5
-                kit.blk("VineDiamond", Vector3.new(0.20*u, 0.20*u, 0.12*u),
-                    CFrame.new(mid + Vector3.new(0, 0, -0.10*u)) * CFrame.Angles(0, 0, math.rad(45)), diaCol, true, plastic)
-            end
-        end
-    end
-    local vineA = { {1.3,-0.10, 0.00}, {2.1,-0.90,-0.10}, {2.9,-0.40,-0.10}, {3.6,-1.10,-0.10}, {4.3,-0.60,-0.10}, {4.9,-1.20,-0.10}, {5.4,-0.90,-0.10} }
-    local vineB = { {0.9,-1.60, 0.05}, {1.9,-2.00, 0.05}, {2.8,-1.70, 0.05}, {3.5,-2.10, 0.05}, {4.2,-1.85, 0.05} }
-    for _, side in ipairs({-1, 1}) do
-        vine(side, vineA, 0.34, true)
-        vine(side, vineB, 0.26, false)
-    end
-
-    local pipeCols = {
-        Color3.fromRGB(40, 85, 205),
-        Color3.fromRGB(190, 35, 35),
-        Color3.fromRGB(50, 55, 65),
+    -- ЦВЕТНЫЕ ТРУБЫ СВЕРХУ
+    local pipes = {
+        { col = pipeA, x = -0.9, h = 1.8, r = 0.32, ang =  25 },
+        { col = pipeB, x = -0.4, h = 2.4, r = 0.28, ang =  12 },
+        { col = pipeC, x =  0.0, h = 1.6, r = 0.30, ang =   0 },
+        { col = pipeD, x =  0.5, h = 2.2, r = 0.26, ang = -15 },
+        { col = pipeA, x =  1.0, h = 1.9, r = 0.30, ang = -28 },
     }
-    local pipeH   = { 2.8, 2.4, 2.0 }
-    local pipeY   = { -0.4, -0.6, -0.8 }
-    local flangeC = Color3.fromRGB(130, 140, 155)
-    for _, side in ipairs({-1, 1}) do
-        for k = 1, 3 do
-            local x = side*(2.75 + (k-1)*0.38)
-            local y, h = pipeY[k], pipeH[k]
-            kit.cylY("Pipe", 0.30*u, h*u, Vu(x, y, 0.5), pipeCols[k], true, metal)
-            kit.cylY("Flange", 0.56*u, 0.12*u, Vu(x, y + h*0.5, 0.5), flangeC, true, metal)
-            if detailed then
-                kit.cylY("Flange", 0.56*u, 0.12*u, Vu(x, y - h*0.5, 0.5), flangeC, true, metal)
-            end
-        end
+    for _, p in ipairs(pipes) do
+        kit.cylY("Pipe", p.r*2*u, p.h*u, Vector3.new(p.x*u, (1.55 + p.h/2)*u, 0.30*u),
+            p.col, true, metal)
+        sph("PipeCap", p.r*1.7, p.r*1.7, p.r*1.7, p.x + math.sin(math.rad(p.ang))*p.h*0.4, 1.55 + p.h, 0.30, p.col, true, metal)
     end
 
+    -- ДВА РОГА СВЕРХУ
     for _, side in ipairs({-1, 1}) do
-        local horns = {
-            { {0.5, 1.2, 0.2}, {0.95, 2.0, 0.1}, {0.70, 2.8, 0.0} },
-            { {1.3, 1.0, 0.2}, {2.00, 1.7, 0.1}, {2.30, 2.5, 0.0} },
-        }
-        for _, h in ipairs(horns) do
-            local a = Vector3.new(side*h[1][1], h[1][2], h[1][3]) * u
-            local b = Vector3.new(side*h[2][1], h[2][2], h[2][3]) * u
-            local c = Vector3.new(side*h[3][1], h[3][2], h[3][3]) * u
-            kit.rod(a, b, 0.42*u, 0.42*u, hornCol, true, plastic)
-            kit.rod(b, c, 0.28*u, 0.28*u, hornCol, true, plastic)
-            kit.spike("HornTip", c, c - b, 0.55*u, 0.26*u, hornCol, true, plastic)
-        end
+        local a = Vector3.new(side*0.55, 1.30, 0.20) * u
+        local b = Vector3.new(side*1.05, 2.15, 0.10) * u
+        local c = Vector3.new(side*0.75, 2.85, 0.00) * u
+        kit.rod(a, b, 0.42*u, 0.42*u, Color3.fromRGB(100, 45, 150), true, plastic)
+        kit.rod(b, c, 0.28*u, 0.28*u, Color3.fromRGB(100, 45, 150), true, plastic)
+        kit.spike("HornTip", c, c - b, 0.55*u, 0.26*u, Color3.fromRGB(140, 70, 190), true, plastic)
     end
 
-    sph("Spark", 0.55, 0.55, 0.55, 0, -1.70, -0.45, Color3.fromRGB(90, 255, 130), true, neon)
-    local halo = sph("SparkHalo", 1.0, 1.0, 1.0, 0, -1.70, -0.45, Color3.fromRGB(90, 255, 130), true, neon)
-    halo.Transparency = 0.6
-    if detailed then
-        sph("SparkDot", 0.14, 0.14, 0.14, -0.55, -1.45, -0.45, Color3.fromRGB(160, 255, 190), true, neon)
-        sph("SparkDot", 0.14, 0.14, 0.14,  0.55, -1.95, -0.45, Color3.fromRGB(160, 255, 190), true, neon)
-    end
+    -- СЕРДЦЕ-ЯДРО под ртом
+    sph("Core", 0.60, 0.60, 0.60, 0, -1.55, -0.35, Color3.fromRGB(180, 20, 30), true, neon)
+    local halo = sph("CoreHalo", 1.10, 1.10, 1.10, 0, -1.55, -0.35, Color3.fromRGB(220, 40, 60), true, neon)
+    halo.Transparency = 0.55
 
     return model, root, bodies
 end
@@ -1650,10 +1618,10 @@ do
         local m, r, b = createDragon(s, Color3.fromRGB(45,35,60), n)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.4 } end })
     reg({ name = "ЦВЕТОК ФЛАУИ", create = function(s, n)
-        local m, r, b = createFlowey_V2(s, Color3.fromRGB(255, 225, 20), n)
+        local m, r, b = createFlowey_V2(s, Color3.fromRGB(255, 220, 30), n)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*2.6 } end })
     reg({ name = "ОМЕГА ФЛАУИ", create = function(s, n)
-        local m, r, b = createOmegaFlowey_V2(s, Color3.fromRGB(140, 35, 48), n)
+        local m, r, b = createOmegaFlowey_V2(s, Color3.fromRGB(120, 30, 40), n)
         return { model=m, part=r, isModel=true, bodyParts=b, visualSize=s*3.7 } end })
     reg({ name = "САНС", create = function(s, n)
         local m, r, b = createSans(s, Color3.fromRGB(55, 115, 225), n)
@@ -1664,6 +1632,6 @@ do
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix5)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix6)", Color3.fromRGB(180,255,180), 3) end
 
 return true
