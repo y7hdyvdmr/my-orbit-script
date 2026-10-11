@@ -1,9 +1,9 @@
 -- ORBIT v24.2 | orbit_p4b.lua
--- Вторая половина UI: обработчики кнопок, крестики стихий, меню фраз Санса,
+-- Логика UI: обработчики кнопок, крестики стихий, меню фраз Санса,
 -- «Мои фигуры», «Импорт фигуры», палитра, FPS-цикл, API.
--- v24.2-fix1: убран дублирующий fetchRun (shop/minigame грузит только loader);
---             ORBIT.start оборачивает предыдущий обработчик через prevStart;
---             NB.applyStyle включает кольца через ORBIT.setRingEnabled.
+-- v24.2-fix1: убран дублирующий fetchRun; ORBIT.start оборачивает prevStart.
+-- v25.0: кнопка openGaster открывает меню боссов (Санс + Гастер).
+-- v25.1: кнопка gasterWeapon открывает экран наград (ORBIT.rewards).
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4b] P1 не загружен"); return end
 if ORBIT.P4b and ORBIT.P4b.ready then warn("[Orbit P4b] уже загружен"); return end
@@ -334,7 +334,6 @@ onClick(NB.btn.shape, function()
     ORBIT.applyShapes(); ORBIT.rebuildAllRings()
 end)
 
--- «Мои фигуры» — открывает магазин на категории СВОИ
 onClick(NB.btn.myFigs, function()
     if ORBIT.openShop then
         ORBIT.openShop()
@@ -343,7 +342,6 @@ onClick(NB.btn.myFigs, function()
         ORBIT.notify("❌ Модуль магазина не загружен", Color3.fromRGB(255,150,150), 3)
     end
 end)
--- «Импорт фигуры» — открывает панель SHARE
 onClick(NB.btn.importFig, function()
     if ORBIT.share and ORBIT.share.open then
         ORBIT.share.open()
@@ -867,14 +865,14 @@ onClick(NB.btn.clearTags, function()
     task.wait(0.1); pcall(NB.rebuildPeopleList)
 end)
 -- ============================================================
---       МАГАЗИН / РЕДАКТОР / ИГРА / ГАСТЕР
+--       МАГАЗИН / РЕДАКТОР / ИГРА / ГАСТЕР / НАГРАДЫ
 -- ============================================================
 onClick(NB.btn.openShop, function() if ORBIT.openShop then ORBIT.openShop() end end)
 onClick(NB.btn.openEditor, function() if ORBIT.openEditor then ORBIT.openEditor() end end)
 onClick(NB.btn.openGame, function() if ORBIT.openMiniGame then ORBIT.openMiniGame() end end)
 do
     NB.modeLabel = function() return (ORBIT.mode == "normal") and "🎭 Режим: Обычный" or "🎭 Режим: Санс" end
-    -- v25.0: если есть модуль Босс Санс — открываем общее меню боссов
+    -- v25.0: кнопка открывает меню боссов (Санс + Гастер)
     onClick(NB.btn.openGaster, function()
         if ORBIT.sans_boss and ORBIT.sans_boss.open then
             ORBIT.sans_boss.open()
@@ -884,16 +882,22 @@ do
             ORBIT.notify("⚠️ Модули боссов не загружены", Color3.fromRGB(255,200,120), 3)
         end
     end)
+    -- v25.1: кнопка открывает экран наград, fallback на оружие
     onClick(NB.btn.gasterWeapon, function()
-        local W = ORBIT.gaster and ORBIT.gaster.weapon
-        if W and W.equip then W.equip()
-        else ORBIT.notify("⚠️ Гастер-оружие не загружено", Color3.fromRGB(255,200,120), 3) end
+        if ORBIT.rewards and ORBIT.rewards.open then
+            ORBIT.rewards.open()
+        else
+            local W = ORBIT.gaster and ORBIT.gaster.weapon
+            if W and W.equip then W.equip()
+            else ORBIT.notify("⚠️ Гастер-оружие не загружено", Color3.fromRGB(255,200,120), 3) end
+        end
     end)
     onClick(NB.btn.mode, function()
         if ORBIT.setMode then ORBIT.setMode((ORBIT.mode == "normal") and "sans" or "normal") end
         NB.btn.mode.Text = NB.modeLabel()
     end)
 end
+
 -- ============================================================
 --       ПОМОЩНИК
 -- ============================================================
@@ -1192,7 +1196,7 @@ NB.rebuildSavesList()
 -- ============================================================
 --       ✨ СТИХИИ: ОБРАБОТЧИКИ КРЕСТИКОВ И ВОЗВРАТА
 -- ============================================================
-NB.elementHidden = {}   -- локальный кэш: id -> true
+NB.elementHidden = {}
 
 for i, row in ipairs(NB.elementRows) do
     local st = row.def
@@ -1311,7 +1315,6 @@ NB.openSansPhraseMenu = function()
     end
 end
 
--- Обработчики эмоций
 for i, b in ipairs(NB.emoteBtns) do
     local def = NB.emoteDefs[i]
     onClick(b, function()
@@ -1457,7 +1460,6 @@ NB.makeRandomStyle = function()
     return st
 end
 
--- v24.2-fix1: включение колец через ORBIT.setRingEnabled (единообразие)
 NB.applyStyle = function(st)
     if st.random then st = NB.makeRandomStyle() end
     local ci = NB.idxByName(P.COLORS, st.color); if ci then P.colorIndex = ci end
@@ -1476,7 +1478,6 @@ NB.applyStyle = function(st)
     SETTINGS.PulseEnabled = st.pulse == true
     SETTINGS.LightEnabled = true
     SETTINGS.GradientEnabled = false
-    -- v24.2-fix1: включаем/выключаем кольца через setRingEnabled
     for ri = 1, 5 do
         local want = (ri == 1) or (st.rings and st.rings[ri] == true)
         if want and not rings[ri].enabled then
@@ -1660,7 +1661,7 @@ NB.refreshAllLabels = function()
 end
 
 -- ============================================================
---       FPS СЧЁТЧИК (верхняя панель)
+--       FPS СЧЁТЧИК
 -- ============================================================
 task.spawn(function()
     while screenGui and screenGui.Parent do
@@ -1781,7 +1782,6 @@ UIK.connect(UIS.InputBegan, function(input, gpe)
         if ORBIT.ui and ORBIT.ui.toggle then ORBIT.ui.toggle() end
     end
 end)
-
 -- ============================================================
 --       СТАРТ
 -- ============================================================
@@ -1800,17 +1800,13 @@ ORBIT.start = function()
     if ORBIT.startLogic then pcall(ORBIT.startLogic) end
     pcall(NB.refreshAllLabels)
     ORBIT.notify("✨ ОРБИТА " .. tostring(ORBIT.version) .. " запущена!", Color3.fromRGB(200,200,255), 3)
-    -- если кто-то определил start ДО нас и он не равен startLogic — вызываем
     if prevStart and prevStart ~= ORBIT.startLogic and prevStart ~= ORBIT.start then
         pcall(prevStart)
     end
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4b v24.2-fix1 (крестики стихий + фразы Санса + фигуры)", Color3.fromRGB(180,255,180), 3) end
-
--- v24.2-fix1: магазин и мини-игра грузятся ТОЛЬКО загрузчиком (orbit_loader.lua).
--- Здесь больше никакого fetchRun — иначе двойная загрузка и перезапись обработчиков.
+if ORBIT.notify then ORBIT.notify("✅ P4b v25.1 (крестики стихий + фразы Санса + меню боссов + награды)", Color3.fromRGB(180,255,180), 3) end
 
 -- ============================================================
 --       ЭКСПОРТ
