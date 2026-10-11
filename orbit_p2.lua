@@ -1,5 +1,5 @@
--- orbit_p2.lua v24.4-ai-figures-fix1
--- ОРБИТА v24.4-ai-figures-fix1 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
+-- orbit_p2.lua v24.4-ai-figures-fix2
+-- ОРБИТА v24.4-ai-figures-fix2 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
 -- v24.0: сердце 7×6, HEART_COLORS {name, c}.
 -- v24.2-fix1: финальный блок не подменяет ORBIT.SHAPE_PRESETS целиком.
 -- v24.3-ai: + САНС (№29), + ГАСТЕР (№30), перерисованы ФЛАУИ и ОМЕГА ФЛАУИ.
@@ -15,11 +15,15 @@
 --   * Закрыт createFlowey_V2 (добавлены return + end перед OmegaFlowey).
 --   * Убраны висячие строки return/end в конце файла.
 -- v24.4-ai-figures:
---   * САНС и ГАСТЕР переработаны по референсам Sketchfab (только тела функций).
---   * Фигуры смотрят по +Z, низ на y=0. Санс: 40 частей, Гастер: 31 часть.
--- v24.4-ai-figures-fix1 (этот файл):
---   * САНС: реквизит-бластеры заменены на вызов create3DBlasterPlaceholder (0.45).
---   * ГАСТЕР: кисти заменены на create3DHand: слева «РУКА-СЕРДЦЕ», справа «РУКА» (0.30).
+--   * САНС и ГАСТЕР переработаны по референсам Sketchfab.
+-- v24.4-ai-figures-fix1:
+--   * САНС: бластеры через create3DBlasterPlaceholder (0.45).
+--   * ГАСТЕР: кисти через create3DHand (0.30).
+-- v24.4-ai-figures-fix2 (этот файл):
+--   * САНС: бластеры увеличены до 0.675 (0.45×1.5).
+--   * САНС: кость-реквизит заменена на фигуру «КОСТЬ» из ОРБИТЫ (createBone).
+--   * ГАСТЕР: руки увеличены до 0.45 (0.30×1.5).
+--   * ГАСТЕР: мантия заменена на плащ + ноги + белая рубашка + бластер.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -1132,24 +1136,23 @@ local function makeFigureKit(model, bodies)
     return kit
 end
 
--- №29 САНС (SANS) — v24.4-fix1: узнаваемый силуэт + бластеры из ОРБИТЫ (0.45)
+-- №29 САНС (SANS) — v24.4-fix2: бластеры 0.675, кость через createBone
 local function createSans(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
     local kit = makeFigureKit(model, bodies)
     local blk = kit.blk
 
-    -- палитра (по скриншоту «sans - Undertale», Sketchfab)
-    local blue    = color or Color3.fromRGB(55, 115, 225)   -- толстовка
-    local white   = Color3.fromRGB(246, 246, 250)           -- тапки
-    local bone    = Color3.fromRGB(250, 250, 252)           -- череп, кисти
-    local black   = Color3.fromRGB(18, 18, 22)              -- шорты, глазницы, ухмылка
-    local cyanEye = Color3.fromRGB(0, 205, 255)             -- голубой глаз (Neon)
-    local boneCy  = Color3.fromRGB(125, 255, 240)           -- кость-реквизит (бирюзовая на скриншоте)
-    local ketchup = Color3.fromRGB(205, 30, 30)             -- бутылка кетчупа
-    local brass   = Color3.fromRGB(235, 195, 30)            -- тромбон
-    local bun     = Color3.fromRGB(185, 115, 60)            -- булочка хот-дога
-    local mustard = Color3.fromRGB(255, 215, 40)            -- горчица
+    local blue    = color or Color3.fromRGB(55, 115, 225)
+    local white   = Color3.fromRGB(246, 246, 250)
+    local bone    = Color3.fromRGB(250, 250, 252)
+    local black   = Color3.fromRGB(18, 18, 22)
+    local cyanEye = Color3.fromRGB(0, 205, 255)
+    local boneCy  = Color3.fromRGB(125, 255, 240)
+    local ketchup = Color3.fromRGB(205, 30, 30)
+    local brass   = Color3.fromRGB(235, 195, 30)
+    local bun     = Color3.fromRGB(185, 115, 60)
+    local mustard = Color3.fromRGB(255, 215, 40)
     local plastic, metal, neon = Enum.Material.SmoothPlastic, Enum.Material.Metal, Enum.Material.Neon
     local SPH, CYL = Enum.MeshType.Sphere, Enum.MeshType.Cylinder
 
@@ -1212,19 +1215,19 @@ local function createSans(size, color, name)
             white, true, plastic, SPH)
     end
 
-    -- реквизит: кость за головой
+    -- реквизит: настоящая фигура «КОСТЬ» из ОРБИТЫ (№18), вертикально за головой
     do
-        local boneA, boneB = V(0, 1.0, -0.95), V(0, 3.4, -0.95)
-        cyl("Bone", boneA, boneB, 0.17*s, boneCy, true, plastic)
-        for _, e in ipairs({boneA, boneB}) do
-            for _, sd in ipairs({-1, 1}) do
-                blk("BoneEnd", V(0.30, 0.30, 0.30), CFrame.new(e + Vector3.new(sd*0.11*s, 0, 0)), boneCy, true, plastic, SPH)
-            end
+        local boneData = createBone(0.35, boneCy, "SansBone")
+        if boneData and boneData.model then
+            local sub = boneData.model
+            sub:PivotTo(CFrame.new(0, 2.20*s, -0.95*s))
+            sub.Parent = model
+            for _, p in ipairs(boneData.bodyParts or {}) do table.insert(bodies, p) end
         end
     end
-    -- реквизит: ДВА настоящих гастер-бластера из ОРБИТЫ (масштаб 0.45 = 0.55-0.1)
+    -- реквизит: ДВА гастер-бластера из ОРБИТЫ (масштаб 0.675 = 0.45×1.5)
     for _, sd in ipairs({-1, 1}) do
-        local bData = create3DBlasterPlaceholder(0.45, Color3.fromRGB(240,240,245), "SansBlaster")
+        local bData = create3DBlasterPlaceholder(0.675, Color3.fromRGB(240,240,245), "SansBlaster")
         if bData and bData.model then
             local sub = bData.model
             sub:PivotTo(CFrame.new(sd*1.75*s, 2.15*s, 0.15*s) * CFrame.Angles(0, math.rad(-sd*22), 0))
@@ -1248,14 +1251,13 @@ local function createSans(size, color, name)
     return model, root, bodies
 end
 
--- №30 ГАСТЕР (GASTER) — v24.4-fix1: мантия + руки из ОРБИТЫ (0.30 = 0.40-0.1)
+-- №30 ГАСТЕР (GASTER) — v24.4-fix2: плащ + ноги + бластер, руки 0.45
 local function createGasterBody(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
     local kit = makeFigureKit(model, bodies)
     local blk = kit.blk
 
-    -- палитра
     local robeCol  = color or Color3.fromRGB(14, 14, 18)
     local boneCol  = Color3.fromRGB(240, 240, 235)
     local dark     = Color3.fromRGB(14, 12, 12)
@@ -1303,27 +1305,45 @@ local function createGasterBody(size, color, name)
     blk("Mouth", V(0.34, 0.04, 0.04), P(0, 3.08, surfZ(0, 3.08)), dark, true, plastic)
     blk("Neck", V(0.22, 0.22, 0.22), P(0, 2.88, 0), boneCol, true, plastic, SPH)
 
-    -- мантия
-    blk("Shoulders", V(1.05, 0.55, 0.72), P(0, 2.78, 0), robeCol, false, plastic, SPH)
-    do
-        local tiers, yTop, yBot = 8, 2.85, 0.30
-        local H = (yTop - yBot) / tiers
-        for i = 1, tiers do
-            local t = i / tiers
-            local r = 0.42 + 1.10 * t * t
-            kit.cylY("Robe", r*2*s, H*1.06*s, V(0, yTop - (i - 0.5)*H, 0), robeCol, false, plastic)
-        end
-    end
-    -- рваный низ
-    for _, deg in ipairs({55, 125, 250}) do
-        local a = math.rad(deg)
-        kit.spike("Hem", V(math.cos(a)*1.30, 0.32, math.sin(a)*1.30), Vector3.new(0, -1, 0), 0.27*s, 0.40*s, robeCol, false, plastic)
+    -- ========================================================
+    -- НИЗ: туловище + ноги + чёрный плащ (по референсу Sketchfab)
+    -- ========================================================
+
+    blk("Torso", V(1.10, 1.10, 0.62), P(0, 2.22, 0), robeCol, false, plastic, SPH)
+    blk("Shoulders", V(1.28, 0.42, 0.72), P(0, 2.72, 0), robeCol, false, plastic, SPH)
+    blk("Collar", V(0.62, 0.34, 0.40), P(0, 2.86, 0.06), robeCol, false, plastic, SPH)
+    blk("ShirtV", V(0.30, 0.94, 0.05), P(0, 2.25, 0.34), boneCol, true, plastic)
+    blk("Belt", V(1.18, 0.09, 0.68), P(0, 1.66, 0), Color3.fromRGB(30, 30, 34), true, plastic)
+
+    for _, sd in ipairs({-1, 1}) do
+        local legTop = V(sd*0.24, 1.60, 0)
+        local legBot = V(sd*0.26, 0.22, 0)
+        cyl("Leg", legTop, legBot, 0.26*s, robeCol, false, plastic)
+        blk("Shoe", V(0.38, 0.22, 0.62), CFrame.new(sd*0.26*s, 0.11*s, 0.10*s) * CFrame.Angles(0, math.rad(sd*6), 0),
+            Color3.fromRGB(18, 18, 22), true, plastic)
     end
 
-    -- кисти: ДВЕ настоящие руки из ОРБИТЫ (масштаб 0.30 = 0.40-0.1)
-    --   слева (со стороны зрителя -X) — «РУКА-СЕРДЦЕ», справа (+X) — обычная «РУКА»
+    blk("CloakBack", V(1.32, 2.62, 0.16), P(0, 1.40, -0.36), robeCol, false, plastic)
+    for _, sd in ipairs({-1, 1}) do
+        blk("CloakFlap", V(0.56, 2.40, 0.14),
+            CFrame.new(sd*0.44*s, 1.42*s, -0.06*s) * CFrame.Angles(math.rad(-8), math.rad(sd*10), math.rad(sd*2)),
+            robeCol, false, plastic)
+    end
+
+    -- гастер-бластер рядом с головой (справа от Гастера, чуть впереди)
     do
-        local handSize = 0.30
+        local bData = create3DBlasterPlaceholder(0.55, Color3.fromRGB(240,240,245), "GasterBlaster")
+        if bData and bData.model then
+            local sub = bData.model
+            sub:PivotTo(CFrame.new(1.30*s, 3.20*s, 0.30*s) * CFrame.Angles(0, math.rad(-35), 0))
+            sub.Parent = model
+            for _, p in ipairs(bData.bodyParts or {}) do table.insert(bodies, p) end
+        end
+    end
+
+    -- кисти: ДВЕ настоящие руки из ОРБИТЫ (масштаб 0.45 = 0.30×1.5)
+    do
+        local handSize = 0.45
         local hL, _, hLBodies = create3DHand(handSize, Color3.fromRGB(240,240,235), "GasterHandL", true, Color3.fromRGB(255, 40, 95))
         if hL then
             hL:PivotTo(CFrame.new(-1.05*s, 2.55*s, 0.55*s) * CFrame.Angles(0, math.rad(15), math.rad(-12)))
@@ -1679,6 +1699,6 @@ do
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix1)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix2)", Color3.fromRGB(180,255,180), 3) end
 
 return true
