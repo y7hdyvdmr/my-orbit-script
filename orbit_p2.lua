@@ -693,8 +693,6 @@ local function createSpiral(size, color, name)
     end
     return model, root, bodies
 end
-
--- ОБРЕЗАНО НА orbit_p2.lua, строка ~640
 -- ============================================================
 --  v24.3-ai-fix2: create3DBlasterPlaceholder (STRONG)
 -- ============================================================
@@ -1319,8 +1317,6 @@ local function createGasterBody(size, color, name)
 
     return model, root, bodies
 end
-
--- ОБРЕЗАНО НА orbit_p2.lua, строка ~1150
 -- №27 ЦВЕТОК ФЛАУИ v2
 local function createFlowey_V2(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
@@ -1663,4 +1659,3 @@ if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
 if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix4)", Color3.fromRGB(180,255,180), 3) end
 
 return true
--- ==== КОНЕЦ ФАЙЛА orbit_p2.lua v24.4-ai-figures-fix4 ====
