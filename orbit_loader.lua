@@ -1,10 +1,11 @@
 -- ORBIT v24.2 | orbit_loader.lua
--- ЕДИНЫЙ файл: ядро + GUI + загрузчик 19 модулей
--- BUILD: v24.2-r4
--- r3: + orbit_nolight.lua (💡) и + orbit_focus.lua (🎮).
--- r4: + orbit_sans_boss.lua (💀 Босс Санс, HP 400, 5 наград).
+-- ЕДИНЫЙ файл: ядро + GUI + загрузчик 20 модулей
+-- BUILD: v24.2-r5
+-- r3: + orbit_nolight.lua и orbit_focus.lua.
+-- r4: + orbit_sans_boss.lua (💀 Босс Санс).
+-- r5: + orbit_orbit_combo.lua + orbit_rewards.lua.
 
-local BUILD = "v24.2-r4"
+local BUILD = "v24.2-r5"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
 do
@@ -131,7 +132,8 @@ ORBIT.loaded = {
     extras = false, tools = false, abilities = false, sans = false,
     deathfx = false, gaster = false, newfigures = false, animations = false,
     shop = false, editor3d = false, minigame = false, anticheat = false,
-    nolight = false, focus = false, sans_boss = false,
+    nolight = false, focus = false,
+    sans_boss = false, orbit_combo = false, rewards = false,
 }
 
 ORBIT.saveData = {
@@ -521,7 +523,7 @@ function ORBIT.saveSavesList()
 end
 
 -- ============================================================
---       UNLOAD (v24.2-r4: + sans_boss)
+--       UNLOAD (v24.2-r5: + sans_boss, orbit_combo, rewards)
 -- ============================================================
 ORBIT.unload = function()
     ORBIT.unloaded = true
@@ -562,13 +564,19 @@ ORBIT.unload = function()
     if GENV._ORBIT_AC_UNLOAD then
         pcall(GENV._ORBIT_AC_UNLOAD)
     end
-    for _, k in ipairs({ "sans", "abilities", "animations", "deathFx", "deathfx", "gaster", "sans_boss", "tools", "anticheat", "extras", "shop", "minigame", "editor3d", "nolight", "focus" }) do
+    -- v25.1: полный список модулей (включая новые)
+    for _, k in ipairs({
+        "sans", "abilities", "animations", "deathFx", "deathfx",
+        "gaster", "sans_boss", "orbit_combo", "rewards",
+        "tools", "anticheat", "extras", "shop", "minigame",
+        "editor3d", "nolight", "focus",
+    }) do
         local m = ORBIT[k]
         if type(m) == "table" and type(m.destroy) == "function" then pcall(m.destroy) end
     end
     for _, ch in ipairs(Workspace:GetChildren()) do
         local nm = ch.Name
-        if nm:find("^OrbitAbility_") or nm:find("^OrbitDeathFx_") or nm:find("^OrbitAtmo_") or nm:find("^OrbitSfx_") or nm:find("^OrbitSansBoss_") then
+        if nm:find("^OrbitAbility_") or nm:find("^OrbitDeathFx_") or nm:find("^OrbitAtmo_") or nm:find("^OrbitSfx_") or nm:find("^OrbitSansBoss_") or nm:find("^OrbitCombo_") or nm:find("^OrbitGasterFx_") then
             pcall(function() ch:Destroy() end)
         end
     end
@@ -586,7 +594,7 @@ ORBIT.refreshLoaderStatus = function() end
 ORBIT.currentFile = nil
 
 -- ============================================================
---                    ОЧЕРЕДЬ МОДУЛЕЙ (19 шт.)
+--                    ОЧЕРЕДЬ МОДУЛЕЙ (21 шт.)
 -- ============================================================
 local QUEUE = {
     { file = "orbit_p2.lua",          key = "p2",         short = "P2",   tag = "🔷 Фигуры",        cover = "ФИГУРЫ",       icon = "🔷", color = Color3.fromRGB(120, 200, 255), critical = true },
@@ -601,6 +609,8 @@ local QUEUE = {
     { file = "orbit_death_fx.lua",    key = "deathfx",    short = "DFX",  tag = "💀 Смерть FX",     cover = "DEATH FX",     icon = "💀", color = Color3.fromRGB(255, 180, 180) },
     { file = "orbit_gaster.lua",      key = "gaster",     short = "GST",  tag = "👁 Гастер",        cover = "ГАСТЕР",       icon = "👁", color = Color3.fromRGB(200, 140, 255) },
     { file = "orbit_sans_boss.lua",   key = "sans_boss",  short = "SB",   tag = "💀 Босс Санс",     cover = "БОСС САНС",    icon = "💀", color = Color3.fromRGB(200, 230, 255) },
+    { file = "orbit_orbit_combo.lua", key = "orbit_combo",short = "OC",   tag = "🌀 Орбит-комбо",   cover = "ОРБИТ-КОМБО",  icon = "🌀", color = Color3.fromRGB(180, 160, 255) },
+    { file = "orbit_rewards.lua",     key = "rewards",    short = "RW",   tag = "🎁 Награды",       cover = "НАГРАДЫ",      icon = "🎁", color = Color3.fromRGB(220, 200, 255) },
     { file = "orbit_new_figures.lua", key = "newfigures", short = "NF",   tag = "🔷 Новые фигуры",  cover = "НОВЫЕ ФИГУРЫ", icon = "🔷", color = Color3.fromRGB(150, 220, 255) },
     { file = "orbit_animations.lua",  key = "animations", short = "ANM",  tag = "🎬 Анимации",      cover = "АНИМАЦИИ",     icon = "🎬", color = Color3.fromRGB(255, 180, 220) },
     { file = "orbit_editor3d.lua",    key = "editor3d",   short = "3D",   tag = "🔮 Редактор 3D",   cover = "РЕДАКТОР 3D",  icon = "🔮", color = Color3.fromRGB(200, 160, 255) },
@@ -932,7 +942,7 @@ Instance.new("UICorner", coverSteps).CornerRadius = UDim.new(0, 6)
 local stepLabels = {}
 local stepW = 1 / TOTAL_LOADED
 for i, it in ipairs(QUEUE) do
-    local lbl = mkLabel(coverSteps, it.short, UDim2.new(stepW, -1, 1, 0), UDim2.new((i - 1) * stepW, 0, 0, 0), Color3.fromRGB(70, 55, 90), Enum.Font.Code, 8, 6)
+    local lbl = mkLabel(coverSteps, it.short, UDim2.new(stepW, -1, 1, 0), UDim2.new((i - 1) * stepW, 0, 0, 0), Color3.fromRGB(70, 55, 90), Enum.Font.Code, 7, 6)
     stepLabels[it.key] = lbl
 end
 
@@ -960,6 +970,7 @@ end
 setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "p2 → p3 → p4 → p4b → остальные", C_GREEN)
 updateRingProgress(0)
 
+-- ЛОГ
 local term = Instance.new("Frame")
 term.Size = UDim2.new(1, -32, 0, 220)
 term.Position = UDim2.new(0, 16, 0, 168)
@@ -1035,6 +1046,7 @@ local function addLog(kind, text)
 end
 ORBIT.addLog = addLog
 
+-- ПРОГРЕСС
 local progHolder = Instance.new("Frame")
 progHolder.Size = UDim2.new(1, -32, 0, 28)
 progHolder.Position = UDim2.new(0, 16, 0, 396)
