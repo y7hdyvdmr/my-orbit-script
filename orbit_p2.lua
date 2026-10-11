@@ -1,29 +1,9 @@
--- orbit_p2.lua v24.4-ai-figures-fix2
--- ОРБИТА v24.4-ai-figures-fix2 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
--- v24.0: сердце 7×6, HEART_COLORS {name, c}.
--- v24.2-fix1: финальный блок не подменяет ORBIT.SHAPE_PRESETS целиком.
--- v24.3-ai: + САНС (№29), + ГАСТЕР (№30), перерисованы ФЛАУИ и ОМЕГА ФЛАУИ.
--- v24.3-ai-fix1:
---   * САНС: голубой глаз сдвинут вперёд на 0.10.
---   * ГАСТЕР: EyeGlow сдвинут вперёд на 0.12.
---   * ФЛАУИ: hexagon() пересчитан правильно (SQ3*L вместо 2*SQ3*L).
--- v24.3-ai-fix2:
---   * create3DBlasterPlaceholder перерисован под STRONG-форму.
---   * В mkw добавлен NoRecolor + CanQuery/CanTouch=false.
---   * В add добавлены CanQuery/CanTouch=false.
--- v24.3-ai-fix3:
---   * Закрыт createFlowey_V2 (добавлены return + end перед OmegaFlowey).
---   * Убраны висячие строки return/end в конце файла.
--- v24.4-ai-figures:
---   * САНС и ГАСТЕР переработаны по референсам Sketchfab.
--- v24.4-ai-figures-fix1:
---   * САНС: бластеры через create3DBlasterPlaceholder (0.45).
---   * ГАСТЕР: кисти через create3DHand (0.30).
--- v24.4-ai-figures-fix2 (этот файл):
---   * САНС: бластеры увеличены до 0.675 (0.45×1.5).
---   * САНС: кость-реквизит заменена на фигуру «КОСТЬ» из ОРБИТЫ (createBone).
---   * ГАСТЕР: руки увеличены до 0.45 (0.30×1.5).
---   * ГАСТЕР: мантия заменена на плащ + ноги + белая рубашка + бластер.
+-- orbit_p2.lua v24.4-ai-figures-fix4
+-- ОРБИТА v24.4-ai-figures-fix4 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
+-- v24.4-ai-figures-fix4 (этот файл):
+--   * САНС: ИСПРАВЛЕН вызов createBone — (boneModel, _, boneBodies).
+--   * САНС: бластеры 0.675, отодвинуты на ±3.20*s (не закрывают фигуру).
+--   * САНС: убраны кетчуп, тромбон, хот-дог — остались только кость и бластеры.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -35,9 +15,6 @@ local SETTINGS      = ORBIT.SETTINGS
 
 if SETTINGS.HeartScale == nil then SETTINGS.HeartScale = 1 end
 
--- ============================================================
---                  ХЕЛПЕРЫ ФИГУР
--- ============================================================
 local function isDetailed()
     return (SETTINGS.BlockCount or 8) <= 8
 end
@@ -716,6 +693,8 @@ local function createSpiral(size, color, name)
     end
     return model, root, bodies
 end
+
+-- ОБРЕЗАНО НА orbit_p2.lua, строка ~640
 -- ============================================================
 --  v24.3-ai-fix2: create3DBlasterPlaceholder (STRONG)
 -- ============================================================
@@ -1136,7 +1115,7 @@ local function makeFigureKit(model, bodies)
     return kit
 end
 
--- №29 САНС (SANS) — v24.4-fix2: бластеры 0.675, кость через createBone
+-- №29 САНС (SANS) — v24.4-fix4: только Санс + кость + бластеры
 local function createSans(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -1149,11 +1128,7 @@ local function createSans(size, color, name)
     local black   = Color3.fromRGB(18, 18, 22)
     local cyanEye = Color3.fromRGB(0, 205, 255)
     local boneCy  = Color3.fromRGB(125, 255, 240)
-    local ketchup = Color3.fromRGB(205, 30, 30)
-    local brass   = Color3.fromRGB(235, 195, 30)
-    local bun     = Color3.fromRGB(185, 115, 60)
-    local mustard = Color3.fromRGB(255, 215, 40)
-    local plastic, metal, neon = Enum.Material.SmoothPlastic, Enum.Material.Metal, Enum.Material.Neon
+    local plastic, neon = Enum.Material.SmoothPlastic, Enum.Material.Neon
     local SPH, CYL = Enum.MeshType.Sphere, Enum.MeshType.Cylinder
 
     local function V(x, y, z) return Vector3.new(x*s, y*s, z*s) end
@@ -1215,43 +1190,30 @@ local function createSans(size, color, name)
             white, true, plastic, SPH)
     end
 
-    -- реквизит: настоящая фигура «КОСТЬ» из ОРБИТЫ (№18), вертикально за головой
+    -- реквизит: настоящая фигура «КОСТЬ» из ОРБИТЫ — за головой
     do
-        local boneData = createBone(0.35, boneCy, "SansBone")
-        if boneData and boneData.model then
-            local sub = boneData.model
-            sub:PivotTo(CFrame.new(0, 2.20*s, -0.95*s))
-            sub.Parent = model
-            for _, p in ipairs(boneData.bodyParts or {}) do table.insert(bodies, p) end
+        local boneModel, _, boneBodies = createBone(0.35, boneCy, "SansBone")
+        if boneModel then
+            boneModel:PivotTo(CFrame.new(0, 2.40*s, -1.15*s))
+            boneModel.Parent = model
+            for _, p in ipairs(boneBodies or {}) do table.insert(bodies, p) end
         end
     end
-    -- реквизит: ДВА гастер-бластера из ОРБИТЫ (масштаб 0.675 = 0.45×1.5)
+    -- реквизит: ДВА гастер-бластера (0.675), отодвинуты на ±3.20*s
     for _, sd in ipairs({-1, 1}) do
         local bData = create3DBlasterPlaceholder(0.675, Color3.fromRGB(240,240,245), "SansBlaster")
         if bData and bData.model then
             local sub = bData.model
-            sub:PivotTo(CFrame.new(sd*1.75*s, 2.15*s, 0.15*s) * CFrame.Angles(0, math.rad(-sd*22), 0))
+            sub:PivotTo(CFrame.new(sd*3.20*s, 2.80*s, -0.20*s) * CFrame.Angles(0, math.rad(-sd*35), 0))
             sub.Parent = model
             for _, p in ipairs(bData.bodyParts or {}) do table.insert(bodies, p) end
         end
     end
-    -- реквизит: кетчуп
-    cyl("Ketchup", V(1.20, 0, 0.55), V(1.20, 0.66, 0.55), 0.32*s, ketchup, true, plastic)
-    cyl("KetchupCap", V(1.20, 0.66, 0.55), V(1.20, 0.80, 0.55), 0.15*s, white, true, plastic)
-    -- реквизит: тромбон
-    do
-        local p0, p1 = V(1.65, 0.07, 0.55), V(2.55, 0.26, 0.15)
-        cyl("Trombone", p0, p1, 0.10*s, brass, true, metal)
-        cyl("TromboneBell", p1, p1 + (p1 - p0).Unit * (0.16*s), 0.46*s, brass, true, metal)
-    end
-    -- реквизит: хот-дог
-    cyl("HotDog", V(-1.60, 0.14, 0.62), V(-0.95, 0.14, 0.45), 0.26*s, bun, true, plastic)
-    cyl("Mustard", V(-1.55, 0.27, 0.61), V(-1.00, 0.27, 0.46), 0.09*s, mustard, true, plastic)
 
     return model, root, bodies
 end
 
--- №30 ГАСТЕР (GASTER) — v24.4-fix2: плащ + ноги + бластер, руки 0.45
+-- №30 ГАСТЕР (GASTER) — v24.4-fix4: плащ + ноги + бластер, руки 0.45
 local function createGasterBody(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -1305,10 +1267,7 @@ local function createGasterBody(size, color, name)
     blk("Mouth", V(0.34, 0.04, 0.04), P(0, 3.08, surfZ(0, 3.08)), dark, true, plastic)
     blk("Neck", V(0.22, 0.22, 0.22), P(0, 2.88, 0), boneCol, true, plastic, SPH)
 
-    -- ========================================================
-    -- НИЗ: туловище + ноги + чёрный плащ (по референсу Sketchfab)
-    -- ========================================================
-
+    -- торс + ноги + плащ
     blk("Torso", V(1.10, 1.10, 0.62), P(0, 2.22, 0), robeCol, false, plastic, SPH)
     blk("Shoulders", V(1.28, 0.42, 0.72), P(0, 2.72, 0), robeCol, false, plastic, SPH)
     blk("Collar", V(0.62, 0.34, 0.40), P(0, 2.86, 0.06), robeCol, false, plastic, SPH)
@@ -1330,7 +1289,7 @@ local function createGasterBody(size, color, name)
             robeCol, false, plastic)
     end
 
-    -- гастер-бластер рядом с головой (справа от Гастера, чуть впереди)
+    -- гастер-бластер рядом с головой
     do
         local bData = create3DBlasterPlaceholder(0.55, Color3.fromRGB(240,240,245), "GasterBlaster")
         if bData and bData.model then
@@ -1341,7 +1300,7 @@ local function createGasterBody(size, color, name)
         end
     end
 
-    -- кисти: ДВЕ настоящие руки из ОРБИТЫ (масштаб 0.45 = 0.30×1.5)
+    -- две руки (РУКА-СЕРДЦЕ + обычная), масштаб 0.45
     do
         local handSize = 0.45
         local hL, _, hLBodies = create3DHand(handSize, Color3.fromRGB(240,240,235), "GasterHandL", true, Color3.fromRGB(255, 40, 95))
@@ -1360,6 +1319,8 @@ local function createGasterBody(size, color, name)
 
     return model, root, bodies
 end
+
+-- ОБРЕЗАНО НА orbit_p2.lua, строка ~1150
 -- №27 ЦВЕТОК ФЛАУИ v2
 local function createFlowey_V2(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
@@ -1699,6 +1660,7 @@ do
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix2)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix4)", Color3.fromRGB(180,255,180), 3) end
 
 return true
+-- ==== КОНЕЦ ФАЙЛА orbit_p2.lua v24.4-ai-figures-fix4 ====
