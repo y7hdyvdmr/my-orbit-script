@@ -1,4 +1,4 @@
--- ORBIT v25.0 | orbit_abilities.lua
+-- ORBIT v25.0-fix1 | orbit_abilities.lua
 -- 12 стихий + КОСТЬ, БЛАСТЕР, РУКА + крестики + прицел + комбо.
 -- v25.0:
 --   * buildBone STRONG (трещины, наросты, блик).
@@ -9,6 +9,8 @@
 --   * wind — вихрь с кольцами.
 --   * poison — туман + кислота.
 --   * Экспорт buildBone/spawnBones/fireBlaster/spawnHand/buildSkull для боссов.
+-- v25.0-fix1: форвард-декларации aimPoint/screenPoint — иначе fireId/combo/
+--   waterTick/refreshUI видели их как nil (attempt to call a nil value).
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] abilities: нет ORBIT"); return false end
@@ -81,6 +83,9 @@ local speedRestoreToken = 0
 local LOD = MOB and 0.6 or 1
 local shards, risers = {}, {}
 local shakeUntil, shakeMag, shakeHum = 0, 0, nil
+
+-- v25.0-fix1: форвард-декларации (см. шапку файла)
+local aimPoint, screenPoint
 
 local function connect(sig, fn) local c = sig:Connect(fn); conns[#conns + 1] = c; return c end
 local function ping(n, v, p) if ORBIT.Sfx and ORBIT.Sfx.play then pcall(ORBIT.Sfx.play, n, v or 1, p or 1) end end
@@ -685,7 +690,6 @@ local function fireBlaster(spos, dirv, mul, wm)
     end)
   end)
 end
-
 local function buildHand(base, scale)
   local ents = {}
   local col = C3(235, 235, 245)
@@ -1189,7 +1193,6 @@ COMBOS["blaster+lightning"] = function(origin, dir, target, c, h, r)
   end
   toast("🔫⚡ ГРОМОВОЙ ЛУЧ")
 end
-
 local function cdLeft(id) return math.max(0, (A.cooldowns[id] or 0) - tick()) end
 local function cdFrac(id)
   local left = cdLeft(id)
@@ -1888,7 +1891,8 @@ local function refreshUI()
 end
 
 -- ===== Прицел =====
-local function screenPoint()
+-- v25.0-fix1: убрано `local` — см. форвард-декларацию в начале файла
+function screenPoint()
   local c = cam()
   local vp = c and c.ViewportSize or Vector2.new(800, 400)
   if centerOnce then return vp / 2 end
@@ -1898,7 +1902,8 @@ local function screenPoint()
   end
   return UIS:GetMouseLocation()
 end
-local function aimPoint(origin)
+-- v25.0-fix1: убрано `local` — см. форвард-декларацию в начале файла
+function aimPoint(origin)
   local c = cam()
   if not c then return origin + V3(0, 0, -50) end
   local sp = screenPoint()
