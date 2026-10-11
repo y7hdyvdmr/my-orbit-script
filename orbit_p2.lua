@@ -1,5 +1,5 @@
--- orbit_p2.lua v24.4-ai-figures
--- ОРБИТА v24.4-ai-figures — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
+-- orbit_p2.lua v24.4-ai-figures-fix1
+-- ОРБИТА v24.4-ai-figures-fix1 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
 -- v24.0: сердце 7×6, HEART_COLORS {name, c}.
 -- v24.2-fix1: финальный блок не подменяет ORBIT.SHAPE_PRESETS целиком.
 -- v24.3-ai: + САНС (№29), + ГАСТЕР (№30), перерисованы ФЛАУИ и ОМЕГА ФЛАУИ.
@@ -14,9 +14,12 @@
 -- v24.3-ai-fix3:
 --   * Закрыт createFlowey_V2 (добавлены return + end перед OmegaFlowey).
 --   * Убраны висячие строки return/end в конце файла.
--- v24.4-ai-figures (этот файл):
+-- v24.4-ai-figures:
 --   * САНС и ГАСТЕР переработаны по референсам Sketchfab (только тела функций).
 --   * Фигуры смотрят по +Z, низ на y=0. Санс: 40 частей, Гастер: 31 часть.
+-- v24.4-ai-figures-fix1 (этот файл):
+--   * САНС: реквизит-бластеры заменены на вызов create3DBlasterPlaceholder (0.45).
+--   * ГАСТЕР: кисти заменены на create3DHand: слева «РУКА-СЕРДЦЕ», справа «РУКА» (0.30).
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -1129,7 +1132,7 @@ local function makeFigureKit(model, bodies)
     return kit
 end
 
--- №29 САНС (SANS) — v24.4: узнаваемый силуэт + реквизит (40 частей)
+-- №29 САНС (SANS) — v24.4-fix1: узнаваемый силуэт + бластеры из ОРБИТЫ (0.45)
 local function createSans(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -1152,20 +1155,17 @@ local function createSans(size, color, name)
 
     local function V(x, y, z) return Vector3.new(x*s, y*s, z*s) end
     local function P(x, y, z) return CFrame.new(x*s, y*s, z*s) end
-    -- цилиндр между двумя точками (оси Y меша выровнена по направлению a->b)
     local function cyl(nm, a, b, th, col, nr, mat)
         local dir = b - a
         local up = (math.abs(dir.Unit.Y) > 0.99) and Vector3.new(0, 0, 1) or Vector3.new(0, 1, 0)
         local cf = CFrame.lookAt((a + b) * 0.5, b, up) * CFrame.Angles(math.rad(90), 0, 0)
         return blk(nm, Vector3.new(th, dir.Magnitude, th), cf, col, nr, mat, CYL)
     end
-    -- маленький свет для светящихся частей (дистанция 6, яркость 1)
     local function glow(p, col)
         local l = Instance.new("PointLight")
         l.Color = col; l.Range = 6; l.Brightness = 1; l.Parent = p
     end
 
-    -- форма черепа: эллипсоид, лицо смотрит по +Z
     local HX, HY, HZ, HC = 0.65, 0.50, 0.525, 1.95
     local function surfZ(x, y)
         local k = 1 - (x/HX)^2 - ((y-HC)/HY)^2
@@ -1181,12 +1181,10 @@ local function createSans(size, color, name)
             black, true, plastic, SPH)
     end
     do
-        -- фирменный голубой глаз (левый глаз Санса = +X при взгляде по +Z)
         local gz = surfZ(0.27, 2.02)
         local eye = blk("EyeGlow", V(0.12, 0.12, 0.06), P(0.27, 2.00, gz + 0.05), cyanEye, true, neon, SPH)
         glow(eye, cyanEye)
     end
-    -- ухмылка: дуга из 5 чёрных зубов по нижнему краю черепа
     for i = 0, 4 do
         local x = -0.40 + i*0.20
         local y = 1.64 + 0.5*x*x
@@ -1197,7 +1195,7 @@ local function createSans(size, color, name)
     blk("Hoodie", V(1.00, 0.70, 0.62), P(0, 1.17, 0), blue, false, plastic)
     blk("HoodRoll", V(0.86, 0.42, 0.40), P(0, 1.52, -0.30), blue, false, plastic, SPH)
 
-    -- руки: короткий рукав + тонкое белое предплечье + кисть-сфера
+    -- руки
     for _, sd in ipairs({-1, 1}) do
         local shoulder = V(sd*0.58, 1.42, 0)
         local elbow    = V(sd*0.64, 1.02, 0.02)
@@ -1207,14 +1205,14 @@ local function createSans(size, color, name)
         blk("Hand", V(0.20, 0.20, 0.20), P(sd*0.66, 0.64, 0.12), bone, true, plastic, SPH)
     end
 
-    -- ноги: чёрные шорты, белые тапки-капли, ноги слегка расставлены
+    -- ноги
     blk("Shorts", V(1.00, 0.52, 0.60), P(0, 0.56, 0), black, true, plastic)
     for _, sd in ipairs({-1, 1}) do
         blk("Slipper", V(0.42, 0.30, 0.68), CFrame.new(sd*0.27*s, 0.15*s, 0.10*s) * CFrame.Angles(0, math.rad(sd*10), 0),
             white, true, plastic, SPH)
     end
 
-    -- реквизит: кость за головой (цилиндр + 4 шарика по концам)
+    -- реквизит: кость за головой
     do
         local boneA, boneB = V(0, 1.0, -0.95), V(0, 3.4, -0.95)
         cyl("Bone", boneA, boneB, 0.17*s, boneCy, true, plastic)
@@ -1224,53 +1222,50 @@ local function createSans(size, color, name)
             end
         end
     end
-    -- реквизит: два гастер-бластера по бокам (сфера + морда + 2 Neon-глаза)
+    -- реквизит: ДВА настоящих гастер-бластера из ОРБИТЫ (масштаб 0.45 = 0.55-0.1)
     for _, sd in ipairs({-1, 1}) do
-        local base = CFrame.new(sd*1.75*s, 2.15*s, 0.15*s) * CFrame.Angles(0, math.rad(-sd*22), 0)
-        local function L(x, y, z) return base * CFrame.new(x*s, y*s, z*s) end
-        blk("BlasterSkull", V(0.62, 0.72, 0.58), L(0, 0, 0), white, true, plastic, SPH)
-        blk("BlasterSnout", V(0.30, 0.34, 0.52), L(0, -0.20, 0.34), white, true, plastic)
-        for _, ex in ipairs({-1, 1}) do
-            local eye = blk("BlasterEye", V(0.12, 0.20, 0.06), L(ex*0.17, 0.10, 0.235) * CFrame.Angles(0, 0, math.rad(ex*15)),
-                cyanEye, true, neon, SPH)
-            glow(eye, cyanEye)
+        local bData = create3DBlasterPlaceholder(0.45, Color3.fromRGB(240,240,245), "SansBlaster")
+        if bData and bData.model then
+            local sub = bData.model
+            sub:PivotTo(CFrame.new(sd*1.75*s, 2.15*s, 0.15*s) * CFrame.Angles(0, math.rad(-sd*22), 0))
+            sub.Parent = model
+            for _, p in ipairs(bData.bodyParts or {}) do table.insert(bodies, p) end
         end
     end
-    -- реквизит: бутылка кетчупа (красный цилиндр + белая крышка)
+    -- реквизит: кетчуп
     cyl("Ketchup", V(1.20, 0, 0.55), V(1.20, 0.66, 0.55), 0.32*s, ketchup, true, plastic)
     cyl("KetchupCap", V(1.20, 0.66, 0.55), V(1.20, 0.80, 0.55), 0.15*s, white, true, plastic)
-    -- реквизит: жёлтый тромбон (труба + раструб), Metal
+    -- реквизит: тромбон
     do
         local p0, p1 = V(1.65, 0.07, 0.55), V(2.55, 0.26, 0.15)
         cyl("Trombone", p0, p1, 0.10*s, brass, true, metal)
         cyl("TromboneBell", p1, p1 + (p1 - p0).Unit * (0.16*s), 0.46*s, brass, true, metal)
     end
-    -- реквизит: хот-дог (булочка + полоска горчицы)
+    -- реквизит: хот-дог
     cyl("HotDog", V(-1.60, 0.14, 0.62), V(-0.95, 0.14, 0.45), 0.26*s, bun, true, plastic)
     cyl("Mustard", V(-1.55, 0.27, 0.61), V(-1.00, 0.27, 0.46), 0.09*s, mustard, true, plastic)
 
     return model, root, bodies
 end
 
--- №30 ГАСТЕР (GASTER) — v24.4: вытянутая «парящая» мантия + трещина (31 часть)
+-- №30 ГАСТЕР (GASTER) — v24.4-fix1: мантия + руки из ОРБИТЫ (0.30 = 0.40-0.1)
 local function createGasterBody(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
     local kit = makeFigureKit(model, bodies)
     local blk = kit.blk
 
-    -- палитра (по скриншоту Gaster, Sketchfab; зелёный отсвет глаз — из текстуры модели)
-    local robeCol  = color or Color3.fromRGB(14, 14, 18)    -- мантия
-    local boneCol  = Color3.fromRGB(240, 240, 235)          -- череп, кисти
-    local dark     = Color3.fromRGB(14, 12, 12)             -- глазницы, рот
-    local crackCol = Color3.fromRGB(40, 36, 36)             -- трещина
-    local glow     = Color3.fromRGB(205, 255, 60)           -- зелёное свечение щели
+    -- палитра
+    local robeCol  = color or Color3.fromRGB(14, 14, 18)
+    local boneCol  = Color3.fromRGB(240, 240, 235)
+    local dark     = Color3.fromRGB(14, 12, 12)
+    local crackCol = Color3.fromRGB(40, 36, 36)
+    local glow     = Color3.fromRGB(205, 255, 60)
     local plastic  = Enum.Material.SmoothPlastic
     local SPH, CYL = Enum.MeshType.Sphere, Enum.MeshType.Cylinder
 
     local function V(x, y, z) return Vector3.new(x*s, y*s, z*s) end
     local function P(x, y, z) return CFrame.new(x*s, y*s, z*s) end
-    -- цилиндр между двумя точками (ось меша выровнена по a->b)
     local function cyl(nm, a, b, th, col, nr, mat)
         local dir = b - a
         local up = (math.abs(dir.Unit.Y) > 0.99) and Vector3.new(0, 0, 1) or Vector3.new(0, 1, 0)
@@ -1278,18 +1273,15 @@ local function createGasterBody(size, color, name)
         return blk(nm, Vector3.new(th, dir.Magnitude, th), cf, col, nr, mat, CYL)
     end
 
-    -- форма черепа: вытянутый эллипсоид, лицо смотрит по +Z
     local HX, HY, HZ, HC = 0.45, 0.55, 0.46, 3.40
     local function surfZ(x, y)
         local k = 1 - (x/HX)^2 - ((y-HC)/HY)^2
         return HZ * math.sqrt(math.max(0, k))
     end
 
-    -- голова (стороны «правый/левый» — с точки зрения зрителя, правый = +X)
+    -- голова
     blk("Skull", V(HX*2, HY*2, HZ*2), P(0, HC, 0), boneCol, true, plastic, SPH)
-    -- левый глаз: пустая тёмная глазница
     blk("Socket", V(0.24, 0.30, 0.08), P(-0.19, 3.50, surfZ(-0.19, 3.50)), dark, true, plastic, SPH)
-    -- правый глаз: вертикальная чёрная щель с тонким светящимся сердечником
     do
         local z = surfZ(0.19, 3.50)
         blk("Slit", V(0.09, 0.36, 0.05), P(0.19, 3.50, z), dark, true, plastic)
@@ -1297,7 +1289,6 @@ local function createGasterBody(size, color, name)
         local l = Instance.new("PointLight")
         l.Color = glow; l.Range = 6; l.Brightness = 1; l.Parent = core
     end
-    -- трещина на правой стороне черепа (3 тонких тёмных блока под углом)
     do
         local cracks = {
             { 0.22, 3.30,  25 },
@@ -1312,7 +1303,7 @@ local function createGasterBody(size, color, name)
     blk("Mouth", V(0.34, 0.04, 0.04), P(0, 3.08, surfZ(0, 3.08)), dark, true, plastic)
     blk("Neck", V(0.22, 0.22, 0.22), P(0, 2.88, 0), boneCol, true, plastic, SPH)
 
-    -- мантия: плечи + 8 ступеней-цилиндров, низ шире верха в ~3.6 раза
+    -- мантия
     blk("Shoulders", V(1.05, 0.55, 0.72), P(0, 2.78, 0), robeCol, false, plastic, SPH)
     do
         local tiers, yTop, yBot = 8, 2.85, 0.30
@@ -1323,21 +1314,27 @@ local function createGasterBody(size, color, name)
             kit.cylY("Robe", r*2*s, H*1.06*s, V(0, yTop - (i - 0.5)*H, 0), robeCol, false, plastic)
         end
     end
-    -- рваный низ: 3 зубца по краю, кончики чуть выше y=0 («парение»)
+    -- рваный низ
     for _, deg in ipairs({55, 125, 250}) do
         local a = math.rad(deg)
         kit.spike("Hem", V(math.cos(a)*1.30, 0.32, math.sin(a)*1.30), Vector3.new(0, -1, 0), 0.27*s, 0.40*s, robeCol, false, plastic)
     end
 
-    -- кисти: ладонь-сфера + 4 тонких растопыренных пальца-цилиндра, висят симметрично на уровне груди
-    for _, sd in ipairs({-1, 1}) do
-        local c = V(sd*1.05, 2.55, 0.55)
-        blk("Palm", V(0.24, 0.28, 0.10), CFrame.new(c), boneCol, true, plastic, SPH)
-        for i = 1, 4 do
-            local a = (i - 2.5) * 0.32
-            local from = c + V((i - 2.5)*0.055, -0.10, 0)
-            local to = from + Vector3.new(math.sin(a), -math.cos(a), 0) * (0.42*s)
-            cyl("Finger", from, to, 0.045*s, boneCol, true, plastic)
+    -- кисти: ДВЕ настоящие руки из ОРБИТЫ (масштаб 0.30 = 0.40-0.1)
+    --   слева (со стороны зрителя -X) — «РУКА-СЕРДЦЕ», справа (+X) — обычная «РУКА»
+    do
+        local handSize = 0.30
+        local hL, _, hLBodies = create3DHand(handSize, Color3.fromRGB(240,240,235), "GasterHandL", true, Color3.fromRGB(255, 40, 95))
+        if hL then
+            hL:PivotTo(CFrame.new(-1.05*s, 2.55*s, 0.55*s) * CFrame.Angles(0, math.rad(15), math.rad(-12)))
+            hL.Parent = model
+            for _, p in ipairs(hLBodies or {}) do table.insert(bodies, p) end
+        end
+        local hR, _, hRBodies = create3DHand(handSize, Color3.fromRGB(240,240,235), "GasterHandR", false)
+        if hR then
+            hR:PivotTo(CFrame.new(1.05*s, 2.55*s, 0.55*s) * CFrame.Angles(0, math.rad(-15), math.rad(12)))
+            hR.Parent = model
+            for _, p in ipairs(hRBodies or {}) do table.insert(bodies, p) end
         end
     end
 
@@ -1682,6 +1679,6 @@ do
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix1)", Color3.fromRGB(180,255,180), 3) end
 
 return true
