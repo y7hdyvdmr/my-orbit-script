@@ -1936,6 +1936,14 @@ function A.destroy()
 end
 local okUi, errUi = pcall(mkUI)
 if not okUi then warn("[ORBIT] abilities UI: " .. tostring(errUi)) end
+
+-- v25.0: публичный экспорт для боссов (Гастер, Санс)
+A.buildBone = buildBone
+A.spawnBones = spawnBones
+A.fireBlaster = fireBlaster
+A.spawnHand = spawnHand
+A.buildSkull = buildSkull
+
 ORBIT.abilities = A
 ORBIT.abilityMoveUntil = 0
 ORBIT.loaded.abilities = true
