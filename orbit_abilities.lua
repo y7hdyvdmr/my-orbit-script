@@ -1,10 +1,14 @@
--- ORBIT v24.8 | orbit_abilities.lua
--- 12 стихий (+ КОСТЬ, БЛАСТЕР, РУКА) + крестики скрытия + кнопка возврата + прицел + комбо
--- v24.8: трейлы больше не нулевой ширины; клавиши 1-0,-,= (12 стихий); 5 новых комбо.
--- v24.9: buildSkull перерисован в STRONG-силуэт.
--- v25.0 (этот файл):
---   * buildBone — STRONG-форма: трещины, наросты, блик.
---   * fireBlaster — 3-слойный луч, искры по длине, кольца-накопители при зарядке.
+-- ORBIT v25.0 | orbit_abilities.lua
+-- 12 стихий + КОСТЬ, БЛАСТЕР, РУКА + крестики + прицел + комбо.
+-- v25.0:
+--   * buildBone STRONG (трещины, наросты, блик).
+--   * fireBlaster 3-слойный + кольца-накопители.
+--   * fire — 3-слойный + языки пламени.
+--   * water — веер из 3 капель.
+--   * lightning — цепь 3 целей + грозовой столб.
+--   * wind — вихрь с кольцами.
+--   * poison — туман + кислота.
+--   * Экспорт buildBone/spawnBones/fireBlaster/spawnHand/buildSkull для боссов.
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] abilities: нет ORBIT"); return false end
@@ -393,10 +397,23 @@ local function mkCloud(pos, r, dur, dps, col, rain)
 end
 -- ===== Снаряды =====
 local function addProj(q) q.born = tick(); A.projectiles[#A.projectiles + 1] = q end
+
+-- v25.0: onFire — расширяющееся кольцо + 4 языка пламени
 local function onFire(q, pos)
   local r = C.fire.r * (q.ch and C.charge.size or 1)
   blast(pos, r, EL[1].col)
-  flashScreen(EL[1].col, 0.9, 0.22); shake(0.35, 0.25)
+  local ring = mkpart(Enum.PartType.Cylinder, V3(0.3, r * 0.6, r * 0.6), C3(255, 120, 30), MAT.Neon, 0.4)
+  ring.CFrame = CF(pos) * CFrame.Angles(0, 0, math.rad(90))
+  T(ring, 0.5, { Size = V3(0.3, r * 3, r * 3), Transparency = 1 })
+  Debris:AddItem(ring, 0.6)
+  for i = 1, 4 do
+    local a = i * math.pi / 2
+    local tongue = mkpart(PT_BLOCK, V3(1, 4, 1), C3(255, 140, 40), MAT.Neon, 0.3)
+    tongue.CFrame = CF(pos + V3(math.cos(a) * r * 0.7, 1.5, math.sin(a) * r * 0.7)) * CFrame.Angles(math.rad(20), 0, 0)
+    T(tongue, 0.5, { Size = V3(0.3, 8, 0.3), Transparency = 1 })
+    Debris:AddItem(tongue, 0.6)
+  end
+  flashScreen(C3(255, 180, 60), 0.85, 0.28); shake(0.45, 0.3)
   for _, t in ipairs(near(pos, r)) do dmg(t, C.fire.dmg * q.mul); burn(t, C.fire.burn) end
   ping("ping", 1, 1.2)
 end
@@ -418,8 +435,18 @@ local function onIce(q, pos)
   for _, t in ipairs(near(pos, 3.2)) do dmg(t, C.ice.dmg * q.mul); slowEnemy(t.hum, 0.3, C.ice.slow) end
   ping("ping", 0.8, 1.6)
 end
+local function onBone(q, pos)
+  burst(pos, EL[IDX.bone].col, 12, 12)
+  impactRing(pos, EL[IDX.bone].col, 3, 0.3)
+  spawnShards(pos, C3(238, 238, 226), 6, 16, MAT.SmoothPlastic)
+  for _, t in ipairs(near(pos, 3.5)) do
+    dmg(t, C.bone.dmg * q.mul)
+    knock(t.root, t.root.Position - pos, 6)
+  end
+  ping("ping", 0.9, 1.8)
+end
 
--- ===== v25.0: КОСТЬ (STRONG-форма) =====
+-- v25.0: КОСТЬ STRONG
 local BONE_COL, BL_COL, HAND_COL = EL[IDX.bone].col, EL[IDX.blaster].col, EL[IDX.hand].col
 local BONE_WHITE = C3(238, 238, 226)
 
@@ -436,25 +463,20 @@ local function retire(part)
 end
 
 local function buildBone(len, th)
-  -- STRONG-кость: стержень + 4 нароста по краям + трещины + светящийся блик
   local p = mkpart(PT_BLOCK, V3(th, th, len), BONE_WHITE, MAT.SmoothPlastic, 0)
   local ex = {}
-
-  -- трещина вдоль стержня (тонкая тёмная полоса под углом)
   local crackOff = CF(0, 0, len * 0.10) * CFrame.Angles(0, 0, math.rad(14))
   local crack = mkpart(PT_BLOCK, V3(th * 0.72, th * 0.09, len * 0.55), C3(40, 36, 30), MAT.SmoothPlastic, 0)
   crack.CFrame = p.CFrame * crackOff
   crack.Parent = p
   ex[#ex + 1] = { p = crack, off = crackOff }
 
-  -- вторая короткая трещина
   local crack2Off = CF(0, 0, -len * 0.18) * CFrame.Angles(0, 0, math.rad(-18))
   local crack2 = mkpart(PT_BLOCK, V3(th * 0.52, th * 0.07, len * 0.30), C3(40, 36, 30), MAT.SmoothPlastic, 0)
   crack2.CFrame = p.CFrame * crack2Off
   crack2.Parent = p
   ex[#ex + 1] = { p = crack2, off = crack2Off }
 
-  -- наросты на концах (2 шара на каждом конце, 1 на мобилке для LOD)
   local function addLobe(zOff)
     if MOB then
       local k = mkpart(PT_BALL, V3(th * 1.15, th * 1.15, th * 1.15), BONE_WHITE, MAT.SmoothPlastic, 0)
@@ -475,7 +497,6 @@ local function buildBone(len, th)
   addLobe( len / 2)
   addLobe(-len / 2)
 
-  -- центральный светящийся блик
   local glintOff = CF(0, 0, 0)
   local glint = mkpart(PT_BALL, V3(th * 0.22, th * 0.22, th * 0.22), C3(255, 250, 240), MAT.Neon, 0.3)
   glint.Parent = p
@@ -485,16 +506,6 @@ local function buildBone(len, th)
   return p, ex
 end
 
-local function onBone(q, pos)
-  burst(pos, BONE_COL, 12, 12)
-  impactRing(pos, BONE_COL, 3, 0.3)
-  spawnShards(pos, BONE_WHITE, 6, 16, MAT.SmoothPlastic)
-  for _, t in ipairs(near(pos, 3.5)) do
-    dmg(t, C.bone.dmg * q.mul)
-    knock(t.root, t.root.Position - pos, 6)
-  end
-  ping("ping", 0.9, 1.8)
-end
 local function spawnBones(origin, dir, n, step, mul, ch)
   for k = 1, n do
     local ang = (k - (n + 1) / 2) * step
@@ -508,7 +519,7 @@ local function spawnBones(origin, dir, n, step, mul, ch)
   end
 end
 
--- ===== v24.9: череп-бластер STRONG =====
+-- ===== череп-бластер STRONG =====
 local function buildSkull(cf, sc)
   local ents = {}
   local WHITE = C3(245, 245, 250)
@@ -583,7 +594,7 @@ local function buildSkull(cf, sc)
   return ents, mouth
 end
 
--- v25.0: бластер — 3-слойный луч + искры + кольца-накопители
+-- v25.0: 3-слойный луч + кольца-накопители + искры
 local function fireBlaster(spos, dirv, mul, wm)
   local cf = CFrame.lookAt(spos, spos + dirv)
   local sc = 0.9 * wm
@@ -596,13 +607,11 @@ local function fireBlaster(spos, dirv, mul, wm)
   local res = WS:Raycast(mouthPos, dirv * rng, rayParams())
   if res and isSolid(res.Instance) then endPos = res.Position end
 
-  -- накопление заряда: рот растёт + вращающиеся кольца + линия прицеливания
   T(mouth, wind, { Size = V3(2.2, 2.2, 2.2) * sc, Transparency = 0 })
   local ml = Instance.new("PointLight"); ml.Color = BL_COL; ml.Range = 14; ml.Brightness = 0; ml.Parent = mouth
   T(ml, wind, { Brightness = 6 })
   burst(mouthPos, BL_COL, 8, 6)
 
-  -- v25.0: вращающиеся кольца-накопители вокруг пасти во время зарядки
   task.spawn(function()
     local ringN = MOB and 3 or 5
     for i = 1, ringN do
@@ -624,8 +633,6 @@ local function fireBlaster(spos, dirv, mul, wm)
     if not alive then return end
     local len = (endPos - mouthPos).Magnitude
     if len < 1 then return end
-
-    -- v25.0: 3-слойный луч (белое ядро → бледно-бирюзовая оболочка → широкое halo)
     local th = 1.8 * wm
     local mid = (mouthPos + endPos) / 2
     local lookCF = CFrame.lookAt(mid, endPos)
@@ -636,7 +643,6 @@ local function fireBlaster(spos, dirv, mul, wm)
     local outer = mkpart(PT_BLOCK, V3(th * 2.8, th * 2.8, len), BL_COL, MAT.Neon, 0.65)
     outer.CFrame = lookCF
 
-    -- v25.0: искры по всей длине луча
     local sparkN = MOB and 3 or 6
     for i = 1, sparkN do
       local tt = i / (sparkN + 1)
@@ -680,7 +686,6 @@ local function fireBlaster(spos, dirv, mul, wm)
   end)
 end
 
--- Рука Гастера
 local function buildHand(base, scale)
   local ents = {}
   local col = C3(235, 235, 245)
@@ -727,7 +732,6 @@ local function groundAt(p)
   return res and res.Position or p
 end
 
--- ===== stepProj =====
 local function stepProj(dt)
   local list = A.projectiles
   if #list == 0 then return end
@@ -773,12 +777,30 @@ end
 
 -- ===== FIRE abilities =====
 local FIRE = {}
+
+-- v25.0: огонь — 3-слойный снаряд + вспышка вылета
 FIRE.fire = function(ch, origin, dir)
   local sz = 1.6 * (ch and C.charge.size or 1)
-  local p = mkpart(PT_BALL, V3(sz, sz, sz), EL[1].col)
-  p.CFrame = CF(origin); glow(p, EL[1].col, ch and 90 or 45)
-  attachTrail(p, EL[1].col)
-  addProj({ part = p, vel = dir * C.fire.speed * (ch and C.charge.speed or 1), life = 3, rad = sz * 0.5 + 3, onHit = onFire, ch = ch, mul = ch and C.charge.dmg or 1 })
+  local ball = mkpart(PT_BALL, V3(sz, sz, sz), C3(255, 220, 120), MAT.Neon, 0)
+  ball.CFrame = CF(origin)
+  local mid = mkpart(PT_BALL, V3(sz * 1.35, sz * 1.35, sz * 1.35), EL[1].col, MAT.Neon, 0.45)
+  mid.CFrame = CF(origin); mid.Parent = ball
+  local outer = mkpart(PT_BALL, V3(sz * 1.8, sz * 1.8, sz * 1.8), C3(255, 60, 20), MAT.Neon, 0.75)
+  outer.CFrame = CF(origin); outer.Parent = ball
+  local e = Instance.new("ParticleEmitter")
+  e.Color = ColorSequence.new(C3(255, 180, 60), C3(255, 60, 20)); e.LightEmission = 1
+  e.Size = NumberSequence.new(0.8, 0); e.Lifetime = NumberRange.new(0.35, 0.7)
+  e.Speed = NumberRange.new(8, 16); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 80 * LOD
+  e.Parent = ball
+  glow(ball, EL[1].col, ch and 90 or 50)
+  attachTrail(ball, EL[1].col, 0.45, 1.4)
+
+  local flash = mkpart(PT_BALL, V3(2, 2, 2), C3(255, 220, 120), MAT.Neon, 0.2)
+  flash.CFrame = CF(origin)
+  T(flash, 0.25, { Size = V3(6, 6, 6), Transparency = 1 })
+  Debris:AddItem(flash, 0.3)
+
+  addProj({ part = ball, vel = dir * C.fire.speed * (ch and C.charge.speed or 1), life = 3, rad = sz * 0.5 + 3, onHit = onFire, ch = ch, mul = ch and C.charge.dmg or 1 })
 end
 FIRE.earth = function(ch, origin, dir)
   local sz = 2.2 * (ch and C.charge.size or 1)
@@ -796,30 +818,56 @@ FIRE.ice = function(ch, origin, dir)
     addProj({ part = p, vel = d * C.ice.speed * (ch and C.charge.speed or 1), life = 2, rad = 3, onHit = onIce, ch = ch, mul = ch and C.charge.dmg or 1 })
   end
 end
+-- v25.0: молния — 3 разряда + грозовой столб + цепь до 3 целей
 FIRE.lightning = function(ch, origin, dir)
   local list = near(origin, C.lightning.range)
   table.sort(list, function(a, b) return (a.root.Position - origin).Magnitude < (b.root.Position - origin).Magnitude end)
   local t = list[1]
   local to = t and t.root.Position or (origin + dir * C.lightning.range)
+
   bolt(origin, to, EL[5].col, ch and 0.6 or 0.35)
-  burst(to, EL[5].col, 18, 14)
-  impactRing(to, EL[5].col, 4, 0.3)
-  flashScreen(C3(255, 255, 220), 0.82, 0.18); shake(0.3, 0.2)
+  for i = 1, 2 do
+    local off = V3((math.random() - 0.5) * 3, (math.random() - 0.5) * 2, (math.random() - 0.5) * 3)
+    bolt(origin + off, to + off, C3(180, 220, 255), ch and 0.3 or 0.2)
+  end
+
+  local pillar = mkpart(PT_BLOCK, V3(2, 40, 2), C3(200, 230, 255), MAT.Neon, 0.5)
+  pillar.CFrame = CF(to + V3(0, 20, 0))
+  T(pillar, 0.55, { Size = V3(0.3, 60, 0.3), Transparency = 1 })
+  Debris:AddItem(pillar, 0.6)
+
+  local flash = mkpart(PT_BALL, V3(3, 3, 3), C3(255, 255, 220), MAT.Neon, 0.2)
+  flash.CFrame = CF(to)
+  local fl = Instance.new("PointLight"); fl.Color = C3(255, 255, 220); fl.Range = 25; fl.Brightness = 10; fl.Parent = flash
+  T(flash, 0.4, { Size = V3(20, 20, 20), Transparency = 1 })
+  T(fl, 0.5, { Brightness = 0 })
+  Debris:AddItem(flash, 0.6)
+
+  burst(to, EL[5].col, 22, 18)
+  burst(to, C3(255, 255, 220), 12, 24)
+  impactRing(to, EL[5].col, 5, 0.35)
+  impactRing(to, C3(255, 255, 220), 3, 0.25)
+  spawnShards(to, C3(200, 220, 255), 6, 22)
+  flashScreen(C3(255, 255, 220), 0.82, 0.18); shake(0.4, 0.3)
+
   local mul = ch and C.charge.dmg or 1
   if t then
     dmg(t, C.lightning.dmg * mul); slowEnemy(t.hum, 0, C.lightning.stun)
     if ch then
-      for _, e2 in ipairs(near(t.root.Position, 20)) do
-        if e2 ~= t then
-          bolt(t.root.Position, e2.root.Position, EL[5].col, 0.5)
-          dmg(e2, C.lightning.dmg); slowEnemy(e2.hum, 0, C.lightning.stun)
-          break
+      local chainCount = 0
+      for _, e2 in ipairs(near(t.root.Position, 25)) do
+        if e2 ~= t and chainCount < 3 then
+          chainCount = chainCount + 1
+          bolt(t.root.Position, e2.root.Position, C3(180, 220, 255), 0.45)
+          burst(e2.root.Position, C3(255, 255, 220), 10, 16)
+          dmg(e2, C.lightning.dmg * 0.7); slowEnemy(e2.hum, 0, C.lightning.stun * 0.7)
         end
       end
     end
   end
   ping("snap", 1, 1.5)
 end
+
 local function flatDir(dir, r)
   local f = V3(dir.X, 0, dir.Z)
   if f.Magnitude < 0.1 then f = r.CFrame.LookVector * V3(1, 0, 1) end
@@ -898,26 +946,69 @@ FIRE.speed = function(ch, origin, dir, target, c, h, r)
   end
   ping("snap", 1, 1.3)
 end
+
+-- v25.0: ветер — 5 колец вихря + внутренний столб
 FIRE.wind = function(ch, origin, dir, target, c, h, r)
   local p = clampPt(r.Position, target, 40)
-  for k = 0, 2 do
-    task.delay(k * 0.12, function()
+  local vortexCol = EL[8].col
+  local vortexN = MOB and 3 or 5
+  for k = 1, vortexN do
+    task.delay((k - 1) * 0.08, function()
       if not alive then return end
-      local ring = mkpart(Enum.PartType.Cylinder, V3(0.5, 2, 2), EL[8].col, MAT.Neon, 0.45)
-      ring.CFrame = CF(p + V3(0, k * 2, 0)) * CFrame.Angles(0, 0, math.rad(90))
+      local sc = k / vortexN
+      local ring = mkpart(Enum.PartType.Cylinder, V3(0.5, (2 + sc * 8), (2 + sc * 8)), vortexCol, MAT.Neon, 0.55 - 0.35 * sc)
+      ring.CFrame = CF(p + V3(0, k * 1.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
       T(ring, 0.7, { Size = V3(0.5, C.wind.r * 2, C.wind.r * 2), Transparency = 1, CFrame = ring.CFrame * CFrame.Angles(math.rad(170), 0, 0) })
       Debris:AddItem(ring, 0.9)
     end)
   end
-  burst(p, EL[8].col, 30, 18)
+  -- восходящий поток (частицы)
+  local up = mkpart(PT_BALL, V3(2, 2, 2), vortexCol, MAT.Neon, 0.7)
+  up.CFrame = CF(p + V3(0, 2, 0))
+  local pe = Instance.new("ParticleEmitter")
+  pe.Color = ColorSequence.new(vortexCol); pe.LightEmission = 1
+  pe.Size = NumberSequence.new(0.7, 0); pe.Lifetime = NumberRange.new(0.6, 1.2)
+  pe.Speed = NumberRange.new(15, 25); pe.SpreadAngle = Vector2.new(30, 30)
+  pe.Acceleration = V3(0, 30, 0); pe.Rate = 60 * LOD
+  pe.Parent = up
+  T(up, 1.2, { Transparency = 1 })
+  Debris:AddItem(up, 1.4)
+
+  burst(p, vortexCol, 30, 18)
   for _, e in ipairs(near(p, C.wind.r)) do knock(e.root, e.root.Position - p, C.wind.knock * (ch and 1.5 or 1)) end
   ping("snap", 0.9, 0.6)
 end
+
+-- v25.0: яд — туман + капли кислоты
 FIRE.poison = function(ch, origin, dir, target, c, h, r)
   local p = clampPt(r.Position, target, 50)
-  mkCloud(p, C.poison.r * (ch and 1.5 or 1), C.poison.dur, C.poison.dps * (ch and C.charge.dmg or 1), C3(80, 200, 70), false)
+  local R = C.poison.r * (ch and 1.5 or 1)
+  mkCloud(p, R, C.poison.dur, C.poison.dps * (ch and C.charge.dmg or 1), C3(80, 200, 70), false)
+  -- зелёное гало снизу
+  local halo = mkpart(PT_BALL, V3(R * 1.8, 0.5, R * 1.8), C3(120, 220, 80), MAT.Neon, 0.85)
+  halo.CFrame = CF(p + V3(0, 0.3, 0))
+  Debris:AddItem(halo, C.poison.dur)
+  -- капли кислоты падают сверху
+  for i = 1, 5 do
+    task.delay(i * 0.15, function()
+      if not alive then return end
+      local drop = mkpart(PT_BALL, V3(0.6, 0.9, 0.6), C3(150, 230, 60), MAT.Neon, 0.25)
+      local dx = p.X + (math.random() - 0.5) * R * 1.5
+      local dz = p.Z + (math.random() - 0.5) * R * 1.5
+      drop.CFrame = CF(V3(dx, p.Y + 15, dz))
+      local target2 = V3(dx, p.Y, dz)
+      T(drop, 0.6, { CFrame = CF(target2), Transparency = 0.6 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+      task.delay(0.6, function()
+        if drop.Parent then
+          burst(drop.Position, C3(120, 220, 80), 6, 8)
+          drop:Destroy()
+        end
+      end)
+    end)
+  end
   ping("snap", 0.8, 0.5)
 end
+
 FIRE.bone = function(ch, origin, dir)
   local n = ch and 5 or 3
   local step = ch and C.bone.spread * 0.7 or C.bone.spread
@@ -935,6 +1026,7 @@ FIRE.hand = function(ch, origin, dir, target, c, h, r)
   local p = clampPt(r.Position, target, C.hand.range)
   spawnHand(groundAt(p), ch and 1.5 or 1, r.Position, C.hand.dmg * (ch and C.charge.dmg or 1))
 end
+
 -- ===== Комбо (15 шт.) =====
 local COMBOS = {}
 COMBOS["fire+lightning"] = function(origin, dir, target, c, h, r)
@@ -1198,7 +1290,6 @@ function A.aim(on)
   return aiming
 end
 
--- ===== Hide / Show =====
 A.rebuildPanel = nil
 
 function A.hideElement(id)
@@ -1244,7 +1335,6 @@ function A.resetHidden()
   end
 end
 
--- ===== Slow-mo =====
 local function smEnd()
   if not sm then return end
   local s = sm
@@ -1302,7 +1392,7 @@ local function smStep()
 end
 A.slowmo = smStart
 
--- ===== Вода =====
+-- v25.0: вода — 3 капли веером + большие волны
 local function waterTick(dt)
   local c, h, r = getChar()
   if not c then return end
@@ -1311,12 +1401,21 @@ local function waterTick(dt)
   if dir.Magnitude < 0.1 then dir = r.CFrame.LookVector end
   dir = dir.Unit
   waterAcc = waterAcc + dt
-  if waterAcc >= 0.04 then
+  if waterAcc >= 0.035 then
     waterAcc = 0
-    local jit = V3(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5)
-    local d = mkpart(PT_BALL, V3(0.9, 0.9, 0.9), EL[3].col, MAT.Glass, 0.25)
-    d.CFrame = CF(origin + dir * 2 + jit)
-    addProj({ part = d, vel = dir * 70 + jit * 6, g = 12, life = 0.55, visual = true })
+    for i = -1, 1 do
+      local spread = CFrame.Angles(0, math.rad(i * 8), 0):VectorToWorldSpace(dir)
+      local jit = V3(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5)
+      local d = mkpart(PT_BALL, V3(0.9, 0.9, 0.9), EL[3].col, MAT.Glass, 0.2)
+      d.CFrame = CF(origin + spread * 2 + jit)
+      attachTrail(d, C3(140, 220, 255), 0.4, 0.8)
+      addProj({ part = d, vel = spread * 80 + jit * 6, g = 12, life = 0.55, visual = true })
+    end
+    if math.random() < 0.15 then
+      local big = mkpart(PT_BALL, V3(2.5, 2.5, 2.5), C3(100, 200, 255), MAT.Glass, 0.4)
+      big.CFrame = CF(origin + dir * 3)
+      addProj({ part = big, vel = dir * 60, g = 8, life = 0.8, visual = true })
+    end
   end
   for _, e in ipairs(enemies()) do
     local to = e.root.Position - origin
@@ -1331,7 +1430,6 @@ local function waterTick(dt)
   end
 end
 
--- ===== Нажатие / отпускание =====
 local function pressDown()
   if not getChar() then return end
   if A.current == "water" then waterHeld = true; return end
@@ -1347,7 +1445,6 @@ local function pressUp()
   end
 end
 
--- ===== Помощник =====
 local function ruLower(s)
   s = s:lower()
   s = s:gsub("\208([\144-\175])", function(ch)
@@ -1430,7 +1527,6 @@ local KEYN = {}
 for i, k in ipairs({ "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Zero", "Minus", "Equals" }) do KEYN[Enum.KeyCode[k]] = i end
 local KEYLBL = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=" }
 
--- v25.0: полная таблица инструкций для всех 15 комбо
 local COMBO_GUIDE = {
   ["fire+lightning"]     = { "🔥", "⚡", "ПЛАЗМЕННЫЙ ВЗРЫВ",   "Огонь + Молния → крупный АоЕ-взрыв с цепной молнией" },
   ["ice+water"]          = { "❄️", "💧", "ЛЕДЯНАЯ ВОЛНА",     "Лёд + Вода → замедление всех в радиусе 20 st" },
@@ -1577,6 +1673,7 @@ local function mkUI()
       ui.resetBtn.Position = UDim2.new(1, -18, 1, -(ph + 34))
       ui.resetBtn.Visible = anyHidden
     end
+    if ui.guideBtn then ui.guideBtn.Position = UDim2.new(0.5, 0, 1, -(ph + 118)) end
   end
 
   local cb = mkBtn(sg, MOB and "✨ КОМБО" or "✨ КОМБО [F]", 120, 32, UDim2.new(0.5, 0, 1, -(slot + 24)), Vector2.new(0.5, 1))
@@ -1600,7 +1697,6 @@ local function mkUI()
   Instance.new("UICorner", ts).CornerRadius = UDim.new(0, 8)
   ui.toast = ts
 
-  -- Кнопка «📖 ИНСТРУКЦИИ КОМБО»
   local guideBtn = mkBtn(sg, "📖 Комбо", 110, 28, UDim2.new(0.5, 0, 1, -(slot + 118)), Vector2.new(0.5, 1))
   guideBtn.TextSize = 12; guideBtn.BackgroundColor3 = C3(50, 40, 80); guideBtn.TextColor3 = C3(230, 220, 255)
   ui.guideBtn = guideBtn
@@ -1934,6 +2030,7 @@ function A.destroy()
   if folder then pcall(function() folder:Destroy() end); folder = nil end
   ORBIT.abilityMoveUntil = 0
 end
+
 local okUi, errUi = pcall(mkUI)
 if not okUi then warn("[ORBIT] abilities UI: " .. tostring(errUi)) end
 
