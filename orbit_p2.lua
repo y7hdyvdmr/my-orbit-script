@@ -1,5 +1,5 @@
--- orbit_p2.lua v24.4-ai-figures
--- ОРБИТА v24.4-ai-figures — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
+ -- ORBIT v24.3-ai-fix3 | orbit_p2.lua
+-- ОРБИТА v24.3-ai-fix3 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
 -- v24.0: сердце 7×6, HEART_COLORS {name, c}.
 -- v24.2-fix1: финальный блок не подменяет ORBIT.SHAPE_PRESETS целиком.
 -- v24.3-ai: + САНС (№29), + ГАСТЕР (№30), перерисованы ФЛАУИ и ОМЕГА ФЛАУИ.
@@ -11,12 +11,9 @@
 --   * create3DBlasterPlaceholder перерисован под STRONG-форму.
 --   * В mkw добавлен NoRecolor + CanQuery/CanTouch=false.
 --   * В add добавлены CanQuery/CanTouch=false.
--- v24.3-ai-fix3:
+-- v24.3-ai-fix3 (этот файл):
 --   * Закрыт createFlowey_V2 (добавлены return + end перед OmegaFlowey).
 --   * Убраны висячие строки return/end в конце файла.
--- v24.4-ai-figures (этот файл):
---   * САНС и ГАСТЕР переработаны по референсам Sketchfab (только тела функций).
---   * Фигуры смотрят по +Z, низ на y=0. Санс: 40 частей, Гастер: 31 часть.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -1125,217 +1122,218 @@ local function makeFigureKit(model, bodies)
     return kit
 end
 
--- №29 САНС (SANS) — v24.4: узнаваемый силуэт + реквизит (40 частей)
+-- №29 САНС (SANS) — полное тело
 local function createSans(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
+    local detailed = isDetailed()
     local kit = makeFigureKit(model, bodies)
-    local blk = kit.blk
+    local blk, rod = kit.blk, kit.rod
 
-    -- палитра (по скриншоту «sans - Undertale», Sketchfab)
-    local blue    = color or Color3.fromRGB(55, 115, 225)   -- толстовка
-    local white   = Color3.fromRGB(246, 246, 250)           -- тапки
-    local bone    = Color3.fromRGB(250, 250, 252)           -- череп, кисти
-    local black   = Color3.fromRGB(18, 18, 22)              -- шорты, глазницы, ухмылка
-    local cyanEye = Color3.fromRGB(0, 205, 255)             -- голубой глаз (Neon)
-    local boneCy  = Color3.fromRGB(125, 255, 240)           -- кость-реквизит (бирюзовая на скриншоте)
-    local ketchup = Color3.fromRGB(205, 30, 30)             -- бутылка кетчупа
-    local brass   = Color3.fromRGB(235, 195, 30)            -- тромбон
-    local bun     = Color3.fromRGB(185, 115, 60)            -- булочка хот-дога
-    local mustard = Color3.fromRGB(255, 215, 40)            -- горчица
-    local plastic, metal, neon = Enum.Material.SmoothPlastic, Enum.Material.Metal, Enum.Material.Neon
-    local SPH, CYL = Enum.MeshType.Sphere, Enum.MeshType.Cylinder
+    local blue     = color or Color3.fromRGB(55, 115, 225)
+    local blueDark = Color3.fromRGB(38, 85, 175)
+    local white    = Color3.fromRGB(246, 246, 250)
+    local bone     = Color3.fromRGB(250, 250, 252)
+    local black    = Color3.fromRGB(18, 18, 22)
+    local pink     = Color3.fromRGB(255, 165, 190)
+    local cyan     = Color3.fromRGB(0, 205, 255)
+    local fabric, plastic = Enum.Material.Fabric, Enum.Material.SmoothPlastic
+    local SPH = Enum.MeshType.Sphere
 
     local function V(x, y, z) return Vector3.new(x*s, y*s, z*s) end
     local function P(x, y, z) return CFrame.new(x*s, y*s, z*s) end
-    -- цилиндр между двумя точками (оси Y меша выровнена по направлению a->b)
-    local function cyl(nm, a, b, th, col, nr, mat)
-        local dir = b - a
-        local up = (math.abs(dir.Unit.Y) > 0.99) and Vector3.new(0, 0, 1) or Vector3.new(0, 1, 0)
-        local cf = CFrame.lookAt((a + b) * 0.5, b, up) * CFrame.Angles(math.rad(90), 0, 0)
-        return blk(nm, Vector3.new(th, dir.Magnitude, th), cf, col, nr, mat, CYL)
-    end
-    -- маленький свет для светящихся частей (дистанция 6, яркость 1)
-    local function glow(p, col)
-        local l = Instance.new("PointLight")
-        l.Color = col; l.Range = 6; l.Brightness = 1; l.Parent = p
-    end
 
-    -- форма черепа: эллипсоид, лицо смотрит по +Z
-    local HX, HY, HZ, HC = 0.65, 0.50, 0.525, 1.95
+    local HX, HY, HZ, HC = 0.65, 0.50, 0.525, 1.0
     local function surfZ(x, y)
         local k = 1 - (x/HX)^2 - ((y-HC)/HY)^2
-        return HZ * math.sqrt(math.max(0, k))
+        return -HZ * math.sqrt(math.max(0, k))
     end
-
-    -- голова
     blk("Skull", V(HX*2, HY*2, HZ*2), P(0, HC, 0), bone, true, plastic, SPH)
-    blk("Jaw", V(0.84, 0.18, 0.40), P(0, 1.48, 0.27), bone, true, plastic)
+    blk("Cheeks", V(1.05, 0.46, 0.62), P(0, 0.72, -0.06), bone, true, plastic, SPH)
+
     for _, sd in ipairs({-1, 1}) do
-        local ex, ey = sd*0.27, 2.02
-        blk("Socket", V(0.30, 0.34, 0.10), CFrame.new(ex*s, ey*s, surfZ(ex, ey)*s) * CFrame.Angles(0, 0, math.rad(sd*10)),
+        local ex, ey = sd*0.27, 1.04
+        blk("Socket", V(0.31, 0.35, 0.12), CFrame.new(ex*s, ey*s, (surfZ(ex, ey) + 0.01)*s) * CFrame.Angles(0, 0, math.rad(-sd*10)),
             black, true, plastic, SPH)
     end
     do
-        -- фирменный голубой глаз (левый глаз Санса = +X при взгляде по +Z)
-        local gz = surfZ(0.27, 2.02)
-        local eye = blk("EyeGlow", V(0.12, 0.12, 0.06), P(0.27, 2.00, gz + 0.05), cyanEye, true, neon, SPH)
-        glow(eye, cyanEye)
+        local ex, ey = -0.27, 1.02
+        local z = surfZ(ex, ey)
+        blk("EyeGlow", V(0.11, 0.11, 0.06), P(ex, ey, z - 0.10), cyan, true, Enum.Material.Neon, SPH)
+        local aura = blk("EyeAura", V(0.20, 0.20, 0.07), P(ex, ey, z - 0.105), cyan, true, Enum.Material.Neon, SPH)
+        aura.Transparency = 0.65
     end
-    -- ухмылка: дуга из 5 чёрных зубов по нижнему краю черепа
-    for i = 0, 4 do
-        local x = -0.40 + i*0.20
-        local y = 1.64 + 0.5*x*x
-        blk("Smile", V(0.045, 0.16, 0.04), P(x, y, surfZ(x, y) + 0.005), black, true, plastic)
-    end
-
-    -- толстовка
-    blk("Hoodie", V(1.00, 0.70, 0.62), P(0, 1.17, 0), blue, false, plastic)
-    blk("HoodRoll", V(0.86, 0.42, 0.40), P(0, 1.52, -0.30), blue, false, plastic, SPH)
-
-    -- руки: короткий рукав + тонкое белое предплечье + кисть-сфера
-    for _, sd in ipairs({-1, 1}) do
-        local shoulder = V(sd*0.58, 1.42, 0)
-        local elbow    = V(sd*0.64, 1.02, 0.02)
-        local wrist    = V(sd*0.66, 0.74, 0.10)
-        cyl("Sleeve", shoulder, elbow, 0.30*s, blue, false, plastic)
-        cyl("Forearm", elbow, wrist, 0.13*s, bone, true, plastic)
-        blk("Hand", V(0.20, 0.20, 0.20), P(sd*0.66, 0.64, 0.12), bone, true, plastic, SPH)
-    end
-
-    -- ноги: чёрные шорты, белые тапки-капли, ноги слегка расставлены
-    blk("Shorts", V(1.00, 0.52, 0.60), P(0, 0.56, 0), black, true, plastic)
-    for _, sd in ipairs({-1, 1}) do
-        blk("Slipper", V(0.42, 0.30, 0.68), CFrame.new(sd*0.27*s, 0.15*s, 0.10*s) * CFrame.Angles(0, math.rad(sd*10), 0),
-            white, true, plastic, SPH)
-    end
-
-    -- реквизит: кость за головой (цилиндр + 4 шарика по концам)
     do
-        local boneA, boneB = V(0, 1.0, -0.95), V(0, 3.4, -0.95)
-        cyl("Bone", boneA, boneB, 0.17*s, boneCy, true, plastic)
-        for _, e in ipairs({boneA, boneB}) do
-            for _, sd in ipairs({-1, 1}) do
-                blk("BoneEnd", V(0.30, 0.30, 0.30), CFrame.new(e + Vector3.new(sd*0.11*s, 0, 0)), boneCy, true, plastic, SPH)
+        local nz = surfZ(0, 0.86)
+        blk("Nose", V(0.10, 0.14, 0.05), CFrame.new(0, 0.86*s, (nz - 0.005)*s) * CFrame.Angles(math.rad(180), 0, 0),
+            black, true, plastic, Enum.MeshType.Pyramid)
+    end
+    do
+        local pts = {}
+        local N = 8
+        for i = 0, N do
+            local x = -0.50 + i*(1.0/N)
+            local y = 0.62 + 0.15*(x/0.5)^2
+            pts[#pts+1] = Vector3.new(x*s, y*s, (surfZ(x, y) - 0.008)*s)
+        end
+        for i = 1, N do rod(pts[i], pts[i+1], 0.04*s, 0.03*s, black, true, plastic) end
+        for i = 1, 7 do
+            local x = -0.42 + (i-1)*(0.84/6)
+            local y = 0.62 + 0.15*(x/0.5)^2
+            blk("Tooth", V(0.022, 0.15, 0.03), P(x, y + 0.01, surfZ(x, y) - 0.008), black, true, plastic)
+        end
+    end
+
+    local TY = -0.05
+    blk("Hoodie", V(1.00, 0.85, 0.62), P(0, TY, 0), blue, false, fabric)
+    blk("Hem", V(1.06, 0.12, 0.66), P(0, -0.47, 0), blueDark, false, fabric)
+    for _, sd in ipairs({-1, 1}) do
+        blk("Shoulder", V(0.42, 0.42, 0.42), P(sd*0.52, 0.24, 0), blue, false, fabric, SPH)
+    end
+    blk("Hood", V(0.80, 0.55, 0.40), P(0, 0.32, 0.36), blue, false, fabric, SPH)
+    blk("Shirt", V(0.20, 0.72, 0.04), P(0, TY, -0.325), white, true, fabric)
+    for _, sd in ipairs({-1, 1}) do
+        blk("Flap", V(0.10, 0.72, 0.05), P(sd*0.15, TY, -0.335) * CFrame.Angles(0, 0, math.rad(-sd*8)), blue, false, fabric)
+    end
+    blk("Neck", V(0.22, 0.16, 0.22), P(0, 0.50, 0), bone, true, plastic)
+    for k = 0, 9 do
+        local a = k/10*math.pi*2
+        blk("Fur", V(0.27, 0.25, 0.27), P(math.cos(a)*0.50, 0.44, math.sin(a)*0.36), white, true, fabric, SPH)
+    end
+
+    do
+        local shoulder = V(-0.55, 0.22, 0)
+        local pocket   = V(-0.33, -0.30, -0.30)
+        rod(shoulder, pocket, 0.27*s, 0.27*s, blue, false, fabric)
+        blk("Pocket", V(0.36, 0.24, 0.14), P(-0.31, -0.30, -0.335), blueDark, false, fabric, SPH)
+    end
+    do
+        local shoulder = V(0.55, 0.22, 0)
+        local wrist    = V(0.66, -0.40, -0.06)
+        rod(shoulder, wrist, 0.27*s, 0.27*s, blue, false, fabric)
+        blk("Cuff", V(0.30, 0.10, 0.30), P(0.66, -0.43, -0.06), white, true, fabric)
+        blk("Hand", V(0.20, 0.20, 0.20), P(0.67, -0.56, -0.06), bone, true, plastic, SPH)
+        if detailed then
+            for i = -1, 1 do
+                blk("Finger", V(0.05, 0.13, 0.05), P(0.67 + i*0.065, -0.68, -0.06), bone, true, plastic)
             end
         end
     end
-    -- реквизит: два гастер-бластера по бокам (сфера + морда + 2 Neon-глаза)
+
+    blk("Shorts", V(1.00, 0.42, 0.62), P(0, -0.68, 0), black, true, fabric)
     for _, sd in ipairs({-1, 1}) do
-        local base = CFrame.new(sd*1.75*s, 2.15*s, 0.15*s) * CFrame.Angles(0, math.rad(-sd*22), 0)
-        local function L(x, y, z) return base * CFrame.new(x*s, y*s, z*s) end
-        blk("BlasterSkull", V(0.62, 0.72, 0.58), L(0, 0, 0), white, true, plastic, SPH)
-        blk("BlasterSnout", V(0.30, 0.34, 0.52), L(0, -0.20, 0.34), white, true, plastic)
-        for _, ex in ipairs({-1, 1}) do
-            local eye = blk("BlasterEye", V(0.12, 0.20, 0.06), L(ex*0.17, 0.10, 0.235) * CFrame.Angles(0, 0, math.rad(ex*15)),
-                cyanEye, true, neon, SPH)
-            glow(eye, cyanEye)
-        end
+        blk("Stripe", V(0.035, 0.42, 0.64), P(sd*0.50, -0.68, 0), white, true, fabric)
     end
-    -- реквизит: бутылка кетчупа (красный цилиндр + белая крышка)
-    cyl("Ketchup", V(1.20, 0, 0.55), V(1.20, 0.66, 0.55), 0.32*s, ketchup, true, plastic)
-    cyl("KetchupCap", V(1.20, 0.66, 0.55), V(1.20, 0.80, 0.55), 0.15*s, white, true, plastic)
-    -- реквизит: жёлтый тромбон (труба + раструб), Metal
-    do
-        local p0, p1 = V(1.65, 0.07, 0.55), V(2.55, 0.26, 0.15)
-        cyl("Trombone", p0, p1, 0.10*s, brass, true, metal)
-        cyl("TromboneBell", p1, p1 + (p1 - p0).Unit * (0.16*s), 0.46*s, brass, true, metal)
+
+    for _, sd in ipairs({-1, 1}) do
+        rod(V(sd*0.21, -0.86, 0), V(sd*0.21, -1.36, 0), 0.20*s, 0.20*s, bone, true, plastic)
+        blk("Slipper", V(0.42, 0.20, 0.64), P(sd*0.21, -1.45, -0.10), white, true, fabric)
+        blk("SlipperSole", V(0.44, 0.06, 0.66), P(sd*0.21, -1.545, -0.10), pink, true, fabric)
+        blk("SlipperToe", V(0.38, 0.20, 0.30), P(sd*0.21, -1.44, -0.34), pink, true, fabric, SPH)
     end
-    -- реквизит: хот-дог (булочка + полоска горчицы)
-    cyl("HotDog", V(-1.60, 0.14, 0.62), V(-0.95, 0.14, 0.45), 0.26*s, bun, true, plastic)
-    cyl("Mustard", V(-1.55, 0.27, 0.61), V(-1.00, 0.27, 0.46), 0.09*s, mustard, true, plastic)
 
     return model, root, bodies
 end
 
--- №30 ГАСТЕР (GASTER) — v24.4: вытянутая «парящая» мантия + трещина (31 часть)
+-- №30 ГАСТЕР (GASTER) — полное тело, призрачный облик
 local function createGasterBody(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
     local kit = makeFigureKit(model, bodies)
-    local blk = kit.blk
+    local blk, rod = kit.blk, kit.rod
 
-    -- палитра (по скриншоту Gaster, Sketchfab; зелёный отсвет глаз — из текстуры модели)
-    local robeCol  = color or Color3.fromRGB(14, 14, 18)    -- мантия
-    local boneCol  = Color3.fromRGB(240, 240, 235)          -- череп, кисти
-    local dark     = Color3.fromRGB(14, 12, 12)             -- глазницы, рот
-    local crackCol = Color3.fromRGB(40, 36, 36)             -- трещина
-    local glow     = Color3.fromRGB(205, 255, 60)           -- зелёное свечение щели
+    local robeCol  = color or Color3.fromRGB(14, 14, 18)
+    local boneCol  = Color3.fromRGB(240, 240, 235)
+    local dark     = Color3.fromRGB(14, 12, 12)
+    local crackCol = Color3.fromRGB(35, 32, 30)
+    local glow     = Color3.fromRGB(205, 255, 60)
+    local white    = Color3.fromRGB(250, 250, 250)
+    local fabric   = Enum.Material.Fabric
     local plastic  = Enum.Material.SmoothPlastic
-    local SPH, CYL = Enum.MeshType.Sphere, Enum.MeshType.Cylinder
+    local SPH      = Enum.MeshType.Sphere
 
     local function V(x, y, z) return Vector3.new(x*s, y*s, z*s) end
     local function P(x, y, z) return CFrame.new(x*s, y*s, z*s) end
-    -- цилиндр между двумя точками (ось меша выровнена по a->b)
-    local function cyl(nm, a, b, th, col, nr, mat)
-        local dir = b - a
-        local up = (math.abs(dir.Unit.Y) > 0.99) and Vector3.new(0, 0, 1) or Vector3.new(0, 1, 0)
-        local cf = CFrame.lookAt((a + b) * 0.5, b, up) * CFrame.Angles(math.rad(90), 0, 0)
-        return blk(nm, Vector3.new(th, dir.Magnitude, th), cf, col, nr, mat, CYL)
-    end
 
-    -- форма черепа: вытянутый эллипсоид, лицо смотрит по +Z
-    local HX, HY, HZ, HC = 0.45, 0.55, 0.46, 3.40
+    local HX, HY, HZ, HC = 0.65, 0.625, 0.575, 1.0
     local function surfZ(x, y)
         local k = 1 - (x/HX)^2 - ((y-HC)/HY)^2
-        return HZ * math.sqrt(math.max(0, k))
+        return -HZ * math.sqrt(math.max(0, k))
     end
-
-    -- голова (стороны «правый/левый» — с точки зрения зрителя, правый = +X)
     blk("Skull", V(HX*2, HY*2, HZ*2), P(0, HC, 0), boneCol, true, plastic, SPH)
-    -- левый глаз: пустая тёмная глазница
-    blk("Socket", V(0.24, 0.30, 0.08), P(-0.19, 3.50, surfZ(-0.19, 3.50)), dark, true, plastic, SPH)
-    -- правый глаз: вертикальная чёрная щель с тонким светящимся сердечником
-    do
-        local z = surfZ(0.19, 3.50)
-        blk("Slit", V(0.09, 0.36, 0.05), P(0.19, 3.50, z), dark, true, plastic)
-        local core = blk("SlitCore", V(0.035, 0.30, 0.03), P(0.19, 3.50, z + 0.03), glow, true, Enum.Material.Neon)
-        local l = Instance.new("PointLight")
-        l.Color = glow; l.Range = 6; l.Brightness = 1; l.Parent = core
-    end
-    -- трещина на правой стороне черепа (3 тонких тёмных блока под углом)
-    do
-        local cracks = {
-            { 0.22, 3.30,  25 },
-            { 0.30, 3.15, -20 },
-            { 0.34, 3.55,  35 },
-        }
-        for _, c in ipairs(cracks) do
-            blk("Crack", V(0.035, 0.18, 0.03), P(c[1], c[2], surfZ(c[1], c[2]) + 0.003) * CFrame.Angles(0, 0, math.rad(c[3])),
-                crackCol, true, plastic)
-        end
-    end
-    blk("Mouth", V(0.34, 0.04, 0.04), P(0, 3.08, surfZ(0, 3.08)), dark, true, plastic)
-    blk("Neck", V(0.22, 0.22, 0.22), P(0, 2.88, 0), boneCol, true, plastic, SPH)
+    blk("Cheeks", V(0.95, 0.55, 0.80), P(0, 0.58, -0.08), boneCol, true, plastic, SPH)
 
-    -- мантия: плечи + 8 ступеней-цилиндров, низ шире верха в ~3.6 раза
-    blk("Shoulders", V(1.05, 0.55, 0.72), P(0, 2.78, 0), robeCol, false, plastic, SPH)
-    do
-        local tiers, yTop, yBot = 8, 2.85, 0.30
-        local H = (yTop - yBot) / tiers
-        for i = 1, tiers do
-            local t = i / tiers
-            local r = 0.42 + 1.10 * t * t
-            kit.cylY("Robe", r*2*s, H*1.06*s, V(0, yTop - (i - 0.5)*H, 0), robeCol, false, plastic)
-        end
-    end
-    -- рваный низ: 3 зубца по краю, кончики чуть выше y=0 («парение»)
-    for _, deg in ipairs({55, 125, 250}) do
-        local a = math.rad(deg)
-        kit.spike("Hem", V(math.cos(a)*1.30, 0.32, math.sin(a)*1.30), Vector3.new(0, -1, 0), 0.27*s, 0.40*s, robeCol, false, plastic)
-    end
-
-    -- кисти: ладонь-сфера + 4 тонких растопыренных пальца-цилиндра, висят симметрично на уровне груди
     for _, sd in ipairs({-1, 1}) do
-        local c = V(sd*1.05, 2.55, 0.55)
-        blk("Palm", V(0.24, 0.28, 0.10), CFrame.new(c), boneCol, true, plastic, SPH)
-        for i = 1, 4 do
-            local a = (i - 2.5) * 0.32
-            local from = c + V((i - 2.5)*0.055, -0.10, 0)
-            local to = from + Vector3.new(math.sin(a), -math.cos(a), 0) * (0.42*s)
-            cyl("Finger", from, to, 0.045*s, boneCol, true, plastic)
+        local ex, ey = sd*0.30, 1.00
+        local z = surfZ(ex, ey)
+        blk("Socket", V(0.36, 0.40, 0.14), CFrame.new(ex*s, ey*s, (z + 0.01)*s) * CFrame.Angles(0, 0, math.rad(-sd*9)), dark, true, plastic, SPH)
+        blk("EyeGlow", V(0.20, 0.24, 0.07), CFrame.new(ex*s, (ey - 0.02)*s, (z - 0.12)*s) * CFrame.Angles(0, 0, math.rad(-sd*9)),
+            glow, true, Enum.Material.Neon, SPH)
+    end
+    do
+        local nz = surfZ(0, 0.78)
+        blk("Nose", V(0.12, 0.16, 0.06), CFrame.new(0, 0.78*s, (nz - 0.005)*s) * CFrame.Angles(math.rad(180), 0, 0),
+            dark, true, plastic, Enum.MeshType.Pyramid)
+    end
+    do
+        local mz = surfZ(0, 0.50)
+        blk("Mouth", V(0.62, 0.045, 0.05), P(0, 0.50, mz - 0.005), dark, true, plastic)
+        for i = 1, 5 do
+            local x = -0.24 + (i-1)*0.12
+            blk("Tooth", V(0.02, 0.14, 0.04), P(x, 0.50, mz - 0.005), dark, true, plastic)
         end
     end
+    local function surfPt(x, y, off)
+        return Vector3.new(x*s, y*s, (surfZ(x, y) - (off or 0.008))*s)
+    end
+    do
+        local zig = { {0.04, 1.58}, {-0.04, 1.36}, {0.05, 1.16}, {-0.02, 0.98}, {0.02, 0.80} }
+        for i = 1, #zig - 1 do
+            rod(surfPt(zig[i][1], zig[i][2]), surfPt(zig[i+1][1], zig[i+1][2]), 0.035*s, 0.03*s, crackCol, true, plastic)
+        end
+        rod(surfPt(-0.42, 1.12), surfPt(-0.52, 1.30), 0.03*s, 0.03*s, crackCol, true, plastic)
+        rod(surfPt(-0.52, 1.30), surfPt(-0.50, 1.46), 0.03*s, 0.03*s, crackCol, true, plastic)
+        rod(surfPt(0.36, 0.84), surfPt(0.46, 0.66), 0.03*s, 0.03*s, crackCol, true, plastic)
+        rod(surfPt(0.30, 1.52), surfPt(0.18, 1.40), 0.03*s, 0.03*s, crackCol, true, plastic)
+        rod(surfPt(-0.28, 1.50), surfPt(-0.20, 1.42), 0.03*s, 0.03*s, crackCol, true, plastic)
+    end
+
+    local ROBE_T = 0.15
+    local function robe(p) p.Transparency = ROBE_T; return p end
+    robe(blk("Shoulders", V(1.50, 0.70, 0.90), P(0, 0.12, 0.05), robeCol, false, fabric, SPH))
+    for i = 1, 6 do
+        local r = 0.55 + 0.17*(i-1)
+        local y = -0.05 - (i-1)*0.40
+        robe(kit.cylY("Robe", r*2*s, 0.50*s, V(0, y, 0.0), robeCol, false, fabric))
+    end
+    for k = 0, 6 do
+        local a = k/7*math.pi*2
+        local p = kit.spike("Hem", V(math.cos(a)*1.20, -2.28, math.sin(a)*1.20), Vector3.new(0, -1, 0), 0.60*s, 0.36*s, robeCol, false, fabric)
+        p.Transparency = 0.2
+    end
+    do
+        local function robeFront(r, x, y) return Vector3.new(x*s, y*s, -math.sqrt(r*r - x*x)*s - 0.02*s) end
+        local top = 0.2
+        local vTip = Vector3.new(0, -0.55*s, -0.74*s)
+        rod(robeFront(0.55, -0.38, top), vTip, 0.09*s, 0.05*s, white, true, plastic)
+        rod(robeFront(0.55,  0.38, top), vTip, 0.09*s, 0.05*s, white, true, plastic)
+    end
+
+    local function attachHand(side)
+        local hs = s*0.30
+        local hm, hr, hb = create3DHand(hs, Color3.fromRGB(240, 238, 230), "GasterHand", false)
+        hm.Parent = model
+        local pos = Vector3.new(side*2.00*s, 0.15*s, -0.30*s)
+        local tilt = CFrame.Angles(0, 0, math.rad(-side*18))
+        local mirror = (side < 0) and CFrame.Angles(0, math.pi, 0) or CFrame.new()
+        hm:PivotTo(CFrame.new(pos) * tilt * mirror)
+        for _, p in ipairs(hb) do
+            p:SetAttribute("NoRecolor", true)
+            table.insert(bodies, p)
+        end
+    end
+    attachHand(-1)
+    attachHand(1)
 
     return model, root, bodies
 end
