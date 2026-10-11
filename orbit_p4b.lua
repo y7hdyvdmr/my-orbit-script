@@ -866,7 +866,6 @@ onClick(NB.btn.clearTags, function()
     if ORBIT.clearAllTags then ORBIT.clearAllTags() end
     task.wait(0.1); pcall(NB.rebuildPeopleList)
 end)
-
 -- ============================================================
 --       МАГАЗИН / РЕДАКТОР / ИГРА / ГАСТЕР
 -- ============================================================
@@ -875,9 +874,15 @@ onClick(NB.btn.openEditor, function() if ORBIT.openEditor then ORBIT.openEditor(
 onClick(NB.btn.openGame, function() if ORBIT.openMiniGame then ORBIT.openMiniGame() end end)
 do
     NB.modeLabel = function() return (ORBIT.mode == "normal") and "🎭 Режим: Обычный" or "🎭 Режим: Санс" end
+    -- v25.0: если есть модуль Босс Санс — открываем общее меню боссов
     onClick(NB.btn.openGaster, function()
-        if ORBIT.gaster and ORBIT.gaster.open then ORBIT.gaster.open()
-        else ORBIT.notify("⚠️ Модуль Гастера не загружен", Color3.fromRGB(255,200,120), 3) end
+        if ORBIT.sans_boss and ORBIT.sans_boss.open then
+            ORBIT.sans_boss.open()
+        elseif ORBIT.gaster and ORBIT.gaster.open then
+            ORBIT.gaster.open()
+        else
+            ORBIT.notify("⚠️ Модули боссов не загружены", Color3.fromRGB(255,200,120), 3)
+        end
     end)
     onClick(NB.btn.gasterWeapon, function()
         local W = ORBIT.gaster and ORBIT.gaster.weapon
@@ -889,7 +894,6 @@ do
         NB.btn.mode.Text = NB.modeLabel()
     end)
 end
-
 -- ============================================================
 --       ПОМОЩНИК
 -- ============================================================
