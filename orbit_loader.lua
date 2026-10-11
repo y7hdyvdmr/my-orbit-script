@@ -1,11 +1,12 @@
 -- ORBIT v24.2 | orbit_loader.lua
--- ЕДИНЫЙ файл: ядро + GUI + загрузчик 20 модулей
--- BUILD: v24.2-r5
+-- ЕДИНЫЙ файл: ядро + GUI + загрузчик 21 модуля (+weapons_menu)
+-- BUILD: v24.2-r6
 -- r3: + orbit_nolight.lua и orbit_focus.lua.
 -- r4: + orbit_sans_boss.lua (💀 Босс Санс).
 -- r5: + orbit_orbit_combo.lua + orbit_rewards.lua.
+-- r6: + orbit_weapons_menu.lua (🗡 Арсенал оружия).
 
-local BUILD = "v24.2-r5"
+local BUILD = "v24.2-r6"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
 do
@@ -134,6 +135,7 @@ ORBIT.loaded = {
     shop = false, editor3d = false, minigame = false, anticheat = false,
     nolight = false, focus = false,
     sans_boss = false, orbit_combo = false, rewards = false,
+    weapons = false,   -- v24.2-r6: арсенал оружия
 }
 
 ORBIT.saveData = {
@@ -523,7 +525,7 @@ function ORBIT.saveSavesList()
 end
 
 -- ============================================================
---       UNLOAD (v24.2-r5: + sans_boss, orbit_combo, rewards)
+--       UNLOAD (r6: + weapons)
 -- ============================================================
 ORBIT.unload = function()
     ORBIT.unloaded = true
@@ -564,10 +566,11 @@ ORBIT.unload = function()
     if GENV._ORBIT_AC_UNLOAD then
         pcall(GENV._ORBIT_AC_UNLOAD)
     end
-    -- v25.1: полный список модулей (включая новые)
+    -- v24.2-r6: полный список модулей (+weapons)
     for _, k in ipairs({
         "sans", "abilities", "animations", "deathFx", "deathfx",
         "gaster", "sans_boss", "orbit_combo", "rewards",
+        "weapons",
         "tools", "anticheat", "extras", "shop", "minigame",
         "editor3d", "nolight", "focus",
     }) do
@@ -576,7 +579,7 @@ ORBIT.unload = function()
     end
     for _, ch in ipairs(Workspace:GetChildren()) do
         local nm = ch.Name
-        if nm:find("^OrbitAbility_") or nm:find("^OrbitDeathFx_") or nm:find("^OrbitAtmo_") or nm:find("^OrbitSfx_") or nm:find("^OrbitSansBoss_") or nm:find("^OrbitCombo_") or nm:find("^OrbitGasterFx_") then
+        if nm:find("^OrbitAbility_") or nm:find("^OrbitDeathFx_") or nm:find("^OrbitAtmo_") or nm:find("^OrbitSfx_") or nm:find("^OrbitSansBoss_") or nm:find("^OrbitCombo_") or nm:find("^OrbitGasterFx_") or nm:find("^OrbitWeapons_") then
             pcall(function() ch:Destroy() end)
         end
     end
@@ -594,7 +597,7 @@ ORBIT.refreshLoaderStatus = function() end
 ORBIT.currentFile = nil
 
 -- ============================================================
---                    ОЧЕРЕДЬ МОДУЛЕЙ (21 шт.)
+--                    ОЧЕРЕДЬ МОДУЛЕЙ (22 шт.)
 -- ============================================================
 local QUEUE = {
     { file = "orbit_p2.lua",          key = "p2",         short = "P2",   tag = "🔷 Фигуры",        cover = "ФИГУРЫ",       icon = "🔷", color = Color3.fromRGB(120, 200, 255), critical = true },
@@ -608,6 +611,7 @@ local QUEUE = {
     { file = "orbit_sans.lua",        key = "sans",       short = "SNS",  tag = "🎭 Санс",          cover = "САНС",         icon = "🎭", color = Color3.fromRGB(200, 220, 255) },
     { file = "orbit_death_fx.lua",    key = "deathfx",    short = "DFX",  tag = "💀 Смерть FX",     cover = "DEATH FX",     icon = "💀", color = Color3.fromRGB(255, 180, 180) },
     { file = "orbit_gaster.lua",      key = "gaster",     short = "GST",  tag = "👁 Гастер",        cover = "ГАСТЕР",       icon = "👁", color = Color3.fromRGB(200, 140, 255) },
+    { file = "orbit_weapons_menu.lua",key = "weapons",    short = "WPN",  tag = "🗡 Оружие",        cover = "АРСЕНАЛ",      icon = "🗡", color = Color3.fromRGB(180, 200, 255) },   -- v24.2-r6
     { file = "orbit_sans_boss.lua",   key = "sans_boss",  short = "SB",   tag = "💀 Босс Санс",     cover = "БОСС САНС",    icon = "💀", color = Color3.fromRGB(200, 230, 255) },
     { file = "orbit_orbit_combo.lua", key = "orbit_combo",short = "OC",   tag = "🌀 Орбит-комбо",   cover = "ОРБИТ-КОМБО",  icon = "🌀", color = Color3.fromRGB(180, 160, 255) },
     { file = "orbit_rewards.lua",     key = "rewards",    short = "RW",   tag = "🎁 Награды",       cover = "НАГРАДЫ",      icon = "🎁", color = Color3.fromRGB(220, 200, 255) },
@@ -623,6 +627,7 @@ local TOTAL_LOADED = #QUEUE
 for _, it in ipairs(QUEUE) do
     if ORBIT.loaded[it.key] == nil then ORBIT.loaded[it.key] = false end
 end
+
 -- ============================================================
 --                    GUI ЗАГРУЗЧИКА
 -- ============================================================
