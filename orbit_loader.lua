@@ -1,17 +1,10 @@
 -- ORBIT v24.2 | orbit_loader.lua
--- ЕДИНЫЙ файл: ядро + GUI + загрузчик 18 модулей
--- BUILD: v24.2-r3
--- r1: добавлен ЭКРАН 1.5 — выбор режима игрока (Обычный / Санс).
---     Санс: фразы, эффект смерти, реакции. Обычный: тихо.
--- r2: v24.0-fix — 5 дефолтов в DEFAULT_SETTINGS (CastShadow, GlowEnabled, GlowIntensity,
---     SpawnAnim, SpawnFlash); unload чистит shop / editor3d / minigame / extras;
---     ORBIT.stub сбрасывается при запуске.
--- r2-fix1: anticheat выгружается через GENV._ORBIT_AC_UNLOAD (у него нет .destroy);
---          в цикле unload добавлен ключ deathfx (на случай опечатки).
--- r3: + orbit_nolight.lua (💡 кнопка света) и + orbit_focus.lua (🎮 режим игры).
---     Оба грузятся последними, оба выгружаются через .destroy.
+-- ЕДИНЫЙ файл: ядро + GUI + загрузчик 19 модулей
+-- BUILD: v24.2-r4
+-- r3: + orbit_nolight.lua (💡) и + orbit_focus.lua (🎮).
+-- r4: + orbit_sans_boss.lua (💀 Босс Санс, HP 400, 5 наград).
 
-local BUILD = "v24.2-r3"
+local BUILD = "v24.2-r4"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
 do
@@ -138,12 +131,14 @@ ORBIT.loaded = {
     extras = false, tools = false, abilities = false, sans = false,
     deathfx = false, gaster = false, newfigures = false, animations = false,
     shop = false, editor3d = false, minigame = false, anticheat = false,
-    nolight = false, focus = false,
+    nolight = false, focus = false, sans_boss = false,
 }
 
 ORBIT.saveData = {
     gasterUnlocked = false, gasterWeaponUnlocked = false,
     playerMode = "sans", theme = "dark", achievements = {}, rigType = "R15",
+    sansUnlocked = false, sansKnifeUnlocked = false, sansBlueEyeUnlocked = false,
+    rewards = {},
 }
 
 do
@@ -156,8 +151,12 @@ do
             if d.playerMode == "normal" or d.playerMode == "sans" then ORBIT.saveData.playerMode = d.playerMode end
             if d.gasterUnlocked == true then ORBIT.saveData.gasterUnlocked = true end
             if d.gasterWeaponUnlocked == true then ORBIT.saveData.gasterWeaponUnlocked = true end
+            if d.sansUnlocked == true then ORBIT.saveData.sansUnlocked = true end
+            if d.sansKnifeUnlocked == true then ORBIT.saveData.sansKnifeUnlocked = true end
+            if d.sansBlueEyeUnlocked == true then ORBIT.saveData.sansBlueEyeUnlocked = true end
             if type(d.theme) == "string" then ORBIT.saveData.theme = d.theme end
             if type(d.achievements) == "table" then ORBIT.saveData.achievements = d.achievements end
+            if type(d.rewards) == "table" then ORBIT.saveData.rewards = d.rewards end
             if d.rigType == "R6" or d.rigType == "R15" then ORBIT.saveData.rigType = d.rigType end
         end
     end
@@ -166,6 +165,9 @@ ORBIT.mode = ORBIT.saveData.playerMode or "sans"
 ORBIT.RigType = ORBIT.saveData.rigType or "R15"
 ORBIT.gasterUnlocked = ORBIT.saveData.gasterUnlocked
 ORBIT.gasterWeaponUnlocked = ORBIT.saveData.gasterWeaponUnlocked
+ORBIT.sansUnlocked = ORBIT.saveData.sansUnlocked
+ORBIT.sansKnifeUnlocked = ORBIT.saveData.sansKnifeUnlocked
+ORBIT.sansBlueEyeUnlocked = ORBIT.saveData.sansBlueEyeUnlocked
 
 local function getSafeParent()
     local gethuiFn = rawget(GENV, "gethui")
@@ -257,6 +259,7 @@ ORBIT.DEFAULT_SETTINGS = {
     ReactSparksEnabled = false, ReactSparksColorIndex = 1,
 }
 ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
+
 -- ============================================================
 --                    ПРЕСЕТЫ
 -- ============================================================
@@ -286,7 +289,7 @@ P.SHAPE_CATEGORIES = {
     {name="ОСНОВНЫЕ",  shapes={"БЛОК","ШАР","ЦИЛИНДР","КЛИН","ТРЕУГОЛЬНИК","ЗВЕЗДА","КРЕСТ","РОМБ","КОСТЬ","ПИРАМИДА","СПИРАЛЬ"}},
     {name="ОРУЖИЕ",    shapes={"МЕЧ","ЩИТ"}},
     {name="МАГИЯ",     shapes={"ГЛАЗ","ИНЬ-ЯН","МОЛНИЯ","ГАСТЕР БЛАСТЕР"}},
-    {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ","СКАЛА","ДРАКОН","ЦВЕТОК ФЛАУИ","ОМЕГА ФЛАУИ","КОРОНА","ФЕНИКС","ПОРТАЛ"}},
+    {name="СУЩЕСТВА",  shapes={"ЧЕРЕП","РУКА","РУКА-СЕРДЦЕ","ГОЛОВА","СЕРДЦЕ","КРЫЛЬЯ","ЩУПАЛЬЦЕ","СКАЛА","ДРАКОН","ЦВЕТОК ФЛАУИ","ОМЕГА ФЛАУИ","КОРОНА","ФЕНИКС","ПОРТАЛ","САНС","ГАСТЕР"}},
 }
 P.shapeCategoryIndex = 1
 
@@ -411,7 +414,6 @@ function ORBIT.applyPlatformDefaults()
         ORBIT.SETTINGS.ESPEnabled = false
     end
 end
-
 -- МУЗЫКА
 ORBIT.musicEnabled = false; ORBIT.musicSound = nil; ORBIT.savedMusicId = ""; ORBIT.musicVolume = 0.5
 function ORBIT.createMusicSound()
@@ -517,8 +519,9 @@ function ORBIT.saveSavesList()
     if not ORBIT.HAS_FS then return false end
     return pcall(function() writefile(ORBIT.SAVES_FILE, HttpService:JSONEncode(ORBIT.SAVES)) end)
 end
+
 -- ============================================================
---       UNLOAD (v24.2-r3: + nolight, focus)
+--       UNLOAD (v24.2-r4: + sans_boss)
 -- ============================================================
 ORBIT.unload = function()
     ORBIT.unloaded = true
@@ -559,13 +562,13 @@ ORBIT.unload = function()
     if GENV._ORBIT_AC_UNLOAD then
         pcall(GENV._ORBIT_AC_UNLOAD)
     end
-    for _, k in ipairs({ "sans", "abilities", "animations", "deathFx", "deathfx", "gaster", "tools", "anticheat", "extras", "shop", "minigame", "editor3d", "nolight", "focus" }) do
+    for _, k in ipairs({ "sans", "abilities", "animations", "deathFx", "deathfx", "gaster", "sans_boss", "tools", "anticheat", "extras", "shop", "minigame", "editor3d", "nolight", "focus" }) do
         local m = ORBIT[k]
         if type(m) == "table" and type(m.destroy) == "function" then pcall(m.destroy) end
     end
     for _, ch in ipairs(Workspace:GetChildren()) do
         local nm = ch.Name
-        if nm:find("^OrbitAbility_") or nm:find("^OrbitDeathFx_") or nm:find("^OrbitAtmo_") or nm:find("^OrbitSfx_") then
+        if nm:find("^OrbitAbility_") or nm:find("^OrbitDeathFx_") or nm:find("^OrbitAtmo_") or nm:find("^OrbitSfx_") or nm:find("^OrbitSansBoss_") then
             pcall(function() ch:Destroy() end)
         end
     end
@@ -583,7 +586,7 @@ ORBIT.refreshLoaderStatus = function() end
 ORBIT.currentFile = nil
 
 -- ============================================================
---                    ОЧЕРЕДЬ МОДУЛЕЙ (18 шт.)
+--                    ОЧЕРЕДЬ МОДУЛЕЙ (19 шт.)
 -- ============================================================
 local QUEUE = {
     { file = "orbit_p2.lua",          key = "p2",         short = "P2",   tag = "🔷 Фигуры",        cover = "ФИГУРЫ",       icon = "🔷", color = Color3.fromRGB(120, 200, 255), critical = true },
@@ -597,6 +600,7 @@ local QUEUE = {
     { file = "orbit_sans.lua",        key = "sans",       short = "SNS",  tag = "🎭 Санс",          cover = "САНС",         icon = "🎭", color = Color3.fromRGB(200, 220, 255) },
     { file = "orbit_death_fx.lua",    key = "deathfx",    short = "DFX",  tag = "💀 Смерть FX",     cover = "DEATH FX",     icon = "💀", color = Color3.fromRGB(255, 180, 180) },
     { file = "orbit_gaster.lua",      key = "gaster",     short = "GST",  tag = "👁 Гастер",        cover = "ГАСТЕР",       icon = "👁", color = Color3.fromRGB(200, 140, 255) },
+    { file = "orbit_sans_boss.lua",   key = "sans_boss",  short = "SB",   tag = "💀 Босс Санс",     cover = "БОСС САНС",    icon = "💀", color = Color3.fromRGB(200, 230, 255) },
     { file = "orbit_new_figures.lua", key = "newfigures", short = "NF",   tag = "🔷 Новые фигуры",  cover = "НОВЫЕ ФИГУРЫ", icon = "🔷", color = Color3.fromRGB(150, 220, 255) },
     { file = "orbit_animations.lua",  key = "animations", short = "ANM",  tag = "🎬 Анимации",      cover = "АНИМАЦИИ",     icon = "🎬", color = Color3.fromRGB(255, 180, 220) },
     { file = "orbit_editor3d.lua",    key = "editor3d",   short = "3D",   tag = "🔮 Редактор 3D",   cover = "РЕДАКТОР 3D",  icon = "🔮", color = Color3.fromRGB(200, 160, 255) },
@@ -609,7 +613,6 @@ local TOTAL_LOADED = #QUEUE
 for _, it in ipairs(QUEUE) do
     if ORBIT.loaded[it.key] == nil then ORBIT.loaded[it.key] = false end
 end
-
 -- ============================================================
 --                    GUI ЗАГРУЗЧИКА
 -- ============================================================
@@ -783,7 +786,7 @@ local function onTap(btn, fn)
 end
 
 -- ============================================================
---              ЭКРАН 1.5: ВЫБОР РЕЖИМА (Обычный / Санс)
+--              ЭКРАН 1.5: ВЫБОР РЕЖИМА
 -- ============================================================
 local modeScreen = Instance.new("Frame")
 modeScreen.Size = UDim2.new(0, 460, 0, 500)
@@ -957,7 +960,6 @@ end
 setCover("✨", "ГОТОВ К ЗАГРУЗКЕ", "p2 → p3 → p4 → p4b → остальные", C_GREEN)
 updateRingProgress(0)
 
--- ЛОГ
 local term = Instance.new("Frame")
 term.Size = UDim2.new(1, -32, 0, 220)
 term.Position = UDim2.new(0, 16, 0, 168)
@@ -1033,7 +1035,6 @@ local function addLog(kind, text)
 end
 ORBIT.addLog = addLog
 
--- ПРОГРЕСС
 local progHolder = Instance.new("Frame")
 progHolder.Size = UDim2.new(1, -32, 0, 28)
 progHolder.Position = UDim2.new(0, 16, 0, 396)
@@ -1199,7 +1200,6 @@ local function autoLoadAll()
     refreshStatus()
 end
 
--- СТАРТ КНОПКА
 onTap(startBtn, function()
     if not (ORBIT.loaded.p2 and ORBIT.loaded.p3 and ORBIT.loaded.p4 and ORBIT.loaded.p4b) then
         ORBIT.notify("Сначала загрузи все части", Color3.fromRGB(255, 200, 100), 3)
