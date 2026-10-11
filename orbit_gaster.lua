@@ -1,8 +1,12 @@
--- ORBIT v24.2-fix2 | orbit_gaster.lua
+-- ORBIT v25.0 | orbit_gaster.lua
 -- 16 осколков + ловушки + босс-файт + белое оружие.
 -- v24.2: "ЗАКРЫТЬ" прячет UI, но НЕ сбрасывает игру.
 -- v24.2-fix1: G.destroy восстанавливает ab.fireId (сохраняем в G._origFireId).
 -- v24.2-fix2: createGaster перерисован (STRONG) по силуэту из Blender-файла.
+-- v25.0:
+--   * HP босса 500 → 650.
+--   * Ротация 4 атак: бластер, веер костей, рука, двойной бластер.
+--   * +2 награды: скин «Гастер-босс», синий глаз-тик. Монеты +800.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -136,7 +140,6 @@ local function createGaster(size, name)
     return p
   end
 
-  -- ===== череп =====
   bar("Skull", V3(0, 0.1, 0.8), V3(0, 1.3, 2.0), 1.25, 1.0)
   bar("SkullBack", V3(0, 1.2, 1.9), V3(0, 2.7, 3.2), 2.0, 1.0)
   bar("Dome", V3(0, 2.0, 2.6), V3(0, 3.0, 3.4), 1.7, 0.7)
@@ -144,10 +147,8 @@ local function createGaster(size, name)
   for _, sd in ipairs({ -1, 1 }) do
     bar("Cheek", V3(sd * 0.55, 0.3, 0.7), V3(sd * 0.95, 1.6, 1.4), 0.3, 0.35)
   end
-  -- морда, нос
   bar("Snout", V3(0, -0.2, 1.2), V3(0, 1.0, 1.6), 0.65, 0.5)
   bar("NosePlate", V3(0, -0.22, 1.55), V3(0, 0.6, 1.85), 0.3, 0.12, RIB, MAT.Metal)
-  -- челюсть, боковые отростки
   bar("Jaw", V3(0, -0.2, 0.35), V3(0, 1.3, 0.75), 0.6, 0.28)
   bar("Chin", V3(0, -0.28, 0.2), V3(0, 0.1, 0.45), 0.4, 0.3)
   for _, sd in ipairs({ -1, 1 }) do
@@ -155,7 +156,6 @@ local function createGaster(size, name)
     wedge("JawSpike", V3(sd * 1.2, 2.4, 1.25), V3(sd * 1.55, 3.0, 1.3), 0.14, 0.3)
     wedge("JawSpike", V3(sd * 0.9, 1.5, 0.95), V3(sd * 1.4, 1.9, 1.05), 0.12, 0.24)
   end
-  -- зубы
   for _, sd in ipairs({ -1, 1 }) do
     for i = 0, 3 do
       local c = U(V3(sd * (0.2 + 0.07 * i), 0.0 + 0.3 * i, 0.83))
@@ -168,12 +168,10 @@ local function createGaster(size, name)
       table.insert(bodies, t)
     end
   end
-  -- пасть
   bar("MouthDark", V3(0, 0.15, 0.75), V3(0, 1.5, 0.9), 0.5, 0.4, DARK, MAT.SmoothPlastic)
   local mg = add("MouthGlow", V3(0.4 * u, 0.4 * u, 0.4 * u), CF(U(V3(0, 0.5, 0.75))), GLOW, MAT.Neon, true, 0.35)
   mg.Shape = PT_BALL
   local ml = Instance.new("PointLight"); ml.Name = "MouthLight"; ml.Color = GLOW; ml.Range = 8; ml.Brightness = 1.2; ml.Parent = mg
-  -- глазницы
   for _, sd in ipairs({ -1, 1 }) do
     local pos = U(V3(sd * 0.64, 0.85, 1.7))
     local dir = V3(sd * 0.85, 0.2, -0.5).Unit
@@ -188,7 +186,6 @@ local function createGaster(size, name)
     pupil.Shape = PT_BALL
     local pl = Instance.new("PointLight"); pl.Name = "EyeLight"; pl.Color = GLOW; pl.Range = 7; pl.Brightness = 1.4; pl.Parent = pupil
   end
-  -- крылья
   local wings = {
     { V3(0.45, 2.3, 2.9), V3(1.0, 3.5, 3.8), 0.8 },
     { V3(0.8, 2.3, 2.4), V3(1.35, 3.45, 3.15), 0.7 },
@@ -213,7 +210,6 @@ local function createGaster(size, name)
   if not tiny then
     local A2, B2, NUP = V3(0, 1.2, 1.9), V3(0, 2.7, 3.2), V3(0, -0.6549, 0.7556)
     local function top(t, x, off) return A2 + (B2 - A2) * t + NUP * (0.5 + off) + V3(x, 0, 0) end
-    -- гравировка
     bar("Engrave", top(0.15, 0, 0.01), top(0.85, 0, 0.01), 0.06, 0.02, ENG, MAT.SmoothPlastic)
     for _, sd in ipairs({ -1, 1 }) do
       bar("Engrave", top(0.25, sd * 0.5, 0.01), top(0.8, sd * 0.5, 0.01), 0.05, 0.02, ENG, MAT.SmoothPlastic)
@@ -221,14 +217,12 @@ local function createGaster(size, name)
     for _, t in ipairs({ 0.4, 0.6, 0.8 }) do
       bar("Engrave", top(t, -0.45, 0.01), top(t, 0.45, 0.01), 0.05, 0.02, ENG, MAT.SmoothPlastic)
     end
-    -- рёбра жёсткости
     for _, t in ipairs({ 0.3, 0.5, 0.7 }) do
       bar("Rib", top(t, -0.8, 0.04), top(t, 0.8, 0.04), 0.09, 0.08, RIB, MAT.Metal)
     end
     for _, sd in ipairs({ -1, 1 }) do
       bar("Rib", top(0.15, sd * 0.8, 0.04), top(0.9, sd * 0.8, 0.04), 0.1, 0.08, RIB, MAT.Metal)
     end
-    -- аура
     local aura = add("Aura", V3(2.6 * u, 2.6 * u, 2.6 * u), CF(U(V3(0, 2.4, 2.9))), GLOW, MAT.Neon, true, 0.92)
     aura.Shape = PT_BALL
     local ad = V3(0, 0.6549, 0.7556)
@@ -239,7 +233,6 @@ local function createGaster(size, name)
     end
   end
 
-  -- Charge / Beam
   local cz = U(V3(0, -0.38, 0.72))
   local charge = add("Charge", V3(0.3 * s, 0.3 * s, 0.3 * s), CF(cz), COL_CHARGE, MAT.Neon, true, 0.2)
   charge.Shape = PT_BALL
@@ -557,7 +550,7 @@ local function showBossUI()
 
   local hpTxt = Instance.new("TextLabel")
   hpTxt.Size = UDim2.new(1, 0, 1, 0); hpTxt.BackgroundTransparency = 1
-  hpTxt.Text = "500 / 500"; hpTxt.TextColor3 = C3(255, 255, 255)
+  hpTxt.Text = "650 / 650"; hpTxt.TextColor3 = C3(255, 255, 255)
   hpTxt.Font = Enum.Font.GothamBold; hpTxt.TextSize = 12; hpTxt.ZIndex = 2; hpTxt.Parent = hpBg
 
   G.bossUI = { sg = sg, frame = frame, nameLbl = nameLbl, hpFill = hpFill, hpTxt = hpTxt }
@@ -680,7 +673,7 @@ local function trapHit(trap)
   Debris:AddItem(bp, 1.5)
 end
 -- ============================================================
---       БОСС
+--       БОСС (v25.0: 650 HP + 4 атаки)
 -- ============================================================
 function G.startBoss()
   if not alive then return end
@@ -700,17 +693,18 @@ function G.startBoss()
   pcall(function() data.model:PivotTo(CFrame.lookAt(bp, center)) end)
   G.boss = {
     data = data,
-    hp = 500, maxHp = 500,
+    hp = 650, maxHp = 650,
     phase = 1,
     angle = 0,
     riseT = 0,
-    nextShot = tick() + 3,
+    nextAttack = tick() + 3,
     shotCharging = false,
     chargeStart = 0,
     chargeTarget = nil,
     fire = nil,
     basePos = bp,
     timeStart = tick(),
+    attackRot = 0,
   }
   showBossUI()
   updateBossUI()
@@ -797,11 +791,29 @@ function G.winBoss()
   ORBIT.saveData = ORBIT.saveData or {}
   ORBIT.saveData.gasterUnlocked = true
   ORBIT.saveData.gasterWeaponUnlocked = true
+  -- v25.0: новые награды
+  ORBIT.saveData.rewards = ORBIT.saveData.rewards or {}
+  local newRewards = {}
+  if not ORBIT.saveData.rewards["gaster_boss_skin"] then
+    ORBIT.saveData.rewards["gaster_boss_skin"] = true
+    newRewards[#newRewards + 1] = "🎨 Скин «Гастер-босс» открыт в магазине"
+  end
+  if not ORBIT.saveData.rewards["blue_eye_tick"] then
+    ORBIT.saveData.rewards["blue_eye_tick"] = true
+    newRewards[#newRewards + 1] = "💧 Синий глаз-тик: раз в 45 сек — предупреждение"
+  end
   if ORBIT.saveSettings then pcall(ORBIT.saveSettings) end
   if ORBIT.COINS then
-    ORBIT.COINS = (ORBIT.COINS or 0) + 500
+    ORBIT.COINS = (ORBIT.COINS or 0) + 800
     if ORBIT.saveStorage then pcall(ORBIT.saveStorage) end
-    if ORBIT.notify then ORBIT.notify("💰 +500 монет за победу!", C3(255, 220, 100), 4) end
+    if ORBIT.notify then ORBIT.notify("💰 +800 монет за победу!", C3(255, 220, 100), 4) end
+  end
+  for i, msg in ipairs(newRewards) do
+    if ORBIT.notify then
+      task.delay(0.4 + i * 0.6, function()
+        ORBIT.notify(msg, C3(200, 220, 255), 4)
+      end)
+    end
   end
   if G.ui then toast("✅ ГАСТЕР ПОВЕРЖЕН! Оружие доступно.") end
   if ORBIT.notify then
@@ -933,6 +945,61 @@ local function showWarningLine(from, to)
   Debris:AddItem(p, 0.5)
 end
 
+-- ============================================================
+--       v25.0: НОВЫЕ АТАКИ ГАСТЕРА
+-- ============================================================
+local function attackBonesVolley(center, model)
+  local ab = ORBIT.abilities
+  if not ab or not ab.spawnBones then return end
+  local from = model:GetPivot().Position
+  local d = (center - from)
+  if d.Magnitude < 1 then d = V3(0, 0, 1) end
+  local dir = d.Unit
+  local n = G.boss and (G.boss.hp > G.boss.maxHp * 0.5 and 5 or 7) or 5
+  pcall(ab.spawnBones, from + V3(0, 1, 0), dir, n, 14, 1.5, false)
+  ping("snap", 1, 1.4)
+  if ORBIT.sans and ORBIT.sans.say and math.random() < 0.4 then
+    pcall(ORBIT.sans.say, "attack")
+  end
+end
+
+local function attackGroundHand(center)
+  local ab = ORBIT.abilities
+  if not ab or not ab.spawnHand then return end
+  local x = center.X + (math.random() - 0.5) * 10
+  local z = center.Z + (math.random() - 0.5) * 10
+  local groundPos = V3(x, center.Y - 2.5, z)
+  pcall(ab.spawnHand, groundPos, 1.4, center, 35, 5.5, 0.5)
+  ping("snap", 0.9, 0.6)
+end
+
+local function attackDoubleBlaster(center, model)
+  local from = model:GetPivot().Position
+  local d = (center - from)
+  if d.Magnitude < 1 then d = V3(0, 0, 1) end
+  local dir = d.Unit
+  local right = dir:Cross(V3(0, 1, 0)).Unit
+  for _, sd in ipairs({-1, 1}) do
+    task.delay((sd == 1) and 0 or 0.15, function()
+      if not alive or not G.boss then return end
+      local spos = from + right * (sd * 5) + V3(0, 2, 0)
+      showWarningLine(spos, center)
+      task.delay(0.4, function()
+        if not alive or not G.boss then return end
+        shootBeam({ charge = { Position = spos } }, { tpos = center })
+        local ab = ORBIT.abilities
+        if ab and ab.fireBlaster then
+          pcall(ab.fireBlaster, spos, dir, 1.2, 1.2)
+        end
+      end)
+    end)
+  end
+  ping("snap", 1, 1.5)
+  if ORBIT.sans and ORBIT.sans.say then
+    task.delay(0.5, function() pcall(ORBIT.sans.say, "attack") end)
+  end
+end
+
 local function stepBoss(dt, t)
   local b = G.boss
   if not b then return end
@@ -955,23 +1022,38 @@ local function stepBoss(dt, t)
   if k < 1 then return end
 
   local phase = b.hp > b.maxHp * 0.66 and 1 or (b.hp > b.maxHp * 0.33 and 2 or 3)
-  local shotCooldown = phase == 1 and 3 or (phase == 2 and 2.2 or 1.6)
-  local beamsPerShot = phase == 1 and 1 or (phase == 2 and 2 or 3)
+  -- v25.0: ротация 4 атак
+  b.attackRot = (b.attackRot or 0)
+  b.nextAttack = b.nextAttack or (t + 2)
 
-  if not b.shotCharging and t >= b.nextShot then
-    b.shotCharging = true
-    b.chargeStart = t
-    b.chargeTarget = center
-    b.beamsPerShot = beamsPerShot
-    if root then
-      for i = 1, beamsPerShot do
-        task.delay((i - 1) * 0.12, function()
-          if not alive or not G.boss then return end
-          local spread = (i - (beamsPerShot + 1) / 2) * 3
-          local predictedPos = root.Position + V3(spread, 2, 0)
-          showWarningLine(b.charge and b.charge.Position or m:GetPivot().Position, predictedPos)
-        end)
+  if t >= b.nextAttack then
+    b.attackRot = b.attackRot + 1
+    local maxAtk = phase == 1 and 2 or (phase == 2 and 3 or 4)
+    local attackId = ((b.attackRot - 1) % maxAtk) + 1
+    local cooldown = phase == 1 and 3.5 or (phase == 2 and 2.5 or 1.8)
+    b.nextAttack = t + cooldown + math.random() * 0.5
+
+    if attackId == 1 then
+      b.shotCharging = true
+      b.chargeStart = t
+      b.chargeTarget = center
+      b.beamsPerShot = phase == 1 and 1 or 2
+      if root then
+        for i = 1, b.beamsPerShot do
+          task.delay((i - 1) * 0.12, function()
+            if not alive or not G.boss then return end
+            local spread = (i - (b.beamsPerShot + 1) / 2) * 3
+            local predictedPos = root.Position + V3(spread, 2, 0)
+            showWarningLine(b.charge and b.charge.Position or m:GetPivot().Position, predictedPos)
+          end)
+        end
       end
+    elseif attackId == 2 then
+      attackBonesVolley(center, m)
+    elseif attackId == 3 then
+      attackGroundHand(center)
+    elseif attackId == 4 then
+      attackDoubleBlaster(center, m)
     end
   end
 
@@ -991,7 +1073,6 @@ local function stepBoss(dt, t)
     if el >= 0.8 then
       b.shotCharging = false
       b.shotFired = false
-      b.nextShot = t + shotCooldown
     end
   else
     if b.light then b.light.Brightness = 1.5 + 0.5 * math.sin(t * 3) end
@@ -1100,7 +1181,6 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
     end
   end
 end)
-
 function G.open()
   if not alive then return false end
   if (G.state == "collecting" or G.state == "boss") then
@@ -1354,7 +1434,7 @@ end
 RS.Heartbeat:Connect(function(dt) if alive then W.update(dt) end end)
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v24.2-fix2 (16 осколков + босс + новый череп)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v25.0 (650 HP + 4 атаки + новые награды)", C3(220, 200, 255), 3)
 end
 
 return true
