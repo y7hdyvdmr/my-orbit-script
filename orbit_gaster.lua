@@ -1,7 +1,7 @@
--- ORBIT v25.2-fix2 | orbit_gaster.lua
+-- ORBIT v25.2-fix3 | orbit_gaster.lua
 -- 16 частей тела + ловушки + босс-файт + белое оружие.
--- v25.2-fix1: добавлен G.active = true при старте босса.
--- v25.2-fix2: добавлен data.model.Parent = fold() — без него модель не видна.
+-- v25.2-fix3: босс = пресет «ГАСТЕР» из p2 (чёрный балахон), scale=5 (больше игрока).
+--             Бластер-оружие в руке увеличено до 1.5.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -330,15 +330,10 @@ local function createGaster(size, name)
   return { model = model, part = root, isModel = true, bodyParts = bodies, visualSize = s * 3.4 }
 end
 
+-- v25.2-fix3: НЕ регистрируем больше "ГАСТЕР БЛАСТЕР" — этот пресет уже есть в orbit_p2.lua.
+-- Прежняя версия перезаписывала его белым крылатым Гастером и путала.
 function G.registerShape()
-  local pr = ORBIT.SHAPE_PRESETS
-  if type(pr) ~= "table" then return false end
-  local nm = "ГАСТЕР БЛАСТЕР"
-  local create = function(size, name) return createGaster(size, name) end
-  for _, p in ipairs(pr) do
-    if p.name == nm then p.create = create; p.isModel = true; G.shapeRegistered = true; return true end
-  end
-  pr[#pr + 1] = { name = nm, isModel = true, create = create, visualSize = 3.4 }
+  -- Заглушка: оставляем пресеты из p2 как есть.
   G.shapeRegistered = true
   return true
 end
@@ -633,8 +628,9 @@ end
 -- ============================================================
 local function collectLegs(model)
   local legs = {}
+  -- у пресета «ГАСТЕР» ноги называются "Shoe"
   for _, d in ipairs(model:GetDescendants()) do
-    if d:IsA("BasePart") and d.Name == "Shoe" then
+    if d:IsA("BasePart") and (d.Name == "Shoe" or d.Name == "Leg") then
       legs[#legs + 1] = { p = d, baseRel = d.CFrame, side = (d.Position.X > model:GetPivot().Position.X) and 1 or -1 }
     end
   end
@@ -740,7 +736,7 @@ end
 local function attackBlaster(model)
   local c, h, r = getChar()
   if not r then return end
-  local from = model:GetPivot().Position + V3(0, 3, 0)
+  local from = model:GetPivot().Position + V3(0, 5, 0)
   local to = r.Position
   shootBeamSimple(from, to)
   if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack") end
@@ -762,7 +758,7 @@ local function attackBones(model)
   local c, h, r = getChar()
   if not r then return end
   local ab = ORBIT.abilities
-  local from = model:GetPivot().Position + V3(0, 2, 0)
+  local from = model:GetPivot().Position + V3(0, 3, 0)
   local d = (r.Position - from)
   if d.Magnitude < 1 then d = V3(0, 0, 1) end
   local dir = d.Unit
@@ -915,7 +911,7 @@ local function trapHit(trap)
 end
 
 -- ============================================================
---       БОСС
+--       БОСС — v25.2-fix3: пресет «ГАСТЕР» из p2, scale = 5
 -- ============================================================
 function G.startBoss()
   if not alive then return end
@@ -940,12 +936,30 @@ function G.startBoss()
   TS:Create(cc, TweenInfo.new(1.5), { Brightness = -0.15, Saturation = -0.3, TintColor = C3(230, 230, 255) }):Play()
   ping("laugh", 1, 0.8)
 
-  local data = createGaster(3, "GasterBoss")
-  data.model.Parent = fold()          -- ═══ v25.2-fix2 ═══
-  local spawnPos = root.Position + root.CFrame.LookVector * 15
+  -- ═══ v25.2-fix3: берём пресет «ГАСТЕР» из orbit_p2.lua (чёрный балахон, белые руки) ═══
+  -- Scale = 5 — в 1.6 раза больше обычного игрока (R15 ~5 studs → босс ~8 studs)
+  local data = nil
+  local presets = ORBIT.SHAPE_PRESETS
+  if type(presets) == "table" then
+    for _, p in ipairs(presets) do
+      if p.name == "ГАСТЕР" and type(p.create) == "function" then
+        local ok, d = pcall(p.create, 5, "GasterBoss")
+        if ok and d and d.model then data = d end
+        break
+      end
+    end
+  end
+  if not data then
+    warn("[OrbitGaster] пресет «ГАСТЕР» не найден, fallback на createGaster")
+    data = createGaster(5, "GasterBoss")
+  end
+  data.model.Parent = fold()
+
+  local spawnPos = root.Position + root.CFrame.LookVector * 20
   local gp = groundAt(spawnPos)
   local finalPos = V3(gp.X, gp.Y + 3, gp.Z)
   pcall(function() data.model:PivotTo(CFrame.lookAt(finalPos, root.Position)) end)
+
   G.boss = {
     data = data,
     model = data.model,
@@ -958,6 +972,7 @@ function G.startBoss()
     shotFired = false,
     chargeStart = 0,
   }
+  -- У пресета «ГАСТЕР» нет Charge/GLight, но если есть — подхватим
   for _, d in ipairs(data.model:GetDescendants()) do
     if d.Name == "Charge" then
       G.boss.charge = d
@@ -1242,7 +1257,19 @@ function G.removeFigure()
 end
 
 local function buildFigure()
-  local data = createGaster(3, "GasterOrbit")
+  -- для орбит-комбо используем пресет «ГАСТЕР» — тот же, что и для босса
+  local presets = ORBIT.SHAPE_PRESETS
+  local data = nil
+  if type(presets) == "table" then
+    for _, p in ipairs(presets) do
+      if p.name == "ГАСТЕР" and type(p.create) == "function" then
+        local ok, d = pcall(p.create, 4, "GasterOrbit")
+        if ok and d and d.model then data = d end
+        break
+      end
+    end
+  end
+  if not data then data = createGaster(4, "GasterOrbit") end
   data.model.Parent = fold()
   local f = { data = data, angle = 0, riseT = 0, nextShot = tick() + 5, fire = nil }
   f.charge = data.model:FindFirstChild("Charge", true)
@@ -1296,7 +1323,7 @@ function G.assemble(quick)
   return true
 end
 -- ============================================================
---       ОРУЖИЕ (белое, v25.2)
+--       ОРУЖИЕ (v25.2-fix3: бластер в руке = 1.5, вместо 0.55)
 -- ============================================================
 local W = { equipped = false, models = {}, proj = {}, cdUntil = 0, conns = {}, side = 1 }
 local wFolder, wGui, wBtn = nil, nil, nil
@@ -1419,8 +1446,20 @@ function W.equip()
   end
   local c, h = getChar()
   if not c or h.Health <= 0 then return false end
+  -- v25.2-fix3: бластер в руке — пресет «ГАСТЕР БЛАСТЕР» из p2 (череп), scale = 1.5
   for _, k in ipairs({ "L", "R" }) do
-    local data = createGaster(0.55, "GasterHand" .. k)
+    local data = nil
+    local presets = ORBIT.SHAPE_PRESETS
+    if type(presets) == "table" then
+      for _, p in ipairs(presets) do
+        if p.name == "ГАСТЕР БЛАСТЕР" and type(p.create) == "function" then
+          local ok, d = pcall(p.create, 1.5, "GasterHand" .. k)
+          if ok and d and d.model then data = d end
+          break
+        end
+      end
+    end
+    if not data then data = createGaster(1.5, "GasterHand" .. k) end
     data.model.Parent = wFold()
     for _, d in ipairs(data.model:GetDescendants()) do
       if d:IsA("BasePart") then d:SetAttribute("NoRecolor", true) end
@@ -1433,7 +1472,7 @@ function W.equip()
   ORBIT.saveData = ORBIT.saveData or {}
   ORBIT.saveData.gasterWeaponUnlocked = true
   if ORBIT.saveSettings then pcall(ORBIT.saveSettings) end
-  wNotify("👁 Гастеры в руках: G — выстрел, H — снять")
+  wNotify("👁 Гастер-бластеры в руках: G — выстрел, H — снять")
   return true
 end
 
@@ -1620,7 +1659,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v25.2-fix2 (16 частей + ходьба + 4 атаки)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v25.2-fix3 (чёрный босс scale 5 + бластер 1.5)", C3(220, 200, 255), 3)
 end
 
 return true
