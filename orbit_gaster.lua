@@ -1,11 +1,9 @@
--- ORBIT v25.2-fix4 | orbit_gaster.lua
+-- ORBIT v25.2-fix5 | orbit_gaster.lua
 -- 16 частей тела + ловушки + босс-файт + белое оружие.
--- v25.2-fix4:
---   * Босс — пресет «ГАСТЕР» из p2 (чёрный балахон), scale 5.
---   * Развёрнут лицом к игроку (math.pi).
---   * Руки босса ×2.
---   * Бластер-оружие в руке ×2 (scale 3).
---   * Награда — «Гастер-бластер» (оружие), а не фигура целиком.
+-- v25.2-fix5:
+--   * Босс — пресет «ГАСТЕР» из p2 (чёрный), scale 5, лицом к игроку, руки ×2.
+--   * Оружие в руке — «ГАСТЕР БЛАСТЕР» scale 3.
+--   * Награда после победы — бластер-спутник (череп scale 1.5), крутится и стреляет.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -335,7 +333,7 @@ local function createGaster(size, name)
 end
 
 function G.registerShape()
-  -- v25.2-fix4: не перезаписываем пресеты p2 — используем их как есть.
+  -- v25.2-fix5: не перезаписываем пресеты p2
   G.shapeRegistered = true
   return true
 end
@@ -698,16 +696,15 @@ local function stepBossMovement(dt, t)
     local newPos = bossPos + dir * step
     local groundY = target.Y
     local finalPos = V3(newPos.X, groundY, newPos.Z)
-    -- v25.2-fix4: разворот на 180° — фигуры p2 построены лицом к +Z, HRP смотрит -Z
+    -- v25.2-fix5: разворот на 180° — фигуры p2 построены лицом к +Z
     pcall(function() G.boss.model:PivotTo(CFrame.lookAt(finalPos, finalPos + dir) * CFrame.Angles(0, math.pi, 0)) end)
     G.walkPhase = G.walkPhase + dt * 9
     playWalkAnim(G.boss.model, G.walkPhase, dt)
   else
-    -- стоит: тоже разворачиваем лицом к игроку
-    local lookAt = playerPos
+    -- стоит: смотрит на игрока
     pcall(function()
       local cur = G.boss.model:GetPivot().Position
-      G.boss.model:PivotTo(CFrame.lookAt(cur, lookAt) * CFrame.Angles(0, math.pi, 0))
+      G.boss.model:PivotTo(CFrame.lookAt(cur, playerPos) * CFrame.Angles(0, math.pi, 0))
     end)
     G.walkPhase = G.walkPhase + dt * 2
     local bob = math.sin(G.walkPhase) * 0.08
@@ -919,7 +916,7 @@ local function trapHit(trap)
 end
 
 -- ============================================================
---       БОСС — v25.2-fix4: пресет «ГАСТЕР», scale 5, развёрнут лицом
+--       БОСС — v25.2-fix5
 -- ============================================================
 function G.startBoss()
   if not alive then return end
@@ -944,7 +941,7 @@ function G.startBoss()
   TS:Create(cc, TweenInfo.new(1.5), { Brightness = -0.15, Saturation = -0.3, TintColor = C3(230, 230, 255) }):Play()
   ping("laugh", 1, 0.8)
 
-  -- Босс = пресет «ГАСТЕР» из p2 (чёрный балахон), scale = 5
+  -- Босс = пресет «ГАСТЕР» из p2, scale = 5
   local data = nil
   local presets = ORBIT.SHAPE_PRESETS
   if type(presets) == "table" then
@@ -962,11 +959,13 @@ function G.startBoss()
   end
   data.model.Parent = fold()
 
-  -- v25.2-fix4: руки босса ×2
+  -- v25.2-fix5: руки босса ×2
   local HAND_PART_NAMES = {
     F1 = true, F2 = true, F3 = true, F4 = true,
     Palm = true, Wrap1 = true, Wrap2 = true, Spike = true,
     Heart = true, P = true, Bevel = true, Shine = true,
+    HandL = true, HandR = true, Finger = true, Thumb = true,
+    Arm = true, Wrist = true, Elbow = true,
   }
   for _, d in ipairs(data.model:GetDescendants()) do
     if d:IsA("BasePart") and HAND_PART_NAMES[d.Name] then
@@ -977,7 +976,7 @@ function G.startBoss()
   local spawnPos = root.Position + root.CFrame.LookVector * 20
   local gp = groundAt(spawnPos)
   local finalPos = V3(gp.X, gp.Y + 3, gp.Z)
-  -- v25.2-fix4: разворот на 180° — фигуры p2 построены лицом к +Z
+  -- v25.2-fix5: разворот на 180° — фигуры p2 построены лицом к +Z
   pcall(function() data.model:PivotTo(CFrame.lookAt(finalPos, root.Position) * CFrame.Angles(0, math.pi, 0)) end)
 
   G.boss = {
@@ -1089,7 +1088,7 @@ local function stepBoss(dt, t)
 end
 
 -- ============================================================
---       ПОБЕДА — v25.2-fix4: награда = бластер (оружие)
+--       ПОБЕДА — v25.2-fix5
 -- ============================================================
 function G.winBoss()
   if not G.boss then return end
@@ -1136,7 +1135,7 @@ function G.winBoss()
   ORBIT.saveData.gasterUnlocked = true
   ORBIT.saveData.gasterWeaponUnlocked = true
   ORBIT.saveData.rewards = ORBIT.saveData.rewards or {}
-  -- v25.2-fix4: главная награда — БЛАСТЕР (оружие), а не фигура Гастера целиком
+  ORBIT.saveData.rewards["gaster_weapon"] = true
   local newRewards = {}
   if not ORBIT.saveData.rewards["gaster_weapon"] then
     ORBIT.saveData.rewards["gaster_weapon"] = true
@@ -1213,6 +1212,7 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
     stepBoss(dt, t)
   end
 
+  -- ФИГУРА-СПУТНИК (бластер) после победы
   if G.figure then
     local f = G.figure
     local m = f.data.model
@@ -1225,7 +1225,8 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
       local center = root and root.Position or V3()
       local ca, sa = math.cos(f.angle), math.sin(f.angle)
       local pos = center + V3(ca * 8, 4 + math.sin(t * 1.5) * 0.5 - 12 * (1 - kk), sa * 8)
-      local look = pos + V3(ca, 0, sa)
+      -- смотрит по направлению движения
+      local look = pos + V3(-sa, 0, ca)
       pcall(function() m:PivotTo(CFrame.lookAt(pos, look)) end)
       if kk >= 1 then
         if t >= f.nextShot then
@@ -1279,19 +1280,20 @@ function G.removeFigure()
   end
 end
 
+-- v25.2-fix5: спутник = БЛАСТЕР (череп), а НЕ Гастер целиком
 local function buildFigure()
   local presets = ORBIT.SHAPE_PRESETS
   local data = nil
   if type(presets) == "table" then
     for _, p in ipairs(presets) do
-      if p.name == "ГАСТЕР" and type(p.create) == "function" then
-        local ok, d = pcall(p.create, 4, "GasterOrbit")
+      if p.name == "ГАСТЕР БЛАСТЕР" and type(p.create) == "function" then
+        local ok, d = pcall(p.create, 1.5, "GasterBlasterOrbit")
         if ok and d and d.model then data = d end
         break
       end
     end
   end
-  if not data then data = createGaster(4, "GasterOrbit") end
+  if not data then data = createGaster(1.5, "GasterBlasterOrbit") end
   data.model.Parent = fold()
   local f = { data = data, angle = 0, riseT = 0, nextShot = tick() + 5, fire = nil }
   f.charge = data.model:FindFirstChild("Charge", true)
@@ -1345,7 +1347,7 @@ function G.assemble(quick)
   return true
 end
 -- ============================================================
---       ОРУЖИЕ (v25.2-fix4: бластер в руке scale = 3, ×2 от 1.5)
+--       ОРУЖИЕ (бластер в руке scale = 3)
 -- ============================================================
 local W = { equipped = false, models = {}, proj = {}, cdUntil = 0, conns = {}, side = 1 }
 local wFolder, wGui, wBtn = nil, nil, nil
@@ -1468,7 +1470,7 @@ function W.equip()
   end
   local c, h = getChar()
   if not c or h.Health <= 0 then return false end
-  -- v25.2-fix4: бластер-оружие в руке — пресет «ГАСТЕР БЛАСТЕР» из p2, scale = 3 (было 1.5)
+  -- бластер-оружие в руке: пресет «ГАСТЕР БЛАСТЕР» из p2, scale = 3
   for _, k in ipairs({ "L", "R" }) do
     local data = nil
     local presets = ORBIT.SHAPE_PRESETS
@@ -1681,7 +1683,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v25.2-fix4 (чёрный босс ×5, развёрнут лицом, бластер ×3)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v25.2-fix5 (чёрный босс ×5, спутник-бластер)", C3(220, 200, 255), 3)
 end
 
 return true
