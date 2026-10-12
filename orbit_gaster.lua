@@ -1,6 +1,7 @@
--- ORBIT v25.2-fix8 | orbit_gaster.lua
+-- ORBIT v25.2-fix9 | orbit_gaster.lua
 -- 16 частей тела + ловушки + босс-файт + белое оружие.
--- v25.2-fix8: спутник выше (12), меньше (3.5), бьёт игроков (не тебя).
+-- v25.2-fix9: бластер босса = отдельная модель "ГАСТЕР БЛАСТЕР" scale 3.5,
+--             летает над головой (высота 12), как спутник.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -710,7 +711,7 @@ local function stepBossMovement(dt, t)
 end
 
 -- ============================================================
---       АТАКИ — shootBeamSimple с параметром цели
+--       АТАКИ
 -- ============================================================
 local function shootBeamSimple(from, to, dmgTarget)
   local diff = to - from
@@ -725,7 +726,6 @@ local function shootBeamSimple(from, to, dmgTarget)
   TS:Create(core, TweenInfo.new(0.5), { Brightness = 0 }):Play()
   Debris:AddItem(p, 0.6)
 
-  -- v25.2-fix8: если есть цель — урон ей, иначе — локальному игроку
   if dmgTarget and dmgTarget.hum and dmgTarget.hum.Parent and dmgTarget.hum.Health > 0 then
     pcall(function() dmgTarget.hum:TakeDamage(15) end)
     G.hitTimes[#G.hitTimes + 1] = tick()
@@ -744,7 +744,7 @@ local function attackBlaster(model)
   if not r then return end
   local from = model:GetPivot().Position + V3(0, 5, 0)
   local to = r.Position
-  shootBeamSimple(from, to, nil)  -- без цели → бьёт игрока (это АТАКА БОССА)
+  shootBeamSimple(from, to, nil)
   if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack") end
 end
 
@@ -917,7 +917,7 @@ local function trapHit(trap)
 end
 
 -- ============================================================
---       БОСС
+--       БОСС — v25.2-fix9: бластер = отдельная модель scale 3.5
 -- ============================================================
 function G.startBoss()
   if not alive then return end
@@ -974,23 +974,29 @@ function G.startBoss()
     end
   end
 
-  -- бластер босса ×4
-  local blasterModel = data.model:FindFirstChild("GasterBlaster")
-  if blasterModel then
-    for _, d in ipairs(blasterModel:GetDescendants()) do
-      if d:IsA("BasePart") then
-        pcall(function() d.Size = d.Size * 4 end)
-      end
+  -- v25.2-fix9: удаляем встроенный бластер босса, вместо него — отдельная модель scale 3.5
+  for _, ch in ipairs(data.model:GetChildren()) do
+    if ch.Name:find("Blaster") then
+      pcall(function() ch:Destroy() end)
     end
-  else
-    for _, ch in ipairs(data.model:GetChildren()) do
-      if ch.Name:find("Blaster") then
-        for _, d in ipairs(ch:GetDescendants()) do
-          if d:IsA("BasePart") then
-            pcall(function() d.Size = d.Size * 4 end)
-          end
+  end
+  local bossBlaster = nil
+  do
+    local presets2 = ORBIT.SHAPE_PRESETS
+    if type(presets2) == "table" then
+      for _, p in ipairs(presets2) do
+        if p.name == "ГАСТЕР БЛАСТЕР" and type(p.create) == "function" then
+          local ok, d = pcall(p.create, 3.5, "GasterBossBlaster")
+          if ok and d and d.model then bossBlaster = d.model end
+          break
         end
       end
+    end
+  end
+  if bossBlaster then
+    bossBlaster.Parent = fold()
+    for _, d in ipairs(bossBlaster:GetDescendants()) do
+      if d:IsA("BasePart") then d:SetAttribute("NoRecolor", true) end
     end
   end
 
@@ -1003,6 +1009,7 @@ function G.startBoss()
     data = data,
     model = data.model,
     root = data.part or data.model.PrimaryPart,
+    blaster = bossBlaster,
     hp = 650, maxHp = 650,
     phase = 1,
     charge = nil,
@@ -1096,6 +1103,12 @@ local function stepBoss(dt, t)
   if G.boss.light then
     G.boss.light.Brightness = 1.5 + 0.6 * math.sin(t * 3)
   end
+  -- v25.2-fix9: бластер летает над головой босса (высота 12, как спутник)
+  if G.boss.blaster and G.boss.blaster.Parent then
+    local bp = model:GetPivot().Position + V3(0, 12, 0)
+    local look = bp + model:GetPivot().LookVector
+    pcall(function() G.boss.blaster:PivotTo(CFrame.lookAt(bp, look)) end)
+  end
   if t >= G.nextAttack then
     G.attackIndex = (G.attackIndex % 4) + 1
     local interval = G.boss.phase == 1 and 3.5 or (G.boss.phase == 2 and 2.8 or 2.2)
@@ -1117,6 +1130,9 @@ function G.winBoss()
   G.state = "won"
   G.active = false
   hideBossUI()
+
+  -- v25.2-fix9: уничтожить бластер босса
+  if b.blaster then pcall(function() b.blaster:Destroy() end) end
 
   if b.model then
     local pos = b.model:GetPivot().Position
@@ -1232,7 +1248,7 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
     stepBoss(dt, t)
   end
 
-  -- v25.2-fix8: спутник выше (12), меньше (3.5), бьёт игроков
+  -- ФИГУРА-СПУТНИК (бластер, высота 12, scale 3.5)
   if G.figure then
     local f = G.figure
     local m = f.data.model
@@ -1244,7 +1260,6 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
       kk = 1 - (1 - kk) * (1 - kk)
       local center = root and root.Position or V3()
       local ca, sa = math.cos(f.angle), math.sin(f.angle)
-      -- высота 12
       local pos = center + V3(ca * 10, 12 + math.sin(t * 1.5) * 0.5 - 12 * (1 - kk), sa * 10)
       local look = pos + V3(-sa, 0, ca)
       pcall(function() m:PivotTo(CFrame.lookAt(pos, look)) end)
@@ -1272,7 +1287,6 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
           if f.light then f.light.Brightness = 1.5 + 4 * math.min(1, el / 0.5) end
           if el >= 0.5 and not f.fire.shot then
             f.fire.shot = true
-            -- v25.2-fix8: передаём цель, урон идёт игроку-врагу, а не тебе
             shootBeamSimple(f.charge and f.charge.Position or pos, f.fire.tpos, f.fire)
           end
           if el >= 1.0 then f.fire = nil end
@@ -1304,7 +1318,7 @@ function G.removeFigure()
   end
 end
 
--- v25.2-fix8: спутник = бластер scale 3.5 (меньше)
+-- v25.2-fix9: спутник = бластер scale 3.5
 local function buildFigure()
   local presets = ORBIT.SHAPE_PRESETS
   local data = nil
@@ -1494,7 +1508,7 @@ function W.equip()
   end
   local c, h = getChar()
   if not c or h.Health <= 0 then return false end
-  -- бластер-оружие в руке = 4.5
+  -- бластер-оружие в руке scale 4.5
   for _, k in ipairs({ "L", "R" }) do
     local data = nil
     local presets = ORBIT.SHAPE_PRESETS
@@ -1707,7 +1721,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v25.2-fix8 (спутник выше+меньше, бьёт игроков)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v25.2-fix9 (бластер босса = спутник 3.5 над головой)", C3(220, 200, 255), 3)
 end
 
 return true
