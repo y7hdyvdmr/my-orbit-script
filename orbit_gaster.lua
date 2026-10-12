@@ -1112,7 +1112,7 @@ local function stepBoss(dt, t)
     if toTarget.Magnitude > 0.1 then
       local dir = toTarget.Unit
       local right = dir:Cross(V3(0, 1, 0)).Unit
-      local bp = bossPos + dir * 2.5 + right * 15 + V3(0, 15, 0)
+      local bp = bossPos + dir * 2.5 + right * 20 + V3(0, 25, 0)
       pcall(function() G.boss.blaster:PivotTo(CFrame.lookAt(bp, targetPos)) end)
     else
       local bp = bossPos + V3(0, 8, 0)
