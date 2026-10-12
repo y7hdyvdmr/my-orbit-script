@@ -1,9 +1,9 @@
--- ORBIT v25.3 | orbit_sans_boss.lua
+-- ORBIT v25.4 | orbit_sans_boss.lua
 -- Мини-игра «Собери Санса» (16 осколков + ловушки) + босс-файт.
--- v25.3:
---   * 2-я фраза Санса при победе (после «забирай. заслужил.»)
---   * Осколки-кубики заменены на реальные части тела:
---     череп, глаз, ухмылка, зуб, толстовка, капюшон, рука, кисть, шорты, тапок.
+-- v25.4:
+--   * Бластеры парят рядом с головой, смотрят на игрока.
+--   * Кости-снаряды увеличены.
+--   * 2-я фраза Санса при победе.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] sans_boss: нет ORBIT"); return false end
@@ -32,6 +32,7 @@ local S = {
   active = false,
   state = "idle",
   hp = 400, maxHp = 400, phase = 1,
+  bossBlasters = {},
   timer = 120, collected = 0,
   parts = {}, traps = {},
   boss = nil, bossUI = nil, collectUI = nil,
@@ -75,9 +76,6 @@ local function groundAt(pos)
   return res and res.Position or pos
 end
 
--- ============================================================
---       16 ОСКОЛКОВ САНСА (partType = какая часть тела)
--- ============================================================
 local PARTS = {
   { id = "skull",     nm = "Череп",        col = C3(250, 250, 252), sz = 2.4, px = 0.5,  py = 0.10, sw = 46, sh = 32, z = 1, partType = "skull" },
   { id = "eyeL",      nm = "Левый глаз",   col = C3(18, 18, 22),   sz = 1.2, px = 0.40, py = 0.15, sw = 10, sh = 8,  z = 3, partType = "ball" },
@@ -97,9 +95,6 @@ local PARTS = {
   { id = "slipperR",  nm = "Правый тапок", col = C3(246, 246, 250),sz = 1.4, px = 0.64, py = 0.86, sw = 14, sh = 8,  z = 2, partType = "slipper" },
 }
 
--- ============================================================
---       СБОРКА ОСКОЛКА КАК ЧАСТИ ТЕЛА
--- ============================================================
 local function buildShardModel(def, pos)
   local m = Instance.new("Model")
   m.Name = "SansShard_" .. def.id
@@ -146,7 +141,7 @@ local function buildShardModel(def, pos)
     add(V3(0.5, 0.7, 0.4), CF(), C3(255, 255, 255))
   elseif t == "eye_glow" then
     add(V3(def.sz, def.sz, def.sz), CF(), def.col, PT_BALL, MAT.Neon)
-  else -- ball
+  else
     add(V3(def.sz, def.sz, def.sz), CF(), def.col, PT_BALL)
   end
   m.PrimaryPart = first
@@ -172,9 +167,6 @@ local function buildShardModel(def, pos)
   return m
 end
 
--- ============================================================
---       СБОРКА ТЕЛА БОССА
--- ============================================================
 local function buildSansBoss(size)
   local presets = ORBIT.SHAPE_PRESETS
   local sansPreset = nil
@@ -220,9 +212,6 @@ local function buildBlaster(scale)
   return data.model
 end
 
--- ============================================================
---       HP-БАР БОССА
--- ============================================================
 local function showBossUI()
   local pg = LP:FindFirstChildOfClass("PlayerGui")
   if not pg then return end
@@ -286,9 +275,6 @@ local function hideBossUI()
   S.bossUI = nil
 end
 
--- ============================================================
---       UI СБОРА ОСКОЛКОВ
--- ============================================================
 local function fmtTime(t) t = math.max(0, math.floor(t)); return string.format("%d:%02d", math.floor(t / 60), t % 60) end
 
 local function collectUIRefresh()
@@ -396,9 +382,6 @@ local function buildCollectUI()
   collectUIRefresh()
 end
 
--- ============================================================
---       ОСКОЛКИ И ЛОВУШКИ
--- ============================================================
 local function clearShards()
   for _, s in pairs(S.parts) do if s.model then pcall(function() s.model:Destroy() end) end end
   S.parts = {}
@@ -406,9 +389,7 @@ local function clearShards()
   S.traps = {}
 end
 
-local function makeShard(def, pos)
-  return buildShardModel(def, pos)
-end
+local function makeShard(def, pos) return buildShardModel(def, pos) end
 
 local function makeTrap(pos, r)
   local p = ORBIT.newPart(fold(), "SansTrap", V3(r, r, r), CF(pos), COL_TRAP)
@@ -560,9 +541,6 @@ local function stepTraps(dt, t)
   end
 end
 
--- ============================================================
---       ХОДЬБА ПО ЗЕМЛЕ + АНИМАЦИЯ
--- ============================================================
 local function collectLegs(model)
   local legs = {}
   for _, d in ipairs(model:GetDescendants()) do
@@ -651,22 +629,23 @@ local function stepBossMovement(dt, t)
     end)
   end
 end
-
 -- ============================================================
---       АТАКИ
+--       АТАКИ (v25.4: кости увеличены)
 -- ============================================================
 local function spawnBoneShot(origin, dirv, dmg, speed, size)
-  size = size or 0.5
-  local p = ORBIT.newPart(fold(), "BossBone", V3(size, size, 2.8 * size), CF(origin), COL_BONE)
+  -- v25.4: кости крупнее (0.5 → 0.9, длина 2.8 → 3.8)
+  size = size or 0.9
+  local len = 3.8 * size
+  local p = ORBIT.newPart(fold(), "BossBone", V3(size * 1.4, size * 1.4, len), CF(origin), COL_BONE)
   p.CFrame = CFrame.lookAt(origin, origin + dirv)
   p:SetAttribute("NoRecolor", true)
   p.Material = MAT.SmoothPlastic
   for _, sz in ipairs({1, -1}) do
     for _, sx in ipairs({-1, 1}) do
-      local lobe = ORBIT.newPart(fold(), "Lobe", V3(size * 1.05, size * 1.05, size * 1.05), CF(), COL_BONE, true)
+      local lobe = ORBIT.newPart(fold(), "Lobe", V3(size * 1.5, size * 1.5, size * 1.5), CF(), COL_BONE, true)
       lobe.Shape = PT_BALL
       lobe.Material = MAT.SmoothPlastic
-      lobe.CFrame = p.CFrame * CF(sx * size * 0.42, 0, sz * 1.4 * size)
+      lobe.CFrame = p.CFrame * CF(sx * size * 0.6, 0, sz * (len * 0.5 - size * 0.4))
       lobe.Parent = p
     end
   end
@@ -686,7 +665,7 @@ local function attackBoneVolley()
     local a = (i - (n + 1) / 2) * spreadDeg
     local d = CFrame.Angles(0, math.rad(a), 0):VectorToWorldSpace(baseDir)
     task.delay((i - 1) * 0.07, function()
-      if alive and S.active then spawnBoneShot(from, d, 20, 60, 0.5) end
+      if alive and S.active then spawnBoneShot(from, d, 20, 60) end
     end)
   end
   ping("snap", 0.8, 1.4)
@@ -704,7 +683,7 @@ local function attackBlasterPair()
   local right = sideDir:Cross(V3(0, 1, 0)).Unit
   for _, sd in ipairs({-1, 1}) do
     local spos = center + right * (sd * 12) + V3(0, 6, 0) - sideDir * 4
-    local m = buildBlaster(0.55)
+    local m = buildBlaster(0.85)
     if m then
       pcall(function() m:PivotTo(CFrame.lookAt(spos, center)) end)
       local charge = m:FindFirstChild("Charge", true) or m.PrimaryPart
@@ -713,9 +692,9 @@ local function attackBlasterPair()
         local beamFrom = charge and charge.Position or spos
         local len = (center - beamFrom).Magnitude
         if len > 1 then
-          local core = ORBIT.newPart(fold(), "Beam", V3(1.4, 1.4, len), CF(), C3(255, 255, 255))
+          local core = ORBIT.newPart(fold(), "Beam", V3(1.8, 1.8, len), CF(), C3(255, 255, 255))
           core.CFrame = CFrame.lookAt((beamFrom + center) / 2, center)
-          local outer = ORBIT.newPart(fold(), "BeamOut", V3(2.5, 2.5, len), CF(), COL_EYE)
+          local outer = ORBIT.newPart(fold(), "BeamOut", V3(3.0, 3.0, len), CF(), COL_EYE)
           outer.CFrame = core.CFrame; outer.Transparency = 0.65
           local l = Instance.new("PointLight"); l.Color = COL_EYE; l.Range = 20; l.Brightness = 6; l.Parent = core
           TS:Create(core, TweenInfo.new(0.5), { Size = V3(0.1, 0.1, len), Transparency = 1 }):Play()
@@ -775,7 +754,7 @@ local function attackTeleportStrike()
     if not r2 then return end
     local shotPos = S.boss.root.Position + V3(0, 1.5, 0)
     local d = (r2.Position - shotPos).Unit
-    spawnBoneShot(shotPos, d, 35, 100, 0.7)
+    spawnBoneShot(shotPos, d, 35, 100, 1.2)
     ping("snap", 1, 1.2)
     if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack", true) end
   end)
@@ -799,9 +778,6 @@ local function attackBlueEye()
   if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack") end
 end
 
--- ============================================================
---       ХУК УРОНА
--- ============================================================
 local function hookDamage()
   local ab = ORBIT.abilities
   if not ab or type(ab.fireId) ~= "function" then return end
@@ -850,9 +826,6 @@ local function unhookDamage()
   S._origFireId = nil
 end
 
--- ============================================================
---       ШАГ СНАРЯДОВ
--- ============================================================
 local function stepShots(dt)
   if #S.shots == 0 then return end
   local rp = rayParams()
@@ -877,10 +850,10 @@ local function stepShots(dt)
           pcall(function() hh:TakeDamage(q.dmg) end)
           S.hitTimes[#S.hitTimes + 1] = tick()
         end
-        local burst = ORBIT.newPart(fold(), "Burst", V3(2, 2, 2), CF(hitPos), COL_BONE)
+        local burst = ORBIT.newPart(fold(), "Burst", V3(2.5, 2.5, 2.5), CF(hitPos), COL_BONE)
         burst.Shape = PT_BALL; burst.Transparency = 0.3
         local l = Instance.new("PointLight"); l.Color = COL_BONE; l.Range = 10; l.Brightness = 4; l.Parent = burst
-        TS:Create(burst, TweenInfo.new(0.3), { Size = V3(7, 7, 7), Transparency = 1 }):Play()
+        TS:Create(burst, TweenInfo.new(0.3), { Size = V3(8, 8, 8), Transparency = 1 }):Play()
         Debris:AddItem(burst, 0.4)
       else
         q.part.CFrame = CFrame.lookAt(to, to + q.vel)
@@ -888,9 +861,7 @@ local function stepShots(dt)
     end
   end
 end
--- ============================================================
---       ЗАПУСК МИНИ-ИГРЫ СБОРА
--- ============================================================
+
 function S.startCollect()
   if not alive then return false end
   if S.state == "collecting" or S.state == "boss" then
@@ -924,9 +895,6 @@ function S.stopCollect()
   if ORBIT.notify then ORBIT.notify("↺ Сбор отменён", C3(255, 200, 120), 2) end
 end
 
--- ============================================================
---       СТАРТ БОССА
--- ============================================================
 function S.startBoss()
   if not alive then return end
   S.state = "boss"
@@ -943,16 +911,31 @@ function S.startBoss()
   S.walkTarget = nil
   S.shots = {}
   S.hitTimes = {}
+  S.bossBlasters = {}
   clearShards()
 
   local c, h, r = getChar()
   if not r then return end
 
   local data = buildSansBoss(3)
+
+  -- v25.4: вынимаем бластеры из модели Санса — они будут парить отдельно
+  if data and data.model then
+    for _, ch in ipairs(data.model:GetChildren()) do
+      if ch:IsA("Model") and ch.Name:find("Blaster") then
+        table.insert(S.bossBlasters, ch)
+      end
+    end
+    for _, b in ipairs(S.bossBlasters) do
+      b.Parent = fold()
+    end
+  end
+
   local spawnPos = r.Position + r.CFrame.LookVector * 15
   local gp = groundAt(spawnPos)
   local finalPos = V3(gp.X, gp.Y + 3, gp.Z)
-  pcall(function() data.model:PivotTo(CFrame.lookAt(finalPos, r.Position)) end)
+  -- v25.4: разворот на 180° — пресет САНС построен лицом к +Z
+  pcall(function() data.model:PivotTo(CFrame.lookAt(finalPos, r.Position) * CFrame.Angles(0, math.pi, 0)) end)
   S.boss = {
     data = data,
     root = data.part or data.model.PrimaryPart,
@@ -982,9 +965,6 @@ function S.startBoss()
   end
 end
 
--- ============================================================
---       ПОБЕДА — 5 НАГРАД
--- ============================================================
 local REWARDS = {
   { id = "sans_knife",       name = "🦴 Костяной клинок",      desc = "Оружие: веер из 3 костей" },
   { id = "blue_eye",         name = "💧 Синий глаз",           desc = "Возрождение 1 раз в 30 сек" },
@@ -1015,7 +995,6 @@ function S.winBoss()
     end)
   end
 
-  -- Фраза 1: при победе
   if ORBIT.sans and ORBIT.sans.say then
     task.delay(0.6, function() pcall(ORBIT.sans.say, "victory", true) end)
     task.delay(2.0, function()
@@ -1028,7 +1007,6 @@ function S.winBoss()
     end)
   end
 
-  -- Фраза 2: через 6.5 сек после первой (задача 1)
   task.delay(6.5, function()
     if not alive then return end
     if ORBIT.sans and ORBIT.sans.showAt and LP.Character then
@@ -1042,6 +1020,10 @@ function S.winBoss()
 
   task.delay(1.2, function()
     if S.boss and S.boss.model then pcall(function() S.boss.model:Destroy() end) end
+    for _, b in ipairs(S.bossBlasters or {}) do
+      if b and b.Parent then pcall(function() b:Destroy() end) end
+    end
+    S.bossBlasters = {}
     S.boss = nil
   end)
 
@@ -1063,7 +1045,6 @@ function S.winBoss()
       given[#given + 1] = rw
     end
   end
-  -- на всякий случай пишем и старый id "coins" — для обратной совместимости
   ORBIT.saveData.rewards["coins"] = true
   ORBIT.COINS = (ORBIT.COINS or 0) + 500
   ORBIT.sansUnlocked = true
@@ -1093,9 +1074,6 @@ function S.winBoss()
   end)
 end
 
--- ============================================================
---       ПРОВАЛ
--- ============================================================
 function S.failBoss(reason)
   if not S.active then return end
   S.active = false
@@ -1103,6 +1081,10 @@ function S.failBoss(reason)
   hideBossUI()
   unhookDamage()
   if S.boss and S.boss.model then pcall(function() S.boss.model:Destroy() end) end
+  for _, b in ipairs(S.bossBlasters or {}) do
+    if b and b.Parent then pcall(function() b:Destroy() end) end
+  end
+  S.bossBlasters = {}
   S.boss = nil
   if S.cc then pcall(function() S.cc:Destroy() end); S.cc = nil end
 
@@ -1129,7 +1111,6 @@ function S.failBoss(reason)
     end
   end)
 end
-
 -- ============================================================
 --       ГЛАВНЫЙ ЦИКЛ
 -- ============================================================
@@ -1137,6 +1118,37 @@ local function stepBoss(dt, t)
   if not S.active or S.state ~= "boss" then return end
   updateBossUI()
   stepBossMovement(dt, t)
+
+  -- v25.4: развернуть Санса на игрока (лицом, не спиной)
+  if S.boss and S.boss.model then
+    local c2, h2, r2 = getChar()
+    if r2 then
+      pcall(function()
+        local cur = S.boss.model:GetPivot().Position
+        S.boss.model:PivotTo(CFrame.lookAt(cur, r2.Position) * CFrame.Angles(0, math.pi, 0))
+      end)
+    end
+  end
+
+  -- v25.4: бластеры парят рядом с головой и смотрят на игрока
+  if S.boss and S.boss.model and #S.bossBlasters > 0 then
+    local c2, h2, r2 = getChar()
+    local mcf = S.boss.model:GetPivot()
+    local bossPos = mcf.Position
+    local targetPos = r2 and r2.Position or (bossPos + mcf.LookVector * 20)
+    local toTarget = V3(targetPos.X - bossPos.X, 0, targetPos.Z - bossPos.Z)
+    if toTarget.Magnitude > 0.1 then
+      local dir = toTarget.Unit
+      local right = dir:Cross(V3(0, 1, 0)).Unit
+      for i, b in ipairs(S.bossBlasters) do
+        if b.Parent then
+          local sd = (i == 1) and -1 or 1
+          local bp = bossPos + dir * 2 + right * (sd * 6) + V3(0, 10, 0)
+          pcall(function() b:PivotTo(CFrame.lookAt(bp, targetPos)) end)
+        end
+      end
+    end
+  end
 
   local attackInterval = S.phase == 1 and 3.5 or (S.phase == 2 and 2.5 or 1.8)
   if t >= S.nextAttack then
@@ -1372,6 +1384,10 @@ function S.destroy()
   clearShards()
   if S.collectUI and S.collectUI.sg then pcall(function() S.collectUI.sg:Destroy() end); S.collectUI = nil end
   if S.boss and S.boss.model then pcall(function() S.boss.model:Destroy() end) end
+  for _, b in ipairs(S.bossBlasters or {}) do
+    if b and b.Parent then pcall(function() b:Destroy() end) end
+  end
+  S.bossBlasters = {}
   S.boss = nil
   for _, q in ipairs(S.shots) do
     if q.part and q.part.Parent then pcall(function() q.part:Destroy() end) end
@@ -1410,7 +1426,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("💀 Санс v25.3 (16 частей тела + 2 фразы + ходьба)", C3(200, 230, 255), 3)
+  ORBIT.notify("💀 Санс v25.4 (бластеры парят, кости больше, смотрит на игрока)", C3(200, 230, 255), 3)
 end
 
 return true
