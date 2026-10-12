@@ -1,9 +1,7 @@
--- ORBIT v25.2 | orbit_gaster.lua
+-- ORBIT v25.2-fix1 | orbit_gaster.lua
 -- 16 частей тела + ловушки + босс-файт + белое оружие.
--- v25.2:
---   * Осколки-кубики заменены на модели частей тела Гастера.
---   * Гастер ходит по земле (как Санс) с walk-анимацией и доджами.
---   * 4 атаки: рука, бластер, кости, слова.
+-- v25.2-fix1: добавлен G.active = true при старте босса (иначе stepBoss
+--             сразу выходил и модель не двигалась/не атаковала).
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -39,16 +37,12 @@ local G = {
   shapeRegistered = false,
   uiHidden = false,
   _origFireId = nil,
-  -- поля движения (как у Санса)
   walkTarget = nil, nextRetarget = 0, nextDodge = 0,
   nextAttack = 0, attackIndex = 0, walkPhase = 0,
   hitTimes = {}, _legs = nil,
 }
 local alive, folder, token = true, nil, 0
 
--- ============================================================
---       16 ЧАСТЕЙ ТЕЛА ГАСТЕРА (partType = какая часть)
--- ============================================================
 local PARTS = {
   { id = "head",   nm = "Голова",       col = C3(250, 245, 235), sz = 2.4, px = 0.5,  py = 0.14, sw = 46, sh = 34, z = 1, partType = "gaster_skull" },
   { id = "eyeL",   nm = "Левый глаз",   col = C3(120, 230, 255), sz = 1.4, px = 0.4,  py = 0.13, sw = 10, sh = 10, z = 3, partType = "eye_glow" },
@@ -96,9 +90,6 @@ local function groundAt(pos)
   return res and res.Position or pos
 end
 
--- ============================================================
---       СБОРКА ОСКОЛКА КАК ЧАСТИ ТЕЛА ГАСТЕРА
--- ============================================================
 local function buildShardModel(def, pos)
   local m = Instance.new("Model")
   m.Name = "GasterShard_" .. def.id
@@ -121,7 +112,6 @@ local function buildShardModel(def, pos)
 
   local t = def.partType or "ball"
   if t == "gaster_skull" then
-    -- голова Гастера: череп с глазницами и рогом
     add(V3(1.8, 1.8, 1.6), CF(), C3(250, 245, 235), PT_BALL)
     add(V3(0.9, 0.35, 0.9), CF(0, -0.85, 0.1), C3(240, 235, 220))
     add(V3(0.4, 0.4, 0.4), CF(-0.4, 0.1, -0.65), C3(15, 15, 20), PT_BALL)
@@ -179,9 +169,6 @@ local function buildShardModel(def, pos)
   return m
 end
 
--- ============================================================
---       Белый Гастер (STRONG-версия) — модель босса/оружия
--- ============================================================
 local function mkp(model, name, size, cf, col, mat, nr, tr)
   local p
   if ORBIT.newPart then p = ORBIT.newPart(model, name, size, cf, col, nr) end
@@ -361,9 +348,6 @@ function G.registerShape()
 end
 G.create = createGaster
 
--- ============================================================
---       Мир: осколки + ловушки
--- ============================================================
 local function clearShards()
   for _, s in pairs(G.parts) do if s.model then pcall(function() s.model:Destroy() end) end end
   G.parts = {}
@@ -584,9 +568,7 @@ function G.showUI()
   end
 end
 
-function G.close()
-  G.hideUI()
-end
+function G.close() G.hideUI() end
 
 -- ============================================================
 --       БОСС-UI
@@ -655,14 +637,12 @@ local function hideBossUI()
 end
 
 -- ============================================================
---       ХОДЬБА ПО ЗЕМЛЕ (как у Санса)
+--       ХОДЬБА ПО ЗЕМЛЕ
 -- ============================================================
 local function collectLegs(model)
   local legs = {}
   for _, d in ipairs(model:GetDescendants()) do
-    if d:IsA("BasePart") and (d.Name == "ToothU" or d.Name == "ToothL" or d.Name == "Wing") then
-      -- не трогаем
-    elseif d:IsA("BasePart") and d.Name == "Slipper" then
+    if d:IsA("BasePart") and d.Name == "Shoe" then
       legs[#legs + 1] = { p = d, baseRel = d.CFrame, side = (d.Position.X > model:GetPivot().Position.X) and 1 or -1 }
     end
   end
@@ -709,7 +689,6 @@ local function stepBossMovement(dt, t)
     G.walkTarget = findWalkTarget(playerPos, bossPos)
   end
 
-  -- додж
   if t >= G.nextDodge then
     G.nextDodge = t + 2.5 + math.random() * 2
     local away = bossPos - playerPos
@@ -747,7 +726,7 @@ local function stepBossMovement(dt, t)
 end
 
 -- ============================================================
---       АТАКИ: рука, бластер, кости, слова (v25.2)
+--       АТАКИ
 -- ============================================================
 local function shootBeamSimple(from, to)
   local diff = to - from
@@ -761,7 +740,6 @@ local function shootBeamSimple(from, to)
   TS:Create(p, TweenInfo.new(0.4), { Transparency = 1 }):Play()
   TS:Create(core, TweenInfo.new(0.5), { Brightness = 0 }):Play()
   Debris:AddItem(p, 0.6)
-  -- урон игроку если близко
   local c, h, r = getChar()
   if r and h and (r.Position - to).Magnitude < 6 then
     pcall(function() h:TakeDamage(15) end)
@@ -770,7 +748,6 @@ local function shootBeamSimple(from, to)
   ping("snap", 1, 0.5)
 end
 
--- Атака 1: бластер-луч из черепа
 local function attackBlaster(model)
   local c, h, r = getChar()
   if not r then return end
@@ -780,7 +757,6 @@ local function attackBlaster(model)
   if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack") end
 end
 
--- Атака 2: рука из земли под игроком
 local function attackHand(model)
   local c, h, r = getChar()
   if not r then return end
@@ -793,7 +769,6 @@ local function attackHand(model)
   ping("snap", 0.9, 0.7)
 end
 
--- Атака 3: кости-веер
 local function attackBones(model)
   local c, h, r = getChar()
   if not r then return end
@@ -810,7 +785,6 @@ local function attackBones(model)
   if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack") end
 end
 
--- Атака 4: слова (психологическая атака)
 local function attackWords(model)
   local c, h, r = getChar()
   if not r then return end
@@ -823,16 +797,13 @@ local function attackWords(model)
     "я даже не устал.",
   }
   local phrase = phrases[math.random(#phrases)]
-  -- показать над игроком
   if head and ORBIT.sans and ORBIT.sans.showAt then
     pcall(ORBIT.sans.showAt, head.Position + V3(0, 3, 0), phrase, 3.5)
   end
-  -- психологическая атака — небольшой урон + эффект
   if h then
     pcall(function() h:TakeDamage(5) end)
     G.hitTimes[#G.hitTimes + 1] = tick()
   end
-  -- фиолетовая вспышка на экране
   local pg = LP:FindFirstChildOfClass("PlayerGui")
   if pg then
     local sg = Instance.new("ScreenGui"); sg.ResetOnSpawn = false; sg.IgnoreGuiInset = true
@@ -870,6 +841,7 @@ end
 function G.reset()
   clearShards()
   G.state = "idle"; G.timer = 120; G.collected = 0
+  G.active = false
   hideBossUI()
   G.boss = nil
   if G.ui then toast("Сброшено. Нажми СТАРТ.") end
@@ -880,6 +852,7 @@ end
 local function fail(reason)
   clearShards()
   G.state = "idle"
+  G.active = false
   hideBossUI()
   G.boss = nil
   ping("click", 1, 0.7)
@@ -958,6 +931,7 @@ end
 function G.startBoss()
   if not alive then return end
   G.state = "boss"
+  G.active = true          -- ═══ v25.2-fix1: критичный фикс ═══
   G.walkPhase = 0
   G._legs = nil
   G.walkTarget = nil
@@ -971,14 +945,12 @@ function G.startBoss()
   local c, h, root = getChar()
   if not root then return end
 
-  -- цветокоррекция
   local cc = Instance.new("ColorCorrectionEffect")
   cc.Name = "OrbitGasterBossCC"; cc.Parent = Lighting
   G.cc = cc
   TS:Create(cc, TweenInfo.new(1.5), { Brightness = -0.15, Saturation = -0.3, TintColor = C3(230, 230, 255) }):Play()
   ping("laugh", 1, 0.8)
 
-  -- модель босса как у Санса — на земле перед игроком
   local data = createGaster(3, "GasterBoss")
   local spawnPos = root.Position + root.CFrame.LookVector * 15
   local gp = groundAt(spawnPos)
@@ -990,16 +962,17 @@ function G.startBoss()
     root = data.part or data.model.PrimaryPart,
     hp = 650, maxHp = 650,
     phase = 1,
-    charge = data.bodyParts and nil,
+    charge = nil,
     light = nil,
     shotCharging = false,
     shotFired = false,
     chargeStart = 0,
   }
-  -- найти charge/light
   for _, d in ipairs(data.model:GetDescendants()) do
-    if d.Name == "Charge" then G.boss.charge = d
-      G.boss.light = d:FindFirstChild("GLight") end
+    if d.Name == "Charge" then
+      G.boss.charge = d
+      G.boss.light = d:FindFirstChild("GLight")
+    end
   end
   G.walkTarget = finalPos
   G._legs = nil
@@ -1007,7 +980,6 @@ function G.startBoss()
   showBossUI()
   updateBossUI()
 
-  -- хук урона
   task.spawn(function()
     local ab = ORBIT.abilities
     if not ab or ab._gasterHook then return end
@@ -1080,12 +1052,10 @@ local function stepBoss(dt, t)
 
   stepBossMovement(dt, t)
 
-  -- свечение charge
   if G.boss.light then
     G.boss.light.Brightness = 1.5 + 0.6 * math.sin(t * 3)
   end
 
-  -- атаки
   if t >= G.nextAttack then
     G.attackIndex = (G.attackIndex % 4) + 1
     local interval = G.boss.phase == 1 and 3.5 or (G.boss.phase == 2 and 2.8 or 2.2)
@@ -1098,13 +1068,14 @@ local function stepBoss(dt, t)
 end
 
 -- ============================================================
---       Победа над Гастером
+--       ПОБЕДА
 -- ============================================================
 function G.winBoss()
   if not G.boss then return end
   local b = G.boss
   G.boss = nil
   G.state = "won"
+  G.active = false       -- ═══ v25.2-fix1 ═══
   hideBossUI()
 
   if b.model then
@@ -1186,13 +1157,10 @@ function G.winBoss()
     end
   end
   if G.ui then toast("✅ ГАСТЕР ПОВЕРЖЕН!") end
-  if ORBIT.notify then
-    ORBIT.notify("🏆 ГАСТЕР ПОВЕРЖЕН!", C3(180, 255, 180), 5)
-  end
+  if ORBIT.notify then ORBIT.notify("🏆 ГАСТЕР ПОВЕРЖЕН!", C3(180, 255, 180), 5) end
   uiRefresh()
 end
 
--- Heartbeat
 G.heartbeat = RS.Heartbeat:Connect(function(dt)
   if not alive then return end
   local t = tick()
@@ -1220,7 +1188,6 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
     stepBoss(dt, t)
   end
 
-  -- фигура-орбитал (после победы) — без изменений
   if G.figure then
     local f = G.figure
     local m = f.data.model
@@ -1279,7 +1246,6 @@ function G.open()
   return true
 end
 
--- Фигура после победы
 function G.removeFigure()
   token = token + 1
   if G.figure then
@@ -1631,6 +1597,7 @@ end)
 function G.destroy()
   if not alive then return end
   alive = false
+  G.active = false
   if G.heartbeat then pcall(function() G.heartbeat:Disconnect() end); G.heartbeat = nil end
   clearShards()
   hideBossUI()
@@ -1666,7 +1633,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v25.2 (16 частей + ходьба + 4 атаки)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v25.2-fix1 (16 частей + ходьба + 4 атаки)", C3(220, 200, 255), 3)
 end
 
 return true
