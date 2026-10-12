@@ -1,7 +1,7 @@
--- ORBIT v25.2-fix1 | orbit_gaster.lua
+-- ORBIT v25.2-fix2 | orbit_gaster.lua
 -- 16 частей тела + ловушки + босс-файт + белое оружие.
--- v25.2-fix1: добавлен G.active = true при старте босса (иначе stepBoss
---             сразу выходил и модель не двигалась/не атаковала).
+-- v25.2-fix1: добавлен G.active = true при старте босса.
+-- v25.2-fix2: добавлен data.model.Parent = fold() — без него модель не видна.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -109,7 +109,6 @@ local function buildShardModel(def, pos)
     if not first then first = p end
     return p
   end
-
   local t = def.partType or "ball"
   if t == "gaster_skull" then
     add(V3(1.8, 1.8, 1.6), CF(), C3(250, 245, 235), PT_BALL)
@@ -147,7 +146,6 @@ local function buildShardModel(def, pos)
     add(V3(def.sz, def.sz, def.sz), CF(), def.col, PT_BALL)
   end
   m.PrimaryPart = first
-
   local l = Instance.new("PointLight")
   l.Color = def.col; l.Range = 14; l.Brightness = 2.5; l.Parent = first
   local pe = Instance.new("ParticleEmitter")
@@ -155,7 +153,6 @@ local function buildShardModel(def, pos)
   pe.Size = NumberSequence.new(0.5, 0); pe.Lifetime = NumberRange.new(0.6, 1.2)
   pe.Speed = NumberRange.new(2, 5); pe.SpreadAngle = Vector2.new(180, 180); pe.Rate = 25
   pe.Parent = first
-
   local bb = Instance.new("BillboardGui")
   bb.Size = UDim2.new(0, 120, 0, 20); bb.StudsOffset = V3(0, 2.5, 0)
   bb.AlwaysOnTop = true; bb.Parent = first
@@ -164,7 +161,6 @@ local function buildShardModel(def, pos)
   lbl.Text = def.nm; lbl.TextColor3 = C3(255, 255, 255)
   lbl.TextStrokeTransparency = 0; lbl.Font = Enum.Font.Code; lbl.TextScaled = true
   lbl.Parent = bb
-
   m.Parent = fold()
   return m
 end
@@ -355,9 +351,7 @@ local function clearShards()
   G.traps = {}
 end
 
-local function makeShard(def, pos)
-  return buildShardModel(def, pos)
-end
+local function makeShard(def, pos) return buildShardModel(def, pos) end
 
 local function makeTrap(pos, r)
   local p = Instance.new("Part")
@@ -377,7 +371,6 @@ function G.spawnParts()
   if not root then return false end
   local placed = {}
   local rp = rayParams()
-
   for _, def in ipairs(PARTS) do
     local pos
     for _ = 1, 12 do
@@ -398,7 +391,6 @@ function G.spawnParts()
       got = false, flying = false,
     }
   end
-
   for i = 1, 5 do
     local a = (i - 1) / 5 * math.pi * 2
     local d = 25 + math.random() * 15
@@ -683,12 +675,10 @@ local function stepBossMovement(dt, t)
   if not r then return end
   local bossPos = G.boss.model:GetPivot().Position
   local playerPos = r.Position
-
   if not G.walkTarget or t >= G.nextRetarget or (G.walkTarget - bossPos).Magnitude < 1.5 then
     G.nextRetarget = t + 1.5
     G.walkTarget = findWalkTarget(playerPos, bossPos)
   end
-
   if t >= G.nextDodge then
     G.nextDodge = t + 2.5 + math.random() * 2
     local away = bossPos - playerPos
@@ -701,7 +691,6 @@ local function stepBossMovement(dt, t)
       ping("dodge", 0.8, 1.4)
     end
   end
-
   local target = G.walkTarget or bossPos
   local diff = V3(target.X - bossPos.X, 0, target.Z - bossPos.Z)
   local dist = diff.Magnitude
@@ -931,7 +920,7 @@ end
 function G.startBoss()
   if not alive then return end
   G.state = "boss"
-  G.active = true          -- ═══ v25.2-fix1: критичный фикс ═══
+  G.active = true
   G.walkPhase = 0
   G._legs = nil
   G.walkTarget = nil
@@ -952,6 +941,7 @@ function G.startBoss()
   ping("laugh", 1, 0.8)
 
   local data = createGaster(3, "GasterBoss")
+  data.model.Parent = fold()          -- ═══ v25.2-fix2 ═══
   local spawnPos = root.Position + root.CFrame.LookVector * 15
   local gp = groundAt(spawnPos)
   local finalPos = V3(gp.X, gp.Y + 3, gp.Z)
@@ -1049,13 +1039,10 @@ local function stepBoss(dt, t)
   if G.state ~= "boss" then return end
   local model = G.boss.model
   if not model or not model.Parent then G.boss = nil; return end
-
   stepBossMovement(dt, t)
-
   if G.boss.light then
     G.boss.light.Brightness = 1.5 + 0.6 * math.sin(t * 3)
   end
-
   if t >= G.nextAttack then
     G.attackIndex = (G.attackIndex % 4) + 1
     local interval = G.boss.phase == 1 and 3.5 or (G.boss.phase == 2 and 2.8 or 2.2)
@@ -1075,7 +1062,7 @@ function G.winBoss()
   local b = G.boss
   G.boss = nil
   G.state = "won"
-  G.active = false       -- ═══ v25.2-fix1 ═══
+  G.active = false
   hideBossUI()
 
   if b.model then
@@ -1633,7 +1620,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v25.2-fix1 (16 частей + ходьба + 4 атаки)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v25.2-fix2 (16 частей + ходьба + 4 атаки)", C3(220, 200, 255), 3)
 end
 
 return true
