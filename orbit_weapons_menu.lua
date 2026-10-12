@@ -1,7 +1,8 @@
--- ORBIT v25.6 | orbit_weapons_menu.lua
--- Арсенал: оружие + все 13 наград + атака + скины (R6+R15) + drag кнопок.
--- v25.5: все 13 наград, кнопка атаки, атаки по типу оружия.
--- v25.6: скины применяются на персонажа (R6 + R15), возврат после респавна.
+-- ORBIT v25.7 | orbit_weapons_menu.lua
+-- Арсенал: оружие + все награды + атака + фигурные скины (Санс/Гастер).
+-- v25.7: sans_boss_skin и gaster_boss_skin -> полная замена персонажа
+--        на фигуру из orbit_p2.lua. Персонаж становится невидимым,
+--        фигура движется вместе с игроком через PivotTo.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] weapons_menu: нет ORBIT"); return false end
@@ -40,8 +41,12 @@ local W = {
   isOpen = false, sg = nil, frame = nil, folder = nil,
   equipped = {}, selected = {}, btnGui = nil, attackGui = nil,
   lastAttack = 0, attackCD = 0.6,
-  activeFx = {},       -- { id = true } — какие скины сейчас надеты
-  savedColors = {},    -- оригинальные цвета персонажа
+  activeFx = {},
+  savedColors = {},
+  skinModel = nil,
+  skinOffset = nil,
+  savedCharState = nil,
+  savedFaceT = nil,
 }
 
 local function fold()
@@ -134,166 +139,95 @@ end
 
 -- ===== Каталог наград =====
 local WEAPONS = {
-  -- ============ ОРУЖИЕ ============
-  {
-    id = "sans_knife", kind = "weapon",
-    name = "🦴 Костяной клинок",
-    desc = "Лезвие из кости. Атака: веер из 3 костей",
+  -- ОРУЖИЕ
+  { id = "sans_knife", kind = "weapon",
+    name = "🦴 Костяной клинок", desc = "Лезвие из кости. Атака: веер из 3 костей",
     source = "Санс",
-    check = function()
-      return ORBIT.sansKnifeUnlocked == true or ORBIT.sansUnlocked == true
-          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["sans_knife"])
-    end,
-    build = buildSansKnife,
-  },
-  {
-    id = "gaster_blaster", kind = "weapon",
-    name = "⚔ Гастер-бластер",
-    desc = "Череп в руке. Атака: мощный луч",
+    check = function() return ORBIT.sansKnifeUnlocked == true or ORBIT.sansUnlocked == true
+          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["sans_knife"]) end,
+    build = buildSansKnife },
+  { id = "gaster_blaster", kind = "weapon",
+    name = "⚔ Гастер-бластер", desc = "Череп в руке. Атака: мощный луч",
     source = "Гастер",
-    check = function()
-      return ORBIT.gasterWeaponUnlocked == true or ORBIT.gasterUnlocked == true
-          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_weapon"])
-    end,
-    build = buildGasterBlaster,
-  },
-  {
-    id = "sword", kind = "weapon",
-    name = "🗡 Меч",
-    desc = "Атака: удар вперёд на 8 studs (35 урона)",
+    check = function() return ORBIT.gasterWeaponUnlocked == true or ORBIT.gasterUnlocked == true
+          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_weapon"]) end,
+    build = buildGasterBlaster },
+  { id = "sword", kind = "weapon",
+    name = "🗡 Меч", desc = "Атака: удар вперёд на 8 studs (35 урона)",
     source = "Базовое",
     check = function() return true end,
-    build = buildSword,
-  },
-  {
-    id = "shield", kind = "weapon",
-    name = "🛡 Щит",
-    desc = "Атака: толчок вперёд + небольшой урон",
+    build = buildSword },
+  { id = "shield", kind = "weapon",
+    name = "🛡 Щит", desc = "Атака: толчок вперёд + небольшой урон",
     source = "Базовое",
     check = function() return true end,
-    build = buildShield,
-  },
+    build = buildShield },
 
-  -- ============ КОСМЕТИКА (надевается на персонажа) ============
-  {
-    id = "sans_boss_skin", kind = "cosmetic",
+  -- КОСМЕТИКА
+  { id = "sans_boss_skin", kind = "cosmetic",
     name = "🎨 Скин «Санс-босс»",
-    desc = "Перекрашивает персонажа в цвета Санса. Тап — надеть/снять",
+    desc = "Персонаж исчезает, вместо него — фигура САНС. Тап — надеть/снять",
     source = "Санс",
-    check = function()
-      return (ORBIT.sansUnlocked == true)
-          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["sans_boss_skin"])
-    end,
-  },
-  {
-    id = "gaster_boss_skin", kind = "cosmetic",
+    check = function() return (ORBIT.sansUnlocked == true)
+          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["sans_boss_skin"]) end },
+  { id = "gaster_boss_skin", kind = "cosmetic",
     name = "🎨 Скин «Гастер-босс»",
-    desc = "Перекрашивает персонажа в белые цвета Гастера. Тап — надеть/снять",
+    desc = "Персонаж исчезает, вместо него — фигура ГАСТЕР. Тап — надеть/снять",
     source = "Гастер",
-    check = function()
-      return (ORBIT.gasterUnlocked == true)
-          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_boss_skin"])
-    end,
-  },
-  {
-    id = "gaster_skull_helmet", kind = "cosmetic",
+    check = function() return (ORBIT.gasterUnlocked == true)
+          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_boss_skin"]) end },
+  { id = "gaster_skull_helmet", kind = "cosmetic",
     name = "💀 Костяной шлем",
     desc = "Надевает череп-шлем на голову. Тап — надеть/снять",
     source = "Гастер",
-    check = function()
-      return (ORBIT.gasterUnlocked == true)
-          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_skull_helmet"])
-    end,
-  },
+    check = function() return (ORBIT.gasterUnlocked == true)
+          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_skull_helmet"]) end },
 
-  -- ============ ЭФФЕКТЫ ============
-  {
-    id = "gaster_portal_fx", kind = "effect",
-    name = "🌀 Тёмный портал",
-    desc = "Пассивно: вращающиеся кольца за спиной",
+  -- ЭФФЕКТЫ
+  { id = "gaster_portal_fx", kind = "effect",
+    name = "🌀 Тёмный портал", desc = "Пассивно: вращающиеся кольца за спиной",
     source = "Гастер",
-    check = function()
-      return (ORBIT.gasterUnlocked == true)
-          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_portal_fx"])
-    end,
-    toggle = true,
-  },
-  {
-    id = "gaster_blue_particles", kind = "effect",
-    name = "💠 Синие частицы",
-    desc = "Шлейф из синих искр при движении",
+    check = function() return (ORBIT.gasterUnlocked == true)
+          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_portal_fx"]) end },
+  { id = "gaster_blue_particles", kind = "effect",
+    name = "💠 Синие частицы", desc = "Шлейф из синих искр при движении",
     source = "Гастер",
-    check = function()
-      return (ORBIT.gasterUnlocked == true)
-          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_blue_particles"])
-    end,
-    toggle = true,
-  },
-  {
-    id = "blue_eye", kind = "effect",
-    name = "💧 Синий глаз",
-    desc = "Пассивно: возрождение 1 раз в 30 сек",
+    check = function() return (ORBIT.gasterUnlocked == true)
+          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_blue_particles"]) end },
+  { id = "blue_eye", kind = "effect",
+    name = "💧 Синий глаз", desc = "Пассивно: возрождение 1 раз в 30 сек",
     source = "Санс",
-    check = function()
-      return (ORBIT.sansUnlocked == true)
-          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["blue_eye"])
-    end,
-    toggle = true,
-  },
-  {
-    id = "blue_eye_tick", kind = "effect",
-    name = "💧 Синий глаз-тик",
-    desc = "Пассивно: предупреждение раз в 45 сек",
+    check = function() return (ORBIT.sansUnlocked == true)
+          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["blue_eye"]) end },
+  { id = "blue_eye_tick", kind = "effect",
+    name = "💧 Синий глаз-тик", desc = "Пассивно: предупреждение раз в 45 сек",
     source = "Гастер",
-    check = function()
-      return (ORBIT.gasterUnlocked == true)
-          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["blue_eye_tick"])
-    end,
-    toggle = true,
-  },
+    check = function() return (ORBIT.gasterUnlocked == true)
+          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["blue_eye_tick"]) end },
 
-  -- ============ ПРОЧЕЕ ============
-  {
-    id = "sans_chat", kind = "info",
-    name = "💬 Санс в чате",
-    desc = "Пишет фразы при победах",
+  -- ПРОЧЕЕ
+  { id = "sans_chat", kind = "info",
+    name = "💬 Санс в чате", desc = "Пишет фразы при победах",
     source = "Санс",
-    check = function()
-      return (ORBIT.sansUnlocked == true)
-          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["sans_chat"])
-    end,
-  },
-  {
-    id = "coins_sans", kind = "info",
-    name = "💰 +500 монет",
-    desc = "Награда за победу над Сансом",
+    check = function() return (ORBIT.sansUnlocked == true)
+          or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["sans_chat"]) end },
+  { id = "coins_sans", kind = "info",
+    name = "💰 +500 монет", desc = "Награда за победу над Сансом",
     source = "Санс",
-    check = function()
-      local d = ORBIT.saveData or {}
-      local rw = d.rewards or {}
-      return (ORBIT.sansUnlocked == true) or rw["coins_sans"] == true or rw["coins"] == true
-    end,
-  },
-  {
-    id = "coins_gaster", kind = "info",
-    name = "💰 +800 монет",
-    desc = "Награда за победу над Гастером",
+    check = function() local d = ORBIT.saveData or {}; local rw = d.rewards or {}
+      return (ORBIT.sansUnlocked == true) or rw["coins_sans"] == true or rw["coins"] == true end },
+  { id = "coins_gaster", kind = "info",
+    name = "💰 +800 монет", desc = "Награда за победу над Гастером",
     source = "Гастер",
-    check = function()
-      local d = ORBIT.saveData or {}
-      local rw = d.rewards or {}
-      return (ORBIT.gasterUnlocked == true) or rw["coins_gaster"] == true
-    end,
-  },
+    check = function() local d = ORBIT.saveData or {}; local rw = d.rewards or {}
+      return (ORBIT.gasterUnlocked == true) or rw["coins_gaster"] == true end },
 }
 
--- ===== Скины (R6 + R15) =====
+-- ===== Части тела (R6 + R15) =====
 local BODY_NAMES = {
-  -- R15
   "Head","UpperTorso","LowerTorso",
   "LeftUpperArm","LeftLowerArm","RightUpperArm","RightLowerArm",
   "LeftUpperLeg","LeftLowerLeg","RightUpperLeg","RightLowerLeg",
-  -- R6
   "Torso","Left Arm","Right Arm","Left Leg","Right Leg",
 }
 
@@ -306,29 +240,101 @@ local function getBodyParts(char)
   return out
 end
 
-local function saveColors(char)
+-- ===== Фигурные скины (Санс, Гастер) =====
+local FIGURE_DEFS = {
+  sans_boss_skin   = { preset = "САНС",   scale = 1.5, offsetY = -2.6 },
+  gaster_boss_skin = { preset = "ГАСТЕР", scale = 1.3, offsetY = -2.8 },
+}
+
+function W.applyFigureSkin(skinId)
+  W.removeFigureSkin()
+  local def = FIGURE_DEFS[skinId]
+  if not def then return false end
+  local char = LP.Character
+  if not char then return false end
+  local hrp = char:FindFirstChild("HumanoidRootPart")
+  if not hrp then return false end
+
+  -- сохранить оригинальные прозрачности и скрыть персонажа
+  W.savedCharState = {}
   for _, item in ipairs(getBodyParts(char)) do
-    if W.savedColors[item.name] == nil then
-      W.savedColors[item.name] = item.part.Color
+    W.savedCharState[item.name] = item.part.Transparency
+    item.part.Transparency = 1
+  end
+  -- спрятать аксессуары (шляпы, волосы и т.д.)
+  for _, ch in ipairs(char:GetChildren()) do
+    if ch:IsA("Accessory") or ch:IsA("Accoutrement") then
+      for _, d in ipairs(ch:GetDescendants()) do
+        if d:IsA("BasePart") then d.Transparency = 1 end
+      end
     end
   end
-end
-
-local function recolorBody(char, colors)
-  saveColors(char)
-  for _, item in ipairs(getBodyParts(char)) do
-    local c = colors[item.name]
-    if c then item.part.Color = c end
+  -- спрятать лицо
+  local head = char:FindFirstChild("Head")
+  if head then
+    local face = head:FindFirstChildOfClass("Decal")
+    if face then W.savedFaceT = face.Transparency; face.Transparency = 1 end
   end
-end
 
-local function restoreColors(char)
-  for _, item in ipairs(getBodyParts(char)) do
-    local orig = W.savedColors[item.name]
-    if orig then item.part.Color = orig end
+  -- создать фигуру из пресета
+  local presets = ORBIT.SHAPE_PRESETS
+  if type(presets) ~= "table" then
+    warn("[Orbit Weapons] SHAPE_PRESETS пуст — фигура недоступна")
+    return false
   end
+  local preset = nil
+  for _, p in ipairs(presets) do if p.name == def.preset then preset = p; break end end
+  if not preset or type(preset.create) ~= "function" then
+    warn("[Orbit Weapons] пресет «" .. def.preset .. "» не найден")
+    return false
+  end
+
+  local ok, data = pcall(preset.create, def.scale, "OrbitSkin_" .. skinId)
+  if not ok or not data or not data.model then
+    warn("[Orbit Weapons] фигура «" .. def.preset .. "» не создалась")
+    return false
+  end
+
+  data.model.Parent = fold()
+  W.skinModel = data.model
+  W.skinOffset = CFrame.new(0, def.offsetY, 0)
+
+  if data.model.PrimaryPart then
+    pcall(function() data.model:PivotTo(hrp.CFrame * W.skinOffset) end)
+  end
+  return true
 end
 
+function W.removeFigureSkin()
+  if W.skinModel then
+    pcall(function() W.skinModel:Destroy() end)
+    W.skinModel = nil
+  end
+  W.skinOffset = nil
+  local char = LP.Character
+  if char and W.savedCharState then
+    for _, item in ipairs(getBodyParts(char)) do
+      local t = W.savedCharState[item.name]
+      if t ~= nil then item.part.Transparency = t end
+    end
+    for _, ch in ipairs(char:GetChildren()) do
+      if ch:IsA("Accessory") or ch:IsA("Accoutrement") then
+        for _, d in ipairs(ch:GetDescendants()) do
+          if d:IsA("BasePart") then d.Transparency = 0 end
+        end
+      end
+    end
+    local head = char:FindFirstChild("Head")
+    if head and W.savedFaceT ~= nil then
+      local face = head:FindFirstChildOfClass("Decal")
+      if face then face.Transparency = W.savedFaceT end
+    end
+  end
+  W.savedCharState = nil
+  W.savedFaceT = nil
+end
+
+-- ===== Костяной шлем =====
 local function buildSkullHelmet()
   local m = Instance.new("Model")
   local root = mkp(m, "Root", V3(1.6, 1.6, 1.6), CF(), C3(245, 245, 250), true, PT_BALL, MAT.SmoothPlastic)
@@ -360,17 +366,13 @@ local function attachHelmet(char)
   local parts = {}
   for _, d in ipairs(m:GetDescendants()) do
     if d:IsA("BasePart") then
-      d.Anchored = false
-      d.Massless = true
-      d.CanCollide = false
-      d.CanQuery = false
-      d.CanTouch = false
+      d.Anchored = false; d.Massless = true
+      d.CanCollide = false; d.CanQuery = false; d.CanTouch = false
       parts[#parts + 1] = d
     end
   end
   if #parts == 0 then return end
-  local root = parts[1]
-  m.PrimaryPart = root
+  local root = parts[1]; m.PrimaryPart = root
   root.CFrame = head.CFrame
   local wc = Instance.new("WeldConstraint")
   wc.Part0 = head; wc.Part1 = root; wc.Parent = root
@@ -380,7 +382,18 @@ local function attachHelmet(char)
   end
 end
 
+-- ===== Регистрация скинов =====
 local SKINS = {}
+
+SKINS.sans_boss_skin = {
+  apply = function() return W.applyFigureSkin("sans_boss_skin") end,
+  remove = function() W.removeFigureSkin() end,
+}
+
+SKINS.gaster_boss_skin = {
+  apply = function() return W.applyFigureSkin("gaster_boss_skin") end,
+  remove = function() W.removeFigureSkin() end,
+}
 
 SKINS.gaster_skull_helmet = {
   apply = function()
@@ -398,50 +411,6 @@ SKINS.gaster_skull_helmet = {
   end,
 }
 
-SKINS.sans_boss_skin = {
-  apply = function()
-    local c = LP.Character
-    if not c then return false end
-    recolorBody(c, {
-      Head = C3(245, 245, 250),
-      Torso = C3(55, 115, 225), UpperTorso = C3(55, 115, 225), LowerTorso = C3(55, 115, 225),
-      ["Left Arm"] = C3(55, 115, 225), ["Right Arm"] = C3(55, 115, 225),
-      LeftUpperArm = C3(55, 115, 225), LeftLowerArm = C3(55, 115, 225),
-      RightUpperArm = C3(55, 115, 225), RightLowerArm = C3(55, 115, 225),
-      ["Left Leg"] = C3(20, 20, 28), ["Right Leg"] = C3(20, 20, 28),
-      LeftUpperLeg = C3(20, 20, 28), LeftLowerLeg = C3(20, 20, 28),
-      RightUpperLeg = C3(20, 20, 28), RightLowerLeg = C3(20, 20, 28),
-    })
-    return true
-  end,
-  remove = function()
-    local c = LP.Character
-    if c then restoreColors(c) end
-  end,
-}
-
-SKINS.gaster_boss_skin = {
-  apply = function()
-    local c = LP.Character
-    if not c then return false end
-    recolorBody(c, {
-      Head = C3(250, 250, 252),
-      Torso = C3(240, 240, 248), UpperTorso = C3(240, 240, 248), LowerTorso = C3(240, 240, 248),
-      ["Left Arm"] = C3(240, 240, 248), ["Right Arm"] = C3(240, 240, 248),
-      LeftUpperArm = C3(240, 240, 248), LeftLowerArm = C3(240, 240, 248),
-      RightUpperArm = C3(240, 240, 248), RightLowerArm = C3(240, 240, 248),
-      ["Left Leg"] = C3(230, 230, 240), ["Right Leg"] = C3(230, 230, 240),
-      LeftUpperLeg = C3(230, 230, 240), LeftLowerLeg = C3(230, 230, 240),
-      RightUpperLeg = C3(230, 230, 240), RightLowerLeg = C3(230, 230, 240),
-    })
-    return true
-  end,
-  remove = function()
-    local c = LP.Character
-    if c then restoreColors(c) end
-  end,
-}
-
 function W.toggleSkin(id)
   local skin = SKINS[id]
   if not skin then return false end
@@ -449,6 +418,16 @@ function W.toggleSkin(id)
     pcall(skin.remove)
     W.activeFx[id] = nil
   else
+    -- фигурные скины взаимоисключающие
+    if FIGURE_DEFS[id] then
+      for otherId in pairs(FIGURE_DEFS) do
+        if otherId ~= id and W.activeFx[otherId] then
+          local otherSkin = SKINS[otherId]
+          if otherSkin then pcall(otherSkin.remove) end
+          W.activeFx[otherId] = nil
+        end
+      end
+    end
     pcall(skin.apply)
     W.activeFx[id] = true
   end
@@ -488,10 +467,9 @@ local function damageTarget(inst, dmg, knockDir, knockPow)
   return true
 end
 
-local function swingFx(model, forward)
+local function swingFx(model)
   if not model or not model.PrimaryPart then return end
-  local startCF = model:GetPivot()
-  local fwd = startCF.LookVector
+  local fwd = model:GetPivot().LookVector
   pcall(function()
     local t1 = TS:Create(model.PrimaryPart, TweenInfo.new(0.08), { CFrame = model.PrimaryPart.CFrame + fwd * 1.2 })
     t1:Play()
@@ -507,34 +485,26 @@ local function swingFx(model, forward)
 end
 
 local ATTACKS = {}
-
 ATTACKS.sword = function(c, h, r, model)
-  swingFx(model, true)
-  ping("snap", 1, 1.3)
-  local origin = r.Position + V3(0, 1, 0)
-  local dir = r.CFrame.LookVector
+  swingFx(model); ping("snap", 1, 1.3)
+  local origin = r.Position + V3(0, 1, 0); local dir = r.CFrame.LookVector
   local res = WS:Raycast(origin, dir * 8, rayParams())
   local hitInst = res and res.Instance
   local hitPos = res and res.Position or (origin + dir * 8)
   local fx = mkp(fold(), "Slash", V3(0.15, 3, 0.15), CF(), C3(255,255,255), true, PT_BLOCK, MAT.Neon, 0.5)
   fx.CFrame = CFrame.lookAt((origin + hitPos) / 2, hitPos) * CFrame.Angles(0, 0, math.rad(45))
-  TS:Create(fx, TweenInfo.new(0.15), { Transparency = 1 }):Play()
-  Debris:AddItem(fx, 0.2)
+  TS:Create(fx, TweenInfo.new(0.15), { Transparency = 1 }):Play(); Debris:AddItem(fx, 0.2)
   if hitInst then damageTarget(hitInst, 35, dir, 12) end
 end
-
 ATTACKS.shield = function(c, h, r, model)
-  swingFx(model, true)
-  ping("snap", 0.9, 0.8)
-  local origin = r.Position + V3(0, 1, 0)
-  local dir = r.CFrame.LookVector
+  swingFx(model); ping("snap", 0.9, 0.8)
+  local origin = r.Position + V3(0, 1, 0); local dir = r.CFrame.LookVector
   local res = WS:Raycast(origin, dir * 5, rayParams())
   local hitInst = res and res.Instance
   local hitPos = res and res.Position or (origin + dir * 5)
   local ring = mkp(fold(), "Push", V3(0.3, 2, 2), CF(), C3(180, 200, 255), true, PT_CYL, MAT.Neon, 0.4)
   ring.CFrame = CFrame.lookAt(hitPos, hitPos + dir) * CFrame.Angles(0, 0, math.rad(90))
-  TS:Create(ring, TweenInfo.new(0.3), { Size = V3(0.3, 8, 8), Transparency = 1 }):Play()
-  Debris:AddItem(ring, 0.35)
+  TS:Create(ring, TweenInfo.new(0.3), { Size = V3(0.3, 8, 8), Transparency = 1 }):Play(); Debris:AddItem(ring, 0.35)
   for _, p in ipairs(Players:GetPlayers()) do
     if p ~= LP and p.Character then
       local hrp = p.Character:FindFirstChild("HumanoidRootPart")
@@ -547,36 +517,26 @@ ATTACKS.shield = function(c, h, r, model)
   end
   if hitInst then damageTarget(hitInst, 18, dir, 25) end
 end
-
 ATTACKS.sans_knife = function(c, h, r, model)
-  swingFx(model, true)
-  ping("snap", 1, 1.6)
+  swingFx(model); ping("snap", 1, 1.6)
   local ab = ORBIT.abilities
-  local origin = r.Position + V3(0, 1.5, 0)
-  local dir = r.CFrame.LookVector
-  if ab and ab.spawnBones then
-    pcall(ab.spawnBones, origin, dir, 3, 14, 1, false)
-  else
-    local res = WS:Raycast(origin, dir * 25, rayParams())
-    if res then damageTarget(res.Instance, 25, dir, 10) end
-  end
+  local origin = r.Position + V3(0, 1.5, 0); local dir = r.CFrame.LookVector
+  if ab and ab.spawnBones then pcall(ab.spawnBones, origin, dir, 3, 14, 1, false)
+  else local res = WS:Raycast(origin, dir * 25, rayParams())
+    if res then damageTarget(res.Instance, 25, dir, 10) end end
 end
-
 ATTACKS.gaster_blaster = function(c, h, r, model)
   ping("snap", 1, 1.2)
   local ab = ORBIT.abilities
   local origin = r.Position + V3(0, 2.5, 0) + r.CFrame.LookVector * 1
   local dir = r.CFrame.LookVector
-  if ab and ab.fireBlaster then
-    pcall(ab.fireBlaster, origin, dir, 1, 1)
+  if ab and ab.fireBlaster then pcall(ab.fireBlaster, origin, dir, 1, 1)
   else
     local beam = mkp(fold(), "Beam", V3(1.5, 1.5, 40), CF(), C3(200, 220, 255), true, PT_BLOCK, MAT.Neon, 0.2)
     beam.CFrame = CFrame.lookAt(origin + dir * 20, origin + dir * 40)
-    TS:Create(beam, TweenInfo.new(0.4), { Size = V3(0.1, 0.1, 40), Transparency = 1 }):Play()
-    Debris:AddItem(beam, 0.5)
+    TS:Create(beam, TweenInfo.new(0.4), { Size = V3(0.1, 0.1, 40), Transparency = 1 }):Play(); Debris:AddItem(beam, 0.5)
     local res = WS:Raycast(origin, dir * 60, rayParams())
-    if res then damageTarget(res.Instance, 50, dir, 15) end
-  end
+    if res then damageTarget(res.Instance, 50, dir, 15) end end
 end
 
 function W.attack()
@@ -584,19 +544,15 @@ function W.attack()
   local t = tick()
   if t - W.lastAttack < W.attackCD then return false end
   W.lastAttack = t
-
   local activeId = nil
   for id, m in pairs(W.equipped) do
     if m and m.Parent and m:GetAttribute("OrbitSlot") == "R" then activeId = id; break end
   end
   if not activeId then
-    for id, m in pairs(W.equipped) do
-      if m and m.Parent then activeId = id; break end
-    end
+    for id, m in pairs(W.equipped) do if m and m.Parent then activeId = id; break end end
   end
   if not activeId then return false end
   W.attackCD = (activeId == "gaster_blaster") and 1.4 or 0.6
-
   local c, h, r = getChar()
   if not c then return false end
   local fn = ATTACKS[activeId]
@@ -623,9 +579,7 @@ end
 local function handCF(hand)
   local hum = hand.Parent and hand.Parent:FindFirstChildOfClass("Humanoid")
   local isR15 = hum and hum.RigType == Enum.HumanoidRigType.R15
-  if isR15 then
-    return hand.CFrame * CF(0, 0, -1.2) * CFrame.Angles(math.rad(-15), 0, 0)
-  end
+  if isR15 then return hand.CFrame * CF(0, 0, -1.2) * CFrame.Angles(math.rad(-15), 0, 0) end
   return hand.CFrame * CF(0, -1, -1.2) * CFrame.Angles(math.rad(-15), 0, 0)
 end
 
@@ -674,9 +628,7 @@ function W.applySelection()
           W.equipped[w.id] = model
           slotIdx = slotIdx + 1
           model:SetAttribute("OrbitSlot", slots[((slotIdx - 1) % #slots) + 1])
-        else
-          warn("[Orbit Weapons] сборка упала: " .. w.id)
-        end
+        else warn("[Orbit Weapons] сборка упала: " .. w.id) end
       end
     end
   end
@@ -711,7 +663,6 @@ local function onClick(btn, fn)
   btn.Activated:Connect(call)
 end
 
--- draggable кнопка
 local function makeDraggable(btn, defaultPos, saveKey, onTap)
   local dragging = false
   local moved = false
@@ -827,7 +778,7 @@ local function buildUI()
   local cm = WS.CurrentCamera
   local vp = cm and cm.ViewportSize or Vector2.new(800, 600)
   local w = math.min(520, vp.X - 24)
-  local h = math.min(600, vp.Y - 40)
+  local h = math.min(620, vp.Y - 40)
   local frame = Instance.new("Frame")
   frame.Name = "Root"; frame.Size = UDim2.fromOffset(w, h)
   frame.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -856,7 +807,7 @@ local function buildUI()
   local hint = Instance.new("TextLabel")
   hint.Size = UDim2.new(1, -32, 0, 20); hint.Position = UDim2.fromOffset(16, 46)
   hint.BackgroundTransparency = 1
-  hint.Text = "Оружие: галочка → ЭКИПИРОВАТЬ. Скины — тап, сразу наденутся. Атака ⚔ или V."
+  hint.Text = "Скин-фигура заменяет персонажа. Атака ⚔ или клавиша V."
   hint.TextColor3 = C3(170,170,200); hint.Font = Enum.Font.Gotham
   hint.TextSize = 11; hint.TextXAlignment = Enum.TextXAlignment.Left
   hint.ZIndex = 3; hint.Parent = frame
@@ -1045,7 +996,6 @@ local function buildMobileBtns()
     if old then old:Destroy() end
   end
 
-  -- Кнопка 🗡 (арсенал)
   local sg1 = Instance.new("ScreenGui")
   sg1.Name = "_OrbitWeaponsBtn"; sg1.ResetOnSpawn = false
   sg1.IgnoreGuiInset = true; sg1.DisplayOrder = 44; sg1.Parent = pg
@@ -1061,7 +1011,6 @@ local function buildMobileBtns()
 
   makeDraggable(b1, UDim2.new(1, -16, 1, -440), "weaponsBtn", function() W.toggle() end)
 
-  -- Кнопка ⚔ (атака)
   local sg2 = Instance.new("ScreenGui")
   sg2.Name = "_OrbitAttackBtn"; sg2.ResetOnSpawn = false
   sg2.IgnoreGuiInset = true; sg2.DisplayOrder = 44; sg2.Parent = pg
@@ -1089,8 +1038,22 @@ local function buildMobileBtns()
 end
 buildMobileBtns()
 
+-- ===== Heartbeat: позиции оружия + фигура скина =====
 connect(RS.Heartbeat, function()
+  -- оружие в руках
   if next(W.equipped) ~= nil then pcall(updatePositions) end
+  -- фигура-скин следует за персонажем
+  if W.skinModel and W.skinModel.Parent then
+    local char = LP.Character
+    if char then
+      local hrp = char:FindFirstChild("HumanoidRootPart")
+      if hrp then
+        pcall(function()
+          W.skinModel:PivotTo(hrp.CFrame * (W.skinOffset or CFrame.new()))
+        end)
+      end
+    end
+  end
 end)
 
 -- клавиша V — атака (ПК)
@@ -1106,10 +1069,37 @@ end)
 connect(LP.CharacterAdded, function()
   task.wait(0.6)
   if next(W.selected) ~= nil then pcall(W.applySelection) end
-  pcall(W.reapplyActiveSkins)
+  -- если активен фигурный скин — переприменить на новом персонаже
+  local hasFigure = W.activeFx.sans_boss_skin or W.activeFx.gaster_boss_skin
+  if hasFigure then
+    for id, _ in pairs(W.activeFx) do
+      local skin = SKINS[id]
+      if skin and not FIGURE_DEFS[id] then pcall(skin.apply) end
+    end
+    -- фигурный скин переприменяем заново — на нового персонажа
+    for id in pairs(FIGURE_DEFS) do
+      if W.activeFx[id] then
+        local skin = SKINS[id]
+        if skin then pcall(skin.apply) end
+      end
+    end
+  else
+    pcall(W.reapplyActiveSkins)
+  end
 end)
 
--- API
+-- на случай удаления персонажа
+connect(LP.CharacterRemoving, function()
+  -- убрать фигуру, чтобы не осталась висеть
+  if W.skinModel then
+    pcall(function() W.skinModel:Destroy() end)
+    W.skinModel = nil
+  end
+  W.savedCharState = nil
+  W.savedFaceT = nil
+end)
+
+-- ===== API =====
 function W.list()
   local out = {}
   for _, w in ipairs(WEAPONS) do
@@ -1148,12 +1138,13 @@ function W.destroy()
   destroyUI()
   W.unequipAll()
   W.selected = {}
-  -- снять все скины
+  -- снять все активные скины (включая фигурные)
   for id in pairs(W.activeFx) do
     local skin = SKINS[id]
     if skin then pcall(skin.remove) end
   end
   W.activeFx = {}
+  if W.skinModel then pcall(function() W.skinModel:Destroy() end); W.skinModel = nil end
   if W.btnGui then pcall(function() W.btnGui:Destroy() end); W.btnGui = nil end
   if W.attackGui then pcall(function() W.attackGui:Destroy() end); W.attackGui = nil end
   if W.folder then pcall(function() W.folder:Destroy() end); W.folder = nil end
@@ -1177,7 +1168,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("🗡 Арсенал v25.6 (оружие + скины R6/R15 + атака)", C3(200, 220, 255), 3)
+  ORBIT.notify("🗡 Арсенал v25.7 (фигурные скины Санс/Гастер)", C3(200, 220, 255), 3)
 end
 
 return true
