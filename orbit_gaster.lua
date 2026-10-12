@@ -1,9 +1,6 @@
--- ORBIT v25.2-fix5 | orbit_gaster.lua
+-- ORBIT v25.2-fix6 | orbit_gaster.lua
 -- 16 частей тела + ловушки + босс-файт + белое оружие.
--- v25.2-fix5:
---   * Босс — пресет «ГАСТЕР» из p2 (чёрный), scale 5, лицом к игроку, руки ×2.
---   * Оружие в руке — «ГАСТЕР БЛАСТЕР» scale 3.
---   * Награда после победы — бластер-спутник (череп scale 1.5), крутится и стреляет.
+-- v25.2-fix6: бластер-спутник ×3, руки босса ×3, бластер босса ×4.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -333,7 +330,6 @@ local function createGaster(size, name)
 end
 
 function G.registerShape()
-  -- v25.2-fix5: не перезаписываем пресеты p2
   G.shapeRegistered = true
   return true
 end
@@ -696,12 +692,10 @@ local function stepBossMovement(dt, t)
     local newPos = bossPos + dir * step
     local groundY = target.Y
     local finalPos = V3(newPos.X, groundY, newPos.Z)
-    -- v25.2-fix5: разворот на 180° — фигуры p2 построены лицом к +Z
     pcall(function() G.boss.model:PivotTo(CFrame.lookAt(finalPos, finalPos + dir) * CFrame.Angles(0, math.pi, 0)) end)
     G.walkPhase = G.walkPhase + dt * 9
     playWalkAnim(G.boss.model, G.walkPhase, dt)
   else
-    -- стоит: смотрит на игрока
     pcall(function()
       local cur = G.boss.model:GetPivot().Position
       G.boss.model:PivotTo(CFrame.lookAt(cur, playerPos) * CFrame.Angles(0, math.pi, 0))
@@ -916,7 +910,7 @@ local function trapHit(trap)
 end
 
 -- ============================================================
---       БОСС — v25.2-fix5
+--       БОСС — v25.2-fix6 (руки ×3, бластер босса ×4)
 -- ============================================================
 function G.startBoss()
   if not alive then return end
@@ -959,7 +953,7 @@ function G.startBoss()
   end
   data.model.Parent = fold()
 
-  -- v25.2-fix5: руки босса ×2
+  -- v25.2-fix6: руки босса ×3
   local HAND_PART_NAMES = {
     F1 = true, F2 = true, F3 = true, F4 = true,
     Palm = true, Wrap1 = true, Wrap2 = true, Spike = true,
@@ -969,14 +963,33 @@ function G.startBoss()
   }
   for _, d in ipairs(data.model:GetDescendants()) do
     if d:IsA("BasePart") and HAND_PART_NAMES[d.Name] then
-      pcall(function() d.Size = d.Size * 2 end)
+      pcall(function() d.Size = d.Size * 3 end)
+    end
+  end
+
+  -- v25.2-fix6: бластер босса ×4
+  local blasterModel = data.model:FindFirstChild("GasterBlaster")
+  if blasterModel then
+    for _, d in ipairs(blasterModel:GetDescendants()) do
+      if d:IsA("BasePart") then
+        pcall(function() d.Size = d.Size * 4 end)
+      end
+    end
+  else
+    for _, ch in ipairs(data.model:GetChildren()) do
+      if ch.Name:find("Blaster") then
+        for _, d in ipairs(ch:GetDescendants()) do
+          if d:IsA("BasePart") then
+            pcall(function() d.Size = d.Size * 4 end)
+          end
+        end
+      end
     end
   end
 
   local spawnPos = root.Position + root.CFrame.LookVector * 20
   local gp = groundAt(spawnPos)
   local finalPos = V3(gp.X, gp.Y + 3, gp.Z)
-  -- v25.2-fix5: разворот на 180° — фигуры p2 построены лицом к +Z
   pcall(function() data.model:PivotTo(CFrame.lookAt(finalPos, root.Position) * CFrame.Angles(0, math.pi, 0)) end)
 
   G.boss = {
@@ -1088,7 +1101,7 @@ local function stepBoss(dt, t)
 end
 
 -- ============================================================
---       ПОБЕДА — v25.2-fix5
+--       ПОБЕДА
 -- ============================================================
 function G.winBoss()
   if not G.boss then return end
@@ -1212,7 +1225,7 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
     stepBoss(dt, t)
   end
 
-  -- ФИГУРА-СПУТНИК (бластер) после победы
+  -- ФИГУРА-СПУТНИК (бластер, scale 4.5)
   if G.figure then
     local f = G.figure
     local m = f.data.model
@@ -1225,7 +1238,6 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
       local center = root and root.Position or V3()
       local ca, sa = math.cos(f.angle), math.sin(f.angle)
       local pos = center + V3(ca * 8, 4 + math.sin(t * 1.5) * 0.5 - 12 * (1 - kk), sa * 8)
-      -- смотрит по направлению движения
       local look = pos + V3(-sa, 0, ca)
       pcall(function() m:PivotTo(CFrame.lookAt(pos, look)) end)
       if kk >= 1 then
@@ -1280,20 +1292,20 @@ function G.removeFigure()
   end
 end
 
--- v25.2-fix5: спутник = БЛАСТЕР (череп), а НЕ Гастер целиком
+-- v25.2-fix6: спутник = бластер scale 4.5 (было 1.5)
 local function buildFigure()
   local presets = ORBIT.SHAPE_PRESETS
   local data = nil
   if type(presets) == "table" then
     for _, p in ipairs(presets) do
       if p.name == "ГАСТЕР БЛАСТЕР" and type(p.create) == "function" then
-        local ok, d = pcall(p.create, 1.5, "GasterBlasterOrbit")
+        local ok, d = pcall(p.create, 4.5, "GasterBlasterOrbit")
         if ok and d and d.model then data = d end
         break
       end
     end
   end
-  if not data then data = createGaster(1.5, "GasterBlasterOrbit") end
+  if not data then data = createGaster(4.5, "GasterBlasterOrbit") end
   data.model.Parent = fold()
   local f = { data = data, angle = 0, riseT = 0, nextShot = tick() + 5, fire = nil }
   f.charge = data.model:FindFirstChild("Charge", true)
@@ -1347,7 +1359,7 @@ function G.assemble(quick)
   return true
 end
 -- ============================================================
---       ОРУЖИЕ (бластер в руке scale = 3)
+--       ОРУЖИЕ (бластер в руке scale 3)
 -- ============================================================
 local W = { equipped = false, models = {}, proj = {}, cdUntil = 0, conns = {}, side = 1 }
 local wFolder, wGui, wBtn = nil, nil, nil
@@ -1366,8 +1378,8 @@ local function getHands(char)
   return char:FindFirstChild("Left Arm"), char:FindFirstChild("Right Arm"), false
 end
 local function handCF(hand, r15)
-  if r15 then return hand.CFrame * CF(0, 0, -1.2) end
-  return hand.CFrame * CF(0, -1, -1.2)
+  if r15 then return hand.CFrame * CF(0, 2, -1.2) end
+  return hand.CFrame * CF(0, 1, -1.2)
 end
 local function wAim(origin)
   local cm = WS.CurrentCamera
@@ -1683,7 +1695,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v25.2-fix5 (чёрный босс ×5, спутник-бластер)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v25.2-fix6 (руки ×3, бластер-спутник ×3)", C3(220, 200, 255), 3)
 end
 
 return true
