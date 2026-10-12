@@ -1,6 +1,9 @@
--- ORBIT v25.2 | orbit_sans_boss.lua
+-- ORBIT v25.3 | orbit_sans_boss.lua
 -- Мини-игра «Собери Санса» (16 осколков + ловушки) + босс-файт.
--- v25.2: добавлена мини-игра сбора, Санс ходит по земле с анимацией шага.
+-- v25.3:
+--   * 2-я фраза Санса при победе (после «забирай. заслужил.»)
+--   * Осколки-кубики заменены на реальные части тела:
+--     череп, глаз, ухмылка, зуб, толстовка, капюшон, рука, кисть, шорты, тапок.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] sans_boss: нет ORBIT"); return false end
@@ -27,7 +30,7 @@ local COL_UI_BG   = C3(15, 10, 25)
 
 local S = {
   active = false,
-  state = "idle",           -- idle | collecting | boss | won
+  state = "idle",
   hp = 400, maxHp = 400, phase = 1,
   timer = 120, collected = 0,
   parts = {}, traps = {},
@@ -73,26 +76,101 @@ local function groundAt(pos)
 end
 
 -- ============================================================
---       16 ОСКОЛКОВ САНСА
+--       16 ОСКОЛКОВ САНСА (partType = какая часть тела)
 -- ============================================================
 local PARTS = {
-  { id = "skull",     nm = "Череп",        col = C3(250, 250, 252), sz = 2.4, px = 0.5,  py = 0.10, sw = 46, sh = 32, z = 1 },
-  { id = "eyeL",      nm = "Левый глаз",   col = C3(18, 18, 22),   sz = 1.2, px = 0.40, py = 0.15, sw = 10, sh = 8,  z = 3, round = true },
-  { id = "eyeR",      nm = "Правый глаз",  col = C3(18, 18, 22),   sz = 1.2, px = 0.60, py = 0.15, sw = 10, sh = 8,  z = 3, round = true },
-  { id = "eyeBlue",   nm = "Синий глаз",   col = COL_EYE,          sz = 1.2, px = 0.60, py = 0.15, sw = 8,  sh = 8,  z = 4, round = true },
-  { id = "smile",     nm = "Ухмылка",      col = C3(18, 18, 22),   sz = 1.4, px = 0.5,  py = 0.24, sw = 40, sh = 8,  z = 3 },
-  { id = "toothU",    nm = "Верхний зуб",  col = C3(255, 255, 255),sz = 1.0, px = 0.44, py = 0.28, sw = 8,  sh = 8,  z = 3 },
-  { id = "toothL",    nm = "Нижний зуб",   col = C3(255, 255, 255),sz = 1.0, px = 0.56, py = 0.28, sw = 8,  sh = 8,  z = 3 },
-  { id = "hoodie",    nm = "Толстовка",    col = COL_HOODIE,       sz = 2.4, px = 0.5,  py = 0.44, sw = 46, sh = 26, z = 1 },
-  { id = "hoodRoll",  nm = "Капюшон",      col = COL_HOODIE,       sz = 1.6, px = 0.5,  py = 0.36, sw = 34, sh = 10, z = 2 },
-  { id = "armL",      nm = "Левая рука",   col = C3(55, 115, 225), sz = 1.6, px = 0.20, py = 0.50, sw = 14, sh = 22, z = 1 },
-  { id = "armR",      nm = "Правая рука",  col = C3(55, 115, 225), sz = 1.6, px = 0.80, py = 0.50, sw = 14, sh = 22, z = 1 },
-  { id = "handL",     nm = "Левая кисть",  col = C3(250, 250, 252),sz = 1.2, px = 0.20, py = 0.62, sw = 10, sh = 10, z = 3, round = true },
-  { id = "handR",     nm = "Правая кисть", col = C3(250, 250, 252),sz = 1.2, px = 0.80, py = 0.62, sw = 10, sh = 10, z = 3, round = true },
-  { id = "shorts",    nm = "Шорты",        col = C3(18, 18, 22),   sz = 2.0, px = 0.5,  py = 0.64, sw = 40, sh = 14, z = 1 },
-  { id = "slipperL",  nm = "Левый тапок",  col = C3(246, 246, 250),sz = 1.4, px = 0.36, py = 0.86, sw = 14, sh = 8,  z = 2, round = true },
-  { id = "slipperR",  nm = "Правый тапок", col = C3(246, 246, 250),sz = 1.4, px = 0.64, py = 0.86, sw = 14, sh = 8,  z = 2, round = true },
+  { id = "skull",     nm = "Череп",        col = C3(250, 250, 252), sz = 2.4, px = 0.5,  py = 0.10, sw = 46, sh = 32, z = 1, partType = "skull" },
+  { id = "eyeL",      nm = "Левый глаз",   col = C3(18, 18, 22),   sz = 1.2, px = 0.40, py = 0.15, sw = 10, sh = 8,  z = 3, partType = "ball" },
+  { id = "eyeR",      nm = "Правый глаз",  col = C3(18, 18, 22),   sz = 1.2, px = 0.60, py = 0.15, sw = 10, sh = 8,  z = 3, partType = "ball" },
+  { id = "eyeBlue",   nm = "Синий глаз",   col = COL_EYE,          sz = 1.2, px = 0.60, py = 0.15, sw = 8,  sh = 8,  z = 4, partType = "eye_glow" },
+  { id = "smile",     nm = "Ухмылка",      col = C3(18, 18, 22),   sz = 1.4, px = 0.5,  py = 0.24, sw = 40, sh = 8,  z = 3, partType = "smile" },
+  { id = "toothU",    nm = "Верхний зуб",  col = C3(255, 255, 255),sz = 1.0, px = 0.44, py = 0.28, sw = 8,  sh = 8,  z = 3, partType = "tooth" },
+  { id = "toothL",    nm = "Нижний зуб",   col = C3(255, 255, 255),sz = 1.0, px = 0.56, py = 0.28, sw = 8,  sh = 8,  z = 3, partType = "tooth" },
+  { id = "hoodie",    nm = "Толстовка",    col = COL_HOODIE,       sz = 2.4, px = 0.5,  py = 0.44, sw = 46, sh = 26, z = 1, partType = "hoodie" },
+  { id = "hoodRoll",  nm = "Капюшон",      col = COL_HOODIE,       sz = 1.6, px = 0.5,  py = 0.36, sw = 34, sh = 10, z = 2, partType = "hood_roll" },
+  { id = "armL",      nm = "Левая рука",   col = COL_HOODIE,       sz = 1.6, px = 0.20, py = 0.50, sw = 14, sh = 22, z = 1, partType = "arm" },
+  { id = "armR",      nm = "Правая рука",  col = COL_HOODIE,       sz = 1.6, px = 0.80, py = 0.50, sw = 14, sh = 22, z = 1, partType = "arm" },
+  { id = "handL",     nm = "Левая кисть",  col = C3(250, 250, 252),sz = 1.2, px = 0.20, py = 0.62, sw = 10, sh = 10, z = 3, partType = "ball" },
+  { id = "handR",     nm = "Правая кисть", col = C3(250, 250, 252),sz = 1.2, px = 0.80, py = 0.62, sw = 10, sh = 10, z = 3, partType = "ball" },
+  { id = "shorts",    nm = "Шорты",        col = C3(18, 18, 22),   sz = 2.0, px = 0.5,  py = 0.64, sw = 40, sh = 14, z = 1, partType = "shorts" },
+  { id = "slipperL",  nm = "Левый тапок",  col = C3(246, 246, 250),sz = 1.4, px = 0.36, py = 0.86, sw = 14, sh = 8,  z = 2, partType = "slipper" },
+  { id = "slipperR",  nm = "Правый тапок", col = C3(246, 246, 250),sz = 1.4, px = 0.64, py = 0.86, sw = 14, sh = 8,  z = 2, partType = "slipper" },
 }
+
+-- ============================================================
+--       СБОРКА ОСКОЛКА КАК ЧАСТИ ТЕЛА
+-- ============================================================
+local function buildShardModel(def, pos)
+  local m = Instance.new("Model")
+  m.Name = "SansShard_" .. def.id
+  local first
+  local function add(size, off, col, shape, mat)
+    local p = Instance.new("Part")
+    p.Name = "P"
+    p.Anchored = true; p.CanCollide = false; p.CanQuery = false
+    p.CanTouch = false; p.CastShadow = false
+    p.Size = size
+    p.CFrame = CFrame.new(pos) * off
+    p.Color = col
+    p.Material = mat or MAT.SmoothPlastic
+    p.Shape = shape or PT_BLOCK
+    p:SetAttribute("NoRecolor", true)
+    p.Parent = m
+    if not first then first = p end
+    return p
+  end
+
+  local t = def.partType or "ball"
+  if t == "skull" then
+    add(V3(1.6, 1.6, 1.6), CF(), C3(250, 250, 252), PT_BALL)
+    add(V3(1.2, 0.5, 1.2), CF(0, -0.7, 0), C3(240, 240, 245))
+    add(V3(0.35, 0.35, 0.35), CF(-0.35, 0.15, -0.65), C3(15, 15, 20), PT_BALL)
+    add(V3(0.35, 0.35, 0.35), CF(0.35, 0.15, -0.65), C3(15, 15, 20), PT_BALL)
+  elseif t == "hoodie" then
+    add(V3(1.8, 1.3, 1.0), CF(), def.col)
+    add(V3(1.4, 0.5, 0.7), CF(0, 0.9, 0), def.col, PT_BALL)
+  elseif t == "hood_roll" then
+    add(V3(1.6, 0.6, 1.0), CF(), def.col, PT_BALL)
+  elseif t == "arm" then
+    add(V3(0.7, 1.5, 0.7), CF(0, 0.4, 0), def.col)
+    add(V3(0.55, 0.55, 0.55), CF(0, -0.55, 0), C3(250, 250, 252), PT_BALL)
+  elseif t == "shorts" then
+    add(V3(2.0, 0.9, 1.0), CF(), def.col)
+  elseif t == "slipper" then
+    add(V3(0.9, 0.5, 1.4), CF(), def.col, PT_BALL)
+  elseif t == "smile" then
+    add(V3(0.7, 0.4, 0.3), CF(0, 0, 0), C3(18, 18, 22))
+    add(V3(0.35, 0.5, 0.3), CF(-0.55, 0.15, 0), C3(255, 255, 255))
+    add(V3(0.35, 0.5, 0.3), CF(0.55, 0.15, 0), C3(255, 255, 255))
+  elseif t == "tooth" then
+    add(V3(0.5, 0.7, 0.4), CF(), C3(255, 255, 255))
+  elseif t == "eye_glow" then
+    add(V3(def.sz, def.sz, def.sz), CF(), def.col, PT_BALL, MAT.Neon)
+  else -- ball
+    add(V3(def.sz, def.sz, def.sz), CF(), def.col, PT_BALL)
+  end
+  m.PrimaryPart = first
+
+  local l = Instance.new("PointLight")
+  l.Color = def.col; l.Range = 14; l.Brightness = 2.5; l.Parent = first
+  local pe = Instance.new("ParticleEmitter")
+  pe.Color = ColorSequence.new(def.col); pe.LightEmission = 1
+  pe.Size = NumberSequence.new(0.5, 0); pe.Lifetime = NumberRange.new(0.6, 1.2)
+  pe.Speed = NumberRange.new(2, 5); pe.SpreadAngle = Vector2.new(180, 180); pe.Rate = 25
+  pe.Parent = first
+
+  local bb = Instance.new("BillboardGui")
+  bb.Size = UDim2.new(0, 120, 0, 20); bb.StudsOffset = V3(0, 2.5, 0)
+  bb.AlwaysOnTop = true; bb.Parent = first
+  local lbl = Instance.new("TextLabel")
+  lbl.Size = UDim2.fromScale(1, 1); lbl.BackgroundTransparency = 1
+  lbl.Text = def.nm; lbl.TextColor3 = C3(255, 255, 255)
+  lbl.TextStrokeTransparency = 0; lbl.Font = Enum.Font.Code; lbl.TextScaled = true
+  lbl.Parent = bb
+
+  m.Parent = fold()
+  return m
+end
 
 -- ============================================================
 --       СБОРКА ТЕЛА БОССА
@@ -207,6 +285,7 @@ local function hideBossUI()
   if S.bossUI and S.bossUI.sg then pcall(function() S.bossUI.sg:Destroy() end) end
   S.bossUI = nil
 end
+
 -- ============================================================
 --       UI СБОРА ОСКОЛКОВ
 -- ============================================================
@@ -251,12 +330,11 @@ local function buildCollectUI()
 
   local title = Instance.new("TextLabel")
   title.Size = UDim2.fromOffset(w - 20, 24); title.Position = UDim2.fromOffset(10, 6)
-  title.BackgroundTransparency = 1; title.Text = "💀 СОБЕРИ САНСА (16 осколков)"
+  title.BackgroundTransparency = 1; title.Text = "💀 СОБЕРИ САНСА (16 частей)"
   title.TextSize = 15; title.TextColor3 = C3(220, 240, 255)
   title.Font = Enum.Font.GothamBold; title.TextXAlignment = Enum.TextXAlignment.Center
   title.Parent = win
 
-  -- сетка 4×4 частей
   local sk = Instance.new("Frame")
   sk.Position = UDim2.fromOffset(8, 34); sk.Size = UDim2.fromOffset(120, 168)
   sk.BackgroundTransparency = 1; sk.Parent = win
@@ -283,7 +361,7 @@ local function buildCollectUI()
   end
   u.prog = lbl(x0, 34, cw, 22, "Собрано 0/16", 15)
   u.timer = lbl(x0, 58, cw, 22, "⏱ 2:00", 15)
-  u.hint = lbl(x0, 82, cw, 44, "Осколки летают. Ловушки розовые — минус осколок! Собирай все 16.", 10, C3(170, 160, 200))
+  u.hint = lbl(x0, 82, cw, 44, "Части тела летают. Ловушки розовые — минус 1 часть! Собирай все 16.", 10, C3(170, 160, 200))
 
   local function btn(x, y, ww, txt, col)
     local b = Instance.new("TextButton")
@@ -322,30 +400,14 @@ end
 --       ОСКОЛКИ И ЛОВУШКИ
 -- ============================================================
 local function clearShards()
-  for _, s in pairs(S.parts) do if s.part then pcall(function() s.part:Destroy() end) end end
+  for _, s in pairs(S.parts) do if s.model then pcall(function() s.model:Destroy() end) end end
   S.parts = {}
   for _, t in pairs(S.traps) do if t.part then pcall(function() t.part:Destroy() end) end end
   S.traps = {}
 end
 
 local function makeShard(def, pos)
-  local p = ORBIT.newPart(fold(), "SansShard_" .. def.id, V3(def.sz, def.sz, def.sz), CF(pos), def.col)
-  p.Shape = PT_BALL
-  p.Material = MAT.Neon
-  p:SetAttribute("NoRecolor", true)
-  local l = Instance.new("PointLight"); l.Color = def.col; l.Range = 14; l.Brightness = 2.5; l.Parent = p
-  local e = Instance.new("ParticleEmitter")
-  e.Color = ColorSequence.new(def.col); e.LightEmission = 1
-  e.Size = NumberSequence.new(0.5, 0); e.Lifetime = NumberRange.new(0.6, 1.2)
-  e.Speed = NumberRange.new(2, 5); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 25; e.Parent = p
-  local bb = Instance.new("BillboardGui")
-  bb.Size = UDim2.new(0, 120, 0, 20); bb.StudsOffset = V3(0, def.sz + 1, 0); bb.AlwaysOnTop = true; bb.Parent = p
-  local lbl = Instance.new("TextLabel")
-  lbl.Size = UDim2.fromScale(1, 1); lbl.BackgroundTransparency = 1
-  lbl.Text = def.nm; lbl.TextColor3 = C3(255, 255, 255)
-  lbl.TextStrokeTransparency = 0; lbl.Font = Enum.Font.Code; lbl.TextScaled = true
-  lbl.Parent = bb
-  return p
+  return buildShardModel(def, pos)
 end
 
 local function makeTrap(pos, r)
@@ -376,12 +438,12 @@ local function spawnParts()
       local res = WS:Raycast(V3(x, root.Position.Y + 70, z), V3(0, -220, 0), rp)
       pos = V3(x, (res and res.Position.Y or root.Position.Y) + 3, z)
       local ok = true
-      for _, q in ipairs(placed) do if (q - pos).Magnitude < 7 then ok = false; break end end
+      for _, q in ipairs(placed) do if (q - pos).Magnitude < 8 then ok = false; break end end
       if ok then break end
     end
     placed[#placed + 1] = pos
     S.parts[def.id] = {
-      def = def, part = makeShard(def, pos), base = pos,
+      def = def, model = makeShard(def, pos), base = pos,
       phase = math.random() * math.pi * 2,
       radius = 1.5 + math.random() * 2,
       speed = 0.6 + math.random() * 0.8,
@@ -410,7 +472,7 @@ local function finalizePart(id)
   local s = S.parts[id]
   if not s or s.got then return end
   s.got = true
-  if s.part then pcall(function() s.part:Destroy() end); s.part = nil end
+  if s.model then pcall(function() s.model:Destroy() end); s.model = nil end
   ping("botCollect", 1, 1)
   collectUIRefresh()
   local n = 0
@@ -423,16 +485,27 @@ end
 
 function S.collectPart(id)
   local s = S.parts[id]
-  if not alive or S.state ~= "collecting" or not s or s.got or s.flying or not s.part then return false end
+  if not alive or S.state ~= "collecting" or not s or s.got or s.flying or not s.model then return false end
   local c, h, root = getChar()
   if not root then return false end
-  local d = (root.Position - s.part.Position).Magnitude
+  local cur = s.model:GetPivot().Position
+  local d = (root.Position - cur).Magnitude
   if d > 12 then
     s.flying = true
-    local tt = math.clamp(d / 70, 0.2, 1.2)
-    local tw = TS:Create(s.part, TweenInfo.new(tt, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { CFrame = CF(root.Position) })
-    tw.Completed:Connect(function() if alive and S.parts[id] == s then finalizePart(id) end end)
-    tw:Play()
+    task.spawn(function()
+      while alive and S.parts[id] == s and s.flying and s.model and s.model.Parent do
+        local _, _, r2 = getChar()
+        if not r2 then break end
+        local cur2 = s.model:GetPivot().Position
+        local target = r2.Position
+        local dist = (target - cur2).Magnitude
+        if dist < 2 then break end
+        local step = math.min(dist, 60 * 0.03)
+        s.model:PivotTo(CFrame.new(cur2 + (target - cur2).Unit * step))
+        task.wait(0.03)
+      end
+      if alive and S.parts[id] == s then finalizePart(id) end
+    end)
     return true
   end
   finalizePart(id)
@@ -446,7 +519,7 @@ local function trapHit(trap)
     if s.got then s.got = false; break end
   end
   ping("click", 1, 0.5)
-  if ORBIT.notify then ORBIT.notify("⚠️ Ловушка! Осколок потерян", C3(255, 100, 100), 2) end
+  if ORBIT.notify then ORBIT.notify("⚠️ Ловушка! Часть тела потеряна", C3(255, 100, 100), 2) end
   collectUIRefresh()
   local bp = ORBIT.newPart(fold(), "Fx", V3(0.2, 0.2, 0.2), CF(trap.part.Position), COL_TRAP, true)
   bp.Transparency = 1
@@ -462,10 +535,10 @@ end
 local function stepShards(dt, t)
   if S.state ~= "collecting" then return end
   for id, s in pairs(S.parts) do
-    if not s.got and s.part and s.part.Parent and not s.flying then
+    if not s.got and s.model and s.model.Parent and not s.flying then
       local ang = t * s.speed + s.phase
       local offset = V3(math.cos(ang) * s.radius, math.sin(t * 2 + s.phase) * 0.8, math.sin(ang) * s.radius)
-      s.part.CFrame = CF(s.base + offset) * CFrame.Angles(0, t * 1.5 + s.phase, 0)
+      s.model:PivotTo(CFrame.new(s.base + offset) * CFrame.Angles(0, t * 1.5 + s.phase, 0))
     end
   end
 end
@@ -508,16 +581,12 @@ local function playWalkAnim(model, phase, dt)
   pcall(function()
     model:PivotTo(pivot * CFrame.Angles(0, 0, sway) + V3(0, bob, 0))
   end)
-  -- ноги: поочерёдно вперёд/назад по Z
   local legPhase = math.sin(phase)
   local legs = S._legs
   if not legs then legs = collectLegs(model); S._legs = legs end
   for _, l in ipairs(legs) do
     if l.p.Parent then
       local zShift = (l.side > 0) and legPhase or -legPhase
-      local newCF = model.PrimaryPart.CFrame * (l.baseRel - l.baseRel.Position) 
-        * CF(0, 0, zShift * 0.35)
-      -- сохраняем относительную позицию
       local rel = model.PrimaryPart.CFrame:ToObjectSpace(l.baseRel)
       pcall(function() l.p.CFrame = model.PrimaryPart.CFrame * rel * CF(0, 0, zShift * 0.35) end)
     end
@@ -525,7 +594,6 @@ local function playWalkAnim(model, phase, dt)
 end
 
 local function findWalkTarget(center, bossPos)
-  -- цель — точка вокруг игрока, но не вплотную
   local angle = math.random() * math.pi * 2
   local dist = 5 + math.random() * 3
   local target = center + V3(math.cos(angle) * dist, 0, math.sin(angle) * dist)
@@ -540,13 +608,11 @@ local function stepBossMovement(dt, t)
   local bossPos = S.boss.root.Position
   local playerPos = r.Position
 
-  -- пересчёт цели раз в 1.5 сек
   if not S.walkTarget or t >= S.nextRetarget or (S.walkTarget - bossPos).Magnitude < 1.5 then
     S.nextRetarget = t + 1.5
     S.walkTarget = findWalkTarget(playerPos, bossPos)
   end
 
-  -- додж — рывок вбок
   if t >= S.nextDodge then
     S.nextDodge = t + 2.5 + math.random() * 2
     local away = bossPos - playerPos
@@ -563,7 +629,6 @@ local function stepBossMovement(dt, t)
     end
   end
 
-  -- движение к цели по земле
   local target = S.walkTarget or bossPos
   local diff = V3(target.X - bossPos.X, 0, target.Z - bossPos.Z)
   local dist = diff.Magnitude
@@ -578,7 +643,6 @@ local function stepBossMovement(dt, t)
     S.walkPhase = S.walkPhase + dt * 10
     playWalkAnim(S.boss.model, S.walkPhase, dt)
   else
-    -- стоит: покачивание дыхания
     S.walkPhase = S.walkPhase + dt * 2
     local bob = math.sin(S.walkPhase) * 0.05
     pcall(function()
@@ -606,7 +670,7 @@ local function spawnBoneShot(origin, dirv, dmg, speed, size)
       lobe.Parent = p
     end
   end
-  S.shots[#S.shots + 1] = { part = p, vel = dirv * speed, life = 3, dmg = dmg }
+  S.shots[#S.shots + 1] = { part = p, vel = dirv * speed, life = 3, dmg = dmg, born = tick() }
 end
 
 local function attackBoneVolley()
@@ -690,7 +754,6 @@ local function attackTeleportStrike()
     TS:Create(p, TweenInfo.new(0.4), { Transparency = 1 }):Play()
     Debris:AddItem(p, 0.5)
   end
-  -- появляется за спиной игрока на земле
   local behind = r.CFrame.LookVector * -3
   local rawPos = r.Position + V3(behind.X, 0, behind.Z)
   local gp = groundAt(rawPos)
@@ -843,7 +906,7 @@ function S.startCollect()
   buildCollectUI()
   ping("ping", 1, 1.2)
   if ORBIT.notify then
-    ORBIT.notify("💀 Собери 16 осколков Санса!", C3(200, 230, 255), 3)
+    ORBIT.notify("💀 Собери 16 частей тела Санса!", C3(200, 230, 255), 3)
     ORBIT.notify("⚠️ Осторожно — розовые ловушки!", C3(255, 150, 180), 3)
   end
   if ORBIT.sans and ORBIT.sans.say then
@@ -885,7 +948,6 @@ function S.startBoss()
   local c, h, r = getChar()
   if not r then return end
 
-  -- создаём модель босса на земле перед игроком
   local data = buildSansBoss(3)
   local spawnPos = r.Position + r.CFrame.LookVector * 15
   local gp = groundAt(spawnPos)
@@ -898,7 +960,6 @@ function S.startBoss()
   }
   S.walkTarget = finalPos
 
-  -- лёгкая цветокоррекция
   local cc = Instance.new("ColorCorrectionEffect")
   cc.Name = "OrbitSansBossCC"; cc.Parent = Lighting
   S.cc = cc
@@ -927,9 +988,9 @@ end
 local REWARDS = {
   { id = "sans_knife",       name = "🦴 Костяной клинок",      desc = "Оружие: веер из 3 костей" },
   { id = "blue_eye",         name = "💧 Синий глаз",           desc = "Возрождение 1 раз в 30 сек" },
-  { id = "coins",            name = "💰 +500 монет",           desc = "Валюта в магазине" },
+  { id = "coins_sans",       name = "💰 +500 монет",           desc = "Валюта в магазине" },
   { id = "sans_chat",        name = "💬 Санс в чате",          desc = "Пишет фразы при победах" },
-  { id = "sans_boss_skin",   name = "🎨 Скин «Санс-босс»",     desc = "Открыт в магазине" },
+  { id = "sans_boss_skin",   name = "🎨 Скин «Санс-босс»",     desc = "Открыт в арсенале" },
 }
 
 function S.winBoss()
@@ -954,6 +1015,7 @@ function S.winBoss()
     end)
   end
 
+  -- Фраза 1: при победе
   if ORBIT.sans and ORBIT.sans.say then
     task.delay(0.6, function() pcall(ORBIT.sans.say, "victory", true) end)
     task.delay(2.0, function()
@@ -965,6 +1027,17 @@ function S.winBoss()
       end
     end)
   end
+
+  -- Фраза 2: через 6.5 сек после первой (задача 1)
+  task.delay(6.5, function()
+    if not alive then return end
+    if ORBIT.sans and ORBIT.sans.showAt and LP.Character then
+      local head = LP.Character:FindFirstChild("Head")
+      if head then
+        pcall(ORBIT.sans.showAt, head.Position + V3(0, 3, 0), "не скучай, приятель.", 4)
+      end
+    end
+  end)
   ping("sans", 1, 1)
 
   task.delay(1.2, function()
@@ -990,6 +1063,8 @@ function S.winBoss()
       given[#given + 1] = rw
     end
   end
+  -- на всякий случай пишем и старый id "coins" — для обратной совместимости
+  ORBIT.saveData.rewards["coins"] = true
   ORBIT.COINS = (ORBIT.COINS or 0) + 500
   ORBIT.sansUnlocked = true
   ORBIT.sansKnifeUnlocked = true
@@ -1106,8 +1181,8 @@ local function stepCollect(dt, t)
   local c, h, root = getChar()
   if root then
     for id, s in pairs(S.parts) do
-      if not s.got and s.part and s.part.Parent and not s.flying then
-        if (root.Position - s.part.Position).Magnitude < 5 then S.collectPart(id) end
+      if not s.got and s.model and s.model.Parent and not s.flying then
+        if (root.Position - s.model:GetPivot().Position).Magnitude < 5 then S.collectPart(id) end
       end
     end
   end
@@ -1142,7 +1217,6 @@ function S.open()
   local pg = LP:FindFirstChildOfClass("PlayerGui")
   if not pg then return false end
 
-  -- снести старое, если висит
   local old = pg:FindFirstChild("_OrbitBossMenu")
   if old then old:Destroy() end
 
@@ -1154,7 +1228,6 @@ function S.open()
   sg.Parent = pg
   S.menu = sg
 
-  -- фон НЕ активен — не блокирует кнопки под ним
   local backdrop = Instance.new("Frame")
   backdrop.Size = UDim2.fromScale(1, 1)
   backdrop.BackgroundColor3 = C3(0, 0, 0)
@@ -1248,21 +1321,18 @@ function S.open()
     end)
   end
 
-  -- Карточка 1: САНС
   bossCard(48, "💀", "САНС",
-    "Мини-игра: собери 16 осколков → бой.\nХодит по земле, уклоняется, телепортируется.",
-    400, "🎯 СОБРАТЬ 16 ОСКОЛКОВ", C3(100, 200, 255),
+    "Мини-игра: собери 16 частей тела → бой.\nХодит по земле, уклоняется, телепортируется.",
+    400, "🎯 СОБРАТЬ 16 ЧАСТЕЙ", C3(100, 200, 255),
     function() S.startCollect() end)
 
-  -- Карточка 2: ГАСТЕР
   bossCard(190, "👁", "ГАСТЕР",
-    "Собери 16 осколков Гастера → бой.\nКружит, бьёт бластером, костями и рукой.",
+    "Собери 16 осколков Гастера → бой.\nХодит по земле, бьёт рукой/бластером/костями.",
     650, "👁 МИНИ-ИГРА ГАСТЕРА", C3(200, 140, 255),
     function()
       if ORBIT.gaster and ORBIT.gaster.open then ORBIT.gaster.open() end
     end)
 
-  -- Кнопка «Пропустить и сразу в бой» (только если уже unlocked)
   if ORBIT.sansUnlocked then
     local skipBtn = Instance.new("TextButton")
     skipBtn.Size = UDim2.new(1, -32, 0, 30); skipBtn.Position = UDim2.new(0, 16, 0, 336)
@@ -1278,7 +1348,6 @@ function S.open()
     end)
   end
 
-  -- Подсказка про награды
   local hint = Instance.new("TextLabel")
   hint.Size = UDim2.new(1, -32, 0, 60); hint.Position = UDim2.new(0, 16, 0, 380)
   hint.BackgroundTransparency = 1
@@ -1311,7 +1380,6 @@ function S.destroy()
   if S.cc then pcall(function() S.cc:Destroy() end); S.cc = nil end
   if S.menu then pcall(function() S.menu:Destroy() end); S.menu = nil end
   if S.folder then pcall(function() S.folder:Destroy() end); S.folder = nil end
-  -- страховка по имени
   pcall(function()
     local pg = LP:FindFirstChildOfClass("PlayerGui")
     if pg then
@@ -1342,7 +1410,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("💀 Санс v25.2 (сбор 16 осколков + ходьба + 5 наград)", C3(200, 230, 255), 3)
+  ORBIT.notify("💀 Санс v25.3 (16 частей тела + 2 фразы + ходьба)", C3(200, 230, 255), 3)
 end
 
 return true
