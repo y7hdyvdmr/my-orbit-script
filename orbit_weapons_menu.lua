@@ -1,6 +1,7 @@
--- ORBIT v25.5 | orbit_weapons_menu.lua
--- Арсенал оружия + все награды + атака.
+-- ORBIT v25.6 | orbit_weapons_menu.lua
+-- Арсенал: оружие + все 13 наград + атака + скины (R6+R15) + drag кнопок.
 -- v25.5: все 13 наград, кнопка атаки, атаки по типу оружия.
+-- v25.6: скины применяются на персонажа (R6 + R15), возврат после респавна.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] weapons_menu: нет ORBIT"); return false end
@@ -39,6 +40,8 @@ local W = {
   isOpen = false, sg = nil, frame = nil, folder = nil,
   equipped = {}, selected = {}, btnGui = nil, attackGui = nil,
   lastAttack = 0, attackCD = 0.6,
+  activeFx = {},       -- { id = true } — какие скины сейчас надеты
+  savedColors = {},    -- оригинальные цвета персонажа
 }
 
 local function fold()
@@ -129,9 +132,9 @@ local function buildGasterBlaster()
   return data.model
 end
 
--- ===== Каталог наград (оружие + косметика + эффекты + пассивки) =====
+-- ===== Каталог наград =====
 local WEAPONS = {
-  -- ============ ОРУЖИЕ (экипируется) ============
+  -- ============ ОРУЖИЕ ============
   {
     id = "sans_knife", kind = "weapon",
     name = "🦴 Костяной клинок",
@@ -171,11 +174,11 @@ local WEAPONS = {
     build = buildShield,
   },
 
-  -- ============ КОСМЕТИКА (визуал) ============
+  -- ============ КОСМЕТИКА (надевается на персонажа) ============
   {
     id = "sans_boss_skin", kind = "cosmetic",
     name = "🎨 Скин «Санс-босс»",
-    desc = "Доступен в магазине скинов",
+    desc = "Перекрашивает персонажа в цвета Санса. Тап — надеть/снять",
     source = "Санс",
     check = function()
       return (ORBIT.sansUnlocked == true)
@@ -185,7 +188,7 @@ local WEAPONS = {
   {
     id = "gaster_boss_skin", kind = "cosmetic",
     name = "🎨 Скин «Гастер-босс»",
-    desc = "Доступен в магазине скинов",
+    desc = "Перекрашивает персонажа в белые цвета Гастера. Тап — надеть/снять",
     source = "Гастер",
     check = function()
       return (ORBIT.gasterUnlocked == true)
@@ -195,7 +198,7 @@ local WEAPONS = {
   {
     id = "gaster_skull_helmet", kind = "cosmetic",
     name = "💀 Костяной шлем",
-    desc = "Косметический шлем-череп",
+    desc = "Надевает череп-шлем на голову. Тап — надеть/снять",
     source = "Гастер",
     check = function()
       return (ORBIT.gasterUnlocked == true)
@@ -203,7 +206,7 @@ local WEAPONS = {
     end,
   },
 
-  -- ============ ЭФФЕКТЫ (визуал вокруг игрока) ============
+  -- ============ ЭФФЕКТЫ ============
   {
     id = "gaster_portal_fx", kind = "effect",
     name = "🌀 Тёмный портал",
@@ -214,7 +217,6 @@ local WEAPONS = {
           or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_portal_fx"])
     end,
     toggle = true,
-    attr = "OrbitFxPortal",
   },
   {
     id = "gaster_blue_particles", kind = "effect",
@@ -226,7 +228,6 @@ local WEAPONS = {
           or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_blue_particles"])
     end,
     toggle = true,
-    attr = "OrbitFxParticles",
   },
   {
     id = "blue_eye", kind = "effect",
@@ -238,7 +239,6 @@ local WEAPONS = {
           or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["blue_eye"])
     end,
     toggle = true,
-    attr = "OrbitFxBlueEye",
   },
   {
     id = "blue_eye_tick", kind = "effect",
@@ -250,10 +250,9 @@ local WEAPONS = {
           or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["blue_eye_tick"])
     end,
     toggle = true,
-    attr = "OrbitFxBlueEyeTick",
   },
 
-  -- ============ ПРОЧЕЕ (только отображение) ============
+  -- ============ ПРОЧЕЕ ============
   {
     id = "sans_chat", kind = "info",
     name = "💬 Санс в чате",
@@ -288,8 +287,183 @@ local WEAPONS = {
   },
 }
 
+-- ===== Скины (R6 + R15) =====
+local BODY_NAMES = {
+  -- R15
+  "Head","UpperTorso","LowerTorso",
+  "LeftUpperArm","LeftLowerArm","RightUpperArm","RightLowerArm",
+  "LeftUpperLeg","LeftLowerLeg","RightUpperLeg","RightLowerLeg",
+  -- R6
+  "Torso","Left Arm","Right Arm","Left Leg","Right Leg",
+}
+
+local function getBodyParts(char)
+  local out = {}
+  for _, n in ipairs(BODY_NAMES) do
+    local p = char:FindFirstChild(n)
+    if p and p:IsA("BasePart") then out[#out + 1] = { name = n, part = p } end
+  end
+  return out
+end
+
+local function saveColors(char)
+  for _, item in ipairs(getBodyParts(char)) do
+    if W.savedColors[item.name] == nil then
+      W.savedColors[item.name] = item.part.Color
+    end
+  end
+end
+
+local function recolorBody(char, colors)
+  saveColors(char)
+  for _, item in ipairs(getBodyParts(char)) do
+    local c = colors[item.name]
+    if c then item.part.Color = c end
+  end
+end
+
+local function restoreColors(char)
+  for _, item in ipairs(getBodyParts(char)) do
+    local orig = W.savedColors[item.name]
+    if orig then item.part.Color = orig end
+  end
+end
+
+local function buildSkullHelmet()
+  local m = Instance.new("Model")
+  local root = mkp(m, "Root", V3(1.6, 1.6, 1.6), CF(), C3(245, 245, 250), true, PT_BALL, MAT.SmoothPlastic)
+  m.PrimaryPart = root
+  local jaw = mkp(m, "Jaw", V3(1.2, 0.5, 1.2), CF(), C3(235, 235, 240), true, PT_BLOCK, MAT.SmoothPlastic)
+  jaw.CFrame = root.CFrame * CF(0, -0.7, -0.1)
+  local eyeL = mkp(m, "EyeL", V3(0.4, 0.4, 0.4), CF(), C3(15, 15, 20), true, PT_BALL, MAT.SmoothPlastic)
+  eyeL.CFrame = root.CFrame * CF(-0.35, 0.15, -0.65)
+  local eyeR = mkp(m, "EyeR", V3(0.4, 0.4, 0.4), CF(), C3(15, 15, 20), true, PT_BALL, MAT.SmoothPlastic)
+  eyeR.CFrame = root.CFrame * CF(0.35, 0.15, -0.65)
+  local glowL = mkp(m, "GlowL", V3(0.2, 0.2, 0.2), CF(), C3(120, 220, 255), true, PT_BALL, MAT.Neon)
+  glowL.CFrame = eyeL.CFrame * CF(0, 0, -0.1)
+  local glowR = mkp(m, "GlowR", V3(0.2, 0.2, 0.2), CF(), C3(120, 220, 255), true, PT_BALL, MAT.Neon)
+  glowR.CFrame = eyeR.CFrame * CF(0, 0, -0.1)
+  for _, p in ipairs({jaw, eyeL, eyeR, glowL, glowR}) do
+    local w = Instance.new("WeldConstraint"); w.Part0 = root; w.Part1 = p; w.Parent = p
+  end
+  return m
+end
+
+local function attachHelmet(char)
+  local head = char:FindFirstChild("Head")
+  if not head then return end
+  local old = char:FindFirstChild("OrbitSkullHelmet")
+  if old then old:Destroy() end
+  local m = buildSkullHelmet()
+  m.Name = "OrbitSkullHelmet"
+  m.Parent = char
+  local parts = {}
+  for _, d in ipairs(m:GetDescendants()) do
+    if d:IsA("BasePart") then
+      d.Anchored = false
+      d.Massless = true
+      d.CanCollide = false
+      d.CanQuery = false
+      d.CanTouch = false
+      parts[#parts + 1] = d
+    end
+  end
+  if #parts == 0 then return end
+  local root = parts[1]
+  m.PrimaryPart = root
+  root.CFrame = head.CFrame
+  local wc = Instance.new("WeldConstraint")
+  wc.Part0 = head; wc.Part1 = root; wc.Parent = root
+  for i = 2, #parts do
+    local w2 = Instance.new("WeldConstraint")
+    w2.Part0 = root; w2.Part1 = parts[i]; w2.Parent = parts[i]
+  end
+end
+
+local SKINS = {}
+
+SKINS.gaster_skull_helmet = {
+  apply = function()
+    local c = LP.Character
+    if not c then return false end
+    attachHelmet(c)
+    return true
+  end,
+  remove = function()
+    local c = LP.Character
+    if c then
+      local m = c:FindFirstChild("OrbitSkullHelmet")
+      if m then m:Destroy() end
+    end
+  end,
+}
+
+SKINS.sans_boss_skin = {
+  apply = function()
+    local c = LP.Character
+    if not c then return false end
+    recolorBody(c, {
+      Head = C3(245, 245, 250),
+      Torso = C3(55, 115, 225), UpperTorso = C3(55, 115, 225), LowerTorso = C3(55, 115, 225),
+      ["Left Arm"] = C3(55, 115, 225), ["Right Arm"] = C3(55, 115, 225),
+      LeftUpperArm = C3(55, 115, 225), LeftLowerArm = C3(55, 115, 225),
+      RightUpperArm = C3(55, 115, 225), RightLowerArm = C3(55, 115, 225),
+      ["Left Leg"] = C3(20, 20, 28), ["Right Leg"] = C3(20, 20, 28),
+      LeftUpperLeg = C3(20, 20, 28), LeftLowerLeg = C3(20, 20, 28),
+      RightUpperLeg = C3(20, 20, 28), RightLowerLeg = C3(20, 20, 28),
+    })
+    return true
+  end,
+  remove = function()
+    local c = LP.Character
+    if c then restoreColors(c) end
+  end,
+}
+
+SKINS.gaster_boss_skin = {
+  apply = function()
+    local c = LP.Character
+    if not c then return false end
+    recolorBody(c, {
+      Head = C3(250, 250, 252),
+      Torso = C3(240, 240, 248), UpperTorso = C3(240, 240, 248), LowerTorso = C3(240, 240, 248),
+      ["Left Arm"] = C3(240, 240, 248), ["Right Arm"] = C3(240, 240, 248),
+      LeftUpperArm = C3(240, 240, 248), LeftLowerArm = C3(240, 240, 248),
+      RightUpperArm = C3(240, 240, 248), RightLowerArm = C3(240, 240, 248),
+      ["Left Leg"] = C3(230, 230, 240), ["Right Leg"] = C3(230, 230, 240),
+      LeftUpperLeg = C3(230, 230, 240), LeftLowerLeg = C3(230, 230, 240),
+      RightUpperLeg = C3(230, 230, 240), RightLowerLeg = C3(230, 230, 240),
+    })
+    return true
+  end,
+  remove = function()
+    local c = LP.Character
+    if c then restoreColors(c) end
+  end,
+}
+
+function W.toggleSkin(id)
+  local skin = SKINS[id]
+  if not skin then return false end
+  if W.activeFx[id] then
+    pcall(skin.remove)
+    W.activeFx[id] = nil
+  else
+    pcall(skin.apply)
+    W.activeFx[id] = true
+  end
+  return true
+end
+
+function W.reapplyActiveSkins()
+  for id, _ in pairs(W.activeFx) do
+    local skin = SKINS[id]
+    if skin then pcall(skin.apply) end
+  end
+end
+
 -- ===== Атака оружием =====
-local function rayParams() 
+local function rayParams()
   local rp = RaycastParams.new()
   rp.FilterType = Enum.RaycastFilterType.Exclude
   local ex = { fold() }
@@ -315,11 +489,9 @@ local function damageTarget(inst, dmg, knockDir, knockPow)
 end
 
 local function swingFx(model, forward)
-  -- короткая анимация взмаха — модель уходит вперёд и возвращается
   if not model or not model.PrimaryPart then return end
   local startCF = model:GetPivot()
   local fwd = startCF.LookVector
-  local endCF = startCF + fwd * 1.2 + V3(0, 0.3, 0)
   pcall(function()
     local t1 = TS:Create(model.PrimaryPart, TweenInfo.new(0.08), { CFrame = model.PrimaryPart.CFrame + fwd * 1.2 })
     t1:Play()
@@ -344,7 +516,6 @@ ATTACKS.sword = function(c, h, r, model)
   local res = WS:Raycast(origin, dir * 8, rayParams())
   local hitInst = res and res.Instance
   local hitPos = res and res.Position or (origin + dir * 8)
-  -- визуал удара
   local fx = mkp(fold(), "Slash", V3(0.15, 3, 0.15), CF(), C3(255,255,255), true, PT_BLOCK, MAT.Neon, 0.5)
   fx.CFrame = CFrame.lookAt((origin + hitPos) / 2, hitPos) * CFrame.Angles(0, 0, math.rad(45))
   TS:Create(fx, TweenInfo.new(0.15), { Transparency = 1 }):Play()
@@ -360,12 +531,10 @@ ATTACKS.shield = function(c, h, r, model)
   local res = WS:Raycast(origin, dir * 5, rayParams())
   local hitInst = res and res.Instance
   local hitPos = res and res.Position or (origin + dir * 5)
-  -- толчок — расширяющееся кольцо вперёд
   local ring = mkp(fold(), "Push", V3(0.3, 2, 2), CF(), C3(180, 200, 255), true, PT_CYL, MAT.Neon, 0.4)
   ring.CFrame = CFrame.lookAt(hitPos, hitPos + dir) * CFrame.Angles(0, 0, math.rad(90))
   TS:Create(ring, TweenInfo.new(0.3), { Size = V3(0.3, 8, 8), Transparency = 1 }):Play()
   Debris:AddItem(ring, 0.35)
-  -- урон всем в радиусе 4 studs от точки попадания
   for _, p in ipairs(Players:GetPlayers()) do
     if p ~= LP and p.Character then
       local hrp = p.Character:FindFirstChild("HumanoidRootPart")
@@ -388,7 +557,6 @@ ATTACKS.sans_knife = function(c, h, r, model)
   if ab and ab.spawnBones then
     pcall(ab.spawnBones, origin, dir, 3, 14, 1, false)
   else
-    -- fallback: прямой raycast
     local res = WS:Raycast(origin, dir * 25, rayParams())
     if res then damageTarget(res.Instance, 25, dir, 10) end
   end
@@ -402,7 +570,6 @@ ATTACKS.gaster_blaster = function(c, h, r, model)
   if ab and ab.fireBlaster then
     pcall(ab.fireBlaster, origin, dir, 1, 1)
   else
-    -- fallback: луч-частица
     local beam = mkp(fold(), "Beam", V3(1.5, 1.5, 40), CF(), C3(200, 220, 255), true, PT_BLOCK, MAT.Neon, 0.2)
     beam.CFrame = CFrame.lookAt(origin + dir * 20, origin + dir * 40)
     TS:Create(beam, TweenInfo.new(0.4), { Size = V3(0.1, 0.1, 40), Transparency = 1 }):Play()
@@ -418,7 +585,6 @@ function W.attack()
   if t - W.lastAttack < W.attackCD then return false end
   W.lastAttack = t
 
-  -- активное оружие — то, что в правой руке; если нет — любое
   local activeId = nil
   for id, m in pairs(W.equipped) do
     if m and m.Parent and m:GetAttribute("OrbitSlot") == "R" then activeId = id; break end
@@ -429,7 +595,6 @@ function W.attack()
     end
   end
   if not activeId then return false end
-  -- пауза для бластера
   W.attackCD = (activeId == "gaster_blaster") and 1.4 or 0.6
 
   local c, h, r = getChar()
@@ -546,14 +711,13 @@ local function onClick(btn, fn)
   btn.Activated:Connect(call)
 end
 
--- draggable кнопка: долгий тап = таскание, короткий тап = действие
+-- draggable кнопка
 local function makeDraggable(btn, defaultPos, saveKey, onTap)
   local dragging = false
   local moved = false
-  local dragStart, startPos, startAbs
+  local dragStart, startPos
   local downT = 0
 
-  -- восстановить позицию
   local sd = ORBIT.saveData
   local saved = sd and sd.buttonPos and sd.buttonPos[saveKey]
   if saved and type(saved) == "table" and saved.x and saved.y then
@@ -579,8 +743,7 @@ local function makeDraggable(btn, defaultPos, saveKey, onTap)
       local d = input.Position - dragStart
       if d.Magnitude > 8 then moved = true end
       if moved then
-        local abs = LP:GetMouse() and workspace.CurrentCamera.ViewportSize or Vector2.new(800,600)
-        local vp = workspace.CurrentCamera.ViewportSize
+        local vp = WS.CurrentCamera.ViewportSize
         local nx = math.clamp(startPos.X.Offset + d.X, -vp.X + 60, -8)
         local ny = math.clamp(startPos.Y.Offset + d.Y, -vp.Y + 60, -8)
         btn.Position = UDim2.new(1, nx, 1, ny)
@@ -594,10 +757,8 @@ local function makeDraggable(btn, defaultPos, saveKey, onTap)
       dragging = false
       local held = tick() - downT
       if not moved then
-        -- короткий тап — действие
         if held < 0.5 and onTap then pcall(onTap) end
       else
-        -- сохранить позицию
         ORBIT.saveData = ORBIT.saveData or {}
         ORBIT.saveData.buttonPos = ORBIT.saveData.buttonPos or {}
         ORBIT.saveData.buttonPos[saveKey] = { x = btn.Position.X.Offset, y = btn.Position.Y.Offset }
@@ -618,10 +779,11 @@ local function refreshUI()
       local chk = card:FindFirstChild("Check")
       local btn = card:FindFirstChild("Toggle")
       local selected = W.selected[id] and true or false
+      local isActive = (kind == "cosmetic") and W.activeFx[id] or selected
       if chk then
         if not unlocked then chk.Text = "🔒"; chk.TextColor3 = C3(120,120,140)
         elseif kind == "info" then chk.Text = "ℹ"; chk.TextColor3 = C3(160,200,255)
-        elseif selected then chk.Text = "✅"; chk.TextColor3 = C3(120,255,160)
+        elseif isActive then chk.Text = "✅"; chk.TextColor3 = C3(120,255,160)
         else chk.Text = "▫"; chk.TextColor3 = C3(180,180,200) end
       end
       if btn then
@@ -629,8 +791,10 @@ local function refreshUI()
           btn.BackgroundColor3 = C3(50,40,50); btn.TextColor3 = C3(140,140,160); btn.Text = "ЗАКРЫТО"
         elseif kind == "info" then
           btn.BackgroundColor3 = C3(40,50,70); btn.TextColor3 = C3(180,210,255); btn.Text = "ИНФО"
-        elseif selected then
+        elseif isActive then
           btn.BackgroundColor3 = C3(50,100,60); btn.TextColor3 = C3(180,255,200); btn.Text = "СНЯТЬ"
+        elseif kind == "cosmetic" then
+          btn.BackgroundColor3 = C3(60,50,90); btn.TextColor3 = C3(220,210,255); btn.Text = "НАДЕТЬ"
         else
           btn.BackgroundColor3 = C3(60,50,90); btn.TextColor3 = C3(220,210,255); btn.Text = "ВЫБРАТЬ"
         end
@@ -692,7 +856,7 @@ local function buildUI()
   local hint = Instance.new("TextLabel")
   hint.Size = UDim2.new(1, -32, 0, 20); hint.Position = UDim2.fromOffset(16, 46)
   hint.BackgroundTransparency = 1
-  hint.Text = "Оружие: галочка → ЭКИПИРОВАТЬ. Атака кнопкой ⚔ или клавишей V."
+  hint.Text = "Оружие: галочка → ЭКИПИРОВАТЬ. Скины — тап, сразу наденутся. Атака ⚔ или V."
   hint.TextColor3 = C3(170,170,200); hint.Font = Enum.Font.Gotham
   hint.TextSize = 11; hint.TextXAlignment = Enum.TextXAlignment.Left
   hint.ZIndex = 3; hint.Parent = frame
@@ -803,6 +967,19 @@ local function buildUI()
         onClick(chk, function()
           if ORBIT.notify then ORBIT.notify("ℹ " .. wdef.name .. ": " .. wdef.desc, C3(200,220,255), 3) end
         end)
+      elseif wdef.kind == "cosmetic" then
+        local function toggleCos()
+          if W.toggleSkin(wdef.id) then
+            if W.activeFx[wdef.id] then
+              if ORBIT.notify then ORBIT.notify("✅ " .. wdef.name .. " надет", C3(180,255,180), 2) end
+            else
+              if ORBIT.notify then ORBIT.notify("⏏ " .. wdef.name .. " снят", C3(255,200,140), 2) end
+            end
+            refreshUI()
+          end
+        end
+        onClick(btn, toggleCos)
+        onClick(chk, toggleCos)
       else
         local function toggleSel()
           if W.selected[wdef.id] then W.selected[wdef.id] = nil else W.selected[wdef.id] = true end
@@ -818,7 +995,6 @@ local function buildUI()
     end
   end
 
-  -- собираем по kind
   addHeader("⚔ ОРУЖИЕ", C3(255,220,140))
   for _, w in ipairs(WEAPONS) do if w.kind == "weapon" then addCard(w) end end
   addHeader("🎨 КОСМЕТИКА", C3(255,180,255))
@@ -828,7 +1004,6 @@ local function buildUI()
   addHeader("💬 ПРОЧЕЕ", C3(200,200,220))
   for _, w in ipairs(WEAPONS) do if w.kind == "info" then addCard(w) end end
 
-  -- нижние кнопки
   local function mkBtn(x, y, w2, text, color, fn)
     local b = Instance.new("TextButton")
     b.Size = UDim2.fromOffset(w2, 38); b.Position = UDim2.fromOffset(x, y)
@@ -860,7 +1035,7 @@ function W.toggle()
   return W.openMenu()
 end
 
--- ===== Мобильные кнопки (🗡 открытие + ⚔ атака) с drag =====
+-- ===== Мобильные кнопки с drag =====
 local function buildMobileBtns()
   if not UIS.TouchEnabled then return end
   local pg = LP:FindFirstChildOfClass("PlayerGui")
@@ -870,7 +1045,7 @@ local function buildMobileBtns()
     if old then old:Destroy() end
   end
 
-  -- ===== Кнопка 🗡 (арсенал) =====
+  -- Кнопка 🗡 (арсенал)
   local sg1 = Instance.new("ScreenGui")
   sg1.Name = "_OrbitWeaponsBtn"; sg1.ResetOnSpawn = false
   sg1.IgnoreGuiInset = true; sg1.DisplayOrder = 44; sg1.Parent = pg
@@ -886,7 +1061,7 @@ local function buildMobileBtns()
 
   makeDraggable(b1, UDim2.new(1, -16, 1, -440), "weaponsBtn", function() W.toggle() end)
 
-  -- ===== Кнопка ⚔ (атака) =====
+  -- Кнопка ⚔ (атака)
   local sg2 = Instance.new("ScreenGui")
   sg2.Name = "_OrbitAttackBtn"; sg2.ResetOnSpawn = false
   sg2.IgnoreGuiInset = true; sg2.DisplayOrder = 44; sg2.Parent = pg
@@ -927,10 +1102,11 @@ connect(UIS.InputBegan, function(input, gp)
   end
 end)
 
--- возврат оружия после респавна
+-- возврат оружия + скинов после респавна
 connect(LP.CharacterAdded, function()
   task.wait(0.6)
   if next(W.selected) ~= nil then pcall(W.applySelection) end
+  pcall(W.reapplyActiveSkins)
 end)
 
 -- API
@@ -940,7 +1116,8 @@ function W.list()
     local unlocked = false
     pcall(function() unlocked = w.check() end)
     out[#out+1] = { id = w.id, name = w.name, desc = w.desc, source = w.source,
-      kind = w.kind, unlocked = unlocked, selected = W.selected[w.id] and true or false }
+      kind = w.kind, unlocked = unlocked, selected = W.selected[w.id] and true or false,
+      active = W.activeFx[w.id] and true or false }
   end
   return out
 end
@@ -971,6 +1148,12 @@ function W.destroy()
   destroyUI()
   W.unequipAll()
   W.selected = {}
+  -- снять все скины
+  for id in pairs(W.activeFx) do
+    local skin = SKINS[id]
+    if skin then pcall(skin.remove) end
+  end
+  W.activeFx = {}
   if W.btnGui then pcall(function() W.btnGui:Destroy() end); W.btnGui = nil end
   if W.attackGui then pcall(function() W.attackGui:Destroy() end); W.attackGui = nil end
   if W.folder then pcall(function() W.folder:Destroy() end); W.folder = nil end
@@ -994,7 +1177,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("🗡 Арсенал v25.5 (все награды + атака + drag)", C3(200, 220, 255), 3)
+  ORBIT.notify("🗡 Арсенал v25.6 (оружие + скины R6/R15 + атака)", C3(200, 220, 255), 3)
 end
 
 return true
