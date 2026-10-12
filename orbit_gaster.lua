@@ -1,6 +1,6 @@
--- ORBIT v25.2-fix7 | orbit_gaster.lua
+-- ORBIT v25.2-fix8 | orbit_gaster.lua
 -- 16 частей тела + ловушки + босс-файт + белое оружие.
--- v25.2-fix7: спутник выше (8), бластер в руке = 4.5 (как спутник).
+-- v25.2-fix8: спутник выше (12), меньше (3.5), бьёт игроков (не тебя).
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -710,9 +710,9 @@ local function stepBossMovement(dt, t)
 end
 
 -- ============================================================
---       АТАКИ
+--       АТАКИ — shootBeamSimple с параметром цели
 -- ============================================================
-local function shootBeamSimple(from, to)
+local function shootBeamSimple(from, to, dmgTarget)
   local diff = to - from
   if diff.Magnitude < 0.5 then return end
   local p = Instance.new("Part")
@@ -724,10 +724,17 @@ local function shootBeamSimple(from, to)
   TS:Create(p, TweenInfo.new(0.4), { Transparency = 1 }):Play()
   TS:Create(core, TweenInfo.new(0.5), { Brightness = 0 }):Play()
   Debris:AddItem(p, 0.6)
-  local c, h, r = getChar()
-  if r and h and (r.Position - to).Magnitude < 6 then
-    pcall(function() h:TakeDamage(15) end)
+
+  -- v25.2-fix8: если есть цель — урон ей, иначе — локальному игроку
+  if dmgTarget and dmgTarget.hum and dmgTarget.hum.Parent and dmgTarget.hum.Health > 0 then
+    pcall(function() dmgTarget.hum:TakeDamage(15) end)
     G.hitTimes[#G.hitTimes + 1] = tick()
+  else
+    local c, h, r = getChar()
+    if r and h and (r.Position - to).Magnitude < 6 then
+      pcall(function() h:TakeDamage(15) end)
+      G.hitTimes[#G.hitTimes + 1] = tick()
+    end
   end
   ping("snap", 1, 0.5)
 end
@@ -737,7 +744,7 @@ local function attackBlaster(model)
   if not r then return end
   local from = model:GetPivot().Position + V3(0, 5, 0)
   local to = r.Position
-  shootBeamSimple(from, to)
+  shootBeamSimple(from, to, nil)  -- без цели → бьёт игрока (это АТАКА БОССА)
   if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack") end
 end
 
@@ -1225,7 +1232,7 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
     stepBoss(dt, t)
   end
 
-  -- ФИГУРА-СПУТНИК (бластер, высота 8)
+  -- v25.2-fix8: спутник выше (12), меньше (3.5), бьёт игроков
   if G.figure then
     local f = G.figure
     local m = f.data.model
@@ -1237,19 +1244,19 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
       kk = 1 - (1 - kk) * (1 - kk)
       local center = root and root.Position or V3()
       local ca, sa = math.cos(f.angle), math.sin(f.angle)
-      -- v25.2-fix7: высота 8 (было 4)
-      local pos = center + V3(ca * 8, 8 + math.sin(t * 1.5) * 0.5 - 12 * (1 - kk), sa * 8)
+      -- высота 12
+      local pos = center + V3(ca * 10, 12 + math.sin(t * 1.5) * 0.5 - 12 * (1 - kk), sa * 10)
       local look = pos + V3(-sa, 0, ca)
       pcall(function() m:PivotTo(CFrame.lookAt(pos, look)) end)
       if kk >= 1 then
         if t >= f.nextShot then
-          f.nextShot = t + math.random(4, 7)
+          f.nextShot = t + math.random(3, 5)
           local enemies = {}
           for _, pl in ipairs(Players:GetPlayers()) do
             if pl ~= LP and pl.Character then
               local h2 = pl.Character:FindFirstChildOfClass("Humanoid")
               local r2 = pl.Character:FindFirstChild("HumanoidRootPart")
-              if h2 and r2 and h2.Health > 0 and (r2.Position - center).Magnitude <= 80 then
+              if h2 and r2 and h2.Health > 0 and (r2.Position - center).Magnitude <= 100 then
                 enemies[#enemies + 1] = { hum = h2, root = r2 }
               end
             end
@@ -1263,7 +1270,11 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
           if f.fire.root and f.fire.root.Parent then f.fire.tpos = f.fire.root.Position end
           local el = t - f.fire.t0
           if f.light then f.light.Brightness = 1.5 + 4 * math.min(1, el / 0.5) end
-          if el >= 0.5 and not f.fire.shot then f.fire.shot = true; shootBeamSimple(f.charge and f.charge.Position or pos, f.fire.tpos) end
+          if el >= 0.5 and not f.fire.shot then
+            f.fire.shot = true
+            -- v25.2-fix8: передаём цель, урон идёт игроку-врагу, а не тебе
+            shootBeamSimple(f.charge and f.charge.Position or pos, f.fire.tpos, f.fire)
+          end
           if el >= 1.0 then f.fire = nil end
         elseif f.light then
           f.light.Brightness = 1.5 + 0.5 * math.sin(t * 3)
@@ -1293,22 +1304,22 @@ function G.removeFigure()
   end
 end
 
--- v25.2-fix7: спутник = бластер scale 4.5 (был 1.5)
+-- v25.2-fix8: спутник = бластер scale 3.5 (меньше)
 local function buildFigure()
   local presets = ORBIT.SHAPE_PRESETS
   local data = nil
   if type(presets) == "table" then
     for _, p in ipairs(presets) do
       if p.name == "ГАСТЕР БЛАСТЕР" and type(p.create) == "function" then
-        local ok, d = pcall(p.create, 4.5, "GasterBlasterOrbit")
+        local ok, d = pcall(p.create, 3.5, "GasterBlasterOrbit")
         if ok and d and d.model then data = d end
         break
       end
     end
   end
-  if not data then data = createGaster(4.5, "GasterBlasterOrbit") end
+  if not data then data = createGaster(3.5, "GasterBlasterOrbit") end
   data.model.Parent = fold()
-  local f = { data = data, angle = 0, riseT = 0, nextShot = tick() + 5, fire = nil }
+  local f = { data = data, angle = 0, riseT = 0, nextShot = tick() + 3, fire = nil }
   f.charge = data.model:FindFirstChild("Charge", true)
   f.light = f.charge and f.charge:FindFirstChild("GLight")
   G.figure = f
@@ -1360,7 +1371,7 @@ function G.assemble(quick)
   return true
 end
 -- ============================================================
---       ОРУЖИЕ (v25.2-fix7: бластер в руке scale 4.5 — как спутник)
+--       ОРУЖИЕ (бластер в руке scale 4.5)
 -- ============================================================
 local W = { equipped = false, models = {}, proj = {}, cdUntil = 0, conns = {}, side = 1 }
 local wFolder, wGui, wBtn = nil, nil, nil
@@ -1483,7 +1494,7 @@ function W.equip()
   end
   local c, h = getChar()
   if not c or h.Health <= 0 then return false end
-  -- v25.2-fix7: бластер-оружие в руке = 4.5 (как спутник)
+  -- бластер-оружие в руке = 4.5
   for _, k in ipairs({ "L", "R" }) do
     local data = nil
     local presets = ORBIT.SHAPE_PRESETS
@@ -1696,7 +1707,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v25.2-fix7 (спутник выше, бластер = 4.5)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v25.2-fix8 (спутник выше+меньше, бьёт игроков)", C3(220, 200, 255), 3)
 end
 
 return true
