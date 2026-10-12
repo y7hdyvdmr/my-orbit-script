@@ -1,8 +1,9 @@
--- ORBIT v25.7 | orbit_weapons_menu.lua
+-- ORBIT v25.7-fix1 | orbit_weapons_menu.lua
 -- Арсенал: оружие + все награды + атака + фигурные скины (Санс/Гастер).
 -- v25.7: sans_boss_skin и gaster_boss_skin -> полная замена персонажа
---        на фигуру из orbit_p2.lua. Персонаж становится невидимым,
---        фигура движется вместе с игроком через PivotTo.
+--        на фигуру из orbit_p2.lua.
+-- v25.7-fix1: фиксы разворота фигуры. Фигуры САНС/ГАСТЕР построены лицом к +Z,
+--             HRP смотрит к -Z → разворот на 180°.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] weapons_menu: нет ORBIT"); return false end
@@ -139,7 +140,6 @@ end
 
 -- ===== Каталог наград =====
 local WEAPONS = {
-  -- ОРУЖИЕ
   { id = "sans_knife", kind = "weapon",
     name = "🦴 Костяной клинок", desc = "Лезвие из кости. Атака: веер из 3 костей",
     source = "Санс",
@@ -163,7 +163,6 @@ local WEAPONS = {
     check = function() return true end,
     build = buildShield },
 
-  -- КОСМЕТИКА
   { id = "sans_boss_skin", kind = "cosmetic",
     name = "🎨 Скин «Санс-босс»",
     desc = "Персонаж исчезает, вместо него — фигура САНС. Тап — надеть/снять",
@@ -183,7 +182,6 @@ local WEAPONS = {
     check = function() return (ORBIT.gasterUnlocked == true)
           or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_skull_helmet"]) end },
 
-  -- ЭФФЕКТЫ
   { id = "gaster_portal_fx", kind = "effect",
     name = "🌀 Тёмный портал", desc = "Пассивно: вращающиеся кольца за спиной",
     source = "Гастер",
@@ -205,7 +203,6 @@ local WEAPONS = {
     check = function() return (ORBIT.gasterUnlocked == true)
           or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["blue_eye_tick"]) end },
 
-  -- ПРОЧЕЕ
   { id = "sans_chat", kind = "info",
     name = "💬 Санс в чате", desc = "Пишет фразы при победах",
     source = "Санс",
@@ -240,7 +237,7 @@ local function getBodyParts(char)
   return out
 end
 
--- ===== Фигурные скины (Санс, Гастер) =====
+-- ===== Фигурные скины =====
 local FIGURE_DEFS = {
   sans_boss_skin   = { preset = "САНС",   scale = 1.5, offsetY = -2.6 },
   gaster_boss_skin = { preset = "ГАСТЕР", scale = 1.3, offsetY = -2.8 },
@@ -255,13 +252,11 @@ function W.applyFigureSkin(skinId)
   local hrp = char:FindFirstChild("HumanoidRootPart")
   if not hrp then return false end
 
-  -- сохранить оригинальные прозрачности и скрыть персонажа
   W.savedCharState = {}
   for _, item in ipairs(getBodyParts(char)) do
     W.savedCharState[item.name] = item.part.Transparency
     item.part.Transparency = 1
   end
-  -- спрятать аксессуары (шляпы, волосы и т.д.)
   for _, ch in ipairs(char:GetChildren()) do
     if ch:IsA("Accessory") or ch:IsA("Accoutrement") then
       for _, d in ipairs(ch:GetDescendants()) do
@@ -269,14 +264,12 @@ function W.applyFigureSkin(skinId)
       end
     end
   end
-  -- спрятать лицо
   local head = char:FindFirstChild("Head")
   if head then
     local face = head:FindFirstChildOfClass("Decal")
     if face then W.savedFaceT = face.Transparency; face.Transparency = 1 end
   end
 
-  -- создать фигуру из пресета
   local presets = ORBIT.SHAPE_PRESETS
   if type(presets) ~= "table" then
     warn("[Orbit Weapons] SHAPE_PRESETS пуст — фигура недоступна")
@@ -297,7 +290,9 @@ function W.applyFigureSkin(skinId)
 
   data.model.Parent = fold()
   W.skinModel = data.model
-  W.skinOffset = CFrame.new(0, def.offsetY, 0)
+  -- v25.7-fix1: фигуры САНС/ГАСТЕР построены лицом к +Z, HRP смотрит к -Z.
+  -- Разворачиваем на 180° вокруг Y, чтобы фигура смотрела туда же, куда игрок.
+  W.skinOffset = CFrame.new(0, def.offsetY, 0) * CFrame.Angles(0, math.pi, 0)
 
   if data.model.PrimaryPart then
     pcall(function() data.model:PivotTo(hrp.CFrame * W.skinOffset) end)
@@ -418,7 +413,6 @@ function W.toggleSkin(id)
     pcall(skin.remove)
     W.activeFx[id] = nil
   else
-    -- фигурные скины взаимоисключающие
     if FIGURE_DEFS[id] then
       for otherId in pairs(FIGURE_DEFS) do
         if otherId ~= id and W.activeFx[otherId] then
@@ -1037,7 +1031,6 @@ local function buildMobileBtns()
   W.updateAttackBtn()
 end
 buildMobileBtns()
-
 -- ===== Heartbeat: позиции оружия + фигура скина =====
 connect(RS.Heartbeat, function()
   -- оружие в руках
@@ -1076,7 +1069,6 @@ connect(LP.CharacterAdded, function()
       local skin = SKINS[id]
       if skin and not FIGURE_DEFS[id] then pcall(skin.apply) end
     end
-    -- фигурный скин переприменяем заново — на нового персонажа
     for id in pairs(FIGURE_DEFS) do
       if W.activeFx[id] then
         local skin = SKINS[id]
@@ -1090,7 +1082,6 @@ end)
 
 -- на случай удаления персонажа
 connect(LP.CharacterRemoving, function()
-  -- убрать фигуру, чтобы не осталась висеть
   if W.skinModel then
     pcall(function() W.skinModel:Destroy() end)
     W.skinModel = nil
@@ -1168,7 +1159,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("🗡 Арсенал v25.7 (фигурные скины Санс/Гастер)", C3(200, 220, 255), 3)
+  ORBIT.notify("🗡 Арсенал v25.7-fix1 (фигурные скины Санс/Гастер)", C3(200, 220, 255), 3)
 end
 
 return true
