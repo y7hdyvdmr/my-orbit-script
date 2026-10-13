@@ -1,8 +1,7 @@
 -- ORBIT v24.9 | orbit_focus.lua
--- Режим игры: прячет ВСЁ — UI «ОРБИТЫ», сторонние ScreenGui, а также
--- CoreGui (чат, бэкпак, список игроков, полоска хп, эмоции, топбар).
+-- Режим игры: прячет ТОЛЬКО UI «ОРБИТЫ» (Orbit* / _Orbit*).
+-- Чат, бэкпак, Tab-список, топбар Roblox и сторонние скрипты — НЕ трогает.
 -- Хоткеи и логика при этом продолжают работать.
--- v24.9: расширено с «только ORBIT» до «вообще всё, кроме своей кнопки 🎮».
 -- v25.0: кнопку можно перетаскивать (drag) и сворачивать (long-press 0.75с).
 --   Позиция сохраняется в orbit_focus_pos.json (если доступна FS).
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
@@ -11,7 +10,6 @@ if not ORBIT then warn("[ORBIT] focus: нет ORBIT"); return false end
 if ORBIT.focus and ORBIT.focus.destroy then pcall(ORBIT.focus.destroy) end
 
 local Players = game:GetService("Players")
-local StarterGui = game:GetService("StarterGui")
 local UIS = game:GetService("UserInputService")
 local WS = game:GetService("Workspace")
 local LP = Players.LocalPlayer
@@ -27,15 +25,14 @@ local F = {
   enabled = false,
   collapsed = false,    -- свёрнута ли кнопка в точку
   saved = {},           -- [ScreenGui] = Enabled
-  coreState = {},       -- [Enum.CoreGuiType] = bool
   conns = {},
   gui = nil, btn = nil,
   -- drag-состояние
   dragging = false,
   movedFar = false,
-  dragStart = nil,      -- Vector3 в момент начала drag
-  dragCenter = nil,     -- Vector2 центр кнопки в момент начала drag
-  longToken = 0,        -- токен для отмены long-press
+  dragStart = nil,
+  dragCenter = nil,
+  longToken = 0,
 }
 
 -- ===== Утилиты =====
@@ -52,39 +49,15 @@ local function getRoots()
   return roots
 end
 
-local COREGUI_TYPES = { "All", "Chat", "Backpack", "PlayerList", "Health", "EmotesMenu", "SelfView" }
-
-local function captureCoreState()
-  F.coreState = {}
-  for _, name in ipairs(COREGUI_TYPES) do
-    local et = Enum.CoreGuiType[name]
-    if et then
-      local ok, val = pcall(function() return StarterGui:GetCoreGuiEnabled(et) end)
-      if ok then F.coreState[et] = val end
-    end
-  end
-end
-
-local function hideCore()
-  for _, name in ipairs(COREGUI_TYPES) do
-    local et = Enum.CoreGuiType[name]
-    if et then
-      pcall(function() StarterGui:SetCoreGuiEnabled(et, false) end)
-    end
-  end
-  pcall(function() StarterGui:SetCore("TopbarEnabled", false) end)
-end
-
-local function restoreCore()
-  for et, val in pairs(F.coreState) do
-    pcall(function() StarterGui:SetCoreGuiEnabled(et, val == true) end)
-  end
-  F.coreState = {}
-  pcall(function() StarterGui:SetCore("TopbarEnabled", true) end)
-end
-
-local function isOwnGui(g)
-  return g == F.gui
+-- Только UI «ОРБИТЫ» — по имени.
+-- Наш собственный GUI (SELF_NAME) не трогаем.
+local function isOrbitGui(obj)
+  if not obj or not obj:IsA("ScreenGui") then return false end
+  local n = obj.Name
+  if n == SELF_NAME then return false end
+  if n:sub(1, 5) == "Orbit" then return true end     -- OrbitAbilitiesGui, OrbitSansBossGui и т.п.
+  if n:sub(1, 6) == "_Orbit" then return true end    -- _OrbitLoader_*, _OrbitMain, _OrbitShop, _OrbitEditor2D и т.п.
+  return false
 end
 
 local function hideOne(sg)
@@ -98,11 +71,10 @@ local function hideAll()
     local ok, kids = pcall(function() return root:GetChildren() end)
     if ok then
       for _, c in ipairs(kids) do
-        if c:IsA("ScreenGui") and not isOwnGui(c) then hideOne(c) end
+        if isOrbitGui(c) then hideOne(c) end
       end
     end
   end
-  hideCore()
 end
 
 local function showAll()
@@ -112,7 +84,6 @@ local function showAll()
     end
   end
   F.saved = {}
-  restoreCore()
 end
 
 -- ===== Позиция: сохранение/загрузка =====
@@ -202,7 +173,7 @@ local function buildBtn()
 
   local b = Instance.new("TextButton")
   b.Name = "ToggleBtn"
-  b.AnchorPoint = Vector2.new(0.5, 0.5)        -- центр — для симметричного сжатия
+  b.AnchorPoint = Vector2.new(0.5, 0.5)
   b.Size = UDim2.fromOffset(BTN_W, BTN_H)
   b.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
   b.BackgroundTransparency = 0.1
@@ -216,7 +187,6 @@ local function buildBtn()
   local st = Instance.new("UIStroke", b)
   st.Color = Color3.fromRGB(200, 200, 255); st.Thickness = 1.5
 
-  -- позиция (центр)
   local c = loadPos() or defaultCenter()
   c = clampCenter(c, BTN_W, BTN_H)
   b.Position = UDim2.fromOffset(c.X, c.Y)
@@ -238,7 +208,6 @@ end
 
 -- ===== Ввод на кнопке: tap / drag / long-press =====
 local function wireBtn(b)
-  -- старт: мышь или тач
   b.InputBegan:Connect(function(input)
     if input.UserInputType ~= Enum.UserInputType.MouseButton1
       and input.UserInputType ~= Enum.UserInputType.Touch then return end
@@ -250,7 +219,6 @@ local function wireBtn(b)
     local myToken = F.longToken
     task.delay(LONG_MS / 1000, function()
       if F.dragging and F.longToken == myToken and not F.movedFar then
-        -- долгое нажатие без движения — свернуть/развернуть кнопку
         F.dragging = false
         F.collapsed = not F.collapsed
         applyCollapsed()
@@ -263,7 +231,6 @@ local function wireBtn(b)
     end)
   end)
 
-  -- движение: drag
   UIS.InputChanged:Connect(function(input)
     if not F.dragging then return end
     if input.UserInputType ~= Enum.UserInputType.MouseMovement
@@ -275,18 +242,15 @@ local function wireBtn(b)
     b.Position = UDim2.fromOffset(newC.X, newC.Y)
   end)
 
-  -- отпускание: либо tap (toggle focus), либо завершение drag
   UIS.InputEnded:Connect(function(input)
     if not F.dragging then return end
     if input.UserInputType ~= Enum.UserInputType.MouseButton1
       and input.UserInputType ~= Enum.UserInputType.Touch then return end
     F.dragging = false
-    F.longToken = F.longToken + 1  -- отменяем возможный long-press
+    F.longToken = F.longToken + 1
     if not F.movedFar then
-      -- это был короткий тап → переключить режим фокуса
       pcall(F.toggle)
     else
-      -- перетащили — сохранить новую позицию
       scheduleSave()
     end
   end)
@@ -297,29 +261,22 @@ function F.set(on)
   on = on and true or false
   if on == F.enabled then refreshBtn(); return end
   F.enabled = on
-  if on then
-    captureCoreState()
-    hideAll()
-  else
-    showAll()
-  end
+  if on then hideAll() else showAll() end
   refreshBtn()
   if ORBIT.notify then
     pcall(ORBIT.notify,
-      on and "🎮 Режим игры: интерфейс скрыт" or "🖥 Интерфейс восстановлен",
+      on and "🎮 Режим игры: UI ОРБИТЫ скрыт" or "🖥 UI ОРБИТЫ восстановлен",
       on and Color3.fromRGB(180, 255, 200) or Color3.fromRGB(200, 220, 255), 2)
   end
 end
 
 function F.toggle() F.set(not F.enabled) end
 
--- Свернуть/развернуть кнопку (можно звать снаружи)
 function F.setCollapsed(v)
   F.collapsed = v and true or false
   applyCollapsed()
 end
 
--- Вернуть кнопку в правый верхний угол
 function F.resetPosition()
   if not F.btn then return end
   local c = clampCenter(defaultCenter(), BTN_W, BTN_H)
@@ -349,13 +306,13 @@ function F.destroy()
   F.gui, F.btn = nil, nil
 end
 
--- ===== Новые окна в фокус-режиме прячем сразу =====
+-- ===== Новые окна ОРБИТЫ в фокус-режиме прячем сразу =====
 task.defer(function()
   for _, root in ipairs(getRoots()) do
     local ok, conn = pcall(function()
       return root.DescendantAdded:Connect(function(d)
         if not F.enabled then return end
-        if d:IsA("ScreenGui") and not isOwnGui(d) then hideOne(d) end
+        if isOrbitGui(d) then hideOne(d) end
       end)
     end)
     if ok and conn then F.conns[#F.conns + 1] = conn end
