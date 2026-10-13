@@ -11,6 +11,9 @@
 --   * Экспорт buildBone/spawnBones/fireBlaster/spawnHand/buildSkull для боссов.
 -- v25.0-fix1: форвард-декларации aimPoint/screenPoint — иначе fireId/combo/
 --   waterTick/refreshUI видели их как nil (attempt to call a nil value).
+-- v25.0-toggles: тумблеры стихий (вкл/выкл стрельбы). off[id] — выключена,
+--   слот остаётся в панели, но затемнён. Долгое нажатие 0.5с — тумблер.
+--   Голос: «выключи огонь», «включи все стихии». API: A.disableElement и др.
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] abilities: нет ORBIT"); return false end
@@ -48,6 +51,8 @@ local IDX = {}
 for i, e in ipairs(EL) do IDX[e.id] = i end
 
 local hidden = {}
+-- [TOGGLE] off[id] == true — стихия выключена (нельзя стрелять), но видна в панели
+local off = {}
 
 local C = {
   fire = { dmg = 25, speed = 120, r = 4, cd = 1.2, burn = 2 },
@@ -778,7 +783,6 @@ local function stepProj(dt)
     end
   end
 end
-
 -- ===== FIRE abilities =====
 local FIRE = {}
 
@@ -1200,6 +1204,7 @@ local function cdFrac(id)
   if left <= 0 or cd <= 0 then return 0 end
   return math.min(1, left / cd)
 end
+-- [TOGGLE] comboKey теперь возвращает nil, если в паре есть выключенная стихия
 local function comboKey()
   local a, b = lastFire[1], lastFire[2]
   local t = tick()
@@ -1207,7 +1212,7 @@ local function comboKey()
     local k = { a.id, b.id }
     table.sort(k)
     local key = k[1] .. "+" .. k[2]
-    if COMBOS[key] then return key end
+    if COMBOS[key] and not off[k[1]] and not off[k[2]] then return key end
   end
   return nil
 end
@@ -1215,6 +1220,12 @@ end
 -- ===== Публичные функции =====
 function A.fireId(id, ch)
   if not alive then return false end
+  -- [TOGGLE] выключенная стихия не стреляет
+  if off[id] then
+    ping("click", 0.6, 0.8)
+    toast("🚫 " .. (EL[IDX[id]] and EL[IDX[id]].nm or id) .. " выключена")
+    return false
+  end
   local c, h, r = getChar()
   if not c then return false end
   local el = EL[IDX[id]]
@@ -1246,7 +1257,22 @@ function A.combo()
   local c, h, r = getChar()
   if not c then return false end
   local key = comboKey()
-  if not key then ping("click", 0.6, 0.8); toast("КОМБО: нужна пара стихий"); return false end
+  if not key then
+    ping("click", 0.6, 0.8)
+    -- [TOGGLE] отдельное сообщение, если пара есть, но одна из стихий выключена
+    local a, b = lastFire[1], lastFire[2]
+    local t = tick()
+    if a and b and t - a.t <= C.combo.window and t - b.t <= C.combo.window then
+      local k = { a.id, b.id }; table.sort(k)
+      local kk = k[1] .. "+" .. k[2]
+      if COMBOS[kk] and (off[k[1]] or off[k[2]]) then
+        toast("🚫 Комбо недоступно: стихия выключена")
+        return false
+      end
+    end
+    toast("КОМБО: нужна пара стихий")
+    return false
+  end
   local left = cdLeft("combo")
   if left > 0 then ping("click", 0.6, 0.8); toast("КОМБО КД " .. string.format("%.1f", left)); return false end
   local origin = r.Position + V3(0, 1.5, 0)
@@ -1300,7 +1326,7 @@ function A.hideElement(id)
   hidden[id] = true
   if A.current == id then
     for _, e in ipairs(EL) do
-      if not hidden[e.id] then A.setCurrent(e.id); break end
+      if not hidden[e.id] and not off[e.id] then A.setCurrent(e.id); break end
     end
   end
   if A.rebuildPanel then pcall(A.rebuildPanel) end
@@ -1338,6 +1364,51 @@ function A.resetHidden()
   end
 end
 
+-- [TOGGLE] ===== Тумблеры стихий: вкл/выкл стрельбы =====
+-- off[id] = true → слот виден в панели, но стрелять нельзя.
+function A.disableElement(id)
+  if not IDX[id] then return false end
+  off[id] = true
+  if A.current == id then
+    for _, e in ipairs(EL) do
+      if not hidden[e.id] and not off[e.id] then A.setCurrent(e.id); break end
+    end
+  end
+  if A.rebuildPanel then pcall(A.rebuildPanel) end
+  return true
+end
+function A.enableElement(id)
+  if not IDX[id] then return false end
+  off[id] = nil
+  if A.rebuildPanel then pcall(A.rebuildPanel) end
+  return true
+end
+function A.toggleElement(id)
+  if not IDX[id] then return false end
+  if off[id] then return A.enableElement(id) end
+  return A.disableElement(id)
+end
+function A.isDisabled(id) return off[id] == true end
+function A.getDisabled()
+  local out = {}
+  for _, e in ipairs(EL) do
+    if off[e.id] then out[#out + 1] = e end
+  end
+  return out
+end
+function A.disableAll()
+  for _, e in ipairs(EL) do off[e.id] = true end
+  for _, e in ipairs(EL) do
+    if not hidden[e.id] and not off[e.id] then A.setCurrent(e.id); break end
+  end
+  if A.rebuildPanel then pcall(A.rebuildPanel) end
+  return true
+end
+function A.enableAll()
+  off = {}
+  if A.rebuildPanel then pcall(A.rebuildPanel) end
+  return true
+end
 local function smEnd()
   if not sm then return end
   local s = sm
@@ -1397,6 +1468,8 @@ A.slowmo = smStart
 
 -- v25.0: вода — 3 капли веером + большие волны
 local function waterTick(dt)
+  -- [TOGGLE] если вода выключена — не капаем
+  if off.water then return end
   local c, h, r = getChar()
   if not c then return end
   local origin = r.Position + V3(0, 1.5, 0)
@@ -1435,6 +1508,12 @@ end
 
 local function pressDown()
   if not getChar() then return end
+  -- [TOGGLE] не начинаем стрельбу/заряд, если текущая стихия выключена
+  if off[A.current] then
+    ping("click", 0.6, 0.8)
+    toast("🚫 " .. (EL[IDX[A.current]] and EL[IDX[A.current]].nm or A.current) .. " выключена")
+    return
+  end
   if A.current == "water" then waterHeld = true; return end
   pressT = tick()
   if shiftHeld then A.fire(true); pressT = nil end
@@ -1459,9 +1538,52 @@ local function ruLower(s)
   return s
 end
 local NAMES = { { "огонь", "fire" }, { "земл", "earth" }, { "вод", "water" }, { "лёд", "ice" }, { "лед", "ice" }, { "молни", "lightning" }, { "телепорт", "teleport" }, { "скорост", "speed" }, { "ветер", "wind" }, { "яд", "poison" }, { "кост", "bone" }, { "бластер", "blaster" }, { "рук", "hand" } }
+-- [TOGGLE] утилита: вернуть EL по любому варианту имени («лед»/«лёд» и т.п.)
+local function findEl(nameLower)
+  for _, p in ipairs(NAMES) do
+    if nameLower:find(p[1], 1, true) then
+      return p[2], EL[IDX[p[2]]]
+    end
+  end
+  return nil, nil
+end
+
 function A.interpret(raw)
   local t = ruLower(raw)
   local function has(s) return t:find(s, 1, true) ~= nil end
+
+  -- [TOGGLE] команды включения/выключения стихий (проверяем ДО «стихи»)
+  -- Пример: «выключи огонь», «включи воду», «отключи молнию»
+  if has("выключ") or has("отключ") or has("запрет") or has("не стреляй") or has("не работа") then
+    if has("все") or has("всё") then
+      A.disableAll()
+      return true, "🚫 Все стихии выключены"
+    end
+    local id, el = findEl(t)
+    if id then
+      A.disableElement(id)
+      return true, "🚫 " .. el.nm .. " выключена"
+    end
+  end
+  if has("включ") or has("верни") or has("разреши") or has("работа") then
+    if has("все") or has("всё") then
+      A.enableAll()
+      return true, "✅ Все стихии включены"
+    end
+    local id, el = findEl(t)
+    if id then
+      A.enableElement(id)
+      return true, "✅ " .. el.nm .. " включена"
+    end
+  end
+  if has("какие") and (has("выключ") or has("отключ")) then
+    local list = A.getDisabled()
+    if #list == 0 then return true, "✅ Все стихии активны" end
+    local names = {}
+    for _, e in ipairs(list) do names[#names + 1] = e.nm end
+    return true, "🚫 Выключены: " .. table.concat(names, ", ")
+  end
+
   if has("стихи") then
     for _, p in ipairs(NAMES) do
       if has(p[1]) then A.setCurrent(p[2]); return true, "✨ Стихия: " .. EL[IDX[p[2]]].nm end
@@ -1490,9 +1612,13 @@ local function wrapHelper()
   end
 end
 -- ===== UI =====
-local function onClick(btn, fn)
+-- [TOGGLE] onClick расширен: опционально долгое нажатие (long) и короткое (short)
+local function onClick(btn, fn, opts)
+  opts = opts or {}
+  local longMs = opts.longMs  -- если задано, длинное нажатие вызовет opts.onLong
   local deb = false
   local down, downT, lastRelT = false, 0, 0
+  local longFired = false
   local function call()
     if deb then return end
     deb = true
@@ -1502,12 +1628,24 @@ local function onClick(btn, fn)
   local function press()
     if down and tick() - downT < 1 then return end
     down, downT = true, tick()
-    call()
+    longFired = false
+    if longMs then
+      local myT = downT
+      task.delay(longMs / 1000, function()
+        if down and downT == myT and not longFired then
+          longFired = true
+          pcall(opts.onLong)
+        end
+      end)
+    else
+      call()
+    end
   end
   local function release()
     local now = tick()
     if down then
       down = false; lastRelT = now
+      if longMs and not longFired then call() end
     elseif now - lastRelT > 0.2 then
       lastRelT = now; call()
     end
@@ -1585,7 +1723,18 @@ local function mkUI()
     local kl = Instance.new("TextLabel")
     kl.Size = UDim2.fromOffset(12, 12); kl.Position = UDim2.fromOffset(2, 1); kl.BackgroundTransparency = 1
     kl.Text = KEYLBL[i] or tostring(i); kl.TextColor3 = C3(190, 190, 200); kl.Font = Enum.Font.Code; kl.TextSize = 10; kl.ZIndex = 3; kl.Parent = b
-    onClick(b, function() A.setCurrent(el.id) end)
+    -- [TOGGLE] короткое нажатие — выбрать; долгое (0.5с) — вкл/выкл стихию
+    onClick(b, function() A.setCurrent(el.id) end, {
+      longMs = 500,
+      onLong = function()
+        A.toggleElement(el.id)
+        if off[el.id] then
+          toast("🚫 " .. el.nm .. " выключена")
+        else
+          toast("✅ " .. el.nm .. " включена")
+        end
+      end,
+    })
 
     local xb = Instance.new("TextButton")
     xb.Name = "X_" .. el.id
@@ -1611,7 +1760,29 @@ local function mkUI()
       end
     end)
 
-    ui.slots[el.id] = { btn = b, stroke = st, shade = sh, idxLabel = kl, xBtn = xb }
+    -- [TOGGLE] затемняющая плёнка для выключенных стихий
+    local dim = Instance.new("Frame")
+    dim.Name = "Dim"
+    dim.Size = UDim2.fromScale(1, 1)
+    dim.BackgroundColor3 = C3(0, 0, 0)
+    dim.BackgroundTransparency = 0.45
+    dim.BorderSizePixel = 0
+    dim.ZIndex = 4
+    dim.Visible = false
+    dim.Parent = b
+    local dimLbl = Instance.new("TextLabel")
+    dimLbl.Name = "DimLbl"
+    dimLbl.Size = UDim2.fromScale(1, 1)
+    dimLbl.BackgroundTransparency = 1
+    dimLbl.Text = "🚫"
+    dimLbl.TextColor3 = C3(255, 120, 120)
+    dimLbl.Font = Enum.Font.GothamBold
+    dimLbl.TextSize = math.floor(slot * 0.5)
+    dimLbl.ZIndex = 5
+    dimLbl.Visible = false
+    dimLbl.Parent = b
+
+    ui.slots[el.id] = { btn = b, stroke = st, shade = sh, idxLabel = kl, xBtn = xb, dim = dim, dimLbl = dimLbl }
   end
 
   local resetBtn = mkBtn(sg, "↺", 34, 34, UDim2.new(1, -18, 1, -(slot + 46)), Vector2.new(1, 1))
@@ -1623,8 +1794,9 @@ local function mkUI()
   local rs = Instance.new("UIStroke", resetBtn); rs.Color = C3(100, 255, 160); rs.Thickness = 1.5
   onClick(resetBtn, function()
     A.resetHidden()
+    A.enableAll()
     if ui.toast then
-      ui.toast.Text = "♻️ Все стихии возвращены"
+      ui.toast.Text = "♻️ Все стихии возвращены и включены"
       ui.toast.Visible = true
       toastUntil = tick() + 1.8
     end
@@ -1634,14 +1806,17 @@ local function mkUI()
   A.rebuildPanel = function()
     if not ui.slots or not ui.panel then return end
     local visible = A.getVisibleElements()
-    local anyHidden = false
+    local anyHidden, anyOff = false, false
     for _, e in ipairs(EL) do
-      if hidden[e.id] then anyHidden = true; break end
+      if hidden[e.id] then anyHidden = true end
+      if off[e.id] then anyOff = true end
     end
 
     for id, s in pairs(ui.slots) do
       s.btn.Visible = not hidden[id]
       if s.xBtn then s.xBtn.Visible = not hidden[id] end
+      if s.dim then s.dim.Visible = not hidden[id] and off[id] == true end
+      if s.dimLbl then s.dimLbl.Visible = not hidden[id] and off[id] == true end
     end
 
     local total = #visible
@@ -1674,7 +1849,7 @@ local function mkUI()
     if ui.toast then ui.toast.Position = UDim2.new(0.5, 0, 1, -(ph + 74)) end
     if ui.resetBtn then
       ui.resetBtn.Position = UDim2.new(1, -18, 1, -(ph + 34))
-      ui.resetBtn.Visible = anyHidden
+      ui.resetBtn.Visible = anyHidden or anyOff
     end
     if ui.guideBtn then ui.guideBtn.Position = UDim2.new(0.5, 0, 1, -(ph + 118)) end
   end
@@ -1847,7 +2022,14 @@ local function refreshUI()
     s.shade.Size = UDim2.new(1, 0, cdFrac(id), 0)
     local on = (id == A.current)
     s.stroke.Thickness = on and 3 or 1
-    s.btn.BackgroundColor3 = on and C3(52, 52, 70) or C3(34, 34, 44)
+    -- [TOGGLE] если стихия выключена — приглушённый фон, иначе обычный/активный
+    if off[id] then
+      s.btn.BackgroundColor3 = on and C3(52, 32, 32) or C3(28, 22, 22)
+    else
+      s.btn.BackgroundColor3 = on and C3(52, 52, 70) or C3(34, 34, 44)
+    end
+    if s.dim then s.dim.Visible = off[id] == true and not hidden[id] end
+    if s.dimLbl then s.dimLbl.Visible = off[id] == true and not hidden[id] end
   end
   local el = EL[IDX[A.current]]
   ui.cross.Visible = aiming
@@ -1859,6 +2041,7 @@ local function refreshUI()
     local target = aimPoint(origin)
     if target then dist = (target - origin).Magnitude end
     local txt = el.nm
+    if off[A.current] then txt = txt .. " 🚫" end
     if pressT and t - pressT >= C.charge.time then txt = txt .. " ⚡ЗАРЯД" end
     ui.crossLabel.Text = txt .. "  •  " .. math.floor(dist) .. " st"
     for _, l in ipairs(ui.lines) do l.BackgroundColor3 = el.col end
@@ -1966,6 +2149,7 @@ connect(RS.Heartbeat, function(dt)
   stepShards(dt)
   stepRisers(dt)
   stepShake()
+  -- [TOGGLE] вода не капает, если выключена (гейт внутри waterTick)
   if (waterHeld and A.current == "water") or t < waterUntil then waterTick(dt) end
   for i = #dots, 1, -1 do
     local d = dots[i]
@@ -2032,6 +2216,8 @@ function A.destroy()
   end
   clouds, dots, hitWatch, lastFire = {}, {}, {}, {}
   A.cooldowns = {}
+  -- [TOGGLE] сбрасываем тумблеры, чтобы при перезагрузке всё было включено
+  off = {}
   if folder then pcall(function() folder:Destroy() end); folder = nil end
   ORBIT.abilityMoveUntil = 0
 end
