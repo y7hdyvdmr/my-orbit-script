@@ -18,6 +18,8 @@
 --   родителях; guard через B.isActive()/B.bossId() вместо несуществующих полей
 --   B.active/B.boss; хук fireId защищён _wrapper (не затирает хуки других боссов);
 --   таймеры сброса состояния в winBoss/failBoss проверяют S.state.
+-- v25.5-fix2: переход на A.battle от Клода — guard по полям B.active/B.boss
+--   вместо методов isActive()/bossId().
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] sans_boss: нет ORBIT"); return false end
@@ -51,8 +53,8 @@ local S = {
   parts = {}, traps = {},
   boss = nil, bossUI = nil, collectUI = nil,
   folder = nil, shots = {},
-  walls = {}, storm = nil, jump = nil,          -- v25.5: новые атаки
-  bossVel = Vector3.new(0, 0, 0),               -- v25.5: скорость босса для Rig.update
+  walls = {}, storm = nil, jump = nil,
+  bossVel = Vector3.new(0, 0, 0),
   lastAttackId = nil,
   walkTarget = nil, nextRetarget = 0, nextDodge = 0,
   nextAttack = 0, attackIndex = 0, walkPhase = 0,
@@ -65,7 +67,6 @@ local conns = {}
 local function connect(sig, fn) local c = sig:Connect(fn); conns[#conns + 1] = c; return c end
 local function ping(n, v, p) if ORBIT.Sfx and ORBIT.Sfx.play then pcall(ORBIT.Sfx.play, n, v or 1, p or 1) end end
 
--- v25.5: общий слой боя (A.battle из orbit_abilities v25.1). Если его нет — всё работает как раньше.
 local function battle()
   local ab = ORBIT.abilities
   return ab and ab.battle or nil
@@ -604,15 +605,12 @@ local function findWalkTarget(center, bossPos)
   return V3(ground.X, ground.Y + 3, ground.Z)
 end
 
--- Поза лицом к игроку. Пресет САНС построен лицом к +Z, lookAt даёт -Z → разворот на π.
--- Горизонталь: чтобы босс не наклонялся по высоте игрока.
 local function faceCF(pos, target)
   local flat = V3(target.X, pos.Y, target.Z)
   if (flat - pos).Magnitude < 0.05 then return CFrame.new(pos) end
   return CFrame.lookAt(pos, flat) * CFrame.Angles(0, math.pi, 0)
 end
 
--- Поза ног/рук/головы: строго ПОСЛЕ PivotTo, иначе PivotTo сотрёт позу
 local function applyRig(dt)
   local Rig = ORBIT.figureRig
   if Rig and Rig.update and S.boss and S.boss.model then
@@ -691,7 +689,6 @@ end
 local function spawnBoneShot(origin, dirv, dmg, speed, size)
   local p, extra = makeBone(origin, size or 0.9, false)
   placeBone(p, extra, CFrame.lookAt(origin, origin + dirv))
-  -- урон игроку считает A.battle сам (HealthChanged); тут только множитель ярости
   S.shots[#S.shots + 1] = { part = p, extra = extra, vel = dirv * speed, life = 3, dmg = dmg * dmgMul(), born = tick() }
 end
 
@@ -1104,7 +1101,7 @@ local function stepJump(dt, t)
 end
 
 -- ============================================================
---       ТАБЛИЦА АТАК (7 шт.): фаза 1 — 3, фаза 2 — 5, фаза 3 — 7
+--       ТАБЛИЦА АТАК (7 шт.)
 -- ============================================================
 local ATTACKS = {
   { id = "bone",  minPhase = 1, fn = attackBoneVolley },
@@ -1182,13 +1179,11 @@ local function hookDamage()
     end
     return r
   end
-  S._wrapper = ab.fireId   -- v25.5: запоминаем свою обёртку (см. unhookDamage)
+  S._wrapper = ab.fireId
 end
 
 local function unhookDamage()
   local ab = ORBIT.abilities
-  -- v25.5: восстанавливаем оригинал, только если сверху нет чужой обёртки (Гастер и др.);
-  -- иначе обёртка остаётся, но с S.hooked=false пропускает вызов насквозь
   if ab and S.hooked and S._origFireId and ab.fireId == S._wrapper then
     pcall(function() ab.fireId = S._origFireId end)
   end
@@ -1198,7 +1193,7 @@ local function unhookDamage()
 end
 
 -- ============================================================
---       СНАРЯДЫ-КОСТИ (бугры следуют за костью)
+--       СНАРЯДЫ-КОСТИ
 -- ============================================================
 local function stepShots(dt)
   if #S.shots == 0 then return end
@@ -1270,7 +1265,6 @@ function S.stopCollect()
   if ORBIT.notify then ORBIT.notify("↺ Сбор отменён", C3(255, 200, 120), 2) end
 end
 
--- v25.5: единая уборка модели босса и бластеров (с Rig.detach — не оставляем запись в byModel)
 local function destroyBossModel()
   local Rig = ORBIT.figureRig
   if S.boss and S.boss.model then
@@ -1500,7 +1494,7 @@ function S.failBoss(reason)
     end
   end)
 end
-S.loseBoss = S.failBoss   -- алиас под имя из плана
+S.loseBoss = S.failBoss
 
 -- ============================================================
 --       ГЛАВНЫЙ ЦИКЛ
@@ -1556,7 +1550,6 @@ local function stepBoss(dt, t)
     S.hitTimes[#S.hitTimes] = t
   end
 
-  -- ВАЖНО: риг строго ПОСЛЕДНИМ — после всех PivotTo босса за кадр
   applyRig(dt)
 end
 
@@ -1619,13 +1612,13 @@ function S.destroy()
   alive = false
   for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
   conns = {}
-  unhookDamage()          -- ПЕРВЫМ: снять хук ORBIT.abilities.fireId
+  unhookDamage()
   clearAttackFx()
   hideBossUI()
   clearShards()
-  -- v25.5-fix1: у A.battle нет полей active/boss — используем методы isActive()/bossId()
+  -- v25.5-fix2: A.battle от Клода — поля B.active/B.boss
   local B = battle()
-  if B and B.isActive and B.isActive() and B.bossId and B.bossId() == "sans" and B.cleanup then
+  if B and B.active and B.boss == "sans" and B.cleanup then
     pcall(B.cleanup)
   end
   if S.collectUI and S.collectUI.sg then pcall(function() S.collectUI.sg:Destroy() end); S.collectUI = nil end
@@ -1637,7 +1630,6 @@ function S.destroy()
   if S.cc then pcall(function() S.cc:Destroy() end); S.cc = nil end
   if S.menu then pcall(function() S.menu:Destroy() end); S.menu = nil end
   if S.folder then pcall(function() S.folder:Destroy() end); S.folder = nil end
-  -- v25.5-fix1: страховка по имени в обоих родителях (safe parent + PlayerGui)
   pcall(function()
     for _, pg in ipairs({ uiParent(), LP:FindFirstChildOfClass("PlayerGui") }) do
       if pg then
@@ -1671,7 +1663,6 @@ function S.open()
   sg.Parent = pg
   S.menu = sg
 
-  -- фон — обычный Frame (НЕ кнопка), Active=false: тач под ним не блокируется
   local backdrop = Instance.new("Frame")
   backdrop.Size = UDim2.fromScale(1, 1)
   backdrop.BackgroundColor3 = C3(0, 0, 0)
@@ -1806,7 +1797,7 @@ end
 -- ============================================================
 --       ЭКСПОРТ
 -- ============================================================
-S.version = "v25.5-fix1"
+S.version = "v25.5-fix2"
 ORBIT.sans_boss = S
 if ORBIT.sansUnlocked == nil then ORBIT.sansUnlocked = false end
 if ORBIT.sansKnifeUnlocked == nil then ORBIT.sansKnifeUnlocked = false end
@@ -1821,7 +1812,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("💀 Санс v25.5-fix1 (7 атак, риг ходьбы, ярость и награды)", C3(200, 230, 255), 3)
+  ORBIT.notify("💀 Санс v25.5-fix2 (7 атак, риг ходьбы, ярость и награды)", C3(200, 230, 255), 3)
 end
 
 return true
