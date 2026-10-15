@@ -1,9 +1,20 @@
--- ORBIT v25.7-fix1 | orbit_weapons_menu.lua
+=== orbit_weapons_menu.lua v25.9 ===
+-- ORBIT v25.9 | orbit_weapons_menu.lua
 -- Арсенал: оружие + все награды + атака + фигурные скины (Санс/Гастер).
 -- v25.7: sans_boss_skin и gaster_boss_skin -> полная замена персонажа
 --        на фигуру из orbit_p2.lua.
 -- v25.7-fix1: фиксы разворота фигуры. Фигуры САНС/ГАСТЕР построены лицом к +Z,
 --             HRP смотрит к -Z → разворот на 180°.
+-- v25.8: + 4 оружия (коса, молот, топор, посох).
+--        + система взмаха W.swings: раньше swingFx твинил PrimaryPart, а
+--          updatePositions каждый кадр перезаписывал pivot — взмаха не было видно.
+--        + скины-фигуры оживают через ORBIT.figureRig (Rig.update каждый кадр,
+--          Rig.detach при снятии скина / респавне / destroy).
+--        + UI создаётся через ORBIT.getSafeParent() (запасной вариант — PlayerGui).
+-- v25.9: + косметика за награды боссов: «Санс-призрак», «Тёмный плащ»,
+--          титулы «Мастер клинков» и «Легенда ОРБИТЫ» (с аурой).
+--        + таблица EXCLUSIVE (что нельзя носить вместе), откат при неудачном надевании.
+--        + у закрытых карточек текст условия берётся из поля hint.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] weapons_menu: нет ORBIT"); return false end
@@ -28,7 +39,22 @@ local conns = {}
 local function connect(sig, fn)
   local c = sig:Connect(fn); conns[#conns + 1] = c; return c
 end
-local function ping(n, v, p) if ORBIT.Sfx and ORBIT.Sfx.play then pcall(ORBIT.Sfx.play, n, v or 1, p or 1) end end
+-- v25.8: звук — ORBIT.Sfx.play (как везде в проекте), запасной вариант ORBIT.playSound
+local function ping(n, v, p)
+  if ORBIT.Sfx and ORBIT.Sfx.play then
+    pcall(ORBIT.Sfx.play, n, v or 1, p or 1)
+  elseif type(ORBIT.playSound) == "function" then
+    pcall(ORBIT.playSound, n, v or 1, p or 1)
+  end
+end
+-- v25.8: родитель для UI — ORBIT.getSafeParent(), запасной вариант PlayerGui
+local function uiParent()
+  if type(ORBIT.getSafeParent) == "function" then
+    local ok, p = pcall(ORBIT.getSafeParent)
+    if ok and typeof(p) == "Instance" then return p end
+  end
+  return LP:FindFirstChildOfClass("PlayerGui")
+end
 local function getChar()
   local c = LP.Character
   if not c then return nil end
@@ -48,6 +74,8 @@ local W = {
   skinOffset = nil,
   savedCharState = nil,
   savedFaceT = nil,
+  swings = {},         -- v25.8: активные взмахи { [id] = { kind, t0, dur } }
+  equippedMeta = {},   -- v25.8: { [id] = { bodies, visualSize } }
 }
 
 local function fold()
@@ -138,6 +166,126 @@ local function buildGasterBlaster()
   return data.model
 end
 
+-- ===== v25.8: НОВЫЕ ОРУЖИЯ =====
+-- Модели строятся вокруг начала координат; «вперёд» = -Z (как у меча),
+-- Root — невидимый корень в точке хвата. Билдер возвращает: model, bodies, visualSize.
+local function newWeaponModel(name)
+  local m = Instance.new("Model"); m.Name = name
+  local root = mkp(m, "Root", V3(0.1,0.1,0.1), CF(), C3(0,0,0), true, PT_BLOCK, MAT.SmoothPlastic, 1)
+  m.PrimaryPart = root
+  return m, root
+end
+
+-- Сегмент между двумя точками (Z вдоль направления, тонкий по Y) — для изогнутых лезвий
+local function seg(m, name, a, b, w, h, col, mat, trans)
+  local len = (b - a).Magnitude
+  if len < 0.02 then return nil end
+  return mkp(m, name, V3(w, h, len * 1.04), CFrame.lookAt((a + b) / 2, b), col, true, PT_BLOCK, mat or MAT.Metal, trans)
+end
+
+local function buildScythe()
+  local m = newWeaponModel("Wpn_scythe")
+  local bodies = {}
+  local function P(nm, sz, cf, col, shape, mat, tr)
+    local p = mkp(m, nm, sz, cf, col, true, shape, mat, tr)
+    bodies[#bodies + 1] = p; return p
+  end
+  local wood, steel, glow = C3(70, 48, 80), C3(210, 220, 235), C3(190, 120, 255)
+  P("Shaft", V3(0.18, 0.18, 4.6), CF(0, 0, -1.0), wood, PT_BLOCK, MAT.Wood)
+  for i = 0, 3 do
+    P("Wrap", V3(0.23, 0.23, 0.12), CF(0, 0, 0.6 - i * 0.28), C3(35, 25, 45), PT_BLOCK, MAT.Fabric)
+  end
+  P("Pommel", V3(0.3, 0.3, 0.3), CF(0, 0, 1.35), steel, PT_BALL, MAT.Metal)
+  P("Collar", V3(0.32, 0.32, 0.32), CF(0, 0, -3.3), steel, PT_BALL, MAT.Metal)
+  P("Rune", V3(0.2, 0.2, 0.2), CF(0, 0.2, -3.3), glow, PT_BALL, MAT.Neon)
+  -- изогнутое лезвие: дуга в плоскости XZ, уходит в -X и загибается назад к +Z
+  local R, prev = 1.7, V3(0, 0, -3.3)
+  for i = 1, 7 do
+    local th = math.rad(i * 15)
+    local cur = V3(-R * math.sin(th), 0, -3.3 + R * (1 - math.cos(th)))
+    local w = 0.5 * (1 - (i - 1) / 8)   -- сужение к острию
+    local s = seg(m, "Blade", prev, cur, w, 0.08, steel, MAT.Metal)
+    if s then bodies[#bodies + 1] = s end
+    prev = cur
+  end
+  P("Tip", V3(0.12, 0.1, 0.12), CF(prev), glow, PT_BALL, MAT.Neon)
+  return m, bodies, 5.2
+end
+
+local function buildHammer()
+  local m = newWeaponModel("Wpn_hammer")
+  local bodies = {}
+  local function P(nm, sz, cf, col, shape, mat, tr)
+    local p = mkp(m, nm, sz, cf, col, true, shape, mat, tr)
+    bodies[#bodies + 1] = p; return p
+  end
+  local wood, steel, dark = C3(95, 65, 40), C3(150, 155, 170), C3(110, 115, 130)
+  P("Shaft", V3(0.2, 0.2, 3.2), CF(0, 0, -0.5), wood, PT_BLOCK, MAT.Wood)
+  for i = 0, 2 do
+    P("Wrap", V3(0.25, 0.25, 0.14), CF(0, 0, 0.8 - i * 0.3), C3(50, 35, 25), PT_BLOCK, MAT.Fabric)
+  end
+  P("Pommel", V3(0.34, 0.34, 0.34), CF(0, 0, 1.2), dark, PT_BALL, MAT.Metal)
+  -- массивная голова: длинная ось по Y (в плоскости взмаха)
+  P("Head", V3(1.0, 1.8, 1.0), CF(0, 0, -2.3), steel, PT_BLOCK, MAT.Metal)
+  for _, sy in ipairs({-1, 1}) do
+    P("Cap", V3(1.18, 0.28, 1.18), CF(0, sy * 0.9, -2.3), dark, PT_BLOCK, MAT.Metal)
+    P("Band", V3(1.1, 0.18, 1.1), CF(0, sy * 0.35, -2.3), dark, PT_BLOCK, MAT.Metal)
+  end
+  P("Rune", V3(0.34, 0.34, 0.06), CF(0, 0, -2.82) * CFrame.Angles(0, 0, math.rad(45)),
+    C3(255, 170, 60), PT_BLOCK, MAT.Neon)
+  return m, bodies, 3.6
+end
+
+local function buildAxe()
+  local m = newWeaponModel("Wpn_axe")
+  local bodies = {}
+  local function P(nm, sz, cf, col, shape, mat, tr)
+    local p = mkp(m, nm, sz, cf, col, true, shape, mat, tr)
+    bodies[#bodies + 1] = p; return p
+  end
+  local wood, steel, dark, red = C3(85, 58, 38), C3(205, 212, 225), C3(90, 90, 100), C3(255, 90, 90)
+  P("Shaft", V3(0.18, 0.18, 3.0), CF(0, 0, -0.5), wood, PT_BLOCK, MAT.Wood)
+  for i = 0, 2 do
+    P("Wrap", V3(0.23, 0.23, 0.12), CF(0, 0, 0.8 - i * 0.28), C3(45, 30, 20), PT_BLOCK, MAT.Fabric)
+  end
+  P("Pommel", V3(0.3, 0.3, 0.3), CF(0, 0, 1.1), dark, PT_BALL, MAT.Metal)
+  -- двулезвийный топор: лезвия вверх и вниз от втулки (двойной удар)
+  P("HeadBody", V3(0.3, 0.6, 0.55), CF(0, 0, -1.9), dark, PT_BLOCK, MAT.Metal)
+  for _, sy in ipairs({-1, 1}) do
+    P("Blade", V3(0.12, 0.9, 0.75), CF(0, sy * 0.65, -1.9), steel, PT_BLOCK, MAT.Metal)
+    P("Edge", V3(0.15, 0.06, 0.8), CF(0, sy * 1.12, -1.9), red, PT_BLOCK, MAT.Neon, 0.15)
+  end
+  return m, bodies, 3.4
+end
+
+local function buildStaff()
+  local m = newWeaponModel("Wpn_staff")
+  local bodies = {}
+  local function P(nm, sz, cf, col, shape, mat, tr)
+    local p = mkp(m, nm, sz, cf, col, true, shape, mat, tr)
+    bodies[#bodies + 1] = p; return p
+  end
+  local wood, gold, gemCol = C3(75, 55, 40), C3(220, 185, 80), C3(90, 220, 255)
+  P("Shaft", V3(0.16, 0.16, 4.4), CF(0, 0, -1.0), wood, PT_BLOCK, MAT.Wood)
+  for i = 0, 3 do
+    P("Wrap", V3(0.21, 0.21, 0.12), CF(0, 0, 0.7 - i * 0.26), C3(40, 28, 20), PT_BLOCK, MAT.Fabric)
+  end
+  P("Ring", V3(0.28, 0.28, 0.12), CF(0, 0, -2.7), gold, PT_BLOCK, MAT.Metal)
+  P("Ring", V3(0.28, 0.28, 0.12), CF(0, 0, -3.0), gold, PT_BLOCK, MAT.Metal)
+  -- «когти», держащие кристалл
+  for _, sd in ipairs({-1, 1}) do
+    P("Prong", V3(0.1, 0.1, 1.0), CFrame.lookAt(V3(sd * 0.32, 0, -3.1), V3(sd * 0.16, 0, -3.95)), gold, PT_BLOCK, MAT.Metal)
+  end
+  -- кристалл: именно его позицию берёт атака как точку выстрела
+  local gem = P("Gem", V3(0.62, 0.62, 0.62), CF(0, 0, -3.5), gemCol, PT_BALL, MAT.Neon, 0.1)
+  local l = Instance.new("PointLight"); l.Color = gemCol; l.Range = 10; l.Brightness = 1.6; l.Parent = gem
+  local e = Instance.new("ParticleEmitter")
+  e.Color = ColorSequence.new(gemCol); e.LightEmission = 1
+  e.Size = NumberSequence.new(0.18, 0); e.Lifetime = NumberRange.new(0.4, 0.8)
+  e.Speed = NumberRange.new(0.5, 2); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 10; e.Parent = gem
+  return m, bodies, 4.8
+end
+
 -- ===== Каталог наград =====
 local WEAPONS = {
   { id = "sans_knife", kind = "weapon",
@@ -162,6 +310,27 @@ local WEAPONS = {
     source = "Базовое",
     check = function() return true end,
     build = buildShield },
+  -- v25.8: новые оружия (пока доступны сразу; условие открытия можно поменять в check)
+  { id = "scythe", kind = "weapon", visualSize = 5.2,
+    name = "🗡 Коса", desc = "Атака: широкий взмах по дуге, AoE 10 studs (28 урона)",
+    source = "Арсенал",
+    check = function() return true end,
+    build = buildScythe },
+  { id = "hammer", kind = "weapon", visualSize = 3.6,
+    name = "🔨 Молот", desc = "Медленный: 70 урона + сильный толчок и ударная волна",
+    source = "Арсенал",
+    check = function() return true end,
+    build = buildHammer },
+  { id = "axe", kind = "weapon", visualSize = 3.4,
+    name = "🪓 Топор", desc = "Двойной удар: 2 × 22 урона подряд",
+    source = "Арсенал",
+    check = function() return true end,
+    build = buildAxe },
+  { id = "staff", kind = "weapon", visualSize = 4.8,
+    name = "⚡ Посох", desc = "Стреляет разрядом до 70 studs (30 урона + цепь 15)",
+    source = "Арсенал",
+    check = function() return true end,
+    build = buildStaff },
 
   { id = "sans_boss_skin", kind = "cosmetic",
     name = "🎨 Скин «Санс-босс»",
@@ -181,6 +350,24 @@ local WEAPONS = {
     source = "Гастер",
     check = function() return (ORBIT.gasterUnlocked == true)
           or (ORBIT.saveData and ORBIT.saveData.rewards and ORBIT.saveData.rewards["gaster_skull_helmet"]) end },
+
+  -- v25.9: косметика за награды боссов (флаги ставит A.battle.win)
+  { id = "sans_ghost", kind = "cosmetic",
+    name = "👻 Санс-призрак", desc = "Персонаж полупрозрачный, голубой ореол. Тап — надеть/снять",
+    source = "Санс", hint = "Победи Санса, не получив урона",
+    check = function() local d = ORBIT.saveData; return ((d and d.rewards) and d.rewards["sans_ghost"]) == true end },
+  { id = "gaster_dark_cloak", kind = "cosmetic",
+    name = "🧥 Тёмный плащ", desc = "Плащ за спиной, развевается при беге. Тап — надеть/снять",
+    source = "Гастер", hint = "Победи Гастера быстрее 90 сек",
+    check = function() local d = ORBIT.saveData; return ((d and d.rewards) and d.rewards["gaster_dark_cloak"]) == true end },
+  { id = "blade_master", kind = "cosmetic",
+    name = "⚔ Титул «Мастер клинков»", desc = "Титул над головой. Тап — надеть/снять",
+    source = "Общее", hint = "Одержи 10 побед над боссами",
+    check = function() local d = ORBIT.saveData; return ((d and d.rewards) and d.rewards["blade_master"]) == true end },
+  { id = "orbit_legend", kind = "cosmetic",
+    name = "🏆 Титул «Легенда ОРБИТЫ»", desc = "Золотой титул и аура. Тап — надеть/снять",
+    source = "Общее", hint = "Победи Санса и Гастера подряд, ни разу не умерев",
+    check = function() local d = ORBIT.saveData; return ((d and d.rewards) and d.rewards["orbit_legend"]) == true end },
 
   { id = "gaster_portal_fx", kind = "effect",
     name = "🌀 Тёмный портал", desc = "Пассивно: вращающиеся кольца за спиной",
@@ -237,6 +424,10 @@ local function getBodyParts(char)
   return out
 end
 
+-- ═══════════════════════════════════════════════════════════
+-- ОБРЕЗАНО НА orbit_weapons_menu.lua, строка ~475.
+-- Часть 2/5 начинается с: -- ===== Фигурные скины =====
+-- ═══════════════════════════════════════════════════════════
 -- ===== Фигурные скины =====
 local FIGURE_DEFS = {
   sans_boss_skin   = { preset = "САНС",   scale = 1.5, offsetY = -2.6 },
@@ -290,18 +481,22 @@ function W.applyFigureSkin(skinId)
 
   data.model.Parent = fold()
   W.skinModel = data.model
-  -- v25.7-fix1: фигуры САНС/ГАСТЕР построены лицом к +Z, HRP смотрит к -Z.
-  -- Разворачиваем на 180° вокруг Y, чтобы фигура смотрела туда же, куда игрок.
+  -- Фигуры САНС/ГАСТЕР построены лицом к +Z, HRP смотрит к -Z → разворот на 180°.
   W.skinOffset = CFrame.new(0, def.offsetY, 0) * CFrame.Angles(0, math.pi, 0)
 
   if data.model.PrimaryPart then
     pcall(function() data.model:PivotTo(hrp.CFrame * W.skinOffset) end)
   end
+  -- v25.8: Rig.attach уже вызвал сам createSans/createGasterBody (orbit_p2 v24.5),
+  -- здесь ничего подключать не нужно — просто каждый кадр зовём W.updateSkinRig.
   return true
 end
 
 function W.removeFigureSkin()
   if W.skinModel then
+    -- v25.8: сначала отцепляем риг (модель уничтожается — rebind не нужен)
+    local Rig = ORBIT.figureRig
+    if Rig and Rig.detach then pcall(Rig.detach, W.skinModel) end
     pcall(function() W.skinModel:Destroy() end)
     W.skinModel = nil
   end
@@ -327,6 +522,19 @@ function W.removeFigureSkin()
   end
   W.savedCharState = nil
   W.savedFaceT = nil
+end
+
+-- v25.8: оживляем фигуру-скин. Вызывается из Heartbeat ПОСЛЕ PivotTo(hrp * offset).
+-- velWorld — скорость HRP; риг сам переводит её в оси фигуры (учитывает разворот на 180°).
+function W.updateSkinRig(dt)
+  local m = W.skinModel
+  if not m or not m.Parent then return end
+  local Rig = ORBIT.figureRig
+  if not Rig or type(Rig.update) ~= "function" then return end
+  local char = LP.Character
+  local hrp = char and char:FindFirstChild("HumanoidRootPart")
+  local vel = hrp and hrp.AssemblyLinearVelocity or nil
+  pcall(Rig.update, m, dt, vel)
 end
 
 -- ===== Костяной шлем =====
@@ -384,12 +592,10 @@ SKINS.sans_boss_skin = {
   apply = function() return W.applyFigureSkin("sans_boss_skin") end,
   remove = function() W.removeFigureSkin() end,
 }
-
 SKINS.gaster_boss_skin = {
   apply = function() return W.applyFigureSkin("gaster_boss_skin") end,
   remove = function() W.removeFigureSkin() end,
 }
-
 SKINS.gaster_skull_helmet = {
   apply = function()
     local c = LP.Character
@@ -406,24 +612,211 @@ SKINS.gaster_skull_helmet = {
   end,
 }
 
+-- ===== v25.9: КОСМЕТИКА ЗА НАГРАДЫ (призрак, плащ, два титула) =====
+-- Всё клиентское: видит только владелец. Между сессиями не сохраняется (как остальные скины).
+-- Что нельзя носить одновременно (скин-фигура скрывает тело, плащ/призрак на нём бессмысленны):
+local EXCLUSIVE = {
+  sans_boss_skin    = { "gaster_boss_skin", "sans_ghost", "gaster_dark_cloak" },
+  gaster_boss_skin  = { "sans_boss_skin", "sans_ghost", "gaster_dark_cloak" },
+  sans_ghost        = { "sans_boss_skin", "gaster_boss_skin" },
+  gaster_dark_cloak = { "sans_boss_skin", "gaster_boss_skin" },
+  blade_master      = { "orbit_legend" },
+  orbit_legend      = { "blade_master" },
+}
+
+-- 👻 Санс-призрак: части тела и аксессуары на 55% прозрачности + голубой Highlight.
+-- Исходная прозрачность хранится в W.ghostSaved и возвращается при снятии.
+local function ghostRemove()
+  for d, t in pairs(W.ghostSaved or {}) do
+    if d.Parent then pcall(function() d.Transparency = t end) end
+  end
+  W.ghostSaved = nil
+  local char = LP.Character
+  if char then
+    local fx = char:FindFirstChild("OrbitGhostFx")
+    if fx then fx:Destroy() end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local l = hrp and hrp:FindFirstChild("OrbitGhostLight")
+    if l then l:Destroy() end
+  end
+end
+
+local function ghostApply()
+  local char = LP.Character
+  if not char then return false end
+  ghostRemove()
+  W.ghostSaved = {}
+  for _, d in ipairs(char:GetDescendants()) do
+    local isPart = d:IsA("BasePart") and d.Name ~= "HumanoidRootPart"
+    if (isPart or d:IsA("Decal"))
+       and not d:FindFirstAncestor("OrbitDarkCloak") and not d:FindFirstAncestor("OrbitSkullHelmet") then
+      W.ghostSaved[d] = d.Transparency
+      d.Transparency = math.max(d.Transparency, 0.55)
+    end
+  end
+  local hl = Instance.new("Highlight")
+  hl.Name = "OrbitGhostFx"
+  hl.FillColor = C3(120, 200, 255); hl.FillTransparency = 0.88
+  hl.OutlineColor = C3(160, 230, 255); hl.OutlineTransparency = 0.25
+  hl.DepthMode = Enum.HighlightDepthMode.Occluded
+  hl.Adornee = char; hl.Parent = char
+  local hrp = char:FindFirstChild("HumanoidRootPart")
+  if hrp then
+    local l = Instance.new("PointLight")
+    l.Name = "OrbitGhostLight"; l.Color = C3(130, 210, 255); l.Range = 12; l.Brightness = 1.1; l.Parent = hrp
+  end
+  return true
+end
+
+-- 🧥 Тёмный плащ: 3 звена цепочкой от плеч (каждое поворачивается относительно предыдущего)
+-- + воротник и неоновая кайма. Крепится Weld к торсу; покачивание — W.updateCloak каждый кадр.
+-- Спина персонажа = +Z торса (лицо смотрит в -Z).
+local function cloakRemove()
+  local c = W.cloak
+  W.cloak = nil
+  if c and c.model then pcall(function() c.model:Destroy() end) end
+  local char = LP.Character
+  local m = char and char:FindFirstChild("OrbitDarkCloak")
+  if m then m:Destroy() end
+end
+
+function W.updateCloak(dt)
+  local c = W.cloak
+  if not c then return end
+  if not (c.torso.Parent and c.hrp.Parent and c.model.Parent) then return end
+  local t = tick()
+  -- «шлейф»: чем быстрее бег вперёд, тем сильнее плащ отстаёт (с плавным затуханием)
+  local vf = c.hrp.AssemblyLinearVelocity:Dot(c.hrp.CFrame.LookVector)
+  c.trail = c.trail + (math.clamp(vf / 16, -1, 1) - c.trail) * math.min(1, dt * 6)
+  local base = CFrame.new(c.top)
+  local segBase = {}
+  for i = 1, 3 do
+    local step = -0.06 - c.trail * 0.28 + math.sin(t * 3 + i * 0.9) * 0.03 * (1 + math.abs(c.trail))
+    base = base * CFrame.Angles(step, 0, 0)
+    segBase[i] = base
+    base = base * CFrame.new(0, -0.9, 0)
+  end
+  for _, it in ipairs(c.items) do
+    if it.weld.Parent then it.weld.C0 = segBase[it.seg] * it.off end
+  end
+end
+
+local function cloakApply()
+  local char = LP.Character
+  if not char then return false end
+  local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")   -- R15 / R6
+  local hrp = char:FindFirstChild("HumanoidRootPart")
+  if not (torso and hrp) then return false end
+  cloakRemove()
+  local m = Instance.new("Model"); m.Name = "OrbitDarkCloak"
+  local width = torso.Size.X + 0.6
+  local items = {}
+  local function add(name, size, col, mat, seg, off)
+    local p = mkp(m, name, size, CF(), col, true, PT_BLOCK, mat)
+    p.Anchored = false; p.Massless = true
+    p:SetAttribute("OrbitCosmetic", true)
+    local w = Instance.new("Weld"); w.Part0 = torso; w.Part1 = p; w.Parent = p
+    items[#items + 1] = { weld = w, seg = seg, off = off }
+  end
+  for i = 1, 3 do
+    add("CloakSeg" .. i, V3(width + (i - 1) * 0.25, 0.95, 0.12), C3(24, 18, 38), MAT.Fabric, i, CF(0, -0.45, 0))
+  end
+  add("CloakCollar", V3(torso.Size.X + 0.3, 0.2, 0.22), C3(40, 30, 62), MAT.Fabric, 1, CF(0, -0.03, 0))
+  add("CloakTrim", V3(width + 0.5, 0.08, 0.14), C3(170, 70, 255), MAT.Neon, 3, CF(0, -0.93, 0))
+  m.Parent = char
+  W.cloak = {
+    model = m, torso = torso, hrp = hrp, items = items, trail = 0,
+    top = V3(0, torso.Size.Y * 0.5 - 0.05, torso.Size.Z * 0.5 + 0.12),
+  }
+  W.updateCloak(0)   -- сразу расставить звенья
+  return true
+end
+
+-- ⚔ / 🏆 Титулы: BillboardGui над головой. У «Легенды» ещё золотая аура (частицы + свет на HRP).
+local function titleRemove()
+  local char = LP.Character
+  if not char then return end
+  local head = char:FindFirstChild("Head")
+  local t = head and head:FindFirstChild("OrbitTitle")
+  if t then t:Destroy() end
+  local hrp = char:FindFirstChild("HumanoidRootPart")
+  if hrp then
+    local e = hrp:FindFirstChild("OrbitLegendAura")
+    if e then e:Destroy() end
+    local l = hrp:FindFirstChild("OrbitLegendLight")
+    if l then l:Destroy() end
+  end
+end
+
+local function titleApply(text, col, aura)
+  local char = LP.Character
+  local head = char and char:FindFirstChild("Head")
+  if not head then return false end
+  titleRemove()
+  local bb = Instance.new("BillboardGui")
+  bb.Name = "OrbitTitle"; bb.Adornee = head
+  bb.Size = UDim2.fromOffset(240, 34); bb.StudsOffset = V3(0, 2.7, 0)
+  bb.AlwaysOnTop = false; bb.MaxDistance = 140; bb.Parent = head
+  local l = Instance.new("TextLabel")
+  l.Size = UDim2.fromScale(1, 1); l.BackgroundTransparency = 1
+  l.Text = text; l.TextColor3 = col; l.Font = Enum.Font.GothamBold; l.TextSize = 18
+  l.TextStrokeTransparency = 0.3; l.TextStrokeColor3 = C3(10, 8, 20)
+  l.Parent = bb
+  local hrp = char:FindFirstChild("HumanoidRootPart")
+  if aura and hrp then
+    local e = Instance.new("ParticleEmitter")
+    e.Name = "OrbitLegendAura"
+    e.Color = ColorSequence.new(C3(255, 230, 120), C3(255, 170, 40)); e.LightEmission = 1
+    e.Size = NumberSequence.new(0.45, 0); e.Lifetime = NumberRange.new(0.9, 1.5)
+    e.Speed = NumberRange.new(1, 3); e.EmissionDirection = Enum.NormalId.Top
+    e.SpreadAngle = Vector2.new(35, 35); e.Acceleration = V3(0, 1.5, 0)
+    e.Rate = UIS.TouchEnabled and 10 or 18     -- на телефоне меньше частиц
+    e.Parent = hrp
+    local pl = Instance.new("PointLight")
+    pl.Name = "OrbitLegendLight"; pl.Color = C3(255, 210, 100); pl.Range = 12; pl.Brightness = 1.2; pl.Parent = hrp
+  end
+  return true
+end
+
+SKINS.sans_ghost = { apply = ghostApply, remove = ghostRemove }
+SKINS.gaster_dark_cloak = { apply = cloakApply, remove = cloakRemove }
+SKINS.blade_master = {
+  apply = function() return titleApply("⚔ Мастер клинков", C3(200, 215, 235), false) end,
+  remove = titleRemove,
+}
+SKINS.orbit_legend = {
+  apply = function() return titleApply("🏆 Легенда ОРБИТЫ", C3(255, 215, 90), true) end,
+  remove = titleRemove,
+}
+
 function W.toggleSkin(id)
   local skin = SKINS[id]
   if not skin then return false end
   if W.activeFx[id] then
     pcall(skin.remove)
     W.activeFx[id] = nil
-  else
-    if FIGURE_DEFS[id] then
-      for otherId in pairs(FIGURE_DEFS) do
-        if otherId ~= id and W.activeFx[otherId] then
-          local otherSkin = SKINS[otherId]
-          if otherSkin then pcall(otherSkin.remove) end
-          W.activeFx[otherId] = nil
-        end
-      end
+    return true
+  end
+  -- снять несовместимое
+  local dropped = 0
+  for _, other in ipairs(EXCLUSIVE[id] or {}) do
+    if W.activeFx[other] then
+      local os = SKINS[other]
+      if os then pcall(os.remove) end
+      W.activeFx[other] = nil
+      dropped = dropped + 1
     end
-    pcall(skin.apply)
-    W.activeFx[id] = true
+  end
+  local ok, res = pcall(skin.apply)
+  if not ok or res == false then
+    -- не получилось надеть (нет персонажа / фигуры): откат, чтобы не остаться невидимым
+    pcall(skin.remove)
+    if ORBIT.notify then ORBIT.notify("❌ Не удалось надеть — нужен персонаж", C3(255, 150, 150), 2) end
+    return true
+  end
+  W.activeFx[id] = true
+  if dropped > 0 and ORBIT.notify then
+    ORBIT.notify("↺ Несовместимое снято: " .. dropped .. " шт.", C3(255, 220, 160), 2)
   end
   return true
 end
@@ -435,7 +828,11 @@ function W.reapplyActiveSkins()
   end
 end
 
--- ===== Атака оружием =====
+-- ═══════════════════════════════════════════════════════════
+-- ОБРЕЗАНО НА orbit_weapons_menu.lua, строка ~890.
+-- Часть 3/5 начинается с: -- ===== Атака оружием: общие хелперы =====
+-- ═══════════════════════════════════════════════════════════
+-- ===== Атака оружием: общие хелперы =====
 local function rayParams()
   local rp = RaycastParams.new()
   rp.FilterType = Enum.RaycastFilterType.Exclude
@@ -461,23 +858,136 @@ local function damageTarget(inst, dmg, knockDir, knockPow)
   return true
 end
 
-local function swingFx(model)
-  if not model or not model.PrimaryPart then return end
-  local fwd = model:GetPivot().LookVector
-  pcall(function()
-    local t1 = TS:Create(model.PrimaryPart, TweenInfo.new(0.08), { CFrame = model.PrimaryPart.CFrame + fwd * 1.2 })
-    t1:Play()
-    task.delay(0.1, function()
-      pcall(function()
-        if model.PrimaryPart then
-          local t2 = TS:Create(model.PrimaryPart, TweenInfo.new(0.12), { CFrame = model.PrimaryPart.CFrame - fwd * 1.2 })
-          t2:Play()
-        end
-      end)
-    end)
-  end)
+-- v25.8: все живые Humanoid в сфере (игроки и NPC), кроме своего персонажа
+local function aoeHits(pos, radius)
+  local op = OverlapParams.new()
+  op.FilterType = Enum.RaycastFilterType.Exclude
+  local ex = { fold() }
+  if LP.Character then ex[#ex + 1] = LP.Character end
+  op.FilterDescendantsInstances = ex
+  local seen, out = {}, {}
+  for _, p in ipairs(WS:GetPartBoundsInRadius(pos, radius, op)) do
+    local m = p:FindFirstAncestorOfClass("Model")
+    if m and not seen[m] then
+      seen[m] = true
+      local hum = m:FindFirstChildOfClass("Humanoid")
+      local root = m:FindFirstChild("HumanoidRootPart")
+      if hum and root and hum.Health > 0 then out[#out + 1] = { hum = hum, root = root } end
+    end
+  end
+  return out
 end
 
+local function knockRoot(root, dir, pow)
+  if dir.Magnitude < 0.01 then dir = V3(0, 0, 1) end
+  pcall(function() root.AssemblyLinearVelocity = dir.Unit * pow * 3 + V3(0, pow * 0.6, 0) end)
+end
+
+local function groundAt(pos)
+  local res = WS:Raycast(pos + V3(0, 20, 0), V3(0, -60, 0), rayParams())
+  return res and res.Position or pos
+end
+
+-- тряска камеры через abilities (если A.shake уже экспортирован)
+local function shakeCam(mag, dur)
+  local A = ORBIT.abilities
+  if A and type(A.shake) == "function" then pcall(A.shake, mag, dur) end
+end
+
+-- ===== Эффекты попадания =====
+local function hitFx(pos, col, size)
+  size = size or 3
+  local b = mkp(fold(), "Hit", V3(1, 1, 1), CF(pos), col, true, PT_BALL, MAT.Neon, 0.25)
+  TS:Create(b, TweenInfo.new(0.3), { Size = V3(size, size, size), Transparency = 1 }):Play()
+  Debris:AddItem(b, 0.4)
+  local sp = mkp(fold(), "HitSp", V3(0.2, 0.2, 0.2), CF(pos), col, true, PT_BALL, MAT.Neon, 1)
+  local e = Instance.new("ParticleEmitter")
+  e.Color = ColorSequence.new(col); e.LightEmission = 1
+  e.Size = NumberSequence.new(0.5, 0); e.Lifetime = NumberRange.new(0.3, 0.7)
+  e.Speed = NumberRange.new(8, 16); e.SpreadAngle = Vector2.new(180, 180); e.Rate = 0
+  e.Parent = sp
+  e:Emit(12)
+  Debris:AddItem(sp, 1)
+end
+
+local function shockRing(pos, radius, col)
+  local ring = mkp(fold(), "Shock", V3(0.3, 2, 2), CF(pos + V3(0, 0.3, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+    col, true, PT_CYL, MAT.Neon, 0.3)
+  TS:Create(ring, TweenInfo.new(0.4), { Size = V3(0.3, radius * 2, radius * 2), Transparency = 1 }):Play()
+  Debris:AddItem(ring, 0.5)
+end
+
+-- дуга косы: 9 неоновых сегментов по полукругу перед игроком
+local function arcFx(r, radius, col)
+  local look = r.CFrame.LookVector
+  local right = look:Cross(V3(0, 1, 0))
+  local origin = r.Position + V3(0, 1.5, 0)
+  for i = 0, 8 do
+    local rot = CFrame.Angles(0, math.rad(-80 + i * 20), 0)
+    local pos = origin + rot:VectorToWorldSpace(look) * radius * 0.85
+    local tan = rot:VectorToWorldSpace(right)
+    local p = mkp(fold(), "Arc", V3(0.3, 0.12, 2.4), CFrame.lookAt(pos, pos + tan), col, true, PT_BLOCK, MAT.Neon, 0.15)
+    TS:Create(p, TweenInfo.new(0.3), { Transparency = 1 }):Play()
+    Debris:AddItem(p, 0.4)
+  end
+end
+
+-- рваная молния посоха
+local function jaggedBolt(a, b, col, th)
+  local d, n, prev = b - a, 8, a
+  for i = 1, n do
+    local p = (i == n) and b or (a + d * (i / n) + V3(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 1.6)
+    local s = seg(fold(), "Bolt", prev, p, th, th, col, MAT.Neon, 0.05)
+    if s then TS:Create(s, TweenInfo.new(0.25), { Transparency = 1 }):Play(); Debris:AddItem(s, 0.3) end
+    prev = p
+  end
+end
+
+-- ===== v25.8: система взмаха =====
+-- Раньше swingFx твинил PrimaryPart, а updatePositions каждый кадр делал PivotTo —
+-- взмах затирался. Теперь смещение хранится в W.swings и ПРИБАВЛЯЕТСЯ к позиции в руке.
+local function ease(k) return math.sin(k * math.pi * 0.5) end
+local SWING = {}
+SWING.thrust = function(k) return CF(0, 0, -1.2 * math.sin(math.pi * k)) end
+SWING.slash = function(k)   -- замах → широкий размах справа налево → возврат
+  local a
+  if k < 0.25 then a = 85 * ease(k / 0.25)
+  elseif k < 0.65 then a = 85 - 170 * ease((k - 0.25) / 0.4)
+  else a = -85 * (1 - ease((k - 0.65) / 0.35)) end
+  return CFrame.Angles(0, math.rad(a), math.rad(-20 * math.sin(math.pi * k)))
+end
+SWING.overhead = function(k)   -- замах вверх → быстрый удар вниз → возврат
+  local a
+  if k < 0.45 then a = 75 * ease(k / 0.45)
+  elseif k < 0.65 then a = 75 - 115 * ease((k - 0.45) / 0.2)
+  else a = -40 * (1 - ease((k - 0.65) / 0.35)) end
+  return CFrame.Angles(math.rad(a), 0, 0)
+end
+SWING.chop = function(k)   -- два рубящих удара вниз (пики на k=0.25 и 0.75)
+  return CFrame.Angles(math.rad(-55 * math.abs(math.sin(2 * math.pi * k))), 0, 0)
+end
+SWING.cast = function(k)   -- отдача посоха
+  local s = math.sin(math.pi * k)
+  return CF(0, 0, 0.7 * s) * CFrame.Angles(math.rad(-18 * s), 0, 0)
+end
+
+function W.swingOffset(id)
+  local s = W.swings[id]
+  if not s then return CFrame.new() end
+  local k = (tick() - s.t0) / s.dur
+  if k >= 1 then W.swings[id] = nil; return CFrame.new() end
+  return (SWING[s.kind] or SWING.thrust)(k)
+end
+
+-- старая сигнатура swingFx(model) сохранена: без kind = короткий выпад вперёд
+local function swingFx(model, kind, dur)
+  if not model then return end
+  local id = model:GetAttribute("OrbitId")
+  if not id then return end
+  W.swings[id] = { kind = kind or "thrust", t0 = tick(), dur = dur or 0.2 }
+end
+
+-- ===== Атаки =====
 local ATTACKS = {}
 ATTACKS.sword = function(c, h, r, model)
   swingFx(model); ping("snap", 1, 1.3)
@@ -533,11 +1043,120 @@ ATTACKS.gaster_blaster = function(c, h, r, model)
     if res then damageTarget(res.Instance, 50, dir, 15) end end
 end
 
+-- 🗡 Коса: широкий взмах, AoE 11 studs по передней полусфере, 28 урона
+ATTACKS.scythe = function(c, h, r, model)
+  swingFx(model, "slash", 0.55); ping("snap", 1, 0.8)
+  task.delay(0.25, function()
+    if not alive then return end
+    local _, _, r2 = getChar(); if not r2 then return end
+    local look = r2.CFrame.LookVector
+    arcFx(r2, 11, C3(190, 120, 255)); ping("snap", 1, 0.6)
+    local n = 0
+    for _, e in ipairs(aoeHits(r2.Position, 11)) do
+      local to = V3(e.root.Position.X - r2.Position.X, 0, e.root.Position.Z - r2.Position.Z)
+      if to.Magnitude < 0.1 or to.Unit:Dot(look) > 0 then
+        pcall(function() e.hum:TakeDamage(28) end)
+        knockRoot(e.root, to, 10)
+        hitFx(e.root.Position, C3(190, 120, 255), 4); n = n + 1
+      end
+    end
+    if n > 0 then ping("ping", 1, 1.1); shakeCam(0.4, 0.2) end
+  end)
+end
+
+-- 🔨 Молот: медленный удар, 70 урона вблизи удара (35 по краю), толчок, ударная волна
+ATTACKS.hammer = function(c, h, r, model)
+  swingFx(model, "overhead", 0.8); ping("snap", 0.8, 0.5)
+  task.delay(0.44, function()
+    if not alive then return end
+    local _, _, r2 = getChar(); if not r2 then return end
+    local impact = groundAt(r2.Position + r2.CFrame.LookVector * 6)
+    shockRing(impact, 9, C3(255, 170, 60))
+    hitFx(impact + V3(0, 1, 0), C3(255, 200, 100), 7)
+    shakeCam(0.9, 0.4)
+    ping("snap", 1, 0.4); ping("ping", 1, 0.6)
+    for _, e in ipairs(aoeHits(impact, 8)) do
+      local flat = V3(e.root.Position.X - impact.X, 0, e.root.Position.Z - impact.Z)
+      pcall(function() e.hum:TakeDamage(flat.Magnitude <= 5 and 70 or 35) end)
+      knockRoot(e.root, e.root.Position - impact, 30)
+      hitFx(e.root.Position, C3(255, 200, 100), 4)
+    end
+  end)
+end
+
+-- 🪓 Топор: двойной удар, 2 × 22 урона по передней дуге 5 studs
+ATTACKS.axe = function(c, h, r, model)
+  swingFx(model, "chop", 0.6)
+  for i, tm in ipairs({0.15, 0.45}) do
+    task.delay(tm, function()
+      if not alive then return end
+      local _, _, r2 = getChar(); if not r2 then return end
+      local look = r2.CFrame.LookVector
+      local center = r2.Position + look * 3.5
+      ping("snap", 1, 1.0 + i * 0.25)
+      local fx = mkp(fold(), "Chop", V3(0.15, 3, 0.15), CF(), C3(255, 120, 120), true, PT_BLOCK, MAT.Neon, 0.3)
+      fx.CFrame = CFrame.lookAt(center + V3(0, 1.2, 0), center + V3(0, 1.2, 0) + look) * CFrame.Angles(0, 0, math.rad(i == 1 and 30 or -30))
+      TS:Create(fx, TweenInfo.new(0.2), { Transparency = 1 }):Play(); Debris:AddItem(fx, 0.25)
+      local n = 0
+      for _, e in ipairs(aoeHits(center, 5)) do
+        local to = V3(e.root.Position.X - r2.Position.X, 0, e.root.Position.Z - r2.Position.Z)
+        if to.Magnitude < 0.1 or to.Unit:Dot(look) > 0.2 then
+          pcall(function() e.hum:TakeDamage(22) end)
+          knockRoot(e.root, to, 6)
+          hitFx(e.root.Position, C3(255, 120, 120), 3); n = n + 1
+        end
+      end
+      if n > 0 then ping("ping", 1, 0.9 + i * 0.2); shakeCam(0.3, 0.15) end
+    end)
+  end
+end
+
+-- ⚡ Посох: разряд до 70 studs (автонаводка в конусе ~25°), 30 урона + цепь 15 на 2 цели
+ATTACKS.staff = function(c, h, r, model)
+  swingFx(model, "cast", 0.35); ping("snap", 1, 1.5)
+  local gem = model and model:FindFirstChild("Gem", true)
+  local look = r.CFrame.LookVector
+  local origin = gem and gem.Position or (r.Position + V3(0, 2, 0) + look * 2)
+  local best, bd = nil, 1e9
+  for _, e in ipairs(aoeHits(r.Position, 70)) do
+    local to = e.root.Position - origin
+    local dist = to.Magnitude
+    if dist > 1 and to.Unit:Dot(look) > 0.9 and dist < bd then best, bd = e, dist end
+  end
+  local dir = best and (best.root.Position - origin).Unit or look
+  local res = WS:Raycast(origin, dir * 70, rayParams())
+  local endPos = best and best.root.Position or (res and res.Position or (origin + dir * 70))
+  jaggedBolt(origin, endPos, C3(120, 230, 255), 0.35)
+  jaggedBolt(origin, endPos, C3(255, 255, 255), 0.12)
+  hitFx(origin, C3(120, 230, 255), 2.5)
+  hitFx(endPos, C3(120, 230, 255), 5)
+  local primary
+  if best then
+    primary = best.hum
+    pcall(function() best.hum:TakeDamage(30) end)
+    knockRoot(best.root, dir, 8)
+  elseif res then
+    local m = res.Instance:FindFirstAncestorOfClass("Model")
+    primary = m and m:FindFirstChildOfClass("Humanoid")
+    damageTarget(res.Instance, 30, dir, 8)
+  end
+  local chained = 0
+  for _, e in ipairs(aoeHits(endPos, 15)) do
+    if e.hum ~= primary and chained < 2 then
+      chained = chained + 1
+      jaggedBolt(endPos, e.root.Position, C3(160, 240, 255), 0.25)
+      pcall(function() e.hum:TakeDamage(15) end)
+      hitFx(e.root.Position, C3(160, 240, 255), 3)
+    end
+  end
+  ping("ping", 1, 1.4)
+end
+
+-- перезарядки (сек). Считаются по ТЕКУЩЕМУ оружию (раньше брался КД прошлого)
+local WEAPON_CD = { gaster_blaster = 1.4, hammer = 1.6, scythe = 0.8, axe = 0.9, staff = 0.7 }
+
 function W.attack()
   if not alive then return false end
-  local t = tick()
-  if t - W.lastAttack < W.attackCD then return false end
-  W.lastAttack = t
   local activeId = nil
   for id, m in pairs(W.equipped) do
     if m and m.Parent and m:GetAttribute("OrbitSlot") == "R" then activeId = id; break end
@@ -546,7 +1165,10 @@ function W.attack()
     for id, m in pairs(W.equipped) do if m and m.Parent then activeId = id; break end end
   end
   if not activeId then return false end
-  W.attackCD = (activeId == "gaster_blaster") and 1.4 or 0.6
+  local t = tick()
+  W.attackCD = WEAPON_CD[activeId] or 0.6
+  if t - W.lastAttack < W.attackCD then return false end
+  W.lastAttack = t
   local c, h, r = getChar()
   if not c then return false end
   local fn = ATTACKS[activeId]
@@ -577,23 +1199,27 @@ local function handCF(hand)
   return hand.CFrame * CF(0, -1, -1.2) * CFrame.Angles(math.rad(-15), 0, 0)
 end
 
+-- v25.8: позиция оружия = рука * смещение взмаха (см. W.swingOffset)
 local function updatePositions()
   local char = LP.Character
   if not char then return end
   for id, model in pairs(W.equipped) do
     if not model or not model.Parent then
-      W.equipped[id] = nil
+      W.equipped[id] = nil; W.equippedMeta[id] = nil; W.swings[id] = nil
     else
       local slot = model:GetAttribute("OrbitSlot") or "R"
       local hand = findHand(char, slot)
-      if hand then pcall(function() model:PivotTo(handCF(hand)) end) end
+      if hand then pcall(function() model:PivotTo(handCF(hand) * W.swingOffset(id)) end) end
     end
   end
 end
 
 local function unequipOne(id)
   local m = W.equipped[id]
-  if m then pcall(function() m:Destroy() end); W.equipped[id] = nil end
+  if m then pcall(function() m:Destroy() end) end
+  W.equipped[id] = nil
+  W.equippedMeta[id] = nil
+  W.swings[id] = nil
 end
 
 function W.unequipAll()
@@ -616,12 +1242,15 @@ function W.applySelection()
     if w.kind == "weapon" and W.selected[w.id] then
       count = count + 1
       if not W.equipped[w.id] then
-        local ok, model = pcall(w.build)
+        -- v25.8: новые билдеры возвращают model, bodies, visualSize; старые — только model
+        local ok, model, bodies, vs = pcall(w.build)
         if ok and model then
           model.Parent = fold()
           W.equipped[w.id] = model
+          W.equippedMeta[w.id] = { bodies = bodies or {}, visualSize = vs or w.visualSize or 3 }
           slotIdx = slotIdx + 1
           model:SetAttribute("OrbitSlot", slots[((slotIdx - 1) % #slots) + 1])
+          model:SetAttribute("OrbitId", w.id)   -- v25.8: нужен для взмаха (swingFx)
         else warn("[Orbit Weapons] сборка упала: " .. w.id) end
       end
     end
@@ -631,18 +1260,28 @@ function W.applySelection()
   if W.updateAttackBtn then W.updateAttackBtn() end
   return true
 end
+
+-- ═══════════════════════════════════════════════════════════
+-- ОБРЕЗАНО НА orbit_weapons_menu.lua, строка ~1290.
+-- Часть 4/5 начинается с: -- ===== UI =====
+-- ═══════════════════════════════════════════════════════════
 -- ===== UI =====
+-- v25.8: страховка — снести GUI по имени и в ORBIT.getSafeParent(), и в PlayerGui
+local function killGui(name)
+  local list = {}
+  local a = uiParent(); if a then list[#list + 1] = a end
+  local b = LP:FindFirstChildOfClass("PlayerGui"); if b and b ~= a then list[#list + 1] = b end
+  for _, par in ipairs(list) do
+    local g = par:FindFirstChild(name)
+    if g then pcall(function() g:Destroy() end) end
+  end
+end
+
 local function destroyUI()
   if W.sg then pcall(function() W.sg:Destroy() end) end
   W.sg, W.frame = nil, nil
   W.isOpen = false
-  pcall(function()
-    local pg = LP:FindFirstChildOfClass("PlayerGui")
-    if pg then
-      local old = pg:FindFirstChild("_OrbitWeaponsMenu")
-      if old then old:Destroy() end
-    end
-  end)
+  killGui("_OrbitWeaponsMenu")
 end
 
 local function onClick(btn, fn)
@@ -681,7 +1320,8 @@ local function makeDraggable(btn, defaultPos, saveKey, onTap)
       startPos = btn.Position
     end
   end)
-  UIS.InputChanged:Connect(function(input)
+  -- v25.8: глобальные сигналы теперь через connect(), чтобы отключались в destroy()
+  connect(UIS.InputChanged, function(input)
     if not dragging then return end
     if input.UserInputType == Enum.UserInputType.Touch
     or input.UserInputType == Enum.UserInputType.MouseMovement then
@@ -695,7 +1335,7 @@ local function makeDraggable(btn, defaultPos, saveKey, onTap)
       end
     end
   end)
-  UIS.InputEnded:Connect(function(input)
+  connect(UIS.InputEnded, function(input)
     if not dragging then return end
     if input.UserInputType == Enum.UserInputType.Touch
     or input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -756,7 +1396,7 @@ end
 
 local function buildUI()
   destroyUI()
-  local pg = LP:FindFirstChildOfClass("PlayerGui")
+  local pg = uiParent()
   if not pg then return end
 
   local sg = Instance.new("ScreenGui")
@@ -764,6 +1404,7 @@ local function buildUI()
   sg.IgnoreGuiInset = true; sg.DisplayOrder = 62; sg.Parent = pg
   W.sg = sg
 
+  -- фон — обычный Frame (НЕ кнопка), Active=false: тач под ним не блокируется
   local bg = Instance.new("Frame")
   bg.Size = UDim2.fromScale(1, 1); bg.BackgroundColor3 = C3(0,0,0)
   bg.BackgroundTransparency = 0.55; bg.BorderSizePixel = 0
@@ -884,10 +1525,12 @@ local function buildUI()
     src.TextXAlignment = Enum.TextXAlignment.Right
     src.ZIndex = 5; src.Parent = card
 
+    -- v25.8: описание не заезжает под кнопку справа (ширина −166, высота 34)
+    -- v25.9: у закрытой карточки — текст условия из wdef.hint
     local ds = Instance.new("TextLabel")
-    ds.Size = UDim2.new(1, -56, 0, 22); ds.Position = UDim2.fromOffset(56, 32)
+    ds.Size = UDim2.new(1, -166, 0, 34); ds.Position = UDim2.fromOffset(56, 30)
     ds.BackgroundTransparency = 1
-    ds.Text = unlocked and wdef.desc or ("🔒 Победи " .. wdef.source .. " — откроется")
+    ds.Text = unlocked and wdef.desc or ("🔒 " .. (wdef.hint or ("Победи " .. wdef.source .. " — откроется")))
     ds.TextColor3 = unlocked and C3(180,180,210) or C3(255,200,120)
     ds.Font = Enum.Font.Gotham; ds.TextSize = 11; ds.TextWrapped = true
     ds.TextXAlignment = Enum.TextXAlignment.Left
@@ -935,19 +1578,19 @@ local function buildUI()
       end
     else
       onClick(btn, function()
-        if ORBIT.notify then ORBIT.notify("🔒 Победи " .. wdef.source, C3(255,180,120), 3) end
+        if ORBIT.notify then ORBIT.notify("🔒 " .. (wdef.hint or ("Победи " .. wdef.source)), C3(255,180,120), 3) end
       end)
     end
   end
 
   addHeader("⚔ ОРУЖИЕ", C3(255,220,140))
-  for _, w in ipairs(WEAPONS) do if w.kind == "weapon" then addCard(w) end end
+  for _, w2 in ipairs(WEAPONS) do if w2.kind == "weapon" then addCard(w2) end end
   addHeader("🎨 КОСМЕТИКА", C3(255,180,255))
-  for _, w in ipairs(WEAPONS) do if w.kind == "cosmetic" then addCard(w) end end
+  for _, w2 in ipairs(WEAPONS) do if w2.kind == "cosmetic" then addCard(w2) end end
   addHeader("💠 ЭФФЕКТЫ", C3(180,220,255))
-  for _, w in ipairs(WEAPONS) do if w.kind == "effect" then addCard(w) end end
+  for _, w2 in ipairs(WEAPONS) do if w2.kind == "effect" then addCard(w2) end end
   addHeader("💬 ПРОЧЕЕ", C3(200,200,220))
-  for _, w in ipairs(WEAPONS) do if w.kind == "info" then addCard(w) end end
+  for _, w2 in ipairs(WEAPONS) do if w2.kind == "info" then addCard(w2) end end
 
   local function mkBtn(x, y, w2, text, color, fn)
     local b = Instance.new("TextButton")
@@ -980,15 +1623,16 @@ function W.toggle()
   return W.openMenu()
 end
 
+-- ═══════════════════════════════════════════════════════════
+-- ОБРЕЗАНО НА orbit_weapons_menu.lua, строка ~1640.
+-- Часть 5/5 начинается с: -- ===== Мобильные кнопки с drag =====
+-- ═══════════════════════════════════════════════════════════
 -- ===== Мобильные кнопки с drag =====
 local function buildMobileBtns()
   if not UIS.TouchEnabled then return end
-  local pg = LP:FindFirstChildOfClass("PlayerGui")
+  local pg = uiParent()
   if not pg then return end
-  for _, nm in ipairs({"_OrbitWeaponsBtn", "_OrbitAttackBtn"}) do
-    local old = pg:FindFirstChild(nm)
-    if old then old:Destroy() end
-  end
+  killGui("_OrbitWeaponsBtn"); killGui("_OrbitAttackBtn")
 
   local sg1 = Instance.new("ScreenGui")
   sg1.Name = "_OrbitWeaponsBtn"; sg1.ResetOnSpawn = false
@@ -1031,10 +1675,12 @@ local function buildMobileBtns()
   W.updateAttackBtn()
 end
 buildMobileBtns()
--- ===== Heartbeat: позиции оружия + фигура скина =====
-connect(RS.Heartbeat, function()
-  -- оружие в руках
+
+-- ===== Heartbeat: оружие в руках + фигура скина + её риг =====
+connect(RS.Heartbeat, function(dt)
+  -- оружие в руках (с учётом взмаха)
   if next(W.equipped) ~= nil then pcall(updatePositions) end
+  pcall(W.updateCloak, dt)   -- v25.9: покачивание плаща (если надет)
   -- фигура-скин следует за персонажем
   if W.skinModel and W.skinModel.Parent then
     local char = LP.Character
@@ -1044,6 +1690,8 @@ connect(RS.Heartbeat, function()
         pcall(function()
           W.skinModel:PivotTo(hrp.CFrame * (W.skinOffset or CFrame.new()))
         end)
+        -- v25.8: риг СТРОГО после PivotTo — иначе PivotTo сотрёт позу ног/рук
+        W.updateSkinRig(dt)
       end
     end
   end
@@ -1083,9 +1731,12 @@ end)
 -- на случай удаления персонажа
 connect(LP.CharacterRemoving, function()
   if W.skinModel then
+    local Rig = ORBIT.figureRig
+    if Rig and Rig.detach then pcall(Rig.detach, W.skinModel) end   -- v25.8
     pcall(function() W.skinModel:Destroy() end)
     W.skinModel = nil
   end
+  W.swings = {}
   W.savedCharState = nil
   W.savedFaceT = nil
 end)
@@ -1098,7 +1749,7 @@ function W.list()
     pcall(function() unlocked = w.check() end)
     out[#out+1] = { id = w.id, name = w.name, desc = w.desc, source = w.source,
       kind = w.kind, unlocked = unlocked, selected = W.selected[w.id] and true or false,
-      active = W.activeFx[w.id] and true or false }
+      active = W.activeFx[w.id] and true or false, visualSize = w.visualSize }
   end
   return out
 end
@@ -1129,24 +1780,29 @@ function W.destroy()
   destroyUI()
   W.unequipAll()
   W.selected = {}
-  -- снять все активные скины (включая фигурные)
+  W.swings, W.equippedMeta = {}, {}
+  -- снять все активные скины и косметику (включая фигурные; removeFigureSkin делает Rig.detach)
   for id in pairs(W.activeFx) do
     local skin = SKINS[id]
     if skin then pcall(skin.remove) end
   end
   W.activeFx = {}
-  if W.skinModel then pcall(function() W.skinModel:Destroy() end); W.skinModel = nil end
+  if W.skinModel then
+    local Rig = ORBIT.figureRig
+    if Rig and Rig.detach then pcall(Rig.detach, W.skinModel) end   -- v25.8 страховка
+    pcall(function() W.skinModel:Destroy() end); W.skinModel = nil
+  end
   if W.btnGui then pcall(function() W.btnGui:Destroy() end); W.btnGui = nil end
   if W.attackGui then pcall(function() W.attackGui:Destroy() end); W.attackGui = nil end
   if W.folder then pcall(function() W.folder:Destroy() end); W.folder = nil end
+  -- страховка по имени (в getSafeParent и в PlayerGui)
+  for _, nm in ipairs({"_OrbitWeaponsMenu", "_OrbitWeaponsBtn", "_OrbitAttackBtn"}) do
+    killGui(nm)
+  end
   pcall(function()
-    local pg = LP:FindFirstChildOfClass("PlayerGui")
-    if pg then
-      for _, nm in ipairs({"_OrbitWeaponsMenu", "_OrbitWeaponsBtn", "_OrbitAttackBtn"}) do
-        local g = pg:FindFirstChild(nm)
-        if g then g:Destroy() end
-      end
-    end
+    local c = LP.Character
+    local hm = c and c:FindFirstChild("OrbitSkullHelmet")
+    if hm then hm:Destroy() end
   end)
 end
 
@@ -1159,7 +1815,8 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("🗡 Арсенал v25.7-fix1 (фигурные скины Санс/Гастер)", C3(200, 220, 255), 3)
+  ORBIT.notify("🗡 Арсенал v25.9 (+косметика за награды, титулы, плащ)", C3(200, 220, 255), 3)
 end
 
 return true
+Файл 2/3 выдан. Напиши "дальше" — выдам следующий.
