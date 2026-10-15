@@ -4,6 +4,11 @@
 -- v24.2-fix1: убран дублирующий fetchRun; ORBIT.start оборачивает prevStart.
 -- v25.0: кнопка openGaster открывает меню боссов (Санс + Гастер).
 -- v25.1: кнопка gasterWeapon открывает экран наград (ORBIT.rewards).
+-- v25.1-fix1: из кнопки античита убраны loadstring + game:HttpGet (модуль
+--             грузится штатно через orbit_loader.lua, здесь только проверка
+--             ORBIT.loaded.anticheat); из shareLoad убрана ветка загрузки
+--             настроек по URL. Правило проекта: HttpGet/loadstring только
+--             в orbit_loader.lua.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4b] P1 не загружен"); return end
 if ORBIT.P4b and ORBIT.P4b.ready then warn("[Orbit P4b] уже загружен"); return end
@@ -748,52 +753,24 @@ end)
 -- ============================================================
 --       АНТИЧИТ
 -- ============================================================
-NB.antichitLoaded = false
+-- v25.1-fix1: модуль античита грузится штатно через orbit_loader.lua (QUEUE[20]).
+-- Здесь только проверяем состояние и переключаем UI. HttpGet/loadstring убраны
+-- (правило проекта: они допустимы только в loader'е).
+NB.antichitLoaded = (ORBIT.loaded and ORBIT.loaded.anticheat) and true or false
 onClick(NB.btn.antichitLaunch, function()
-    if NB.antichitLoaded or (ORBIT.loaded and ORBIT.loaded.anticheat) then
-        NB.antichitLoaded = true
-        NB.btn.antichitLaunch.Text = "✅ АНТИ-ЧИТ АКТИВЕН"
-        NB.lbl.antichitStatus.Text = "🛡 Защита: активна (18 функций)"
-        NB.lbl.antichitStatus.TextColor3 = Color3.fromRGB(160,255,180)
-        ORBIT.notify("🛡 Античит уже запущен", Color3.fromRGB(180,255,180), 2)
-        return
-    end
-    NB.btn.antichitLaunch.Text = "⏳ Загружаю..."
-    task.spawn(function()
-        local url = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/orbit_anticheat.lua?t=" .. os.time()
-        local ok, src = pcall(function() return game:HttpGet(url) end)
-        if not ok or type(src) ~= "string" or #src < 100 then
-            NB.btn.antichitLaunch.Text = "❌ Ошибка загрузки"
-            NB.lbl.antichitStatus.Text = "🛡 Защита: ошибка сети"
-            NB.lbl.antichitStatus.TextColor3 = Color3.fromRGB(255,150,150)
-            task.wait(2); NB.btn.antichitLaunch.Text = "🛡️ Запустить АНТИ-ЧИТ"
-            return
-        end
-        local fn, err = loadstring(src)
-        if not fn then
-            NB.btn.antichitLaunch.Text = "❌ Ошибка кода"
-            NB.lbl.antichitStatus.Text = "🛡 Защита: ошибка компиляции"
-            NB.lbl.antichitStatus.TextColor3 = Color3.fromRGB(255,150,150)
-            task.wait(2); NB.btn.antichitLaunch.Text = "🛡️ Запустить АНТИ-ЧИТ"
-            return
-        end
-        local runOk, runErr = pcall(fn)
-        if not runOk then
-            NB.btn.antichitLaunch.Text = "❌ Ошибка запуска"
-            NB.lbl.antichitStatus.Text = "🛡 Защита: " .. tostring(runErr):sub(1, 30)
-            NB.lbl.antichitStatus.TextColor3 = Color3.fromRGB(255,150,150)
-            task.wait(2); NB.btn.antichitLaunch.Text = "🛡️ Запустить АНТИ-ЧИТ"
-            return
-        end
-        NB.antichitLoaded = true
-        ORBIT.loaded.anticheat = true
+    NB.antichitLoaded = (ORBIT.loaded and ORBIT.loaded.anticheat) and true or false
+    if NB.antichitLoaded then
         NB.btn.antichitLaunch.Text = "✅ АНТИ-ЧИТ АКТИВЕН"
         NB.btn.antichitLaunch.BackgroundColor3 = Color3.fromRGB(60,100,60)
         NB.btn.antichitLaunch.TextColor3 = Color3.fromRGB(200,255,200)
-        NB.lbl.antichitStatus.Text = "🛡 Защита: активна (18 функций)"
+        NB.lbl.antichitStatus.Text = "🛡 Защита: активна"
         NB.lbl.antichitStatus.TextColor3 = Color3.fromRGB(160,255,180)
-        ORBIT.notify("🛡 Античит запущен!", Color3.fromRGB(160,255,180), 3)
-    end)
+        ORBIT.notify("🛡 Античит уже загружен loader'ом", Color3.fromRGB(180,255,180), 2)
+    else
+        NB.lbl.antichitStatus.Text = "🛡 Защита: ждёт загрузки модулей"
+        NB.lbl.antichitStatus.TextColor3 = Color3.fromRGB(255,200,120)
+        ORBIT.notify("🛡 Античит подгрузится позже — включится автоматически", Color3.fromRGB(255,220,140), 3)
+    end
 end)
 
 task.spawn(function()
@@ -803,7 +780,8 @@ task.spawn(function()
             NB.antichitLoaded = true
             NB.btn.antichitLaunch.Text = "✅ АНТИ-ЧИТ АКТИВЕН"
             NB.btn.antichitLaunch.BackgroundColor3 = Color3.fromRGB(60,100,60)
-            NB.lbl.antichitStatus.Text = "🛡 Защита: активна (18 функций)"
+            NB.btn.antichitLaunch.TextColor3 = Color3.fromRGB(200,255,200)
+            NB.lbl.antichitStatus.Text = "🛡 Защита: активна"
             NB.lbl.antichitStatus.TextColor3 = Color3.fromRGB(160,255,180)
         end
     end
@@ -947,24 +925,12 @@ end)
 -- ============================================================
 --       SHARE
 -- ============================================================
+-- v25.1-fix1: ветка загрузки по URL удалена. Только локальный decode + applyDecoded.
 onClick(NB.btn.shareLoad, function()
     local txt = NB.input.share.Text or ""
     txt = txt:gsub("^%s+", ""):gsub("%s+$", "")
     if txt == "" then
         ORBIT.notify("📥 Поле пустое — вставь строку от друга", Color3.fromRGB(255, 200, 120), 3)
-        return
-    end
-    if txt:match("^https?://") then
-        ORBIT.notify("🌐 Загружаю по ссылке...", Color3.fromRGB(200, 220, 255), 2)
-        task.spawn(function()
-            local ok, body = pcall(function() return game:HttpGet(txt, true) end)
-            if ok and type(body) == "string" and #body > 10 then
-                NB.input.share.Text = body:gsub("^%s+", ""):gsub("%s+$", "")
-                ORBIT.notify("✅ Скачал — нажми ЗАГРУЗИТЬ ещё раз", Color3.fromRGB(180, 255, 180), 3)
-            else
-                ORBIT.notify("❌ Не удалось скачать ссылку", Color3.fromRGB(255, 150, 150), 3)
-            end
-        end)
         return
     end
     if not ORBIT.share or not ORBIT.share.decode then
@@ -1806,7 +1772,7 @@ ORBIT.start = function()
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ P4b v25.1 (крестики стихий + фразы Санса + меню боссов + награды)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ P4b v25.1-fix1 (крестики стихий + фразы Санса + меню боссов + награды)", Color3.fromRGB(180,255,180), 3) end
 
 -- ============================================================
 --       ЭКСПОРТ
