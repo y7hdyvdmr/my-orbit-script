@@ -2,12 +2,10 @@
 -- Логика: аура, огонь, боты, ESP, кольца, сохранения, режим игрока.
 -- v24.3-trail-fix:  аттачменты трейлов X→Z; spin-Z (не наклон по X); configureTrail.
 -- v24.3-trail-fix2: auto-performance БОЛЬШЕ НЕ ГАСИТ ТРЕЙЛЫ.
--- v24.3-opt:        оптимизация без изменения вида —
---   * paintBlock: не пишет .Color если цвет не изменился;
---   * P.COLORS/rainbow/FixedColor выносятся из циклов на кадр;
---   * rings[ri] в updateTargetRings — кэш на кольцо;
---   * ColorSequence для трейла не пересоздаётся, если цвет тот же;
---   * чистка лишних lookup'ов. Внешний вид идентичен.
+-- v24.3-opt:        paintBlock с кэшем цвета; P.COLORS/SETTINGS вне циклов;
+--                   ColorSequence для трейла не пересоздаётся.
+-- v24.3-opt-bots:   distance-interval для ботов; кэш botRoot и tRadius/tHeight;
+--                   сравнение без math.sqrt. Вид не меняется.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
 
@@ -95,9 +93,7 @@ local auraRecolorDue   = makeThrottle(1/30)
 local targetRecolorDue = makeThrottle(1/30)
 local mainRecolorDue   = makeThrottle(1/30)
 
--- v24.3-opt: кэш последнего цвета. Если цвет не изменился — Part.Color
--- НЕ трогаем. Внешний вид идентичен (цвет тот же), а рендер не дёргается
--- по 200 раз в кадр. На телефоне это +3-5 FPS при 5 кольцах.
+-- v24.3-opt: кэш последнего цвета — Part.Color не пишется, если цвет тот же.
 local function paintBlock(b, col)
     if b._lastCol == col then return end
     b._lastCol = col
@@ -341,6 +337,7 @@ function ORBIT.setupAura()
                     trail = Instance.new("Trail")
                     trail.Attachment0 = a0; trail.Attachment1 = a1
                     trail.Color = ColorSequence.new(getAuraColor(i, count))
+                    trail._lastTrailCol = getAuraColor(i, count)
                     ORBIT.configureTrail(trail, SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth, span)
                     trail.Transparency = NumberSequence.new({
                         NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
@@ -364,7 +361,6 @@ local function updateAura(dt)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    -- v24.3-opt: кэш на кадр — не дёргаем P.COLORS/rainbow/FixedColor 40 раз
     local acfg = P.COLORS[P.auraColorIndex]
     local isRainbow = acfg and acfg.rainbow
     local baseCol = getAuraColor(1, 1)
@@ -473,12 +469,9 @@ local function updateAura(dt)
             if recolor then
                 local col = getAuraColor(data.index, data.total)
                 paintBlock(data, col)
-                if data.trail then
-                    -- v24.3-opt: не пересоздаём ColorSequence если цвет тот же
-                    if data.trail._lastTrailCol ~= col then
-                        data.trail.Color = ColorSequence.new(col)
-                        data.trail._lastTrailCol = col
-                    end
+                if data.trail and data.trail._lastTrailCol ~= col then
+                    data.trail.Color = ColorSequence.new(col)
+                    data.trail._lastTrailCol = col
                 end
             end
         end
@@ -710,7 +703,7 @@ local function attachTrail(refPart, span, color, length, width)
     local trail = Instance.new("Trail")
     trail.Attachment0 = a0; trail.Attachment1 = a1
     trail.Color = ColorSequence.new(color)
-    trail._lastTrailCol = color      -- v24.3-opt: начальный кэш
+    trail._lastTrailCol = color
     ORBIT.configureTrail(trail, length, width, span)
     trail.Transparency = NumberSequence.new({
         NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
@@ -917,15 +910,11 @@ function ORBIT.getPlayerList()
     return list
 end
 
--- v24.3-opt: в этой функции главное — кэшировать lookup'ы (P.COLORS, rainbow,
--- FixedColor, RingSettings) на кадр, а не повторять их внутри двойного цикла.
--- Внешний вид — идентичен.
 local function updateTargetRings(dt)
     local t = tick() - ORBIT.startTime
     local now = tick()
     local recolor = targetRecolorDue(now)
 
-    -- кэш на кадр (было: чтение внутри циклов × игрок × блок)
     local colorCfg = P.COLORS[P.colorIndex]
     local baseCol = SETTINGS.FixedColor
     if colorCfg and not colorCfg.rainbow then
@@ -938,8 +927,7 @@ local function updateTargetRings(dt)
     local blockCount = SETTINGS.BlockCount
     local orbitPattern = SETTINGS.OrbitPattern
     local spinOn = ORBIT.spinAxisEnabled and not ORBIT.spinResetting
-    local spinAngleVal = spinOn and (t*3) or 0
-    local spinRad = math.rad(spinAngleVal)
+    local spinRad = math.rad(spinOn and (t*3) or 0)
     local spinAxisX = ORBIT.spinAxisDir == "X"
     local speedBase = ORBIT.getTargetSpeed()
     local auraSize = SETTINGS.AuraSize
@@ -970,7 +958,6 @@ local function updateTargetRings(dt)
         for _, rd in ipairs(data.rings) do
             local ring = rings[rd.ri]
             if not ring then continue end
-            -- v24.3-opt: ring.speedMult/direction читаем 1 раз за кольцо
             local ringSpeed = speedBase * ring.speedMult * ring.direction
             local ringShift = ring.colorShift
             rd.angle = rd.angle + ringSpeed * dt
@@ -1290,6 +1277,7 @@ function ORBIT.createBot(shapeIndex, position, targetSlot)
         ringRadius = ringRadius, ringHeight = ringHeight, ringSpeed = ringSpeed,
         hueBase = hueBase, blockCount = blockCount, targetSlot = targetSlot or 2,
         playerRings = playerRingsData,
+        botRoot = botRoot,
     }
     return model
 end
@@ -1377,7 +1365,7 @@ local function collectBotRing(botModel, data)
     end)
 end
 
--- v24.3-opt: кэш blockCount/hueBase и P.COLORS/rainbow на кадр — как в target-rings.
+-- v24.3-opt-bots: distance-interval + кэш botRoot/tRadius/tHeight.
 local function updateBots(dt)
     local myChar = LocalPlayer.Character
     local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
@@ -1385,10 +1373,9 @@ local function updateBots(dt)
     local now = tick()
     local t = now - ORBIT.startTime
     local myPos = myHrp.Position
-    local collectRadius = ORBIT.botSettings.CollectRadius
+    local collectR2 = ORBIT.botSettings.CollectRadius * ORBIT.botSettings.CollectRadius
     local autoCollect = ORBIT.botSettings.AutoCollect
 
-    -- кэш настроек цвета на кадр
     local isRainbow = SETTINGS.Rainbow
     local rainbowSpeed = SETTINGS.RainbowSpeed * SETTINGS.SpeedMultiplier
     local fixedColor = SETTINGS.FixedColor
@@ -1396,25 +1383,53 @@ local function updateBots(dt)
     local speedBase = ORBIT.getTargetSpeed()
     local orbitPattern = SETTINGS.OrbitPattern
     local spinOn = ORBIT.spinAxisEnabled and not ORBIT.spinResetting
-    local spinAngleVal = spinOn and (t*3) or 0
-    local spinRad = math.rad(spinAngleVal)
+    local spinRad = math.rad(spinOn and (t*3) or 0)
     local spinAxisX = ORBIT.spinAxisDir == "X"
+
+    local tRadius, tHeight = {}, {}
+    for ri = 1, 5 do
+        tRadius[ri] = ORBIT.getTargetRadius(ri)
+        tHeight[ri] = ORBIT.getTargetHeight(ri)
+    end
+
+    local D2_NEAR = 80*80
+    local D2_FAR  = 200*200
+    local D2_MAX  = 250*250
 
     for botModel, data in pairs(ORBIT.bots) do
         if data.collected then continue end
-        if not data.model or not data.model.Parent then ORBIT.removeBot(botModel); continue end
-        local botRoot = data.model:FindFirstChild("HumanoidRootPart")
-        if not botRoot then continue end
+        local model = data.model
+        if not model or not model.Parent then ORBIT.removeBot(botModel); continue end
 
-        data.baseCF = data.baseCF or data.model:GetPivot()
+        local botRoot = data.botRoot
+        if not botRoot or not botRoot.Parent then
+            botRoot = model:FindFirstChild("HumanoidRootPart")
+            if not botRoot then continue end
+            data.botRoot = botRoot
+        end
+
+        data.baseCF = data.baseCF or model:GetPivot()
         local botPos = botRoot.Position
-        local dx0 = botPos.X - myPos.X
-        local dy0 = botPos.Y - myPos.Y
-        local dz0 = botPos.Z - myPos.Z
-        local dist = math.sqrt(dx0*dx0 + dy0*dy0 + dz0*dz0)
+        local dx0, dy0, dz0 = botPos.X - myPos.X, botPos.Y - myPos.Y, botPos.Z - myPos.Z
+        local dist2 = dx0*dx0 + dy0*dy0 + dz0*dz0
 
-        if dist < 250 then
-            data.model:PivotTo(
+        local doAnim = false
+        if dist2 < D2_NEAR then
+            doAnim = true
+        elseif dist2 < D2_FAR then
+            if (now - (data._lastUpdate or 0)) >= 0.033 then
+                data._lastUpdate = now
+                doAnim = true
+            end
+        elseif dist2 < D2_MAX then
+            if (now - (data._lastUpdate or 0)) >= 0.1 then
+                data._lastUpdate = now
+                doAnim = true
+            end
+        end
+
+        if doAnim then
+            model:PivotTo(
                 data.baseCF
                 * CFrame.new(0, 0.4 + math.sin(t * 2 + data.id) * 0.3, 0)
                 * CFrame.Angles(0, t * 1.2 + data.id, 0)
@@ -1448,8 +1463,8 @@ local function updateBots(dt)
                     local ringSpeed = speedBase * ring.speedMult * ring.direction
                     local ringShift = ring.colorShift
                     rd.angle = rd.angle + ringSpeed * dt
-                    local rRadius = ORBIT.getTargetRadius(rd.ri)
-                    local rHeight = ORBIT.getTargetHeight(rd.ri)
+                    local rRadius = tRadius[rd.ri]
+                    local rHeight = tHeight[rd.ri]
                     for _, b in ipairs(rd.blocks) do
                         local ref = b.isModel and b.model or b.part
                         if not ref or not ref.Parent then continue end
@@ -1485,8 +1500,7 @@ local function updateBots(dt)
         if autoCollect then
             local dx = myPos.X - botPos.X
             local dz = myPos.Z - botPos.Z
-            local dist2 = math.sqrt(dx*dx + dz*dz)
-            if dist2 < collectRadius then collectBotRing(botModel, data) end
+            if dx*dx + dz*dz < collectR2 then collectBotRing(botModel, data) end
         end
     end
 end
@@ -1895,9 +1909,6 @@ task.spawn(function()
 end)
 
 -- ==================== ГЛАВНЫЙ ЦИКЛ ====================
--- v24.3-opt: все lookup'ы (P.COLORS, SETTINGS.X, ORBIT.X) вынесены
--- в локальные переменные ДО цикла. Внутри — только математика и Part-запись.
--- Внешний вид идентичен — просто меньше чтений таблиц в кадр.
 function ORBIT.startUpdateLoop()
     if ORBIT.updateConn then return end
     ORBIT.startTime = tick()
@@ -1949,7 +1960,6 @@ function ORBIT.startUpdateLoop()
             end
         end
 
-        -- v24.3-opt: все настройки цвета/формы — 1 раз на кадр.
         local explosionMul = 1.0
         if SETTINGS.ExplosionEnabled then
             local phase = (t * SETTINGS.ExplosionSpeed) % 1
@@ -2413,6 +2423,6 @@ ORBIT.decodeSettingsForShare  = dec
 ORBIT.applySaveData           = applySaveData
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v24.3-opt (трейлы целы, цвета кэшируются)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v24.3-opt-bots (трейлы целы, боты с LOD)", Color3.fromRGB(180,255,180), 3) end
 
 return true
