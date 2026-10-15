@@ -1,13 +1,12 @@
--- ORBIT v24.3 | orbit_p3.lua
+-- ORBIT v24.3-trail-fix2 | orbit_p3.lua
 -- Логика: аура, огонь, боты, ESP, кольца, сохранения, режим игрока.
--- v24.3-trail-fix: 
---   * attachTrail / setupAura inline: аттачменты переставлены с X на Z —
---     лента трейла больше не вырождается в нитку при ходьбе и прыжке.
---   * spinAxisDir="X" больше не срывает Z-ось блока (кувырок вокруг Z).
---   * configureTrail: Lifetime 0.5, MaxLength 500, Enabled=true, трёхточка.
---   * refreshAllTrails передаёт span (иначе minScale считался от 0.5).
---   * buildRing учитывает ORBIT.performanceLevel (не плодит трейлы на low).
---   * applyPerformanceLevel пишет ORBIT.performanceLevel.
+-- v24.3-trail-fix:  аттачменты трейлов X→Z; spin-Z (не наклон по X); configureTrail.
+-- v24.3-trail-fix2: auto-performance БОЛЬШЕ НЕ ГАСИТ ТРЕЙЛЫ. Раньше при
+--                   падении FPS во время ходьбы уровень падал в low/minimal
+--                   и setTrailsEnabled(false) убивал трейлы прямо на глазах.
+--                   Теперь перф управляет только светом (PointLight), трейлы
+--                   живут по SETTINGS.TrailEnabled / AuraTrailEnabled.
+--                   Добавлена диагностика [ORBIT PERF] в warn при смене уровня.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
 
@@ -143,8 +142,8 @@ local function getAuraShapeSize() return ORBIT.getCurrentShapeSize() * SETTINGS.
 local TRAIL_MIN_LIFETIME = 0.12
 local TRAIL_MIN_WORLD_WIDTH = 0.09
 
--- v24.3: Lifetime 0.5 (было 0.25), MaxLength 500 (0 = на части версий Roblox невидимо),
--- трёхточечный WidthScale даёт «хвост» вместо обрубка. Enabled=true — страховка.
+-- v24.3: Lifetime 0.5 (было 0.25), MaxLength 500, Enabled=true, трёхточечный
+-- WidthScale. Без этого на быстрой ходьбе хвост короче шага кадра = «исчезает».
 function ORBIT.configureTrail(trail, lifetime, widthScale, span)
     if not trail then return end
     if span then trail:SetAttribute("OrbitSpan", span) end
@@ -333,8 +332,6 @@ function ORBIT.setupAura()
                 local trail = nil
                 if SETTINGS.AuraTrailEnabled then
                     -- v24.3: аттачменты по локальной Z (радиальной оси), а не по X.
-                    -- X после поворота блока совпадает с тангентой орбиты — лента
-                    -- вырождалась в нитку при движении. Z даёт стабильную ширину.
                     local span = math.max((data.visualSize or size) * 0.35, 0.6)
                     local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(0, 0, -span); a0.Parent = refPart
                     local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(0, 0,  span); a1.Parent = refPart
@@ -350,6 +347,7 @@ function ORBIT.setupAura()
                 table.insert(ORBIT.auraBlocks, {
                     part = refPart, model = data.model, isModel = data.isModel or false,
                     bodyParts = data.bodyParts, index = i, total = count, trail = trail,
+                    visualSize = (data.visualSize or size),
                 })
             end
         end
@@ -438,8 +436,7 @@ local function updateAura(dt)
                 if SETTINGS.AuraSpinAxis == "Y" then
                     cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, math.rad(ORBIT.auraSpinAngle), 0)
                 else
-                    -- v24.3: для ауры тоже кувырок вокруг собственной Z,
-                    -- чтобы трейл ауры не срывался при вращении оси X.
+                    -- v24.3: кувырок вокруг собственной Z (не наклон по X)
                     cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, 0, math.rad(ORBIT.auraSpinAngle))
                 end
             else
@@ -473,8 +470,7 @@ local function updateAura(dt)
             end
         end
     end
-end
--- ==================== ОГОНЬ ====================
+    -- ==================== ОГОНЬ ====================
 function ORBIT.setupFire()
     if ORBIT.fireFolder then ORBIT.fireFolder:Destroy(); ORBIT.fireFolder = nil end
     ORBIT.fireParts = {}
@@ -693,8 +689,8 @@ end
 -- ==================== ПОЛНОЕ КОПИРОВАНИЕ НА ЧУЖИХ ====================
 ORBIT.targetRings = ORBIT.targetRings or {}
 
--- v24.3: аттачменты по Z, а не по X — иначе лента вырождается в нитку
--- (X блока после поворота совпадает с направлением движения по орбите).
+-- v24.3: аттачменты по Z (радиальная ось). По X лента вырождалась в нитку,
+-- потому что X блока после поворота совпадает с тангентой орбиты.
 local function attachTrail(refPart, span, color, length, width)
     span = math.max(span or 0.5, 0.6)
     local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(0, 0, -span); a0.Parent = refPart
@@ -943,8 +939,7 @@ local function updateTargetRings(dt)
                 local angle = math.rad(rd.angle + b.angleOffset)
                 local px, py, pz = applyPattern(pattern, angle, radius, height, rd.ri)
                 local targetCF
-                -- v24.3: X-режим = кувырок вокруг собственной Z (не наклон),
-                -- иначе Z-аттачменты трейла срываются при spinAngle≈90°.
+                -- v24.3: X-режим = кувырок вокруг собственной Z (не наклон по X)
                 if ORBIT.spinAxisDir == "X" then
                     targetCF = CFrame.new(hrp.Position + Vector3.new(px, py, pz))
                         * CFrame.Angles(0, -angle + math.pi/2, 0)
@@ -995,7 +990,6 @@ local function updateTargetRings(dt)
                     if SETTINGS.AuraSpinAxis == "Y" then
                         cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, math.rad(aura.spinAngle), 0)
                     else
-                        -- v24.3: кувырок вокруг Z для ауры (трейлы целы)
                         cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, 0, math.rad(aura.spinAngle))
                     end
                 else
@@ -1434,7 +1428,7 @@ function ORBIT.getBotCount()
     for _ in pairs(ORBIT.bots) do n = n + 1 end
     return n
 end
--- ==================== КОЛЬЦА (главные) ====================
+    -- ==================== КОЛЬЦА (главные) ====================
 function ORBIT.applyTrailSettings(trail, span)
     if not trail or not trail.Parent then return end
     ORBIT.configureTrail(trail, SETTINGS.TrailLength, SETTINGS.TrailWidth, span)
@@ -1525,8 +1519,7 @@ function ORBIT.buildRing(ri)
                 -- v24.3: страховка от рассинхрона с performance-режимом.
                 -- Если auto-perf уже понизил уровень, свежие кольца тоже
                 -- не должны светить трейлами (иначе «трейлы пропали только у
-                -- части колец»). Значение читаем через ORBIT.performanceLevel —
-                -- его пишет applyPerformanceLevel().
+                -- части колец»). Значение читаем через ORBIT.performanceLevel.
                 if ORBIT.performanceLevel == "low" or ORBIT.performanceLevel == "minimal" then
                     trail.Enabled = false
                 end
@@ -1749,8 +1742,9 @@ local function perfSnapshot()
         AuraTrailEnabled = SETTINGS.AuraTrailEnabled, BlockCount = SETTINGS.BlockCount,
     }
 end
--- v24.3: не трогаем TrailEnabled/AuraTrailEnabled — пользователь мог их
--- переключить после снятия снапшота (снапшот делается через 1.5 сек).
+-- v24.3-fix2: TrailEnabled/AuraTrailEnabled больше не восстанавливаются из
+-- снапшота — пользователь мог их переключить после снятия снапшота
+-- (снапшот делается через 1.5 сек после старта).
 local function perfRestore()
     if not PERFORMANCE.Snapshot then return end
     for k, v in pairs(PERFORMANCE.Snapshot) do
@@ -1766,33 +1760,49 @@ local function setLightsEnabled(on)
         end
     end
 end
-local function setTrailsEnabled(on)
+-- v24.3-fix2: setTrailsEnabled / setAuraTrailsEnabled теперь просто перечитывают
+-- SETTINGS.TrailEnabled / AuraTrailEnabled — перф их не меняет.
+local function setTrailsEnabled(_)
     for _, ring in pairs(rings) do
         for _, data in ipairs(ring.blocks) do
-            if data.trail then data.trail.Enabled = on and SETTINGS.TrailEnabled end
+            if data.trail then
+                data.trail.Enabled = SETTINGS.TrailEnabled
+            end
         end
     end
 end
-local function setAuraTrailsEnabled(on)
+local function setAuraTrailsEnabled(_)
     for _, data in ipairs(ORBIT.auraBlocks or {}) do
-        if data.trail then data.trail.Enabled = on and SETTINGS.AuraTrailEnabled end
+        if data.trail then
+            data.trail.Enabled = SETTINGS.AuraTrailEnabled
+        end
     end
 end
+
+-- v24.3-fix2: ГЛАВНЫЙ ФИКС. Раньше на level=low/minimal вызывался
+-- setTrailsEnabled(false) и трейлы исчезали прямо на глазах при ходьбе
+-- (FPS падал → auto-perf → трейлы в 0). Теперь перф управляет ТОЛЬКО светом,
+-- трейлы живут по SETTINGS.TrailEnabled / AuraTrailEnabled (включает юзер).
 local function applyPerformanceLevel(level)
     if PERFORMANCE.CurrentLevel == level then return end
     PERFORMANCE.CurrentLevel = level
     ORBIT.performanceLevel = level  -- v24.3: для buildRing
+
+    -- Свет: высокий = полный, ниже = выключаем.
     if level == "high" then
-        perfRestore(); setLightsEnabled(SETTINGS.LightEnabled)
-        setTrailsEnabled(SETTINGS.TrailEnabled); setAuraTrailsEnabled(SETTINGS.AuraTrailEnabled)
-    elseif level == "medium" then
-        setLightsEnabled(false); setTrailsEnabled(true); setAuraTrailsEnabled(SETTINGS.AuraTrailEnabled)
-    elseif level == "low" then
-        setLightsEnabled(false); setTrailsEnabled(false); setAuraTrailsEnabled(false)
-    elseif level == "minimal" then
-        setLightsEnabled(false); setTrailsEnabled(false); setAuraTrailsEnabled(false)
+        setLightsEnabled(SETTINGS.LightEnabled)
+    else
+        setLightsEnabled(false)
     end
+    -- Трейлы: всегда следуют за настройкой юзера, перф их не трогает.
+    setTrailsEnabled()
+    setAuraTrailsEnabled()
+
     if ORBIT.notify then ORBIT.notify("Качество: " .. level:upper(), Color3.fromRGB(180, 220, 255), 1.5) end
+    -- Диагностика: если трейлы вдруг «пропали» — в консоли видно, кто виноват.
+    warn(string.format("[ORBIT PERF] level=%s  TrailEnabled=%s  AuraTrailEnabled=%s  FPS=%d",
+        tostring(level), tostring(SETTINGS.TrailEnabled), tostring(SETTINGS.AuraTrailEnabled),
+        math.floor((ORBIT.statsData and ORBIT.statsData.lastFPS) or 60)))
 end
 function ORBIT.setPerformanceMode(mode)
     if mode == "off" then
@@ -2327,6 +2337,6 @@ ORBIT.decodeSettingsForShare  = dec
 ORBIT.applySaveData           = applySaveData
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v24.3-trail-fix (трейлы: X→Z, spin-Z, perf-шина)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v24.3-trail-fix2 (трейлы не гаснут от auto-perf)", Color3.fromRGB(180,255,180), 3) end
 
 return true
