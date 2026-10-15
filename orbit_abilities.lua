@@ -1,4 +1,4 @@
--- ORBIT v25.1 | orbit_abilities.lua
+-- ORBIT v25.2 | orbit_abilities.lua
 -- 12 стихий + КОСТЬ, БЛАСТЕР, РУКА + крестики + прицел + комбо.
 -- v25.0:
 --   * buildBone STRONG (трещины, наросты, блик).
@@ -14,9 +14,13 @@
 -- v25.0-toggles: тумблеры стихий (вкл/выкл стрельбы). off[id] — выключена,
 --   слот остаётся в панели, но затемнён. Долгое нажатие 0.5с — тумблер.
 --   Голос: «выключи огонь», «включи все стихии». API: A.disableElement и др.
--- v25.1: экспорт A.shake/A.flash для боссов + блок A.battle (~180 строк):
+-- v25.1: экспорт A.shake/A.flash для боссов + блок A.battle:
 --   ярость, аура <30% HP, статистика, slow-mo, награды
 --   sans_ghost/gaster_dark_cloak/blade_master/orbit_legend.
+-- v25.2: A.battle переписан (версия Клода): поля B.active/B.boss, статистика
+--   в ORBIT.saveData.stats (сохраняется через ORBIT.saveSettings), полоса
+--   «Ярость» UI, отдельные счётчики chain / no_death_streak / no_damage_sans.
+--   Боссы переведены на guard B.active/B.boss (см. v25.5-fix2, v25.3-fix2).
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] abilities: нет ORBIT"); return false end
@@ -54,7 +58,6 @@ local IDX = {}
 for i, e in ipairs(EL) do IDX[e.id] = i end
 
 local hidden = {}
--- [TOGGLE] off[id] == true — стихия выключена (нельзя стрелять), но видна в панели
 local off = {}
 
 local C = {
@@ -411,7 +414,6 @@ end
 -- ===== Снаряды =====
 local function addProj(q) q.born = tick(); A.projectiles[#A.projectiles + 1] = q end
 
--- v25.0: onFire — расширяющееся кольцо + 4 языка пламени
 local function onFire(q, pos)
   local r = C.fire.r * (q.ch and C.charge.size or 1)
   blast(pos, r, EL[1].col)
@@ -459,7 +461,6 @@ local function onBone(q, pos)
   ping("ping", 0.9, 1.8)
 end
 
--- v25.0: КОСТЬ STRONG
 local BONE_COL, BL_COL, HAND_COL = EL[IDX.bone].col, EL[IDX.blaster].col, EL[IDX.hand].col
 local BONE_WHITE = C3(238, 238, 226)
 
@@ -532,7 +533,6 @@ local function spawnBones(origin, dir, n, step, mul, ch)
   end
 end
 
--- ===== череп-бластер STRONG =====
 local function buildSkull(cf, sc)
   local ents = {}
   local WHITE = C3(245, 245, 250)
@@ -607,7 +607,6 @@ local function buildSkull(cf, sc)
   return ents, mouth
 end
 
--- v25.0: 3-слойный луч + кольца-накопители + искры
 local function fireBlaster(spos, dirv, mul, wm)
   local cf = CFrame.lookAt(spos, spos + dirv)
   local sc = 0.9 * wm
@@ -789,7 +788,6 @@ end
 -- ===== FIRE abilities =====
 local FIRE = {}
 
--- v25.0: огонь — 3-слойный снаряд + вспышка вылета
 FIRE.fire = function(ch, origin, dir)
   local sz = 1.6 * (ch and C.charge.size or 1)
   local ball = mkpart(PT_BALL, V3(sz, sz, sz), C3(255, 220, 120), MAT.Neon, 0)
@@ -829,7 +827,6 @@ FIRE.ice = function(ch, origin, dir)
     addProj({ part = p, vel = d * C.ice.speed * (ch and C.charge.speed or 1), life = 2, rad = 3, onHit = onIce, ch = ch, mul = ch and C.charge.dmg or 1 })
   end
 end
--- v25.0: молния — 3 разряда + грозовой столб + цепь до 3 целей
 FIRE.lightning = function(ch, origin, dir)
   local list = near(origin, C.lightning.range)
   table.sort(list, function(a, b) return (a.root.Position - origin).Magnitude < (b.root.Position - origin).Magnitude end)
@@ -958,7 +955,6 @@ FIRE.speed = function(ch, origin, dir, target, c, h, r)
   ping("snap", 1, 1.3)
 end
 
--- v25.0: ветер — 5 колец вихря + внутренний столб
 FIRE.wind = function(ch, origin, dir, target, c, h, r)
   local p = clampPt(r.Position, target, 40)
   local vortexCol = EL[8].col
@@ -973,7 +969,6 @@ FIRE.wind = function(ch, origin, dir, target, c, h, r)
       Debris:AddItem(ring, 0.9)
     end)
   end
-  -- восходящий поток (частицы)
   local up = mkpart(PT_BALL, V3(2, 2, 2), vortexCol, MAT.Neon, 0.7)
   up.CFrame = CF(p + V3(0, 2, 0))
   local pe = Instance.new("ParticleEmitter")
@@ -990,16 +985,13 @@ FIRE.wind = function(ch, origin, dir, target, c, h, r)
   ping("snap", 0.9, 0.6)
 end
 
--- v25.0: яд — туман + капли кислоты
 FIRE.poison = function(ch, origin, dir, target, c, h, r)
   local p = clampPt(r.Position, target, 50)
   local R = C.poison.r * (ch and 1.5 or 1)
   mkCloud(p, R, C.poison.dur, C.poison.dps * (ch and C.charge.dmg or 1), C3(80, 200, 70), false)
-  -- зелёное гало снизу
   local halo = mkpart(PT_BALL, V3(R * 1.8, 0.5, R * 1.8), C3(120, 220, 80), MAT.Neon, 0.85)
   halo.CFrame = CF(p + V3(0, 0.3, 0))
   Debris:AddItem(halo, C.poison.dur)
-  -- капли кислоты падают сверху
   for i = 1, 5 do
     task.delay(i * 0.15, function()
       if not alive then return end
@@ -1207,7 +1199,6 @@ local function cdFrac(id)
   if left <= 0 or cd <= 0 then return 0 end
   return math.min(1, left / cd)
 end
--- [TOGGLE] comboKey теперь возвращает nil, если в паре есть выключенная стихия
 local function comboKey()
   local a, b = lastFire[1], lastFire[2]
   local t = tick()
@@ -1223,7 +1214,6 @@ end
 -- ===== Публичные функции =====
 function A.fireId(id, ch)
   if not alive then return false end
-  -- [TOGGLE] выключенная стихия не стреляет
   if off[id] then
     ping("click", 0.6, 0.8)
     toast("🚫 " .. (EL[IDX[id]] and EL[IDX[id]].nm or id) .. " выключена")
@@ -1262,7 +1252,6 @@ function A.combo()
   local key = comboKey()
   if not key then
     ping("click", 0.6, 0.8)
-    -- [TOGGLE] отдельное сообщение, если пара есть, но одна из стихий выключена
     local a, b = lastFire[1], lastFire[2]
     local t = tick()
     if a and b and t - a.t <= C.combo.window and t - b.t <= C.combo.window then
@@ -1367,8 +1356,6 @@ function A.resetHidden()
   end
 end
 
--- [TOGGLE] ===== Тумблеры стихий: вкл/выкл стрельбы =====
--- off[id] = true → слот виден в панели, но стрелять нельзя.
 function A.disableElement(id)
   if not IDX[id] then return false end
   off[id] = true
@@ -1469,9 +1456,7 @@ local function smStep()
 end
 A.slowmo = smStart
 
--- v25.0: вода — 3 капли веером + большие волны
 local function waterTick(dt)
-  -- [TOGGLE] если вода выключена — не капаем
   if off.water then return end
   local c, h, r = getChar()
   if not c then return end
@@ -1511,7 +1496,6 @@ end
 
 local function pressDown()
   if not getChar() then return end
-  -- [TOGGLE] не начинаем стрельбу/заряд, если текущая стихия выключена
   if off[A.current] then
     ping("click", 0.6, 0.8)
     toast("🚫 " .. (EL[IDX[A.current]] and EL[IDX[A.current]].nm or A.current) .. " выключена")
@@ -1541,7 +1525,6 @@ local function ruLower(s)
   return s
 end
 local NAMES = { { "огонь", "fire" }, { "земл", "earth" }, { "вод", "water" }, { "лёд", "ice" }, { "лед", "ice" }, { "молни", "lightning" }, { "телепорт", "teleport" }, { "скорост", "speed" }, { "ветер", "wind" }, { "яд", "poison" }, { "кост", "bone" }, { "бластер", "blaster" }, { "рук", "hand" } }
--- [TOGGLE] утилита: вернуть EL по любому варианту имени («лед»/«лёд» и т.п.)
 local function findEl(nameLower)
   for _, p in ipairs(NAMES) do
     if nameLower:find(p[1], 1, true) then
@@ -1555,8 +1538,6 @@ function A.interpret(raw)
   local t = ruLower(raw)
   local function has(s) return t:find(s, 1, true) ~= nil end
 
-  -- [TOGGLE] команды включения/выключения стихий (проверяем ДО «стихи»)
-  -- Пример: «выключи огонь», «включи воду», «отключи молнию»
   if has("выключ") or has("отключ") or has("запрет") or has("не стреляй") or has("не работа") then
     if has("все") or has("всё") then
       A.disableAll()
@@ -1615,10 +1596,9 @@ local function wrapHelper()
   end
 end
 -- ===== UI =====
--- [TOGGLE] onClick расширен: опционально долгое нажатие (long) и короткое (short)
 local function onClick(btn, fn, opts)
   opts = opts or {}
-  local longMs = opts.longMs  -- если задано, длинное нажатие вызовет opts.onLong
+  local longMs = opts.longMs
   local deb = false
   local down, downT, lastRelT = false, 0, 0
   local longFired = false
@@ -1726,7 +1706,6 @@ local function mkUI()
     local kl = Instance.new("TextLabel")
     kl.Size = UDim2.fromOffset(12, 12); kl.Position = UDim2.fromOffset(2, 1); kl.BackgroundTransparency = 1
     kl.Text = KEYLBL[i] or tostring(i); kl.TextColor3 = C3(190, 190, 200); kl.Font = Enum.Font.Code; kl.TextSize = 10; kl.ZIndex = 3; kl.Parent = b
-    -- [TOGGLE] короткое нажатие — выбрать; долгое (0.5с) — вкл/выкл стихию
     onClick(b, function() A.setCurrent(el.id) end, {
       longMs = 500,
       onLong = function()
@@ -1763,7 +1742,6 @@ local function mkUI()
       end
     end)
 
-    -- [TOGGLE] затемняющая плёнка для выключенных стихий
     local dim = Instance.new("Frame")
     dim.Name = "Dim"
     dim.Size = UDim2.fromScale(1, 1)
@@ -2025,7 +2003,6 @@ local function refreshUI()
     s.shade.Size = UDim2.new(1, 0, cdFrac(id), 0)
     local on = (id == A.current)
     s.stroke.Thickness = on and 3 or 1
-    -- [TOGGLE] если стихия выключена — приглушённый фон, иначе обычный/активный
     if off[id] then
       s.btn.BackgroundColor3 = on and C3(52, 32, 32) or C3(28, 22, 22)
     else
@@ -2077,7 +2054,6 @@ local function refreshUI()
 end
 
 -- ===== Прицел =====
--- v25.0-fix1: убрано `local` — см. форвард-декларацию в начале файла
 function screenPoint()
   local c = cam()
   local vp = c and c.ViewportSize or Vector2.new(800, 400)
@@ -2088,7 +2064,6 @@ function screenPoint()
   end
   return UIS:GetMouseLocation()
 end
--- v25.0-fix1: убрано `local` — см. форвард-декларацию в начале файла
 function aimPoint(origin)
   local c = cam()
   if not c then return origin + V3(0, 0, -50) end
@@ -2152,7 +2127,6 @@ connect(RS.Heartbeat, function(dt)
   stepShards(dt)
   stepRisers(dt)
   stepShake()
-  -- [TOGGLE] вода не капает, если выключена (гейт внутри waterTick)
   if (waterHeld and A.current == "water") or t < waterUntil then waterTick(dt) end
   for i = #dots, 1, -1 do
     local d = dots[i]
@@ -2219,7 +2193,6 @@ function A.destroy()
   end
   clouds, dots, hitWatch, lastFire = {}, {}, {}, {}
   A.cooldowns = {}
-  -- [TOGGLE] сбрасываем тумблеры, чтобы при перезагрузке всё было включено
   off = {}
   if folder then pcall(function() folder:Destroy() end); folder = nil end
   ORBIT.abilityMoveUntil = 0
@@ -2228,230 +2201,344 @@ end
 local okUi, errUi = pcall(mkUI)
 if not okUi then warn("[ORBIT] abilities UI: " .. tostring(errUi)) end
 
--- v25.0: публичный экспорт для боссов (Гастер, Санс)
+-- v25.1: публичный экспорт для боссов
 A.buildBone = buildBone
 A.spawnBones = spawnBones
 A.fireBlaster = fireBlaster
 A.spawnHand = spawnHand
 A.buildSkull = buildSkull
--- v25.1: экспорт для боссов (Санс/Гастер используют A.shake/A.flash в атаках)
 A.shake = shake
 A.flash = flashScreen
 
--- ===== A.battle: общий слой боя (Санс, Гастер) =====
+-- ============================================================
+--  v25.2: A.battle — общий слой боя для боссов (Санс, Гастер)
+--  Поля:  B.rage (0..1), B.enraged, B.aura (true при HP босса < 30%)
+--  Методы: start / recordDamage / recordDeath / win / lose
+--          + onPhase / zoom / shakeNear / dmgMul / intervalMul
+--  Обёрнуто в (function() ... end)(): не добавляет локалей верхнего уровня.
+-- ============================================================
 ;(function()
-  local B = {}
-  local BS = nil
-  local conns, phasesFired = {}, {}
-  local auraPart, auraHum, auraConn
-  local C3b, V3b = C3, V3
-
-  local function emptyStats()
-    return {
-      kills = 0, deaths = 0,
-      chain = 0, bestChain = 0,
-      sessionDamageDealt = 0, sessionDamageTaken = 0,
-      totalDamageDealt = 0, totalDamageTaken = 0,
-      lastBoss = nil, lastWin = 0, lastLose = 0,
-    }
-  end
-  local stats = emptyStats()
-  if type(ORBIT.battleStats) == "table" then
-    for k, v in pairs(ORBIT.battleStats) do
-      if stats[k] ~= nil then stats[k] = v end
-    end
-  end
-  ORBIT.battleStats = stats
-
-  B.rage, B.enraged, B.aura, B.stats = 0, false, nil, stats
-
-  local function connectB(sig, fn)
-    local c = sig:Connect(fn); conns[#conns + 1] = c; return c
-  end
-  local function clearConns()
-    for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-    conns = {}
-  end
-  local function destroyAura()
-    if auraPart then pcall(function() auraPart:Destroy() end) end
-    auraPart, auraHum, B.aura = nil, nil, nil
-  end
-  local function ensureAura(root)
-    if auraPart and auraPart.Parent and auraHum == root then return end
-    destroyAura()
-    local p = Instance.new("Part")
-    p.Name = "OrbitRageAura"
-    p.Shape = PT_BALL
-    p.Size = V3b(7, 7, 7)
-    p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
-    p.Material = MAT.Neon
-    p.Color = C3b(255, 60, 60)
-    p.Transparency = 0.78
-    p.Parent = folder or WS
-    auraPart, auraHum, B.aura = p, root, p
-  end
-  local function updateAura()
-    local c = LP.Character
-    local h = c and c:FindFirstChildOfClass("Humanoid")
-    local r = c and c:FindFirstChild("HumanoidRootPart")
-    if not h or not r or h.Health <= 0 then destroyAura(); return end
-    local frac = (h.MaxHealth > 0) and (h.Health / h.MaxHealth) or 1
-    if frac < 0.3 then
-      ensureAura(r)
-      if auraPart then auraPart.CFrame = r.CFrame end
-    else
-      destroyAura()
-    end
-  end
-  local function rageGain(n)
-    B.rage = math.clamp((B.rage or 0) + math.max(0, n) / 250, 0, 1)
-    if B.rage >= 1 and not B.enraged then
-      B.enraged = true
-      A.flash(C3b(255, 80, 60), 0.7, 0.4)
-      A.shake(0.85, 0.5)
-    end
-  end
-
-  function B.dmgMul()      return B.enraged and 1.35 or (1 + (B.rage or 0) * 0.25) end
-  function B.intervalMul() return B.enraged and 0.70 or (1 - (B.rage or 0) * 0.18) end
-  function B.shakeNear()   A.shake(0.5, 0.35) end
-  function B.zoom(fov)
-    local c = WS.CurrentCamera
-    if not c then return end
-    local base = c.FieldOfView
-    pcall(function()
-      TS:Create(c, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FieldOfView = fov or (base - 10) }):Play()
-    end)
-    task.delay(0.55, function()
-      if c and c.Parent then
-        pcall(function()
-          TS:Create(c, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FieldOfView = base }):Play()
-        end)
-      end
-    end)
-  end
-  function B.onPhase(p)
-    p = tonumber(p) or 1
-    if phasesFired[p] then return false end
-    phasesFired[p] = true
-    return true
-  end
-  function B.recordDamage(n, src)
-    if not BS then return end
-    n = tonumber(n) or 0
-    if n <= 0 then return end
-    if src == "boss" then
-      stats.sessionDamageDealt = (stats.sessionDamageDealt or 0) + n
-      stats.totalDamageDealt   = (stats.totalDamageDealt   or 0) + n
-      rageGain(n)
-    elseif src == "player" then
-      stats.sessionDamageTaken = (stats.sessionDamageTaken or 0) + n
-      stats.totalDamageTaken   = (stats.totalDamageTaken   or 0) + n
-    end
-  end
-  local function grant(id)
-    if not id then return end
-    local R = ORBIT.rewards
-    if not R then return end
-    if     type(R.grant)  == "function" then pcall(R.grant,  id)
-    elseif type(R.unlock) == "function" then pcall(R.unlock, id)
-    elseif type(R.add)    == "function" then pcall(R.add,    id) end
-  end
-  function B.start(bossId, opts)
-    if BS then B.cleanup() end
-    opts = opts or {}
-    BS = { bossId = bossId, opts = opts, t0 = tick(), won = false, lost = false, diedConn = nil, hpConn = nil, lastHp = 0 }
-    phasesFired = {}
-    B.rage, B.enraged = 0, false
-    stats.sessionDamageTaken = 0
-
-    local model
-    if type(opts.getModel) == "function" then
-      local ok, m = pcall(opts.getModel); if ok then model = m end
-    end
-    local hum = model and model:FindFirstChildOfClass("Humanoid")
-    if hum then
-      BS.diedConn = hum.Died:Connect(function()
-        task.defer(function()
-          if BS and BS.bossId == bossId and not BS.won then
-            B.win({ boss = bossId })
-          end
-        end)
-      end)
-    end
-    local c = LP.Character
-    local ph = c and c:FindFirstChildOfClass("Humanoid")
-    if ph then
-      BS.lastHp = ph.Health
-      BS.hpConn = connectB(ph.HealthChanged, function(newHp)
-        if not BS then return end
-        local prev = BS.lastHp or newHp
-        local d = prev - newHp
-        BS.lastHp = newHp
-        if d > 0 then B.recordDamage(d, "player") end
-        if newHp <= 0 and not BS.lost then B.lose("death") end
-      end)
-    end
-    A.flash(C3b(255, 40, 40), 0.85, 0.35)
-    A.shake(0.6, 0.5)
-    if ORBIT.notify then pcall(ORBIT.notify, "⚔ Бой: " .. tostring(bossId)) end
-    return true
-  end
-  function B.cleanup()
-    if BS and BS.diedConn then pcall(function() BS.diedConn:Disconnect() end) end
-    BS = nil
-    clearConns()
-    B.rage, B.enraged = 0, false
-    destroyAura()
-    phasesFired = {}
-  end
-  function B.win(data)
-    data = data or {}
-    local boss = data.boss or (BS and BS.bossId) or "unknown"
-    if BS and BS.won then return false end
-    if BS then BS.won = true end
-    stats.kills = (stats.kills or 0) + 1
-    stats.chain = (stats.chain or 0) + 1
-    if stats.chain > (stats.bestChain or 0) then stats.bestChain = stats.chain end
-    stats.lastBoss, stats.lastWin = boss, tick()
-
-    if boss == "sans" and (stats.sessionDamageTaken or 0) == 0 then grant("sans_ghost") end
-    if boss == "gaster" then grant("gaster_dark_cloak") end
-    if (stats.bestChain or 0) >= 5 then grant("blade_master") end
-    if (stats.kills or 0) >= 20 and (stats.bestChain or 0) >= 10 then grant("orbit_legend") end
-
-    B.cleanup()
-    if ORBIT.notify then pcall(ORBIT.notify, "🏆 Победа: " .. tostring(boss)) end
-    return true
-  end
-  function B.lose(reason)
-    if BS and BS.lost then return false end
-    if BS then BS.lost = true end
-    stats.deaths = (stats.deaths or 0) + 1
-    stats.chain = 0
-    stats.lastBoss = BS and BS.bossId or stats.lastBoss
-    stats.lastLose = tick()
-    B.cleanup()
-    if ORBIT.notify then pcall(ORBIT.notify, "💀 Поражение: " .. tostring(reason or "?")) end
-    return true
-  end
-  function B.getStats()  return stats end
-  function B.isActive()  return BS ~= nil end
-  function B.bossId()    return BS and BS.bossId or nil end
-  function B.destroy()
-    B.cleanup()
-    if auraConn then pcall(function() auraConn:Disconnect() end); auraConn = nil end
-    stats = emptyStats()
-    ORBIT.battleStats = stats
-    B.stats = stats
-  end
-
-  auraConn = RS.Heartbeat:Connect(function()
-    if not alive or not BS then return end
-    updateAura()
-  end)
-
+  local B = {
+    active = false, boss = nil, t0 = 0,
+    maxHp = 1, getHp = nil, getModel = nil,
+    sessionDamageTaken = 0,   -- урон, полученный игроком за бой (для «Санс-призрак»)
+    dealt = 0,                -- урон, нанесённый боссу
+    died = false,             -- умирал ли игрок в этом бою
+    rage = 0, enraged = false, enrageUntil = 0,
+    aura = false, phase = 1,
+    ENRAGE_TIME = 6, ENRAGE_DMG = 1.25, ENRAGE_SPEED = 0.75,
+  }
   A.battle = B
+
+  local RAGE_DIV = 0.5
+  local GUI_NAME = "_OrbitBattleRage"
+  local hbConn, diedConn, hpConn = nil, nil, nil
+  local gui, fill, lbl = nil, nil, nil
+  local auraEmitter, auraLight = nil, nil
+  local zoomTok, fov0 = 0, nil
+  local lastHp = nil
+
+  local function getStats()
+    ORBIT.saveData = ORBIT.saveData or {}
+    ORBIT.saveData.stats = ORBIT.saveData.stats or {}
+    ORBIT.saveData.rewards = ORBIT.saveData.rewards or {}
+    return ORBIT.saveData.stats, ORBIT.saveData.rewards
+  end
+  function B.getStats() local st = getStats(); return st end
+  local function save()
+    if ORBIT.saveSettings then pcall(ORBIT.saveSettings) end
+  end
+
+  local function parentGui()
+    if type(ORBIT.getSafeParent) == "function" then
+      local ok, p = pcall(ORBIT.getSafeParent)
+      if ok and typeof(p) == "Instance" then return p end
+    end
+    return LP:FindFirstChildOfClass("PlayerGui")
+  end
+  local function killGui()
+    if gui then pcall(function() gui:Destroy() end) end
+    gui, fill, lbl = nil, nil, nil
+    local a = parentGui()
+    if a then
+      local g = a:FindFirstChild(GUI_NAME)
+      if g then pcall(function() g:Destroy() end) end
+    end
+    local b = LP:FindFirstChildOfClass("PlayerGui")
+    if b then
+      local g2 = b:FindFirstChild(GUI_NAME)
+      if g2 then pcall(function() g2:Destroy() end) end
+    end
+  end
+  local function buildGui()
+    killGui()
+    local pg = parentGui()
+    if not pg then return end
+    local sg = Instance.new("ScreenGui")
+    sg.Name = GUI_NAME; sg.ResetOnSpawn = false
+    sg.IgnoreGuiInset = true; sg.DisplayOrder = 41; sg.Parent = pg
+    local bar = Instance.new("Frame")
+    bar.AnchorPoint = Vector2.new(0.5, 0); bar.Position = UDim2.new(0.5, 0, 0, 96)
+    bar.Size = UDim2.fromOffset(300, 16)
+    bar.BackgroundColor3 = C3(30, 15, 15); bar.BackgroundTransparency = 0.2
+    bar.BorderSizePixel = 0; bar.Active = false; bar.Parent = sg
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 6)
+    local st = Instance.new("UIStroke", bar); st.Color = C3(255, 140, 60); st.Thickness = 1.5
+    fill = Instance.new("Frame")
+    fill.Size = UDim2.new(0, 0, 1, 0); fill.BackgroundColor3 = C3(255, 180, 60)
+    fill.BorderSizePixel = 0; fill.Parent = bar
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 6)
+    lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.fromScale(1, 1); lbl.BackgroundTransparency = 1
+    lbl.Text = "🔥 ЯРОСТЬ"; lbl.TextColor3 = C3(255, 255, 255)
+    lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 11; lbl.ZIndex = 2; lbl.Parent = bar
+    gui = sg
+  end
+
+  local function auraOff()
+    if auraEmitter then pcall(function() auraEmitter:Destroy() end); auraEmitter = nil end
+    if auraLight then pcall(function() auraLight:Destroy() end); auraLight = nil end
+  end
+  local function auraOn()
+    auraOff()
+    local m = B.getModel and B.getModel() or nil
+    local part = m and (m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart", true))
+    if not part then return end
+    local e = Instance.new("ParticleEmitter")
+    e.Name = "BattleAura"
+    e.Color = ColorSequence.new(C3(255, 70, 70), C3(170, 40, 255))
+    e.LightEmission = 1; e.Size = NumberSequence.new(1.4, 0)
+    e.Lifetime = NumberRange.new(0.6, 1.1); e.Speed = NumberRange.new(3, 7)
+    e.SpreadAngle = Vector2.new(180, 180); e.Acceleration = V3(0, 6, 0)
+    e.Rate = math.floor(40 * LOD); e.Parent = part
+    local l = Instance.new("PointLight")
+    l.Name = "BattleAuraLight"; l.Color = C3(255, 70, 90); l.Range = 24; l.Brightness = 3; l.Parent = part
+    auraEmitter, auraLight = e, l
+  end
+
+  local function zoomRestore()
+    zoomTok = zoomTok + 1
+    local c = cam()
+    if c and fov0 then pcall(function() c.FieldOfView = fov0 end) end
+    fov0 = nil
+  end
+  function B.zoom(delta, dur)
+    if sm then return end
+    local c = cam()
+    if not c then return end
+    zoomTok = zoomTok + 1
+    local tok = zoomTok
+    if not fov0 then fov0 = c.FieldOfView end
+    T(c, 0.2, { FieldOfView = fov0 - (delta or 6) })
+    task.delay(dur or 1, function()
+      if tok ~= zoomTok or not alive then return end
+      local c2 = cam()
+      if c2 and fov0 then T(c2, 0.35, { FieldOfView = fov0 }) end
+      task.delay(0.4, function() if tok == zoomTok then fov0 = nil end end)
+    end)
+  end
+  function B.shakeNear(pos, mag, dur)
+    local _, _, r = getChar()
+    if not r or typeof(pos) ~= "Vector3" then return end
+    local d = (r.Position - pos).Magnitude
+    if d > 45 then return end
+    local k = 1 - d / 45
+    shake((mag or 0.5) * (0.3 + 0.7 * k), dur or 0.3)
+  end
+
+  local function unhook()
+    if diedConn then pcall(function() diedConn:Disconnect() end); diedConn = nil end
+    if hpConn then pcall(function() hpConn:Disconnect() end); hpConn = nil end
+  end
+  local function hook()
+    unhook()
+    local _, h = getChar()
+    if not h then return end
+    lastHp = h.Health
+    diedConn = h.Died:Connect(function() B.recordDeath() end)
+    hpConn = h.HealthChanged:Connect(function(hp)
+      if B.active and lastHp and hp < lastHp then
+        B.sessionDamageTaken = B.sessionDamageTaken + (lastHp - hp)
+      end
+      lastHp = hp
+    end)
+  end
+
+  local function startEnrage()
+    B.enraged = true
+    B.enrageUntil = tick() + B.ENRAGE_TIME
+    B.rage = 1
+    flashScreen(C3(255, 60, 60), 0.8, 0.4)
+    shake(0.6, 0.4)
+    B.zoom(5, 0.8)
+    ping("laugh", 1, 0.8)
+    if ORBIT.notify then ORBIT.notify("🔥 ЯРОСТЬ БОССА! Урон ×" .. B.ENRAGE_DMG, C3(255, 120, 80), 3) end
+  end
+
+  function B.dmgMul() return (B.active and B.enraged) and B.ENRAGE_DMG or 1 end
+  function B.intervalMul() return (B.active and B.enraged) and B.ENRAGE_SPEED or 1 end
+
+  function B.recordDamage(amount, target)
+    if not B.active or type(amount) ~= "number" or amount <= 0 then return end
+    if target == "boss" then
+      B.dealt = B.dealt + amount
+      if not B.enraged then
+        B.rage = math.min(1, B.rage + amount / (B.maxHp * RAGE_DIV))
+        if B.rage >= 1 then startEnrage() end
+      end
+    else
+      B.sessionDamageTaken = B.sessionDamageTaken + amount
+    end
+  end
+
+  function B.recordDeath()
+    if not B.active then return end
+    B.died = true
+    local st = getStats()
+    st.chain = ""
+    st.no_death_streak = 0
+    save()
+  end
+
+  function B.onPhase(p)
+    if not B.active or p == B.phase then return end
+    B.phase = p
+    flashScreen((p == 2) and C3(255, 170, 80) or C3(255, 70, 70), 0.8, 0.35)
+    shake(0.6, 0.4)
+    if p >= 3 then B.zoom(7, 1.2) end
+  end
+
+  local function step(dt)
+    if not B.active then return end
+    local t = tick()
+    if B.getHp then
+      local ok, hp, mx = pcall(B.getHp)
+      if ok and type(hp) == "number" then
+        if type(mx) == "number" and mx > 0 then B.maxHp = mx end
+        local on = hp > 0 and (hp / B.maxHp) < 0.3
+        if on ~= B.aura then
+          B.aura = on
+          if on then auraOn() else auraOff() end
+        end
+      end
+    end
+    if B.enraged then
+      local left = B.enrageUntil - t
+      if left <= 0 then B.enraged = false; B.rage = 0
+      else B.rage = left / B.ENRAGE_TIME end
+    else
+      B.rage = math.max(0, B.rage - dt * 0.02)
+    end
+    if fill and fill.Parent then
+      fill.Size = UDim2.new(math.clamp(B.rage, 0, 1), 0, 1, 0)
+      fill.BackgroundColor3 = B.enraged and C3(255, 60, 60) or C3(255, 180, 60)
+      if lbl then
+        lbl.Text = B.enraged and "🔥 ЯРОСТЬ!!!" or "🔥 ЯРОСТЬ"
+      end
+      if B.enraged then
+        fill.BackgroundTransparency = 0.15 + 0.2 * math.abs(math.sin(t * 8))
+      else
+        fill.BackgroundTransparency = 0
+      end
+    end
+  end
+
+  local function cleanup()
+    unhook()
+    killGui()
+    auraOff()
+    zoomRestore()
+    if hbConn then pcall(function() hbConn:Disconnect() end); hbConn = nil end
+    B.active = false
+    B.rage = 0; B.enraged = false; B.aura = false
+  end
+  B.cleanup = cleanup
+
+  function B.start(bossId, opts)
+    if B.active then cleanup() end
+    opts = opts or {}
+    B.boss = bossId; B.active = true; B.t0 = tick()
+    B.maxHp = opts.maxHp or 1
+    B.getHp = opts.getHp; B.getModel = opts.getModel
+    B.sessionDamageTaken = 0; B.dealt = 0; B.died = false
+    B.rage = 0; B.enraged = false; B.aura = false; B.phase = 1
+    hook()
+    buildGui()
+    hbConn = RS.Heartbeat:Connect(step)
+    return true
+  end
+
+  function B.lose(reason)
+    if not B.active then return false end
+    cleanup()
+    flashScreen(C3(255, 60, 60), 0.7, 0.4)
+    return true
+  end
+
+  function B.win(info)
+    if not B.active then return {} end
+    local boss = B.boss
+    local elapsed = tick() - B.t0
+    local died, taken = B.died, B.sessionDamageTaken
+    cleanup()
+
+    pcall(smStart)
+    flashScreen(C3(255, 255, 255), 0.6, 0.5)
+    shake(0.8, 0.5)
+
+    local st, rw = getStats()
+    st.wins_total = (st.wins_total or 0) + 1
+    if boss == "sans" then
+      st.wins_sans = (st.wins_sans or 0) + 1
+    elseif boss == "gaster" then
+      st.wins_gaster = (st.wins_gaster or 0) + 1
+      local t10 = math.floor(elapsed * 10) / 10
+      if not st.best_gaster_time or t10 < st.best_gaster_time then st.best_gaster_time = t10 end
+    end
+
+    local legend = false
+    if died then
+      st.chain = ""; st.no_death_streak = 0
+    else
+      st.no_death_streak = (st.no_death_streak or 0) + 1
+      local ch = st.chain or ""
+      if ch == "" then ch = boss
+      elseif not ch:find(boss, 1, true) then ch = ch .. "+" .. boss end
+      st.chain = ch
+      legend = (ch:find("sans", 1, true) ~= nil) and (ch:find("gaster", 1, true) ~= nil)
+    end
+
+    local ghost = (boss == "sans") and taken <= 0
+    if ghost then st.no_damage_sans = (st.no_damage_sans or 0) + 1 end
+
+    local given, names = {}, {}
+    local function give(id, text)
+      if rw[id] then return end
+      rw[id] = true; given[#given + 1] = id; names[#names + 1] = text
+    end
+    if ghost then give("sans_ghost", "👻 Санс-призрак") end
+    if boss == "gaster" and elapsed < 90 then give("gaster_dark_cloak", "🧥 Тёмный плащ") end
+    if (st.wins_total or 0) >= 10 then give("blade_master", "⚔ Мастер клинков") end
+    if legend then give("orbit_legend", "🏆 Легенда ОРБИТЫ") end
+    save()
+
+    for i, text in ipairs(names) do
+      task.delay(3.5 + i * 0.7, function()
+        if ORBIT.notify then ORBIT.notify("🎁 Новая награда: " .. text, C3(255, 230, 140), 4) end
+      end)
+    end
+    return given
+  end
+
+  function B.destroy()
+    cleanup()
+  end
+
+  local prevDestroy = A.destroy
+  A.destroy = function(...)
+    pcall(B.destroy)
+    return prevDestroy(...)
+  end
 end)()
 
 ORBIT.abilities = A
@@ -2460,7 +2547,6 @@ ORBIT.loaded.abilities = true
 local prevUnload = ORBIT.unload
 ORBIT.unload = function()
   pcall(A.destroy)
-  if A.battle and A.battle.destroy then pcall(A.battle.destroy) end
   if prevUnload then pcall(prevUnload) end
 end
 return true
