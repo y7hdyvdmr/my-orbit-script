@@ -1,12 +1,14 @@
 -- ORBIT v24.2 | orbit_loader.lua
 -- ЕДИНЫЙ файл: ядро + GUI + загрузчик 21 модуля (+weapons_menu)
--- BUILD: v24.2-r6
+-- BUILD: v24.2-r7
 -- r3: + orbit_nolight.lua и orbit_focus.lua.
 -- r4: + orbit_sans_boss.lua (💀 Босс Санс).
 -- r5: + orbit_orbit_combo.lua + orbit_rewards.lua.
 -- r6: + orbit_weapons_menu.lua (🗡 Арсенал оружия).
+-- r7: + чтение ORBIT.saveData.stats из сейва (иначе статистика боёв A.battle
+--     не переживала перезаход, хотя p3 v24.2-fix2 её уже пишет).
 
-local BUILD = "v24.2-r6"
+local BUILD = "v24.2-r7"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
 do
@@ -161,6 +163,8 @@ do
             if type(d.theme) == "string" then ORBIT.saveData.theme = d.theme end
             if type(d.achievements) == "table" then ORBIT.saveData.achievements = d.achievements end
             if type(d.rewards) == "table" then ORBIT.saveData.rewards = d.rewards end
+            -- r7: статистика боёв (пишет p3 v24.2-fix2, читает A.battle Клода)
+            if type(d.stats) == "table" then ORBIT.saveData.stats = d.stats end
             if d.rigType == "R6" or d.rigType == "R15" then ORBIT.saveData.rigType = d.rigType end
         end
     end
