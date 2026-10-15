@@ -1,4 +1,3 @@
-=== orbit_weapons_menu.lua v25.9 ===
 -- ORBIT v25.9 | orbit_weapons_menu.lua
 -- Арсенал: оружие + все награды + атака + фигурные скины (Санс/Гастер).
 -- v25.7: sans_boss_skin и gaster_boss_skin -> полная замена персонажа
@@ -1819,4 +1818,3 @@ if ORBIT.notify then
 end
 
 return true
-Файл 2/3 выдан. Напиши "дальше" — выдам следующий.
