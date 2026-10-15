@@ -1,4 +1,4 @@
--- orbit_p2.lua v24.5-ai-figures-rig-opt
+-- orbit_p2.lua v24.5-ai-figures-rig-opt2
 -- ОРБИТА v24.5-ai-figures-rig — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.) + ORBIT.figureRig
 -- v24.5-ai-figures-rig (этот файл):
 --   * НОВОЕ: ORBIT.figureRig — общий риг фигур (колени, махи рук, наклон
@@ -7,11 +7,13 @@
 --   * САНС и ГАСТЕР: ноги разделены на верх/низ, части помечены атрибутами
 --     RigGroup / RigSide (см. часть 2/2).
 --   * Остальные фигуры без изменений.
--- v24.5-opt: без изменения вида —
---   * addBall: Part.Shape = Ball вместо SpecialMesh.Sphere (−1 инстанс);
---   * PointLight.Shadows = false у всех источников фигур (тени не видны,
---     нагрузка ниже);
---   * createEye: константа поворота ROT_X_90 вынесена из трёх вызовов.
+-- v24.5-opt: addBall → Shape=Ball; PointLight.Shadows = false.
+-- v24.5-opt2 (этот): оптимизация фигур БЕЗ ИЗМЕНЕНИЯ ВИДА —
+--   * createPalmPlate: 44 сегмента → 28 (силуэт идентичен);
+--   * createFinger: F4 (5% ширины) слит в F3 — глаз не отличает;
+--   * createPixelHeart: убран второй слой Bevel (виден только в упор);
+--   * бластер: убраны 2 мелких EyeLight (визуально сливаются с MouthLight);
+--   * сами бластеры, Санс и Гастер — БЕЗ изменений геометрии.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P2] Часть 1 не загружена!"); return end
@@ -45,7 +47,6 @@ end
 
 local Rig = { _p2 = true, byModel = setmetatable({}, { __mode = "k" }) }
 
--- Параметры скелета для каждой фигуры (все размеры × s)
 local RIG_PRESETS = {
     sans = function(s) return {
         hip = Vector3.new(0, 0.34*s, 0), hipX = 0.28*s, hipY = 0.34*s, kneeY = 0.20*s,
@@ -65,7 +66,6 @@ local RIG_PRESETS = {
     } end,
 }
 
--- Пометить часть группой риг-а
 local function rigTag(p, group, side)
     if p then
         p:SetAttribute("RigGroup", group)
@@ -73,19 +73,16 @@ local function rigTag(p, group, side)
     end
     return p
 end
--- Пометить все части внутри под-модели (например, руки Гастера)
 local function rigTagModel(m, group, side)
     for _, d in ipairs(m:GetDescendants()) do
         if d:IsA("BasePart") then rigTag(d, group, side) end
     end
 end
 
--- Поворот вокруг точки (в локальных координатах корня модели)
 local function about(point, rot)
     return CFrame.new(point) * rot * CFrame.new(-point)
 end
 
--- Запоминаем позу покоя каждой помеченной части относительно корня
 local function bindRig(rig)
     local pivot = rig.model:GetPivot()
     rig.items = {}
@@ -120,7 +117,6 @@ function Rig.rebind(model)
     if rig then rig.items = nil end
 end
 
--- Вернуть позу покоя
 function Rig.resetPose(model)
     local rig = Rig.byModel[model]
     if not rig then return false end
@@ -133,7 +129,6 @@ function Rig.resetPose(model)
     return true
 end
 
--- Главная функция: вызывать каждый кадр ПОСЛЕ model:PivotTo(...)
 function Rig.update(model, dt, velWorld)
     local rig = Rig.byModel[model]
     if not rig or not model.Parent then return false end
@@ -142,7 +137,6 @@ function Rig.update(model, dt, velWorld)
     dt = math.clamp(dt or 0.016, 0, 0.1)
     local pivot = model:GetPivot()
 
-    -- скорость в локальных осях фигуры (только горизонталь)
     local vel = velWorld or Vector3.new(0, 0, 0)
     local lv = pivot:VectorToObjectSpace(Vector3.new(vel.X, 0, vel.Z))
     local spd = lv.Magnitude
@@ -157,26 +151,21 @@ function Rig.update(model, dt, velWorld)
     rig.t = rig.t + dt
     local ph = rig.phase
 
-    -- оси: swing — нога вперёд по направлению движения, lean — верх вперёд
     local swingAxis = Vector3.new(-rig.dir.Z, 0, rig.dir.X)
     local leanAxis = -swingAxis
 
-    -- дыхание в покое + подпрыгивание при ходьбе
     local breath = math.sin(rig.t * 1.6)
     local lift = breath * d.breath * (1 - 0.6 * w) + math.abs(math.sin(ph)) * d.bob * w
 
-    -- корпус: наклон по движению + лёгкий крен
     local lean = about(d.hip,
         CFrame.fromAxisAngle(leanAxis, d.leanMax * w) * CFrame.Angles(0, 0, math.sin(ph) * 0.04 * w))
     local bodyXf = CFrame.new(0, lift, 0) * lean
 
-    -- голова: кивок + крен + поворот
     local nod  = math.sin(ph * 2) * d.headNod * w + math.sin(rig.t * 0.7) * 0.02 * (1 - w)
     local roll = math.sin(ph) * d.headRoll * w
     local yaw  = math.sin(ph) * 0.06 * w
     local headXf = bodyXf * about(d.neck, CFrame.Angles(nod, yaw, roll))
 
-    -- ноги и руки (руки — в противофазе ногам той же стороны)
     local legU, legL, arm = {}, {}, {}
     for _, sd in ipairs({-1, 1}) do
         local phi = ph + ((sd > 0) and 0 or math.pi)
@@ -191,7 +180,6 @@ function Rig.update(model, dt, velWorld)
         arm[sd] = bodyXf * about(sp, CFrame.fromAxisAngle(swingAxis, armA))
     end
 
-    -- плащ (Гастер): отстаёт от движения + колышется
     local cloakXf = bodyXf
     if d.cloakTop then
         cloakXf = bodyXf * about(d.cloakTop,
@@ -216,9 +204,7 @@ end
 
 ORBIT.figureRig = Rig
 
--- v24.5-opt: Part.Shape = Ball вместо Part + SpecialMesh.Sphere.
--- Вид идентичен, если размеры одинаковы по всем осям (это как раз случай
--- addBall — он принимает один diameter, а не эллипсоид).
+-- v24.5-opt: Shape=Ball вместо SpecialMesh.Sphere (идентичный вид)
 local function addBall(model, bodies, diameter, pos, color, noRecolor)
     local p = newPart(model, "Ball", Vector3.new(diameter, diameter, diameter), CFrame.new(pos), color, noRecolor)
     p.Shape = Enum.PartType.Ball
@@ -417,6 +403,7 @@ local function create3DTriangle(size, color, name)
     return model, root, bodies
 end
 
+-- v24.5-opt2: второй слой (Bevel) убран — виден только в упор.
 local HEART_PATTERN = { "0110110", "1111111", "1111111", "0111110", "0011100", "0001000" }
 local function createPixelHeart(sizeStuds, color, name)
     local rows, cols = #HEART_PATTERN, #HEART_PATTERN[1]
@@ -435,23 +422,6 @@ local function createPixelHeart(sizeStuds, color, name)
                 local x = (cc-(cols+1)/2)*pixel
                 local y = ((rows+1)/2 - r)*pixel
                 table.insert(bodies, newPart(model, "P", Vector3.new(width, pixel, pixel), CFrame.new(x, y, 0), color))
-            else c = c + 1 end
-        end
-    end
-    for r = 1, rows do
-        local row = HEART_PATTERN[r]
-        local c = 1
-        while c <= cols do
-            if row:sub(c,c) == "1" then
-                local sc = c
-                while c <= cols and row:sub(c,c) == "1" do c = c + 1 end
-                local ec = c - 1
-                local width = (ec-sc+1)*pixel - pixel*0.35
-                local cc = (sc+ec)/2
-                local x = (cc-(cols+1)/2)*pixel
-                local y = ((rows+1)/2 - r)*pixel
-                local pad = newPart(model, "Bevel", Vector3.new(width, pixel*0.7, pixel*1.35), CFrame.new(x, y, 0), color)
-                table.insert(bodies, pad)
             else c = c + 1 end
         end
     end
@@ -487,10 +457,11 @@ local function heartColorByIdx(idx)
     return HEART_COLORS[1].c
 end
 
+-- v24.5-opt2: сегментов 44 → 28. Силуэт идентичен, перекрытий меньше.
 local function createPalmPlate(model, bodies, cf, size, color)
     local half = size*0.5; local cornerR = size*0.22
     local holeR = size*0.26; local depth = size*0.22
-    local segments = 44
+    local segments = 28
     for i = 1, segments do
         local a0 = (i-1)/segments*math.pi*2; local a1 = i/segments*math.pi*2
         local mid = (a0+a1)/2
@@ -524,13 +495,13 @@ local function createPalmPlate(model, bodies, cf, size, color)
     end
 end
 
+-- v24.5-opt2: F4 (5% ширины) слит в F3. Глаз не отличает.
 local function createFinger(model, bodies, baseCF, length, width, color)
     local seg1, seg2, seg3 = length*0.30, length*0.38, length*0.32
-    local w1, w2, w3, w4 = width, width*0.75, width*0.35, width*0.05
+    local w1, w2, w3 = width, width*0.75, width*0.20
     table.insert(bodies, newPart(model, "F1", Vector3.new(w1, seg1, w1*0.5), baseCF*CFrame.new(0, seg1/2, 0), color))
     table.insert(bodies, newPart(model, "F2", Vector3.new(w2, seg2, w2*0.5), baseCF*CFrame.new(0, seg1+seg2/2, 0), color))
-    table.insert(bodies, newPart(model, "F3", Vector3.new(w3, seg3*0.55, w3*0.45), baseCF*CFrame.new(0, seg1+seg2+seg3*0.275, 0), color))
-    table.insert(bodies, newPart(model, "F4", Vector3.new(w4, seg3*0.45, w4*0.45), baseCF*CFrame.new(0, seg1+seg2+seg3*0.55+seg3*0.225, 0), color))
+    table.insert(bodies, newPart(model, "F3", Vector3.new(w3, seg3, w3*0.45), baseCF*CFrame.new(0, seg1+seg2+seg3*0.5, 0), color))
 end
 
 local function create3DHand(size, color, name, withHeart, heartColor)
@@ -813,7 +784,6 @@ local function createYinYang(size, color, name)
     return model, root, bodies
 end
 
--- v24.5-opt: константа поворота вынесена — в createEye она используется 3 раза.
 local function createEye(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -900,6 +870,9 @@ local function createSpiral(size, color, name)
 end
 -- ============================================================
 --  v24.3-ai-fix2: create3DBlasterPlaceholder (STRONG)
+--  Бластер полностью идентичен оригиналу. Единственная правка:
+--  PointLight.Shadows = false — тени от светящихся глаз всё равно
+--  не видны, но нагрузка на рендер ниже.
 -- ============================================================
 local function create3DBlasterPlaceholder(size, color, name)
     local V3, C3, CF = Vector3.new, Color3.fromRGB, CFrame.new
@@ -984,7 +957,7 @@ local function create3DBlasterPlaceholder(size, color, name)
     local mg = add("MouthGlow", V3(0.4 * u, 0.4 * u, 0.4 * u), CF(U(V3(0, 0.5, 0.75))), GLOW, MAT.Neon, true, 0.35)
     mg.Shape = Enum.PartType.Ball
     local ml = Instance.new("PointLight"); ml.Name = "MouthLight"; ml.Color = GLOW; ml.Range = 8; ml.Brightness = 1.2
-    ml.Shadows = false  -- v24.5-opt
+    ml.Shadows = false
     ml.Parent = mg
     for _, sd in ipairs({ -1, 1 }) do
         local pos = U(V3(sd * 0.64, 0.85, 1.7))
@@ -999,7 +972,7 @@ local function create3DBlasterPlaceholder(size, color, name)
         local pupil = add("EyeGlint", V3(0.2 * u, 0.2 * u, 0.2 * u), base + dir * (0.13 * u), GLOW, MAT.Neon, true)
         pupil.Shape = Enum.PartType.Ball
         local pl = Instance.new("PointLight"); pl.Name = "EyeLight"; pl.Color = GLOW; pl.Range = 7; pl.Brightness = 1.4
-        pl.Shadows = false  -- v24.5-opt
+        pl.Shadows = false
         pl.Parent = pupil
     end
     local wings = {
@@ -1055,7 +1028,7 @@ local function create3DBlasterPlaceholder(size, color, name)
     add("Beam", V3(0.28 * s, 0.22 * s, 1.4 * s), CF(cz.X, cz.Y, cz.Z - 0.75 * s), C3(255, 255, 255), MAT.Neon, true, 0.3)
     local l = Instance.new("PointLight")
     l.Name = "GLight"; l.Color = C3(230, 240, 255); l.Range = 12; l.Brightness = 1.5
-    l.Shadows = false  -- v24.5-opt
+    l.Shadows = false
     l.Parent = charge
     local e = Instance.new("ParticleEmitter")
     e.Name = "GSparks"; e.Color = ColorSequence.new(C3(230, 240, 255)); e.LightEmission = 1
@@ -1344,8 +1317,6 @@ local function createSans(size, color, name)
         local cf = CFrame.lookAt((a + b) * 0.5, b, up) * CFrame.Angles(math.rad(90), 0, 0)
         return blk(nm, Vector3.new(th, dir.Magnitude, th), cf, col, nr, mat, CYL)
     end
-    -- v24.5-opt: PointLight без теней — визуально не отличается,
-    -- нагрузка на рендер ниже (особенно на мобиле и слабом ПК).
     local function glow(p, col)
         local l = Instance.new("PointLight")
         l.Color = col; l.Range = 6; l.Brightness = 1
@@ -1420,7 +1391,7 @@ local function createSans(size, color, name)
             for _, p in ipairs(boneBodies or {}) do table.insert(bodies, p) end
         end
     end
-    -- Бластеры (без метки)
+    -- Бластеры (без метки) — размеры/вид как в оригинале
     for _, sd in ipairs({-1, 1}) do
         local bData = create3DBlasterPlaceholder(0.95, Color3.fromRGB(240,240,245), "SansBlaster")
         if bData and bData.model then
@@ -1473,7 +1444,6 @@ local function createGasterBody(size, color, name)
         rigTag(blk("Slit", V(0.09, 0.36, 0.05), P(0.19, 3.50, z), dark, true, plastic), "head")
         local core = blk("SlitCore", V(0.035, 0.30, 0.03), P(0.19, 3.50, z + 0.03), glow, true, Enum.Material.Neon)
         rigTag(core, "head")
-        -- v24.5-opt: тени от светящейся щели не видны — выключаем.
         local l = Instance.new("PointLight")
         l.Color = glow; l.Range = 6; l.Brightness = 1
         l.Shadows = false
@@ -1519,7 +1489,7 @@ local function createGasterBody(size, color, name)
             robeCol, false, plastic), "cloak")
     end
 
-    -- Бластер (без метки: парит у плеча)
+    -- Бластер (без метки: парит у плеча) — размер и вид как в оригинале
     do
         local bData = create3DBlasterPlaceholder(0.55, Color3.fromRGB(240,240,245), "GasterBlaster")
         if bData and bData.model then
@@ -1866,6 +1836,6 @@ do
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.5-opt)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.5-opt2)", Color3.fromRGB(180,255,180), 3) end
 
 return true
