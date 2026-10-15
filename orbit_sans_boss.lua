@@ -1,9 +1,23 @@
--- ORBIT v25.4 | orbit_sans_boss.lua
+-- ORBIT v25.5 | orbit_sans_boss.lua
 -- Мини-игра «Собери Санса» (16 осколков + ловушки) + босс-файт.
 -- v25.4:
 --   * Бластеры парят рядом с головой, смотрят на игрока.
 --   * Кости-снаряды увеличены.
 --   * 2-я фраза Санса при победе.
+-- v25.5:
+--   * Ходьба через ORBIT.figureRig (колени, махи рук, наклон, голова, дыхание).
+--     Старые collectLegs/playWalkAnim удалены: они ставили ноги в мировые
+--     координаты момента сборки, поэтому ноги «отставали» от модели.
+--   * 7 атак вместо 4: + Костяная стена, Синий шторм, Двойной прыжок.
+--     Таблица ATTACKS с минимальной фазой вместо attackIndex % 4.
+--   * A.battle (orbit_abilities v25.1): ярость (множители урона/интервала),
+--     аура при HP < 30%, статистика и награды, slow-mo победы.
+--     recordDamage вызываем ТОЛЬКО с "boss"; урон игроку A.battle ловит сам.
+--   * Кости-снаряды: «бугры» теперь следуют за костью (раньше оставались на месте).
+-- v25.5-fix1: uiParent() с fallback на PlayerGui; S.destroy чистит GUI в обоих
+--   родителях; guard через B.isActive()/B.bossId() вместо несуществующих полей
+--   B.active/B.boss; хук fireId защищён _wrapper (не затирает хуки других боссов);
+--   таймеры сброса состояния в winBoss/failBoss проверяют S.state.
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] sans_boss: нет ORBIT"); return false end
@@ -37,9 +51,12 @@ local S = {
   parts = {}, traps = {},
   boss = nil, bossUI = nil, collectUI = nil,
   folder = nil, shots = {},
+  walls = {}, storm = nil, jump = nil,          -- v25.5: новые атаки
+  bossVel = Vector3.new(0, 0, 0),               -- v25.5: скорость босса для Rig.update
+  lastAttackId = nil,
   walkTarget = nil, nextRetarget = 0, nextDodge = 0,
   nextAttack = 0, attackIndex = 0, walkPhase = 0,
-  hitTimes = {}, _origFireId = nil, hooked = false,
+  hitTimes = {}, _origFireId = nil, _wrapper = nil, hooked = false,
   _shapeRegistered = false,
 }
 local alive, token = true, 0
@@ -47,6 +64,27 @@ local conns = {}
 
 local function connect(sig, fn) local c = sig:Connect(fn); conns[#conns + 1] = c; return c end
 local function ping(n, v, p) if ORBIT.Sfx and ORBIT.Sfx.play then pcall(ORBIT.Sfx.play, n, v or 1, p or 1) end end
+
+-- v25.5: общий слой боя (A.battle из orbit_abilities v25.1). Если его нет — всё работает как раньше.
+local function battle()
+  local ab = ORBIT.abilities
+  return ab and ab.battle or nil
+end
+local function dmgMul()
+  local B = battle()
+  if B and B.dmgMul then return B.dmgMul() end
+  return 1
+end
+local function intervalMul()
+  local B = battle()
+  if B and B.intervalMul then return B.intervalMul() end
+  return 1
+end
+local function shakeNear(pos, mag, dur)
+  local B = battle()
+  if B and B.shakeNear then pcall(B.shakeNear, pos, mag, dur) end
+end
+
 local function fold()
   if S.folder and S.folder.Parent then return S.folder end
   S.folder = Instance.new("Folder")
@@ -62,6 +100,16 @@ local function getChar()
   if not h or not r or h.Health <= 0 then return nil end
   return c, h, r
 end
+
+-- v25.5: родитель для UI — ORBIT.getSafeParent(), запасной вариант PlayerGui
+local function uiParent()
+  if type(ORBIT.getSafeParent) == "function" then
+    local ok, p = pcall(ORBIT.getSafeParent)
+    if ok and typeof(p) == "Instance" then return p end
+  end
+  return LP:FindFirstChildOfClass("PlayerGui")
+end
+
 local function rayParams()
   local rp = RaycastParams.new()
   rp.FilterType = Enum.RaycastFilterType.Exclude
@@ -213,7 +261,7 @@ local function buildBlaster(scale)
 end
 
 local function showBossUI()
-  local pg = LP:FindFirstChildOfClass("PlayerGui")
+  local pg = uiParent()
   if not pg then return end
   local old = pg:FindFirstChild("_OrbitSansBoss")
   if old then old:Destroy() end
@@ -267,6 +315,8 @@ local function updateBossUI()
     elseif phase == 3 then S.bossUI.hpFill.BackgroundColor3 = C3(255, 60, 60)
       if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack", true) end
     end
+    local B = battle()
+    if B and B.onPhase then pcall(B.onPhase, phase) end
   end
 end
 
@@ -298,7 +348,7 @@ end
 
 local function buildCollectUI()
   if S.collectUI and S.collectUI.sg then pcall(function() S.collectUI.sg:Destroy() end) end
-  local pg = LP:FindFirstChildOfClass("PlayerGui")
+  local pg = uiParent()
   if not pg then return end
   local sg = Instance.new("ScreenGui")
   sg.Name = "OrbitSansCollectGui"; sg.ResetOnSpawn = false
@@ -541,34 +591,9 @@ local function stepTraps(dt, t)
   end
 end
 
-local function collectLegs(model)
-  local legs = {}
-  for _, d in ipairs(model:GetDescendants()) do
-    if d:IsA("BasePart") and (d.Name == "Slipper" or d.Name:find("Slipper")) then
-      legs[#legs + 1] = { p = d, baseRel = d.CFrame, side = (d.Position.X > model:GetPivot().Position.X) and 1 or -1 }
-    end
-  end
-  return legs
-end
-
-local function playWalkAnim(model, phase, dt)
-  if not model or not model.PrimaryPart then return end
-  local pivot = model:GetPivot()
-  local sway = math.sin(phase * 2) * math.rad(3)
-  local bob = math.abs(math.sin(phase)) * 0.08
-  pcall(function()
-    model:PivotTo(pivot * CFrame.Angles(0, 0, sway) + V3(0, bob, 0))
-  end)
-  local legPhase = math.sin(phase)
-  local legs = S._legs
-  if not legs then legs = collectLegs(model); S._legs = legs end
-  for _, l in ipairs(legs) do
-    if l.p.Parent then
-      local zShift = (l.side > 0) and legPhase or -legPhase
-      local rel = model.PrimaryPart.CFrame:ToObjectSpace(l.baseRel)
-      pcall(function() l.p.CFrame = model.PrimaryPart.CFrame * rel * CF(0, 0, zShift * 0.35) end)
-    end
-  end
+-- ===== v25.5: ХОДЬБА ЧЕРЕЗ ORBIT.figureRig =====
+local function say(cat, force)
+  if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, cat, force) end
 end
 
 local function findWalkTarget(center, bossPos)
@@ -579,11 +604,27 @@ local function findWalkTarget(center, bossPos)
   return V3(ground.X, ground.Y + 3, ground.Z)
 end
 
+-- Поза лицом к игроку. Пресет САНС построен лицом к +Z, lookAt даёт -Z → разворот на π.
+-- Горизонталь: чтобы босс не наклонялся по высоте игрока.
+local function faceCF(pos, target)
+  local flat = V3(target.X, pos.Y, target.Z)
+  if (flat - pos).Magnitude < 0.05 then return CFrame.new(pos) end
+  return CFrame.lookAt(pos, flat) * CFrame.Angles(0, math.pi, 0)
+end
+
+-- Поза ног/рук/головы: строго ПОСЛЕ PivotTo, иначе PivotTo сотрёт позу
+local function applyRig(dt)
+  local Rig = ORBIT.figureRig
+  if Rig and Rig.update and S.boss and S.boss.model then
+    pcall(Rig.update, S.boss.model, dt, S.bossVel)
+  end
+end
+
 local function stepBossMovement(dt, t)
-  if not S.boss or not S.boss.root then return end
+  if not S.boss or not S.boss.model then return end
   local c, h, r = getChar()
-  if not r then return end
-  local bossPos = S.boss.root.Position
+  if not r then S.bossVel = V3(0, 0, 0); return end
+  local bossPos = S.boss.model:GetPivot().Position
   local playerPos = r.Position
 
   if not S.walkTarget or t >= S.nextRetarget or (S.walkTarget - bossPos).Magnitude < 1.5 then
@@ -601,62 +642,67 @@ local function stepBossMovement(dt, t)
       S.walkTarget = V3(dodgeTo.X, dodgeTo.Y + 3, dodgeTo.Z)
       S.nextRetarget = t + 0.8
       ping("dodge", 0.8, 1.4)
-      if math.random() < 0.3 and ORBIT.sans and ORBIT.sans.say then
-        pcall(ORBIT.sans.say, "dodge")
-      end
+      if math.random() < 0.3 then say("dodge") end
     end
   end
 
   local target = S.walkTarget or bossPos
   local diff = V3(target.X - bossPos.X, 0, target.Z - bossPos.Z)
   local dist = diff.Magnitude
+  local newPos = bossPos
   if dist > 0.8 then
-    local speed = 10
-    local step = math.min(dist, speed * dt)
+    local step = math.min(dist, 10 * dt)
     local dir = diff.Unit
-    local newPos = bossPos + dir * step
-    local groundY = target.Y
-    local finalPos = V3(newPos.X, groundY, newPos.Z)
-    pcall(function() S.boss.model:PivotTo(CFrame.lookAt(finalPos, finalPos + dir)) end)
-    S.walkPhase = S.walkPhase + dt * 10
-    playWalkAnim(S.boss.model, S.walkPhase, dt)
-  else
-    S.walkPhase = S.walkPhase + dt * 2
-    local bob = math.sin(S.walkPhase) * 0.05
-    pcall(function()
-      local pivot = S.boss.model:GetPivot()
-      S.boss.model:PivotTo(pivot + V3(0, bob, 0))
-    end)
+    newPos = V3(bossPos.X + dir.X * step, target.Y, bossPos.Z + dir.Z * step)
   end
+  local vel = V3(newPos.X - bossPos.X, 0, newPos.Z - bossPos.Z) / math.max(dt, 0.001)
+  S.bossVel = S.bossVel:Lerp(vel, math.min(1, dt * 10))
+  pcall(function() S.boss.model:PivotTo(faceCF(newPos, playerPos)) end)
 end
+
 -- ============================================================
---       АТАКИ (v25.4: кости увеличены)
+--       КОСТИ (v25.5: «бугры» следуют за костью)
 -- ============================================================
-local function spawnBoneShot(origin, dirv, dmg, speed, size)
-  -- v25.4: кости крупнее (0.5 → 0.9, длина 2.8 → 3.8)
+local function makeBone(origin, size, light)
   size = size or 0.9
   local len = 3.8 * size
   local p = ORBIT.newPart(fold(), "BossBone", V3(size * 1.4, size * 1.4, len), CF(origin), COL_BONE)
-  p.CFrame = CFrame.lookAt(origin, origin + dirv)
   p:SetAttribute("NoRecolor", true)
   p.Material = MAT.SmoothPlastic
+  local extra = {}
   for _, sz in ipairs({1, -1}) do
-    for _, sx in ipairs({-1, 1}) do
+    local xs = light and {0} or {-1, 1}
+    for _, sx in ipairs(xs) do
       local lobe = ORBIT.newPart(fold(), "Lobe", V3(size * 1.5, size * 1.5, size * 1.5), CF(), COL_BONE, true)
       lobe.Shape = PT_BALL
       lobe.Material = MAT.SmoothPlastic
-      lobe.CFrame = p.CFrame * CF(sx * size * 0.6, 0, sz * (len * 0.5 - size * 0.4))
       lobe.Parent = p
+      extra[#extra + 1] = { p = lobe, off = CF(sx * size * 0.6, 0, sz * (len * 0.5 - size * 0.4)) }
     end
   end
-  S.shots[#S.shots + 1] = { part = p, vel = dirv * speed, life = 3, dmg = dmg, born = tick() }
+  return p, extra, len
 end
 
+local function placeBone(p, extra, cf)
+  p.CFrame = cf
+  for _, e in ipairs(extra) do e.p.CFrame = cf * e.off end
+end
+
+local function spawnBoneShot(origin, dirv, dmg, speed, size)
+  local p, extra = makeBone(origin, size or 0.9, false)
+  placeBone(p, extra, CFrame.lookAt(origin, origin + dirv))
+  -- урон игроку считает A.battle сам (HealthChanged); тут только множитель ярости
+  S.shots[#S.shots + 1] = { part = p, extra = extra, vel = dirv * speed, life = 3, dmg = dmg * dmgMul(), born = tick() }
+end
+
+-- ============================================================
+--       АТАКИ: прежние 4
+-- ============================================================
 local function attackBoneVolley()
   if not S.boss or not S.active then return end
   local c, h, r = getChar()
   if not r then return end
-  local from = S.boss.root.Position + V3(0, 2, 0)
+  local from = S.boss.model:GetPivot().Position + V3(0, 2, 0)
   local to = r.Position
   local baseDir = (to - from).Unit
   local n = S.phase >= 2 and 5 or 3
@@ -669,7 +715,7 @@ local function attackBoneVolley()
     end)
   end
   ping("snap", 0.8, 1.4)
-  if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack") end
+  say("attack")
 end
 
 local function attackBlasterPair()
@@ -677,7 +723,7 @@ local function attackBlasterPair()
   local c, h, r = getChar()
   if not r then return end
   local center = r.Position
-  local bossPos = S.boss.root.Position
+  local bossPos = S.boss.model:GetPivot().Position
   local sideDir = V3(center.X - bossPos.X, 0, center.Z - bossPos.Z)
   if sideDir.Magnitude > 0.1 then sideDir = sideDir.Unit else sideDir = V3(1, 0, 0) end
   local right = sideDir:Cross(V3(0, 1, 0)).Unit
@@ -708,10 +754,11 @@ local function attackBlasterPair()
           local dirv = (center - beamFrom).Unit
           local tp = math.clamp(rel:Dot(dirv), 0, len)
           if (rr.Position - (beamFrom + dirv * tp)).Magnitude <= 4 then
-            pcall(function() hh:TakeDamage(18) end)
+            pcall(function() hh:TakeDamage(18 * dmgMul()) end)
             S.hitTimes[#S.hitTimes + 1] = tick()
           end
         end
+        shakeNear(center, 0.5, 0.25)
         ping("snap", 1, 0.6)
         task.delay(0.3, function() pcall(function() m:Destroy() end) end)
       end)
@@ -724,7 +771,7 @@ local function attackTeleportStrike()
   if not S.boss or not S.active then return end
   local c, h, r = getChar()
   if not r then return end
-  local oldPos = S.boss.root.Position
+  local oldPos = S.boss.model:GetPivot().Position
   for i = 1, 8 do
     local p = ORBIT.newPart(fold(), "TpSpark", V3(0.5, 0.5, 0.5), CF(), COL_EYE)
     p.Shape = PT_BALL; p.Transparency = 0.2
@@ -737,7 +784,8 @@ local function attackTeleportStrike()
   local rawPos = r.Position + V3(behind.X, 0, behind.Z)
   local gp = groundAt(rawPos)
   local newPos = V3(gp.X, gp.Y + 3, gp.Z)
-  pcall(function() S.boss.model:PivotTo(CFrame.lookAt(newPos, r.Position)) end)
+  S.bossVel = V3(0, 0, 0)
+  pcall(function() S.boss.model:PivotTo(faceCF(newPos, r.Position)) end)
   S.walkTarget = newPos
   S.nextRetarget = tick() + 1.2
   for i = 1, 10 do
@@ -749,14 +797,14 @@ local function attackTeleportStrike()
     Debris:AddItem(p, 0.6)
   end
   task.delay(0.35, function()
-    if not alive or not S.active then return end
+    if not alive or not S.active or not S.boss then return end
     local c2, h2, r2 = getChar()
     if not r2 then return end
-    local shotPos = S.boss.root.Position + V3(0, 1.5, 0)
+    local shotPos = S.boss.model:GetPivot().Position + V3(0, 1.5, 0)
     local d = (r2.Position - shotPos).Unit
     spawnBoneShot(shotPos, d, 35, 100, 1.2)
     ping("snap", 1, 1.2)
-    if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack", true) end
+    say("attack", true)
   end)
 end
 
@@ -764,7 +812,7 @@ local function attackBlueEye()
   if not S.boss or not S.active then return end
   local c, h, r = getChar()
   if not r then return end
-  local eyePos = S.boss.root.Position + V3(0, 3.5, 0)
+  local eyePos = S.boss.model:GetPivot().Position + V3(0, 3.5, 0)
   local sphere = ORBIT.newPart(fold(), "BlueEye", V3(2, 2, 2), CF(eyePos), COL_EYE)
   sphere.Shape = PT_BALL; sphere.Transparency = 0.3
   local l = Instance.new("PointLight"); l.Color = COL_EYE; l.Range = 30; l.Brightness = 8; l.Parent = sphere
@@ -773,11 +821,328 @@ local function attackBlueEye()
   Debris:AddItem(sphere, 1)
   local _, hh, rr = getChar()
   if hh and rr and (rr.Position - eyePos).Magnitude <= 25 then
-    pcall(function() hh:TakeDamage(8) end)
+    pcall(function() hh:TakeDamage(8 * dmgMul()) end)
   end
-  if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "attack") end
+  shakeNear(eyePos, 0.5, 0.3)
+  say("attack")
 end
 
+-- ============================================================
+--       v25.5: НОВАЯ АТАКА 1 — «КОСТЯНАЯ СТЕНА»
+-- ============================================================
+local WALL_N, WALL_SP, WALL_SPEED = 11, 2.4, 24
+
+local function attackBoneWall()
+  if not S.boss or not S.active then return end
+  local c, h, r = getChar()
+  if not r then return end
+  local bossPos = S.boss.model:GetPivot().Position
+  local flat = V3(r.Position.X - bossPos.X, 0, r.Position.Z - bossPos.Z)
+  if flat.Magnitude < 1 then flat = V3(0, 0, 1) end
+  local dir = flat.Unit
+  local right = dir:Cross(V3(0, 1, 0)).Unit
+  local dist0 = flat.Magnitude
+  local waves = (S.phase >= 3) and 2 or 1
+  say("attack"); ping("snap", 0.8, 0.6)
+
+  for w = 1, waves do
+    task.delay((w - 1) * 0.9, function()
+      if not alive or not S.active then return end
+      local start = bossPos + dir * 3
+      local g0 = groundAt(start)
+      local travel = dist0 + 25
+      local warn = ORBIT.newPart(fold(), "WallWarn", V3(WALL_N * WALL_SP, 0.2, travel),
+        CFrame.lookAt(g0 + dir * (travel / 2) + V3(0, 0.15, 0), g0 + dir * travel + V3(0, 0.15, 0)), COL_TRAP, true)
+      warn.Material = MAT.Neon; warn.Transparency = 0.55
+      TS:Create(warn, TweenInfo.new(0.7), { Transparency = 1 }):Play()
+      Debris:AddItem(warn, 0.8)
+
+      task.delay(0.7, function()
+        if not alive or not S.active then return end
+        local gapIdx = math.random(2, WALL_N - 2)
+        local exists, bones = {}, {}
+        for i = 1, WALL_N do
+          exists[i] = not (i == gapIdx or i == gapIdx + 1)
+          if exists[i] then
+            local lat = (i - (WALL_N + 1) / 2) * WALL_SP
+            local p, extra, len = makeBone(g0, 1.5, true)
+            bones[#bones + 1] = { p = p, extra = extra, len = len, lat = lat }
+          end
+        end
+        S.walls[#S.walls + 1] = {
+          bones = bones, exists = exists, pos = Vector3.new(start.X, g0.Y, start.Z),
+          dir = dir, right = right, speed = WALL_SPEED, born = tick(),
+          life = travel / WALL_SPEED, hit = false,
+        }
+        ping("snap", 1, 0.5)
+      end)
+    end)
+  end
+end
+
+local function stepWalls(dt)
+  if #S.walls == 0 then return end
+  local t = tick()
+  local _, hum, root = getChar()
+  for i = #S.walls, 1, -1 do
+    local w = S.walls[i]
+    local el = t - w.born
+    if el > w.life or not S.active then
+      for _, b in ipairs(w.bones) do pcall(function() b.p:Destroy() end) end
+      table.remove(S.walls, i)
+    else
+      w.pos = w.pos + w.dir * w.speed * dt
+      local gy = groundAt(w.pos).Y
+      local k = math.clamp(el / 0.3, 0, 1)
+      for _, b in ipairs(w.bones) do
+        local base = w.pos + w.right * b.lat
+        local cy = gy + b.len * 0.5 - b.len * (1 - k)
+        placeBone(b.p, b.extra, CFrame.new(base.X, cy, base.Z) * CFrame.Angles(math.rad(90), 0, 0))
+      end
+      if root and hum and not w.hit then
+        local rel = root.Position - w.pos
+        local along = rel:Dot(w.dir)
+        local lat = rel:Dot(w.right)
+        if math.abs(along) < 1.8 and root.Position.Y < gy + 6 then
+          local idx = math.floor(lat / WALL_SP + (WALL_N + 1) / 2 + 0.5)
+          if w.exists[idx] and math.abs(lat - (idx - (WALL_N + 1) / 2) * WALL_SP) < 1.5 then
+            w.hit = true
+            pcall(function() hum:TakeDamage(22 * dmgMul()) end)
+            pcall(function() root.AssemblyLinearVelocity = w.dir * 40 + V3(0, 18, 0) end)
+            S.hitTimes[#S.hitTimes + 1] = tick()
+            shakeNear(root.Position, 0.5, 0.25)
+            ping("ping", 1, 0.7)
+          end
+        end
+      end
+    end
+  end
+end
+
+-- ============================================================
+--       v25.5: НОВАЯ АТАКА 2 — «СИНИЙ ШТОРМ»
+-- ============================================================
+local BLUE_RULE = true
+local STORM_ORBIT, STORM_CONV = 1.8, 0.9
+
+local function makeStormSkull()
+  local m
+  local presets = ORBIT.SHAPE_PRESETS
+  if type(presets) == "table" then
+    for _, p in ipairs(presets) do
+      if p.name == "ЧЕРЕП" and type(p.create) == "function" then
+        local ok, data = pcall(p.create, 1.6, "SansStormSkull")
+        if ok and data and data.model then m = data.model end
+        break
+      end
+    end
+  end
+  if not m then
+    m = Instance.new("Model"); m.Name = "SansStormSkull"
+    local root = ORBIT.newPart(m, "Root", V3(1.6, 1.6, 1.6), CF(), COL_EYE, true)
+    root.Shape = PT_BALL; root.Material = MAT.Neon
+    m.PrimaryPart = root
+  end
+  local halo = ORBIT.newPart(m, "Halo", V3(3, 3, 3), CF(), COL_EYE, true)
+  halo.Shape = PT_BALL; halo.Material = MAT.Neon; halo.Transparency = 0.7
+  local l = Instance.new("PointLight")
+  l.Color = COL_EYE; l.Range = 14; l.Brightness = 3; l.Parent = m.PrimaryPart or halo
+  for _, d in ipairs(m:GetDescendants()) do
+    if d:IsA("BasePart") then
+      d:SetAttribute("NoRecolor", true); d.CanQuery = false; d.CanTouch = false
+    end
+  end
+  m.Parent = fold()
+  return m
+end
+
+local function endStorm(withFx)
+  local st = S.storm
+  if not st then return end
+  S.storm = nil
+  for _, m in ipairs(st.skulls) do
+    if withFx and m.Parent then
+      local pos = m:GetPivot().Position
+      local b = ORBIT.newPart(fold(), "StormBurst", V3(1, 1, 1), CF(pos), COL_EYE, true)
+      b.Shape = PT_BALL; b.Material = MAT.Neon; b.Transparency = 0.3
+      TS:Create(b, TweenInfo.new(0.3), { Size = V3(6, 6, 6), Transparency = 1 }):Play()
+      Debris:AddItem(b, 0.4)
+    end
+    pcall(function() m:Destroy() end)
+  end
+end
+
+local function attackBlueStorm()
+  if not S.boss or not S.active or S.storm then return end
+  local c, h, r = getChar()
+  if not r then return end
+  local skulls = {}
+  for i = 1, 3 do skulls[i] = makeStormSkull() end
+  S.storm = { skulls = skulls, t0 = tick(), center = r.Position, ang = math.random() * 6.28, hit = {} }
+  say("taunt"); ping("snap", 0.8, 1.4)
+  if ORBIT.notify then
+    ORBIT.notify(BLUE_RULE and "💙 Синий шторм: не двигайся, когда черепа сойдутся!" or "💙 Синий шторм!",
+      C3(120, 200, 255), 3)
+  end
+end
+
+local function stepStorm(dt, t)
+  local st = S.storm
+  if not st then return end
+  if not S.active then endStorm(false); return end
+  local _, hum, root = getChar()
+  local el = t - st.t0
+  if root then st.center = st.center:Lerp(root.Position, math.min(1, dt * 3)) end
+  local radius, speed
+  if el < STORM_ORBIT then
+    radius = 12 - 3 * (el / STORM_ORBIT); speed = 2.4
+  else
+    local k = math.clamp((el - STORM_ORBIT) / STORM_CONV, 0, 1)
+    radius = 9 * (1 - k) + 0.8; speed = 2.4 + 4 * k
+  end
+  st.ang = st.ang + speed * dt
+  for i, m in ipairs(st.skulls) do
+    local a = st.ang + (i - 1) * (2 * math.pi / 3)
+    local pos = st.center + V3(math.cos(a) * radius, 1.5 + math.sin(el * 3 + i) * 0.5, math.sin(a) * radius)
+    pcall(function() m:PivotTo(CFrame.lookAt(pos, st.center + V3(0, 1.5, 0))) end)
+    if el >= STORM_ORBIT and root and hum and not st.hit[i] and (root.Position - pos).Magnitude < 3.2 then
+      st.hit[i] = true
+      local v = root.AssemblyLinearVelocity
+      local moving = V3(v.X, 0, v.Z).Magnitude > 3
+      if (not BLUE_RULE) or moving then
+        pcall(function() hum:TakeDamage(12 * dmgMul()) end)
+        S.hitTimes[#S.hitTimes + 1] = tick()
+        shakeNear(pos, 0.4, 0.2)
+        ping("ping", 1, 1.3)
+      end
+    end
+  end
+  if el >= STORM_ORBIT + STORM_CONV + 0.15 then endStorm(true) end
+end
+
+-- ============================================================
+--       v25.5: НОВАЯ АТАКА 3 — «ДВОЙНОЙ ПРЫЖОК»
+-- ============================================================
+local JUMP_KEYS = { {0, 0}, {0.3, -0.6}, {0.75, 10}, {1.0, 10}, {1.4, 15}, {1.65, 15}, {2.15, 0} }
+
+local function jumpHeight(t)
+  for i = 1, #JUMP_KEYS - 1 do
+    local a, b = JUMP_KEYS[i], JUMP_KEYS[i + 1]
+    if t <= b[1] then
+      local k = (t - a[1]) / (b[1] - a[1])
+      k = k * k * (3 - 2 * k)
+      return a[2] + (b[2] - a[2]) * k
+    end
+  end
+  return 0
+end
+
+local function jumpFan(n, spread)
+  if not S.boss or not S.active then return end
+  local _, _, r = getChar()
+  if not r then return end
+  local from = S.boss.model:GetPivot().Position + V3(0, 1, 0)
+  local flat = V3(r.Position.X - from.X, 0, r.Position.Z - from.Z)
+  if flat.Magnitude < 0.5 then flat = V3(0, 0, 1) end
+  local down = (flat.Unit * math.cos(math.rad(42)) + V3(0, -math.sin(math.rad(42)), 0)).Unit
+  for i = 1, n do
+    local a = (i - (n + 1) / 2) * spread
+    local d = CFrame.Angles(0, math.rad(a), 0):VectorToWorldSpace(down)
+    spawnBoneShot(from, d, 18, 62, 0.9)
+  end
+  ping("snap", 0.9, 1.3)
+  shakeNear(from, 0.3, 0.15)
+end
+
+local function attackDoubleJump()
+  if not S.boss or not S.active or S.jump then return end
+  local c, h, r = getChar()
+  if not r then return end
+  local start = S.boss.model:GetPivot().Position
+  local flat = V3(r.Position.X - start.X, 0, r.Position.Z - start.Z)
+  local mag = flat.Magnitude
+  local goal = start + (mag > 0.1 and flat.Unit or V3(0, 0, 1)) * math.min(mag, 7)
+  S.jump = { t0 = tick(), start = start, goal = goal, fan1 = false, fan2 = false }
+  S.bossVel = V3(0, 0, 0)
+  say("combo"); ping("snap", 0.9, 0.7)
+end
+
+local function stepJump(dt, t)
+  local j = S.jump
+  if not j then return end
+  if not S.boss or not S.boss.model then S.jump = nil; return end
+  local el = t - j.t0
+  local _, _, r = getChar()
+  local look = r and r.Position or (j.goal + V3(0, 0, 1))
+  local k = math.clamp(el / 2.15, 0, 1)
+  local x = j.start.X + (j.goal.X - j.start.X) * k
+  local z = j.start.Z + (j.goal.Z - j.start.Z) * k
+  local y = j.start.Y + jumpHeight(el)
+  pcall(function() S.boss.model:PivotTo(faceCF(V3(x, y, z), look)) end)
+  if el >= 0.8 and not j.fan1 then j.fan1 = true; jumpFan(S.phase >= 3 and 5 or 3, 16) end
+  if el >= 1.45 and not j.fan2 then j.fan2 = true; jumpFan(7, 12) end
+  if el >= 2.15 then
+    local g = groundAt(V3(x, y, z))
+    local land = V3(x, g.Y + 3, z)
+    pcall(function() S.boss.model:PivotTo(faceCF(land, look)) end)
+    S.walkTarget = land
+    S.nextRetarget = t + 1
+    S.jump = nil
+    local ring = ORBIT.newPart(fold(), "LandRing", V3(0.3, 2, 2),
+      CF(g + V3(0, 0.3, 0)) * CFrame.Angles(0, 0, math.rad(90)), COL_EYE, true)
+    ring.Shape = Enum.PartType.Cylinder; ring.Material = MAT.Neon; ring.Transparency = 0.3
+    TS:Create(ring, TweenInfo.new(0.4), { Size = V3(0.3, 14, 14), Transparency = 1 }):Play()
+    Debris:AddItem(ring, 0.5)
+    shakeNear(g, 0.9, 0.4); ping("snap", 1, 0.5)
+    local _, hh, rr = getChar()
+    if hh and rr and (rr.Position - g).Magnitude <= 7 and rr.Position.Y < g.Y + 5 then
+      pcall(function() hh:TakeDamage(16 * dmgMul()) end)
+      pcall(function() rr.AssemblyLinearVelocity = (rr.Position - g).Unit * 30 + V3(0, 15, 0) end)
+      S.hitTimes[#S.hitTimes + 1] = tick()
+    end
+  end
+end
+
+-- ============================================================
+--       ТАБЛИЦА АТАК (7 шт.): фаза 1 — 3, фаза 2 — 5, фаза 3 — 7
+-- ============================================================
+local ATTACKS = {
+  { id = "bone",  minPhase = 1, fn = attackBoneVolley },
+  { id = "blast", minPhase = 1, fn = attackBlasterPair },
+  { id = "wall",  minPhase = 1, fn = attackBoneWall },
+  { id = "tp",    minPhase = 2, fn = attackTeleportStrike },
+  { id = "storm", minPhase = 2, fn = attackBlueStorm },
+  { id = "eye",   minPhase = 3, fn = attackBlueEye },
+  { id = "jump",  minPhase = 3, fn = attackDoubleJump },
+}
+
+local function pickAttack()
+  if S.jump then return nil end
+  local pool = {}
+  for _, a in ipairs(ATTACKS) do
+    if S.phase >= a.minPhase and a.id ~= S.lastAttackId
+       and not (a.id == "storm" and S.storm) then
+      pool[#pool + 1] = a
+    end
+  end
+  if #pool == 0 then return nil end
+  local a = pool[math.random(#pool)]
+  S.lastAttackId = a.id
+  return a
+end
+
+local function clearAttackFx()
+  for _, w in ipairs(S.walls) do
+    for _, b in ipairs(w.bones) do pcall(function() b.p:Destroy() end) end
+  end
+  S.walls = {}
+  endStorm(false)
+  S.jump = nil
+end
+
+-- ============================================================
+--       УРОН ПО БОССУ (хук на ab.fireId)
+-- ============================================================
 local function hookDamage()
   local ab = ORBIT.abilities
   if not ab or type(ab.fireId) ~= "function" then return end
@@ -787,21 +1152,23 @@ local function hookDamage()
   local orig = ab.fireId
   ab.fireId = function(id, ch)
     local r = orig(id, ch)
-    if r and S.active and S.boss and S.state == "boss" then
+    if r and S.hooked and S.active and S.boss and S.state == "boss" then
       local c, h, rr = getChar()
       if rr then
-        local bd = (S.boss.root.Position - rr.Position).Magnitude
+        local bd = (S.boss.model:GetPivot().Position - rr.Position).Magnitude
         if bd <= 60 then
           local dmgVal = ch and 45 or 25
           local dodgeChance = S.phase == 1 and 0.25 or (S.phase == 2 and 0.18 or 0.10)
           if math.random() < dodgeChance then
-            if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "dodge") end
+            say("dodge")
             ping("dodge", 1, 1.5)
           else
             S.hp = math.max(0, S.hp - dmgVal)
             updateBossUI()
             S.hitTimes[#S.hitTimes + 1] = tick()
-            local hit = ORBIT.newPart(fold(), "Hit", V3(1.5, 1.5, 1.5), CF(S.boss.root.Position + V3(0, 2, 0)), C3(255, 200, 100))
+            local B = battle()
+            if B and B.recordDamage then pcall(B.recordDamage, dmgVal, "boss") end
+            local hit = ORBIT.newPart(fold(), "Hit", V3(1.5, 1.5, 1.5), CF(S.boss.model:GetPivot().Position + V3(0, 2, 0)), C3(255, 200, 100))
             hit.Shape = PT_BALL; hit.Transparency = 0.2
             local l = Instance.new("PointLight"); l.Color = C3(255, 200, 100); l.Range = 12; l.Brightness = 6; l.Parent = hit
             TS:Create(hit, TweenInfo.new(0.35), { Size = V3(6, 6, 6), Transparency = 1 }):Play()
@@ -815,17 +1182,24 @@ local function hookDamage()
     end
     return r
   end
+  S._wrapper = ab.fireId   -- v25.5: запоминаем свою обёртку (см. unhookDamage)
 end
 
 local function unhookDamage()
   local ab = ORBIT.abilities
-  if ab and S.hooked and S._origFireId then
+  -- v25.5: восстанавливаем оригинал, только если сверху нет чужой обёртки (Гастер и др.);
+  -- иначе обёртка остаётся, но с S.hooked=false пропускает вызов насквозь
+  if ab and S.hooked and S._origFireId and ab.fireId == S._wrapper then
     pcall(function() ab.fireId = S._origFireId end)
   end
+  S._wrapper = nil
   S.hooked = false
   S._origFireId = nil
 end
 
+-- ============================================================
+--       СНАРЯДЫ-КОСТИ (бугры следуют за костью)
+-- ============================================================
 local function stepShots(dt)
   if #S.shots == 0 then return end
   local rp = rayParams()
@@ -850,18 +1224,22 @@ local function stepShots(dt)
           pcall(function() hh:TakeDamage(q.dmg) end)
           S.hitTimes[#S.hitTimes + 1] = tick()
         end
+        shakeNear(hitPos, 0.35, 0.2)
         local burst = ORBIT.newPart(fold(), "Burst", V3(2.5, 2.5, 2.5), CF(hitPos), COL_BONE)
         burst.Shape = PT_BALL; burst.Transparency = 0.3
         local l = Instance.new("PointLight"); l.Color = COL_BONE; l.Range = 10; l.Brightness = 4; l.Parent = burst
         TS:Create(burst, TweenInfo.new(0.3), { Size = V3(8, 8, 8), Transparency = 1 }):Play()
         Debris:AddItem(burst, 0.4)
       else
-        q.part.CFrame = CFrame.lookAt(to, to + q.vel)
+        placeBone(q.part, q.extra or {}, CFrame.lookAt(to, to + q.vel))
       end
     end
   end
 end
 
+-- ============================================================
+--       СТАРТ СБОРА И БОЯ
+-- ============================================================
 function S.startCollect()
   if not alive then return false end
   if S.state == "collecting" or S.state == "boss" then
@@ -873,16 +1251,13 @@ function S.startCollect()
   S.state = "collecting"
   S.timer = 120
   S.collected = 0
-  S._legs = nil
   buildCollectUI()
   ping("ping", 1, 1.2)
   if ORBIT.notify then
     ORBIT.notify("💀 Собери 16 частей тела Санса!", C3(200, 230, 255), 3)
     ORBIT.notify("⚠️ Осторожно — розовые ловушки!", C3(255, 150, 180), 3)
   end
-  if ORBIT.sans and ORBIT.sans.say then
-    task.delay(0.5, function() pcall(ORBIT.sans.say, "greet", true) end)
-  end
+  task.delay(0.5, function() say("greet", true) end)
   return true
 end
 
@@ -893,6 +1268,21 @@ function S.stopCollect()
   S.state = "idle"
   S.timer = 120
   if ORBIT.notify then ORBIT.notify("↺ Сбор отменён", C3(255, 200, 120), 2) end
+end
+
+-- v25.5: единая уборка модели босса и бластеров (с Rig.detach — не оставляем запись в byModel)
+local function destroyBossModel()
+  local Rig = ORBIT.figureRig
+  if S.boss and S.boss.model then
+    if Rig and Rig.detach then pcall(Rig.detach, S.boss.model) end
+    pcall(function() S.boss.model:Destroy() end)
+  end
+  for _, b in ipairs(S.bossBlasters or {}) do
+    if b and b.Parent then pcall(function() b:Destroy() end) end
+  end
+  S.bossBlasters = {}
+  S.boss = nil
+  S.bossVel = V3(0, 0, 0)
 end
 
 function S.startBoss()
@@ -907,19 +1297,24 @@ function S.startBoss()
   S.nextRetarget = 0
   S.nextDodge = tick() + 3
   S.walkPhase = 0
-  S._legs = nil
   S.walkTarget = nil
   S.shots = {}
   S.hitTimes = {}
   S.bossBlasters = {}
+  S.bossVel = V3(0, 0, 0)
+  S.lastAttackId = nil
+  S.deadSince = nil
+  clearAttackFx()
   clearShards()
 
   local c, h, r = getChar()
-  if not r then return end
+  if not r then
+    S.active = false; S.state = "idle"
+    return
+  end
 
   local data = buildSansBoss(3)
 
-  -- v25.4: вынимаем бластеры из модели Санса — они будут парить отдельно
   if data and data.model then
     for _, ch in ipairs(data.model:GetChildren()) do
       if ch:IsA("Model") and ch.Name:find("Blaster") then
@@ -934,8 +1329,7 @@ function S.startBoss()
   local spawnPos = r.Position + r.CFrame.LookVector * 15
   local gp = groundAt(spawnPos)
   local finalPos = V3(gp.X, gp.Y + 3, gp.Z)
-  -- v25.4: разворот на 180° — пресет САНС построен лицом к +Z
-  pcall(function() data.model:PivotTo(CFrame.lookAt(finalPos, r.Position) * CFrame.Angles(0, math.pi, 0)) end)
+  pcall(function() data.model:PivotTo(faceCF(finalPos, r.Position)) end)
   S.boss = {
     data = data,
     root = data.part or data.model.PrimaryPart,
@@ -953,12 +1347,18 @@ function S.startBoss()
   showBossUI()
   updateBossUI()
   hookDamage()
+  local B = battle()
+  if B and B.start then
+    pcall(B.start, "sans", {
+      maxHp = S.maxHp,
+      getHp = function() return S.hp, S.maxHp end,
+      getModel = function() return S.boss and S.boss.model or nil end,
+    })
+  end
   ping("laugh", 1, 0.9)
 
-  if ORBIT.sans and ORBIT.sans.say then
-    task.delay(0.4, function() pcall(ORBIT.sans.say, "greet", true) end)
-    task.delay(1.2, function() pcall(ORBIT.sans.say, "taunt", true) end)
-  end
+  task.delay(0.4, function() say("greet", true) end)
+  task.delay(1.2, function() say("taunt", true) end)
   if ORBIT.notify then
     ORBIT.notify("💀 САНС ВЫШЕЛ НА БОЙ!", C3(200, 230, 255), 4)
     ORBIT.notify("⚔ Используй свои стихии — наноси урон!", C3(255, 200, 120), 5)
@@ -979,8 +1379,11 @@ function S.winBoss()
   S.state = "won"
   hideBossUI()
   unhookDamage()
+  clearAttackFx()
+  local B = battle()
+  if B and B.win then pcall(B.win, { boss = "sans" }) end
 
-  local bossPos = S.boss and S.boss.root and S.boss.root.Position or V3(0, 5, 0)
+  local bossPos = (S.boss and S.boss.model and S.boss.model:GetPivot().Position) or V3(0, 5, 0)
   for i = 1, 8 do
     task.delay(i * 0.1, function()
       if not alive then return end
@@ -995,18 +1398,15 @@ function S.winBoss()
     end)
   end
 
-  if ORBIT.sans and ORBIT.sans.say then
-    task.delay(0.6, function() pcall(ORBIT.sans.say, "victory", true) end)
-    task.delay(2.0, function()
-      if ORBIT.sans.showAt and LP.Character then
-        local head = LP.Character:FindFirstChild("Head")
-        if head then
-          pcall(ORBIT.sans.showAt, head.Position + V3(0, 3, 0), "забирай. заслужил.", 4)
-        end
+  task.delay(0.6, function() say("victory", true) end)
+  task.delay(2.0, function()
+    if ORBIT.sans and ORBIT.sans.showAt and LP.Character then
+      local head = LP.Character:FindFirstChild("Head")
+      if head then
+        pcall(ORBIT.sans.showAt, head.Position + V3(0, 3, 0), "забирай. заслужил.", 4)
       end
-    end)
-  end
-
+    end
+  end)
   task.delay(6.5, function()
     if not alive then return end
     if ORBIT.sans and ORBIT.sans.showAt and LP.Character then
@@ -1018,14 +1418,7 @@ function S.winBoss()
   end)
   ping("sans", 1, 1)
 
-  task.delay(1.2, function()
-    if S.boss and S.boss.model then pcall(function() S.boss.model:Destroy() end) end
-    for _, b in ipairs(S.bossBlasters or {}) do
-      if b and b.Parent then pcall(function() b:Destroy() end) end
-    end
-    S.bossBlasters = {}
-    S.boss = nil
-  end)
+  task.delay(1.2, function() destroyBossModel() end)
 
   task.delay(1.5, function()
     if S.cc then
@@ -1066,7 +1459,7 @@ function S.winBoss()
   end
 
   task.delay(5, function()
-    if alive then
+    if alive and S.state == "won" then
       S.state = "idle"
       S.hp = 400
       S.timer = 120
@@ -1080,57 +1473,52 @@ function S.failBoss(reason)
   S.state = "lost"
   hideBossUI()
   unhookDamage()
-  if S.boss and S.boss.model then pcall(function() S.boss.model:Destroy() end) end
-  for _, b in ipairs(S.bossBlasters or {}) do
-    if b and b.Parent then pcall(function() b:Destroy() end) end
-  end
-  S.bossBlasters = {}
-  S.boss = nil
+  clearAttackFx()
+  local B = battle()
+  if B and B.lose then pcall(B.lose, reason) end
+  destroyBossModel()
   if S.cc then pcall(function() S.cc:Destroy() end); S.cc = nil end
 
-  if ORBIT.sans and ORBIT.sans.say then
-    task.delay(0.3, function() pcall(ORBIT.sans.say, "taunt", true) end)
-    task.delay(1.2, function()
-      if ORBIT.sans.showAt and LP.Character then
-        local head = LP.Character:FindFirstChild("Head")
-        if head then
-          pcall(ORBIT.sans.showAt, head.Position + V3(0, 3, 0), reason or "время вышло. спишемся.", 4)
-        end
+  task.delay(0.3, function() say("taunt", true) end)
+  task.delay(1.2, function()
+    if ORBIT.sans and ORBIT.sans.showAt and LP.Character then
+      local head = LP.Character:FindFirstChild("Head")
+      if head then
+        pcall(ORBIT.sans.showAt, head.Position + V3(0, 3, 0), reason or "время вышло. спишемся.", 4)
       end
-    end)
-  end
+    end
+  end)
   ping("click", 1, 0.5)
   if ORBIT.notify then
     ORBIT.notify("💀 Санс ушёл... " .. (reason or "время вышло"), C3(255, 180, 180), 4)
   end
   task.delay(3, function()
-    if alive then
+    if alive and S.state == "lost" then
       S.state = "idle"
       S.hp = 400
       S.timer = 120
     end
   end)
 end
+S.loseBoss = S.failBoss   -- алиас под имя из плана
+
 -- ============================================================
 --       ГЛАВНЫЙ ЦИКЛ
 -- ============================================================
 local function stepBoss(dt, t)
   if not S.active or S.state ~= "boss" then return end
   updateBossUI()
-  stepBossMovement(dt, t)
 
-  -- v25.4: развернуть Санса на игрока (лицом, не спиной)
-  if S.boss and S.boss.model then
-    local c2, h2, r2 = getChar()
-    if r2 then
-      pcall(function()
-        local cur = S.boss.model:GetPivot().Position
-        S.boss.model:PivotTo(CFrame.lookAt(cur, r2.Position) * CFrame.Angles(0, math.pi, 0))
-      end)
-    end
+  if not getChar() then
+    S.deadSince = S.deadSince or t
+    if t - S.deadSince > 3 then S.failBoss("ты пал. спишемся."); return end
+  else
+    S.deadSince = nil
   end
 
-  -- v25.4: бластеры парят рядом с головой и смотрят на игрока
+  if S.jump then stepJump(dt, t) else stepBossMovement(dt, t) end
+  stepStorm(dt, t)
+
   if S.boss and S.boss.model and #S.bossBlasters > 0 then
     local c2, h2, r2 = getChar()
     local mcf = S.boss.model:GetPivot()
@@ -1150,23 +1538,26 @@ local function stepBoss(dt, t)
     end
   end
 
-  local attackInterval = S.phase == 1 and 3.5 or (S.phase == 2 and 2.5 or 1.8)
   if t >= S.nextAttack then
-    S.nextAttack = t + attackInterval
-    S.attackIndex = (S.attackIndex + 1) % 4
-    local which = S.attackIndex
-    if S.phase == 1 then which = (which % 2)
-    elseif S.phase == 2 then which = (which % 3) end
-    if which == 0 then attackBoneVolley()
-    elseif which == 1 then attackBlasterPair()
-    elseif which == 2 then attackTeleportStrike()
-    else attackBlueEye() end
+    local a = pickAttack()
+    if a then
+      local base = S.phase == 1 and 3.5 or (S.phase == 2 and 2.5 or 1.8)
+      S.nextAttack = t + base * intervalMul()
+      local ok, err = pcall(a.fn)
+      if not ok then warn("[Orbit SansBoss] атака " .. tostring(a.id) .. ": " .. tostring(err)) end
+    else
+      S.nextAttack = t + 0.4
+    end
   end
 
+  if #S.hitTimes > 20 then table.remove(S.hitTimes, 1) end
   if #S.hitTimes > 0 and t - S.hitTimes[#S.hitTimes] > 8 then
-    if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, "taunt") end
+    say("taunt")
     S.hitTimes[#S.hitTimes] = t
   end
+
+  -- ВАЖНО: риг строго ПОСЛЕДНИМ — после всех PivotTo босса за кадр
+  applyRig(dt)
 end
 
 local lastPhase = 1
@@ -1174,12 +1565,10 @@ local function checkPhasePhrases()
   if not S.active then lastPhase = 1; return end
   if S.phase ~= lastPhase then
     lastPhase = S.phase
-    if ORBIT.sans and ORBIT.sans.say then
-      if S.phase == 2 then
-        task.delay(0.3, function() pcall(ORBIT.sans.say, "hurt", true) end)
-      elseif S.phase == 3 then
-        task.delay(0.3, function() pcall(ORBIT.sans.say, "attack", true) end)
-      end
+    if S.phase == 2 then
+      task.delay(0.3, function() say("hurt", true) end)
+    elseif S.phase == 3 then
+      task.delay(0.3, function() say("attack", true) end)
     end
   end
 end
@@ -1214,6 +1603,7 @@ connect(RS.Heartbeat, function(dt)
   if not alive then return end
   local t = tick()
   stepShots(dt)
+  stepWalls(dt)
   if S.state == "collecting" then stepCollect(dt, t)
   elseif S.state == "boss" then
     stepBoss(dt, t)
@@ -1222,11 +1612,52 @@ connect(RS.Heartbeat, function(dt)
 end)
 
 -- ============================================================
+--       ОЧИСТКА
+-- ============================================================
+function S.destroy()
+  if not alive then return end
+  alive = false
+  for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+  conns = {}
+  unhookDamage()          -- ПЕРВЫМ: снять хук ORBIT.abilities.fireId
+  clearAttackFx()
+  hideBossUI()
+  clearShards()
+  -- v25.5-fix1: у A.battle нет полей active/boss — используем методы isActive()/bossId()
+  local B = battle()
+  if B and B.isActive and B.isActive() and B.bossId and B.bossId() == "sans" and B.cleanup then
+    pcall(B.cleanup)
+  end
+  if S.collectUI and S.collectUI.sg then pcall(function() S.collectUI.sg:Destroy() end); S.collectUI = nil end
+  destroyBossModel()
+  for _, q in ipairs(S.shots) do
+    if q.part and q.part.Parent then pcall(function() q.part:Destroy() end) end
+  end
+  S.shots = {}
+  if S.cc then pcall(function() S.cc:Destroy() end); S.cc = nil end
+  if S.menu then pcall(function() S.menu:Destroy() end); S.menu = nil end
+  if S.folder then pcall(function() S.folder:Destroy() end); S.folder = nil end
+  -- v25.5-fix1: страховка по имени в обоих родителях (safe parent + PlayerGui)
+  pcall(function()
+    for _, pg in ipairs({ uiParent(), LP:FindFirstChildOfClass("PlayerGui") }) do
+      if pg then
+        for _, nm in ipairs({ "_OrbitBossMenu", "_OrbitSansBoss", "OrbitSansCollectGui" }) do
+          local g = pg:FindFirstChild(nm)
+          if g then g:Destroy() end
+        end
+      end
+    end
+  end)
+  S.active = false
+  S.state = "idle"
+end
+
+-- ============================================================
 --       МЕНЮ БОССОВ (Санс + Гастер)
 -- ============================================================
 function S.open()
   if not alive then return false end
-  local pg = LP:FindFirstChildOfClass("PlayerGui")
+  local pg = uiParent()
   if not pg then return false end
 
   local old = pg:FindFirstChild("_OrbitBossMenu")
@@ -1240,6 +1671,7 @@ function S.open()
   sg.Parent = pg
   S.menu = sg
 
+  -- фон — обычный Frame (НЕ кнопка), Active=false: тач под ним не блокируется
   local backdrop = Instance.new("Frame")
   backdrop.Size = UDim2.fromScale(1, 1)
   backdrop.BackgroundColor3 = C3(0, 0, 0)
@@ -1334,7 +1766,7 @@ function S.open()
   end
 
   bossCard(48, "💀", "САНС",
-    "Мини-игра: собери 16 частей тела → бой.\nХодит по земле, уклоняется, телепортируется.",
+    "Мини-игра: собери 16 частей тела → бой.\n7 атак: кости, стена, бластеры, телепорт, синий шторм, двойной прыжок.",
     400, "🎯 СОБРАТЬ 16 ЧАСТЕЙ", C3(100, 200, 255),
     function() S.startCollect() end)
 
@@ -1363,7 +1795,7 @@ function S.open()
   local hint = Instance.new("TextLabel")
   hint.Size = UDim2.new(1, -32, 0, 60); hint.Position = UDim2.new(0, 16, 0, 380)
   hint.BackgroundTransparency = 1
-  hint.Text = "🎁 Награды за победу над Сансом:\n🦴 Клинок · 💧 Синий глаз · 💰 +500 · 💬 Чат · 🎨 Скин"
+  hint.Text = "🎁 Награды за победу над Сансом:\n🦴 Клинок · 💧 Синий глаз · 💰 +500 · 💬 Чат · 🎨 Скин\n👻 Призрак (без урона) · ⚔ Мастер клинков (10 побед) · 🏆 Легенда"
   hint.TextColor3 = C3(220, 200, 140); hint.Font = Enum.Font.Gotham
   hint.TextSize = 10; hint.TextWrapped = true; hint.TextXAlignment = Enum.TextXAlignment.Left
   hint.ZIndex = 3; hint.Parent = win
@@ -1372,46 +1804,9 @@ function S.open()
 end
 
 -- ============================================================
---       ОЧИСТКА
--- ============================================================
-function S.destroy()
-  if not alive then return end
-  alive = false
-  for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-  conns = {}
-  unhookDamage()
-  hideBossUI()
-  clearShards()
-  if S.collectUI and S.collectUI.sg then pcall(function() S.collectUI.sg:Destroy() end); S.collectUI = nil end
-  if S.boss and S.boss.model then pcall(function() S.boss.model:Destroy() end) end
-  for _, b in ipairs(S.bossBlasters or {}) do
-    if b and b.Parent then pcall(function() b:Destroy() end) end
-  end
-  S.bossBlasters = {}
-  S.boss = nil
-  for _, q in ipairs(S.shots) do
-    if q.part and q.part.Parent then pcall(function() q.part:Destroy() end) end
-  end
-  S.shots = {}
-  if S.cc then pcall(function() S.cc:Destroy() end); S.cc = nil end
-  if S.menu then pcall(function() S.menu:Destroy() end); S.menu = nil end
-  if S.folder then pcall(function() S.folder:Destroy() end); S.folder = nil end
-  pcall(function()
-    local pg = LP:FindFirstChildOfClass("PlayerGui")
-    if pg then
-      for _, nm in ipairs({ "_OrbitBossMenu", "_OrbitSansBoss", "OrbitSansCollectGui" }) do
-        local g = pg:FindFirstChild(nm)
-        if g then g:Destroy() end
-      end
-    end
-  end)
-  S.active = false
-  S.state = "idle"
-end
-
--- ============================================================
 --       ЭКСПОРТ
 -- ============================================================
+S.version = "v25.5-fix1"
 ORBIT.sans_boss = S
 if ORBIT.sansUnlocked == nil then ORBIT.sansUnlocked = false end
 if ORBIT.sansKnifeUnlocked == nil then ORBIT.sansKnifeUnlocked = false end
@@ -1426,7 +1821,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("💀 Санс v25.4 (бластеры парят, кости больше, смотрит на игрока)", C3(200, 230, 255), 3)
+  ORBIT.notify("💀 Санс v25.5-fix1 (7 атак, риг ходьбы, ярость и награды)", C3(200, 230, 255), 3)
 end
 
 return true
