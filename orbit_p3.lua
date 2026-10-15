@@ -4,6 +4,9 @@
 --        shop (deleteCustomShape), loader (экран режима). setMode + onPlayerDied уже здесь.
 -- v24.2-fix1: findGroundY исключает все Orbit-объекты (кольца, аура, огонь, target-rings,
 --             фейерверки, SFX) — иначе бот мог «сесть» на своё же кольцо.
+-- v24.2-fix2: saveSettings сохраняет rewards / stats / sansUnlocked* (иначе награды
+--             боссов и статистика боёв A.battle терялись при перезаходе);
+--             applySaveData принимает эти же поля — для loadNamed.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
 
@@ -2127,6 +2130,21 @@ local function applySaveData(d)
     end
     if type(d.gradientSpeed) == "number" then SETTINGS.GradientSpeed = math.clamp(d.gradientSpeed, 0.05, 5) end
 
+    -- v24.2-fix2: принять поля, которые пишут боссы и A.battle
+    if type(d.rewards) == "table" then
+        ORBIT.saveData = ORBIT.saveData or {}
+        ORBIT.saveData.rewards = ORBIT.saveData.rewards or {}
+        for k, v in pairs(d.rewards) do ORBIT.saveData.rewards[k] = v end
+    end
+    if type(d.stats) == "table" then
+        ORBIT.saveData = ORBIT.saveData or {}
+        ORBIT.saveData.stats = ORBIT.saveData.stats or {}
+        for k, v in pairs(d.stats) do ORBIT.saveData.stats[k] = v end
+    end
+    if d.sansUnlocked ~= nil then ORBIT.sansUnlocked = d.sansUnlocked; ORBIT.saveData.sansUnlocked = d.sansUnlocked end
+    if d.sansKnifeUnlocked ~= nil then ORBIT.sansKnifeUnlocked = d.sansKnifeUnlocked; ORBIT.saveData.sansKnifeUnlocked = d.sansKnifeUnlocked end
+    if d.sansBlueEyeUnlocked ~= nil then ORBIT.sansBlueEyeUnlocked = d.sansBlueEyeUnlocked; ORBIT.saveData.sansBlueEyeUnlocked = d.sansBlueEyeUnlocked end
+
     pcall(function() if ORBIT.extras and ORBIT.extras.syncFromSettings then ORBIT.extras.syncFromSettings() end end)
     pcall(function() if ORBIT.applyColor then ORBIT.applyColor() end end)
     if needRebuild then pcall(function() if ORBIT.rebuildAllRings then ORBIT.rebuildAllRings() end end) end
@@ -2158,6 +2176,12 @@ function ORBIT.saveSettings()
         data.playerMode = (ORBIT.mode == "normal") and "normal" or "sans"
         data.theme = (type(sd.theme) == "string") and sd.theme or "dark"
         data.achievements = (type(sd.achievements) == "table") and sd.achievements or {}
+        -- v24.2-fix2: то, что пишут боссы и A.battle — иначе теряется при перезаходе
+        data.sansUnlocked = (ORBIT.sansUnlocked == true) or (sd.sansUnlocked == true)
+        data.sansKnifeUnlocked = (ORBIT.sansKnifeUnlocked == true) or (sd.sansKnifeUnlocked == true)
+        data.sansBlueEyeUnlocked = (ORBIT.sansBlueEyeUnlocked == true) or (sd.sansBlueEyeUnlocked == true)
+        data.rewards = (type(sd.rewards) == "table") and sd.rewards or {}
+        data.stats = (type(sd.stats) == "table") and sd.stats or {}
     end
     local ok2, encData = pcall(enc, data)
     if not ok2 then return false, "Сериализация" end
@@ -2247,6 +2271,6 @@ ORBIT.decodeSettingsForShare  = dec
 ORBIT.applySaveData           = applySaveData
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v24.2-fix1 (логика + setMode + findGroundY fix)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v24.2-fix2 (логика + setMode + findGroundY fix + persistence)", Color3.fromRGB(180,255,180), 3) end
 
 return true
