@@ -1,7 +1,11 @@
--- orbit_p2.lua v24.4-ai-figures-fix8
--- ОРБИТА v24.4-ai-figures-fix8 — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.)
--- v24.4-ai-figures-fix8 (этот файл):
---   * САНС: добавлены ноги между шортами и тапками (задача 2).
+-- orbit_p2.lua v24.5-ai-figures-rig
+-- ОРБИТА v24.5-ai-figures-rig — ЧАСТЬ 2/4: ФИГУРЫ (30 шт.) + ORBIT.figureRig
+-- v24.5-ai-figures-rig (этот файл):
+--   * НОВОЕ: ORBIT.figureRig — общий риг фигур (колени, махи рук, наклон
+--     корпуса, покачивание головы, дыхание). Работает только когда его
+--     вызывают (Rig.update), поэтому фигуры на орбите выглядят как раньше.
+--   * САНС и ГАСТЕР: ноги разделены на верх/низ, части помечены атрибутами
+--     RigGroup / RigSide (см. часть 2/2).
 --   * Остальные фигуры без изменений.
 
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
@@ -17,6 +21,195 @@ if SETTINGS.HeartScale == nil then SETTINGS.HeartScale = 1 end
 local function isDetailed()
     return (SETTINGS.BlockCount or 8) <= 8
 end
+
+-- ============================================================
+--  v24.5: ORBIT.figureRig — общий риг ходьбы/дыхания
+--  Фигуры построены лицом к +Z (локальные координаты корня модели).
+--  Использование (после того как владелец сделал model:PivotTo):
+--      ORBIT.figureRig.update(model, dt, velocityWorld)
+--  velocityWorld — скорость в мировых координатах (Vector3) или nil (покой).
+--  Метки на частях: атрибут RigGroup = body|head|arm|legU|legL|cloak,
+--  атрибут RigSide = -1 / 1 (для arm, legU, legL).
+-- ============================================================
+do
+    local prev = ORBIT.figureRig
+    if prev ~= nil and not (type(prev) == "table" and prev._p2) then
+        warn("[Orbit P2] ORBIT.figureRig уже занят другим модулем — перезаписываю")
+    end
+end
+
+local Rig = { _p2 = true, byModel = setmetatable({}, { __mode = "k" }) }
+
+-- Параметры скелета для каждой фигуры (все размеры × s)
+local RIG_PRESETS = {
+    sans = function(s) return {
+        hip = Vector3.new(0, 0.34*s, 0), hipX = 0.28*s, hipY = 0.34*s, kneeY = 0.20*s,
+        shoulder = Vector3.new(0.60*s, 1.42*s, 0),
+        neck = Vector3.new(0, 1.55*s, 0),
+        cloakTop = nil,
+        stride = 0.65, kneeMax = 0.95, armAmp = 0.55, leanMax = 0.14,
+        headNod = 0.05, headRoll = 0.05, breath = 0.022*s, bob = 0.04*s,
+    } end,
+    gaster = function(s) return {
+        hip = Vector3.new(0, 1.60*s, 0), hipX = 0.25*s, hipY = 1.60*s, kneeY = 0.91*s,
+        shoulder = Vector3.new(0.70*s, 2.70*s, 0),
+        neck = Vector3.new(0, 2.88*s, 0),
+        cloakTop = Vector3.new(0, 1.72*s, -0.20*s),
+        stride = 0.50, kneeMax = 0.80, armAmp = 0.30, leanMax = 0.10,
+        headNod = 0.04, headRoll = 0.04, breath = 0.030*s, bob = 0.05*s,
+    } end,
+}
+
+-- Пометить часть группой риг-а
+local function rigTag(p, group, side)
+    if p then
+        p:SetAttribute("RigGroup", group)
+        if side then p:SetAttribute("RigSide", side) end
+    end
+    return p
+end
+-- Пометить все части внутри под-модели (например, руки Гастера)
+local function rigTagModel(m, group, side)
+    for _, d in ipairs(m:GetDescendants()) do
+        if d:IsA("BasePart") then rigTag(d, group, side) end
+    end
+end
+
+-- Поворот вокруг точки (в локальных координатах корня модели)
+local function about(point, rot)
+    return CFrame.new(point) * rot * CFrame.new(-point)
+end
+
+-- Запоминаем позу покоя каждой помеченной части относительно корня
+local function bindRig(rig)
+    local pivot = rig.model:GetPivot()
+    rig.items = {}
+    for _, d in ipairs(rig.model:GetDescendants()) do
+        if d:IsA("BasePart") then
+            local g = d:GetAttribute("RigGroup")
+            if g then
+                rig.items[#rig.items + 1] = {
+                    p = d, rel = pivot:ToObjectSpace(d.CFrame),
+                    g = g, side = d:GetAttribute("RigSide") or 0,
+                }
+            end
+        end
+    end
+end
+
+function Rig.attach(model, kind, s)
+    local mk = RIG_PRESETS[kind]
+    if not mk or not model then return nil end
+    local rig = {
+        model = model, def = mk(s or 1), items = nil,
+        phase = 0, w = 0, t = math.random() * 6,
+        dir = Vector3.new(0, 0, 1),
+    }
+    Rig.byModel[model] = rig
+    return rig
+end
+
+function Rig.detach(model) Rig.byModel[model] = nil end
+function Rig.rebind(model)
+    local rig = Rig.byModel[model]
+    if rig then rig.items = nil end
+end
+
+-- Вернуть позу покоя
+function Rig.resetPose(model)
+    local rig = Rig.byModel[model]
+    if not rig then return false end
+    if not rig.items then bindRig(rig) end
+    local pivot = model:GetPivot()
+    for _, it in ipairs(rig.items) do
+        if it.p.Parent then it.p.CFrame = pivot * it.rel end
+    end
+    rig.w = 0
+    return true
+end
+
+-- Главная функция: вызывать каждый кадр ПОСЛЕ model:PivotTo(...)
+function Rig.update(model, dt, velWorld)
+    local rig = Rig.byModel[model]
+    if not rig or not model.Parent then return false end
+    if not rig.items then bindRig(rig) end
+    local d = rig.def
+    dt = math.clamp(dt or 0.016, 0, 0.1)
+    local pivot = model:GetPivot()
+
+    -- скорость в локальных осях фигуры (только горизонталь)
+    local vel = velWorld or Vector3.new(0, 0, 0)
+    local lv = pivot:VectorToObjectSpace(Vector3.new(vel.X, 0, vel.Z))
+    local spd = lv.Magnitude
+    local target = math.clamp(spd / 9, 0, 1)
+    rig.w = rig.w + (target - rig.w) * math.min(1, dt * 8)
+    local w = rig.w
+    if spd > 0.5 then
+        local m = rig.dir:Lerp(lv.Unit, math.min(1, dt * 10))
+        rig.dir = (m.Magnitude > 0.05) and m.Unit or lv.Unit
+    end
+    rig.phase = rig.phase + dt * (2 + 7 * w)
+    rig.t = rig.t + dt
+    local ph = rig.phase
+
+    -- оси: swing — нога вперёд по направлению движения, lean — верх вперёд
+    local swingAxis = Vector3.new(-rig.dir.Z, 0, rig.dir.X)
+    local leanAxis = -swingAxis
+
+    -- дыхание в покое + подпрыгивание при ходьбе
+    local breath = math.sin(rig.t * 1.6)
+    local lift = breath * d.breath * (1 - 0.6 * w) + math.abs(math.sin(ph)) * d.bob * w
+
+    -- корпус: наклон по движению + лёгкий крен
+    local lean = about(d.hip,
+        CFrame.fromAxisAngle(leanAxis, d.leanMax * w) * CFrame.Angles(0, 0, math.sin(ph) * 0.04 * w))
+    local bodyXf = CFrame.new(0, lift, 0) * lean
+
+    -- голова: кивок + крен + поворот
+    local nod  = math.sin(ph * 2) * d.headNod * w + math.sin(rig.t * 0.7) * 0.02 * (1 - w)
+    local roll = math.sin(ph) * d.headRoll * w
+    local yaw  = math.sin(ph) * 0.06 * w
+    local headXf = bodyXf * about(d.neck, CFrame.Angles(nod, yaw, roll))
+
+    -- ноги и руки (руки — в противофазе ногам той же стороны)
+    local legU, legL, arm = {}, {}, {}
+    for _, sd in ipairs({-1, 1}) do
+        local phi = ph + ((sd > 0) and 0 or math.pi)
+        local hipA = math.sin(phi) * d.stride * w
+        local knee = math.max(0, math.cos(phi)) * d.kneeMax * w
+        local hp = Vector3.new(sd * d.hipX, d.hipY, 0)
+        local kp = Vector3.new(sd * d.hipX, d.kneeY, 0)
+        legU[sd] = about(hp, CFrame.fromAxisAngle(swingAxis, hipA))
+        legL[sd] = legU[sd] * about(kp, CFrame.fromAxisAngle(swingAxis, -knee))
+        local armA = -math.sin(phi) * d.armAmp * w + breath * 0.02
+        local sp = Vector3.new(sd * d.shoulder.X, d.shoulder.Y, d.shoulder.Z)
+        arm[sd] = bodyXf * about(sp, CFrame.fromAxisAngle(swingAxis, armA))
+    end
+
+    -- плащ (Гастер): отстаёт от движения + колышется
+    local cloakXf = bodyXf
+    if d.cloakTop then
+        cloakXf = bodyXf * about(d.cloakTop,
+            CFrame.fromAxisAngle(swingAxis, -(0.22 * w) + math.sin(rig.t * 2.2) * 0.03))
+    end
+
+    for _, it in ipairs(rig.items) do
+        local p = it.p
+        if p.Parent then
+            local g, xf = it.g, nil
+            if g == "body" then xf = bodyXf
+            elseif g == "head" then xf = headXf
+            elseif g == "arm" then xf = arm[it.side] or bodyXf
+            elseif g == "legU" then xf = legU[it.side]
+            elseif g == "legL" then xf = legL[it.side]
+            elseif g == "cloak" then xf = cloakXf end
+            if xf then p.CFrame = pivot * xf * it.rel end
+        end
+    end
+    return true
+end
+
+ORBIT.figureRig = Rig
 
 local function addBall(model, bodies, diameter, pos, color, noRecolor)
     local p = newPart(model, "Ball", Vector3.new(diameter, diameter, diameter), CFrame.new(pos), color, noRecolor)
@@ -381,6 +574,11 @@ local function create3DDiamond(size, color, name)
     end
     return model, root, bodies
 end
+
+-- ═══════════════════════════════════════════════════════════
+-- ОБРЕЗАНО НА orbit_p2.lua, строка ~475.
+-- Часть 2/2 начинается с: local function createSword(size, color, name)
+-- ═══════════════════════════════════════════════════════════
 local function createSword(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size; local gripColor = Color3.fromRGB(90,60,40)
@@ -1108,7 +1306,7 @@ local function makeFigureKit(model, bodies)
     return kit
 end
 
--- №29 САНС (SANS) — v24.4-fix8: С НОГАМИ (задача 2)
+-- №29 САНС (SANS) — v24.5: ноги с КОЛЕНОМ + метки для ORBIT.figureRig
 local function createSans(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -1143,56 +1341,61 @@ local function createSans(size, color, name)
         return HZ * math.sqrt(math.max(0, k))
     end
 
-    blk("Skull", V(HX*2, HY*2, HZ*2), P(0, HC, 0), bone, true, plastic, SPH)
-    blk("Jaw", V(0.96, 0.22, 0.46), P(0, 1.48, 0.31), bone, true, plastic)
+    -- ГОЛОВА (RigGroup = head)
+    rigTag(blk("Skull", V(HX*2, HY*2, HZ*2), P(0, HC, 0), bone, true, plastic, SPH), "head")
+    rigTag(blk("Jaw", V(0.96, 0.22, 0.46), P(0, 1.48, 0.31), bone, true, plastic), "head")
     for _, sd in ipairs({-1, 1}) do
-        blk("Brow", V(0.40, 0.10, 0.16),
+        rigTag(blk("Brow", V(0.40, 0.10, 0.16),
             CFrame.new(sd*0.27*s, 2.32*s, surfZ(sd*0.27, 2.32)*s) * CFrame.Angles(math.rad(-10), 0, math.rad(-sd*6)),
-            bone, true, plastic, SPH)
+            bone, true, plastic, SPH), "head")
     end
     for _, sd in ipairs({-1, 1}) do
         local ex, ey = sd*0.30, 2.02
-        blk("Socket", V(0.38, 0.42, 0.12), CFrame.new(ex*s, ey*s, surfZ(ex, ey)*s) * CFrame.Angles(0, 0, math.rad(sd*10)),
-            black, true, plastic, SPH)
+        rigTag(blk("Socket", V(0.38, 0.42, 0.12), CFrame.new(ex*s, ey*s, surfZ(ex, ey)*s) * CFrame.Angles(0, 0, math.rad(sd*10)),
+            black, true, plastic, SPH), "head")
     end
     do
         local gz = surfZ(0.30, 2.02)
         local eye = blk("EyeGlow", V(0.16, 0.16, 0.08), P(0.30, 2.00, gz + 0.06), cyanEye, true, neon, SPH)
+        rigTag(eye, "head")
         glow(eye, cyanEye)
     end
     for i = 0, 6 do
         local x = -0.48 + i*0.16
         local y = 1.58 + 0.42*x*x
-        blk("Smile", V(0.055, 0.19, 0.05), P(x, y, surfZ(x, y) + 0.005), black, true, plastic)
+        rigTag(blk("Smile", V(0.055, 0.19, 0.05), P(x, y, surfZ(x, y) + 0.005), black, true, plastic), "head")
     end
 
-    blk("Hoodie", V(1.05, 0.74, 0.66), P(0, 1.17, 0), blue, false, plastic)
-    blk("HoodRoll", V(0.90, 0.44, 0.42), P(0, 1.54, -0.32), blue, false, plastic, SPH)
+    -- ТУЛОВИЩЕ (RigGroup = body)
+    rigTag(blk("Hoodie", V(1.05, 0.74, 0.66), P(0, 1.17, 0), blue, false, plastic), "body")
+    rigTag(blk("HoodRoll", V(0.90, 0.44, 0.42), P(0, 1.54, -0.32), blue, false, plastic, SPH), "body")
 
+    -- РУКИ (RigGroup = arm, RigSide = sd)
     for _, sd in ipairs({-1, 1}) do
         local shoulder = V(sd*0.60, 1.42, 0)
         local elbow    = V(sd*0.66, 1.02, 0.02)
         local wrist    = V(sd*0.68, 0.72, 0.12)
-        cyl("Sleeve", shoulder, elbow, 0.30*s, blue, false, plastic)
-        cyl("Forearm", elbow, wrist, 0.14*s, bone, true, plastic)
-        blk("Hand", V(0.22, 0.22, 0.22), P(sd*0.68, 0.62, 0.14), bone, true, plastic, SPH)
+        rigTag(cyl("Sleeve", shoulder, elbow, 0.30*s, blue, false, plastic), "arm", sd)
+        rigTag(cyl("Forearm", elbow, wrist, 0.14*s, bone, true, plastic), "arm", sd)
+        rigTag(blk("Hand", V(0.22, 0.22, 0.22), P(sd*0.68, 0.62, 0.14), bone, true, plastic, SPH), "arm", sd)
     end
 
-    -- ═══ v24.4-fix8 (ЗАДАЧА 2): НОГИ ═══
-    -- Шорты
-    blk("Shorts", V(1.05, 0.54, 0.62), P(0, 0.56, 0), black, true, plastic)
-    -- Белые ноги от шорт вниз
+    -- ═══ v24.5: НОГИ С КОЛЕНОМ ═══
+    -- Шорты (часть корпуса)
+    rigTag(blk("Shorts", V(1.05, 0.54, 0.62), P(0, 0.56, 0), black, true, plastic), "body")
+    -- Каждая нога: верх (Leg, legU) + низ (LegLow, legL) + тапок (Slipper, legL)
     for _, sd in ipairs({-1, 1}) do
         local legTop = V(sd*0.28, 0.34, 0)
+        local knee   = V(sd*0.28, 0.20, 0)
         local legBot = V(sd*0.28, 0.05, 0)
-        cyl("Leg", legTop, legBot, 0.36*s, white, true, plastic)
-        -- Тапок под ногой
-        blk("Slipper", V(0.44, 0.28, 0.70),
+        rigTag(cyl("Leg", legTop, knee, 0.36*s, white, true, plastic), "legU", sd)
+        rigTag(cyl("LegLow", knee, legBot, 0.34*s, white, true, plastic), "legL", sd)
+        rigTag(blk("Slipper", V(0.44, 0.28, 0.70),
             CFrame.new(sd*0.28*s, -0.06*s, 0.10*s) * CFrame.Angles(0, math.rad(sd*10), 0),
-            white, true, plastic, SPH)
+            white, true, plastic, SPH), "legL", sd)
     end
 
-    -- Кость-реквизит
+    -- Кость-реквизит (без метки: стоит на месте)
     do
         local boneModel, _, boneBodies = createBone(0.65, boneCy, "SansBone")
         if boneModel then
@@ -1201,7 +1404,7 @@ local function createSans(size, color, name)
             for _, p in ipairs(boneBodies or {}) do table.insert(bodies, p) end
         end
     end
-    -- Бластеры
+    -- Бластеры (без метки)
     for _, sd in ipairs({-1, 1}) do
         local bData = create3DBlasterPlaceholder(0.95, Color3.fromRGB(240,240,245), "SansBlaster")
         if bData and bData.model then
@@ -1212,10 +1415,11 @@ local function createSans(size, color, name)
         end
     end
 
+    Rig.attach(model, "sans", s)
     return model, root, bodies
 end
 
--- №30 ГАСТЕР (GASTER) — без изменений
+-- №30 ГАСТЕР (GASTER) — v24.5: ноги с КОЛЕНОМ + метки для ORBIT.figureRig
 local function createGasterBody(size, color, name)
     local model, root = newModelShell(name); local bodies = {}
     local s = size
@@ -1245,12 +1449,14 @@ local function createGasterBody(size, color, name)
         return HZ * math.sqrt(math.max(0, k))
     end
 
-    blk("Skull", V(HX*2, HY*2, HZ*2), P(0, HC, 0), boneCol, true, plastic, SPH)
-    blk("Socket", V(0.24, 0.30, 0.08), P(-0.19, 3.50, surfZ(-0.19, 3.50)), dark, true, plastic, SPH)
+    -- ГОЛОВА (RigGroup = head)
+    rigTag(blk("Skull", V(HX*2, HY*2, HZ*2), P(0, HC, 0), boneCol, true, plastic, SPH), "head")
+    rigTag(blk("Socket", V(0.24, 0.30, 0.08), P(-0.19, 3.50, surfZ(-0.19, 3.50)), dark, true, plastic, SPH), "head")
     do
         local z = surfZ(0.19, 3.50)
-        blk("Slit", V(0.09, 0.36, 0.05), P(0.19, 3.50, z), dark, true, plastic)
+        rigTag(blk("Slit", V(0.09, 0.36, 0.05), P(0.19, 3.50, z), dark, true, plastic), "head")
         local core = blk("SlitCore", V(0.035, 0.30, 0.03), P(0.19, 3.50, z + 0.03), glow, true, Enum.Material.Neon)
+        rigTag(core, "head")
         local l = Instance.new("PointLight")
         l.Color = glow; l.Range = 6; l.Brightness = 1; l.Parent = core
     end
@@ -1261,34 +1467,41 @@ local function createGasterBody(size, color, name)
             { 0.34, 3.55,  35 },
         }
         for _, c in ipairs(cracks) do
-            blk("Crack", V(0.035, 0.18, 0.03), P(c[1], c[2], surfZ(c[1], c[2]) + 0.003) * CFrame.Angles(0, 0, math.rad(c[3])),
-                crackCol, true, plastic)
+            rigTag(blk("Crack", V(0.035, 0.18, 0.03), P(c[1], c[2], surfZ(c[1], c[2]) + 0.003) * CFrame.Angles(0, 0, math.rad(c[3])),
+                crackCol, true, plastic), "head")
         end
     end
-    blk("Mouth", V(0.34, 0.04, 0.04), P(0, 3.08, surfZ(0, 3.08)), dark, true, plastic)
-    blk("Neck", V(0.22, 0.22, 0.22), P(0, 2.88, 0), boneCol, true, plastic, SPH)
+    rigTag(blk("Mouth", V(0.34, 0.04, 0.04), P(0, 3.08, surfZ(0, 3.08)), dark, true, plastic), "head")
 
-    blk("Torso", V(1.10, 1.10, 0.62), P(0, 2.22, 0), robeCol, false, plastic, SPH)
-    blk("Shoulders", V(1.28, 0.42, 0.72), P(0, 2.72, 0), robeCol, false, plastic, SPH)
-    blk("Collar", V(0.62, 0.34, 0.40), P(0, 2.86, 0.06), robeCol, false, plastic, SPH)
-    blk("ShirtV", V(0.30, 0.94, 0.05), P(0, 2.25, 0.34), boneCol, true, plastic)
-    blk("Belt", V(1.18, 0.09, 0.68), P(0, 1.66, 0), Color3.fromRGB(30, 30, 34), true, plastic)
+    -- ТУЛОВИЩЕ (RigGroup = body)
+    rigTag(blk("Neck", V(0.22, 0.22, 0.22), P(0, 2.88, 0), boneCol, true, plastic, SPH), "body")
+    rigTag(blk("Torso", V(1.10, 1.10, 0.62), P(0, 2.22, 0), robeCol, false, plastic, SPH), "body")
+    rigTag(blk("Shoulders", V(1.28, 0.42, 0.72), P(0, 2.72, 0), robeCol, false, plastic, SPH), "body")
+    rigTag(blk("Collar", V(0.62, 0.34, 0.40), P(0, 2.86, 0.06), robeCol, false, plastic, SPH), "body")
+    rigTag(blk("ShirtV", V(0.30, 0.94, 0.05), P(0, 2.25, 0.34), boneCol, true, plastic), "body")
+    rigTag(blk("Belt", V(1.18, 0.09, 0.68), P(0, 1.66, 0), Color3.fromRGB(30, 30, 34), true, plastic), "body")
 
+    -- ═══ v24.5: НОГИ С КОЛЕНОМ ═══
+    -- Верх ноги (Leg, legU) + низ (LegLow, legL) + ботинок (Shoe, legL)
     for _, sd in ipairs({-1, 1}) do
         local legTop = V(sd*0.24, 1.60, 0)
+        local knee   = V(sd*0.25, 0.91, 0)
         local legBot = V(sd*0.26, 0.22, 0)
-        cyl("Leg", legTop, legBot, 0.26*s, robeCol, false, plastic)
-        blk("Shoe", V(0.38, 0.22, 0.62), CFrame.new(sd*0.26*s, 0.11*s, 0.10*s) * CFrame.Angles(0, math.rad(sd*6), 0),
-            Color3.fromRGB(18, 18, 22), true, plastic)
+        rigTag(cyl("Leg", legTop, knee, 0.26*s, robeCol, false, plastic), "legU", sd)
+        rigTag(cyl("LegLow", knee, legBot, 0.24*s, robeCol, false, plastic), "legL", sd)
+        rigTag(blk("Shoe", V(0.38, 0.22, 0.62), CFrame.new(sd*0.26*s, 0.11*s, 0.10*s) * CFrame.Angles(0, math.rad(sd*6), 0),
+            Color3.fromRGB(18, 18, 22), true, plastic), "legL", sd)
     end
 
-    blk("CloakBack", V(1.32, 2.62, 0.16), P(0, 1.40, -0.36), robeCol, false, plastic)
+    -- ПЛАЩ (RigGroup = cloak)
+    rigTag(blk("CloakBack", V(1.32, 2.62, 0.16), P(0, 1.40, -0.36), robeCol, false, plastic), "cloak")
     for _, sd in ipairs({-1, 1}) do
-        blk("CloakFlap", V(0.56, 2.40, 0.14),
+        rigTag(blk("CloakFlap", V(0.56, 2.40, 0.14),
             CFrame.new(sd*0.44*s, 1.42*s, -0.06*s) * CFrame.Angles(math.rad(-8), math.rad(sd*10), math.rad(sd*2)),
-            robeCol, false, plastic)
+            robeCol, false, plastic), "cloak")
     end
 
+    -- Бластер (без метки: парит у плеча)
     do
         local bData = create3DBlasterPlaceholder(0.55, Color3.fromRGB(240,240,245), "GasterBlaster")
         if bData and bData.model then
@@ -1299,6 +1512,7 @@ local function createGasterBody(size, color, name)
         end
     end
 
+    -- РУКИ-КИСТИ (RigGroup = arm: все части под-модели)
     do
         local handSize = 0.45
         local hL, _, hLBodies = create3DHand(handSize, Color3.fromRGB(240,240,235), "GasterHandL", true, Color3.fromRGB(255, 40, 95))
@@ -1306,15 +1520,18 @@ local function createGasterBody(size, color, name)
             hL:PivotTo(CFrame.new(-1.05*s, 2.55*s, 0.55*s) * CFrame.Angles(0, math.rad(15), math.rad(-12)))
             hL.Parent = model
             for _, p in ipairs(hLBodies or {}) do table.insert(bodies, p) end
+            rigTagModel(hL, "arm", -1)
         end
         local hR, _, hRBodies = create3DHand(handSize, Color3.fromRGB(240,240,235), "GasterHandR", false)
         if hR then
             hR:PivotTo(CFrame.new(1.05*s, 2.55*s, 0.55*s) * CFrame.Angles(0, math.rad(-15), math.rad(12)))
             hR.Parent = model
             for _, p in ipairs(hRBodies or {}) do table.insert(bodies, p) end
+            rigTagModel(hR, "arm", 1)
         end
     end
 
+    Rig.attach(model, "gaster", s)
     return model, root, bodies
 end
 -- №27 ЦВЕТОК ФЛАУИ v3-fix7 — плоский мультяшный, стебель удлинён
@@ -1635,6 +1852,6 @@ do
 end
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.4-ai-figures-fix8)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("✅ Часть 2: фигуры загружены (30 шт., v24.5-ai-figures-rig)", Color3.fromRGB(180,255,180), 3) end
 
 return true
