@@ -1,12 +1,13 @@
--- ORBIT v24.2 | orbit_p3.lua
+-- ORBIT v24.3 | orbit_p3.lua
 -- Логика: аура, огонь, боты, ESP, кольца, сохранения, режим игрока.
--- v24.2: совместим с новым sans (фразы), deathFx (lastSaid), abilities (hideElement),
---        shop (deleteCustomShape), loader (экран режима). setMode + onPlayerDied уже здесь.
--- v24.2-fix1: findGroundY исключает все Orbit-объекты (кольца, аура, огонь, target-rings,
---             фейерверки, SFX) — иначе бот мог «сесть» на своё же кольцо.
--- v24.2-fix2: saveSettings сохраняет rewards / stats / sansUnlocked* (иначе награды
---             боссов и статистика боёв A.battle терялись при перезаходе);
---             applySaveData принимает эти же поля — для loadNamed.
+-- v24.3-trail-fix: 
+--   * attachTrail / setupAura inline: аттачменты переставлены с X на Z —
+--     лента трейла больше не вырождается в нитку при ходьбе и прыжке.
+--   * spinAxisDir="X" больше не срывает Z-ось блока (кувырок вокруг Z).
+--   * configureTrail: Lifetime 0.5, MaxLength 500, Enabled=true, трёхточка.
+--   * refreshAllTrails передаёт span (иначе minScale считался от 0.5).
+--   * buildRing учитывает ORBIT.performanceLevel (не плодит трейлы на low).
+--   * applyPerformanceLevel пишет ORBIT.performanceLevel.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
 
@@ -142,6 +143,8 @@ local function getAuraShapeSize() return ORBIT.getCurrentShapeSize() * SETTINGS.
 local TRAIL_MIN_LIFETIME = 0.12
 local TRAIL_MIN_WORLD_WIDTH = 0.09
 
+-- v24.3: Lifetime 0.5 (было 0.25), MaxLength 500 (0 = на части версий Roblox невидимо),
+-- трёхточечный WidthScale даёт «хвост» вместо обрубка. Enabled=true — страховка.
 function ORBIT.configureTrail(trail, lifetime, widthScale, span)
     if not trail then return end
     if span then trail:SetAttribute("OrbitSpan", span) end
@@ -149,14 +152,17 @@ function ORBIT.configureTrail(trail, lifetime, widthScale, span)
     local base = math.max(2 * sp, 0.05)
     local minScale = TRAIL_MIN_WORLD_WIDTH / base
     local w = math.max(widthScale or 0.5, minScale)
-    trail.Lifetime = math.max(lifetime or 0.25, TRAIL_MIN_LIFETIME)
+    trail.Lifetime = math.max(lifetime or 0.5, TRAIL_MIN_LIFETIME)
     trail.WidthScale = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, w), NumberSequenceKeypoint.new(1, 0),
+        NumberSequenceKeypoint.new(0, w),
+        NumberSequenceKeypoint.new(0.6, w * 0.75),
+        NumberSequenceKeypoint.new(1, 0),
     })
-    trail.MinLength = 0.02
-    trail.MaxLength = 0
+    trail.MinLength = 0.01
+    trail.MaxLength = 500
     trail.FaceCamera = true
     trail.LightEmission = 0.6
+    trail.Enabled = true
 end
 
 local function shiftHue(c, d)
@@ -326,9 +332,12 @@ function ORBIT.setupAura()
                 if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
                 local trail = nil
                 if SETTINGS.AuraTrailEnabled then
-                    local span = (data.visualSize or size) * 0.35
-                    local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span,0,0); a0.Parent = refPart
-                    local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span,0,0); a1.Parent = refPart
+                    -- v24.3: аттачменты по локальной Z (радиальной оси), а не по X.
+                    -- X после поворота блока совпадает с тангентой орбиты — лента
+                    -- вырождалась в нитку при движении. Z даёт стабильную ширину.
+                    local span = math.max((data.visualSize or size) * 0.35, 0.6)
+                    local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(0, 0, -span); a0.Parent = refPart
+                    local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(0, 0,  span); a1.Parent = refPart
                     trail = Instance.new("Trail")
                     trail.Attachment0 = a0; trail.Attachment1 = a1
                     trail.Color = ColorSequence.new(getAuraColor(i, count))
@@ -429,7 +438,9 @@ local function updateAura(dt)
                 if SETTINGS.AuraSpinAxis == "Y" then
                     cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, math.rad(ORBIT.auraSpinAngle), 0)
                 else
-                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(math.rad(ORBIT.auraSpinAngle), 0, 0)
+                    -- v24.3: для ауры тоже кувырок вокруг собственной Z,
+                    -- чтобы трейл ауры не срывался при вращении оси X.
+                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, 0, math.rad(ORBIT.auraSpinAngle))
                 end
             else
                 cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
@@ -463,7 +474,6 @@ local function updateAura(dt)
         end
     end
 end
-
 -- ==================== ОГОНЬ ====================
 function ORBIT.setupFire()
     if ORBIT.fireFolder then ORBIT.fireFolder:Destroy(); ORBIT.fireFolder = nil end
@@ -498,6 +508,7 @@ local function updateFire()
         if part.Parent then part.CFrame = hrp.CFrame end
     end
 end
+
 -- ==================== ESP ====================
 ORBIT.ESP = ORBIT.ESP or { Enabled = false, MaxDistance = 500, UpdateInterval = 0.1, LastUpdate = 0, Tags = {} }
 
@@ -682,9 +693,12 @@ end
 -- ==================== ПОЛНОЕ КОПИРОВАНИЕ НА ЧУЖИХ ====================
 ORBIT.targetRings = ORBIT.targetRings or {}
 
+-- v24.3: аттачменты по Z, а не по X — иначе лента вырождается в нитку
+-- (X блока после поворота совпадает с направлением движения по орбите).
 local function attachTrail(refPart, span, color, length, width)
-    local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(-span,0,0); a0.Parent = refPart
-    local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(span,0,0); a1.Parent = refPart
+    span = math.max(span or 0.5, 0.6)
+    local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(0, 0, -span); a0.Parent = refPart
+    local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(0, 0,  span); a1.Parent = refPart
     local trail = Instance.new("Trail")
     trail.Attachment0 = a0; trail.Attachment1 = a1
     trail.Color = ColorSequence.new(color)
@@ -749,7 +763,7 @@ function ORBIT.buildTargetRings(player, slot)
                         part = refPart, model = data.model, isModel = data.isModel or false,
                         bodyParts = data.bodyParts, trail = trail,
                         angleOffset = (i-1)*(360/SETTINGS.BlockCount) + rings[ri].angleShift,
-                        index = i,
+                        index = i, visualSize = visualSize,
                     })
                 end
             end
@@ -822,13 +836,14 @@ function ORBIT.buildTargetRings(player, slot)
                     if data.isModel then data.model.Parent = auraFolder else refPart.Parent = auraFolder end
                     local trail = nil
                     if SETTINGS.AuraTrailEnabled then
-                        local span = (data.visualSize or size) * 0.35
+                        local span = math.max((data.visualSize or size) * 0.35, 0.6)
                         trail = attachTrail(refPart, span, SETTINGS.AuraColor,
                             SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth)
                     end
                     table.insert(auraBlocks, {
                         part = refPart, model = data.model, isModel = data.isModel or false,
                         bodyParts = data.bodyParts, index = i, total = count, trail = trail,
+                        visualSize = (data.visualSize or size),
                     })
                 end
             end
@@ -928,8 +943,12 @@ local function updateTargetRings(dt)
                 local angle = math.rad(rd.angle + b.angleOffset)
                 local px, py, pz = applyPattern(pattern, angle, radius, height, rd.ri)
                 local targetCF
+                -- v24.3: X-режим = кувырок вокруг собственной Z (не наклон),
+                -- иначе Z-аттачменты трейла срываются при spinAngle≈90°.
                 if ORBIT.spinAxisDir == "X" then
-                    targetCF = CFrame.new(hrp.Position + Vector3.new(px, py, pz)) * CFrame.Angles(math.rad(spinAngle), math.rad(spinAngle)*0.7, 0)
+                    targetCF = CFrame.new(hrp.Position + Vector3.new(px, py, pz))
+                        * CFrame.Angles(0, -angle + math.pi/2, 0)
+                        * CFrame.Angles(0, 0, math.rad(spinAngle))
                 else
                     targetCF = CFrame.new(hrp.Position + Vector3.new(px, py, pz)) * CFrame.Angles(0, math.rad(spinAngle), 0)
                 end
@@ -976,7 +995,8 @@ local function updateTargetRings(dt)
                     if SETTINGS.AuraSpinAxis == "Y" then
                         cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, math.rad(aura.spinAngle), 0)
                     else
-                        cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(math.rad(aura.spinAngle), 0, 0)
+                        -- v24.3: кувырок вокруг Z для ауры (трейлы целы)
+                        cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, 0, math.rad(aura.spinAngle))
                     end
                 else
                     cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
@@ -987,6 +1007,10 @@ local function updateTargetRings(dt)
                     col = Color3.fromHSV((t*0.2 + b.index/b.total) % 1, 0.9, 1)
                 end
                 if recolor then paintBlock(b, col) end
+                if b.trail and (now - (b.lastTrailUpdate or 0)) > 0.1 then
+                    b.trail.Color = ColorSequence.new(col)
+                    b.lastTrailUpdate = now
+                end
             end
         end
     end
@@ -1060,7 +1084,6 @@ local function findGroundY(x, z, fromY)
     end
     if ORBIT.fireworkFolder then table.insert(ignore, ORBIT.fireworkFolder) end
     if ORBIT.sfxFolder then table.insert(ignore, ORBIT.sfxFolder) end
-    if ORBIT.auraFolder then table.insert(ignore, ORBIT.auraFolder) end
     params.FilterDescendantsInstances = ignore
     local result = Workspace:Raycast(origin, dir, params)
     if result then return result.Position.Y end
@@ -1156,7 +1179,7 @@ local function buildBotPlayerRings(botRoot, botId)
                         part = refPart, model = data.model, isModel = data.isModel or false,
                         bodyParts = data.bodyParts, trail = trail,
                         angleOffset = (i-1)*(360/SETTINGS.BlockCount) + rings[ri].angleShift,
-                        index = i,
+                        index = i, visualSize = visualSize,
                     })
                 end
             end
@@ -1374,8 +1397,11 @@ local function updateBots(dt)
                         local angle = math.rad(rd.angle + b.angleOffset)
                         local px, py, pz = applyPattern(pattern, angle, rRadius, rHeight, rd.ri)
                         local targetCF
+                        -- v24.3: кувырок вокруг Z вместо наклона по X
                         if ORBIT.spinAxisDir == "X" then
-                            targetCF = CFrame.new(botRoot.Position + Vector3.new(px, py, pz)) * CFrame.Angles(math.rad(spinAngle), math.rad(spinAngle)*0.7, 0)
+                            targetCF = CFrame.new(botRoot.Position + Vector3.new(px, py, pz))
+                                * CFrame.Angles(0, -angle + math.pi/2, 0)
+                                * CFrame.Angles(0, 0, math.rad(spinAngle))
                         else
                             targetCF = CFrame.new(botRoot.Position + Vector3.new(px, py, pz)) * CFrame.Angles(0, math.rad(spinAngle), 0)
                         end
@@ -1408,22 +1434,28 @@ function ORBIT.getBotCount()
     for _ in pairs(ORBIT.bots) do n = n + 1 end
     return n
 end
-
 -- ==================== КОЛЬЦА (главные) ====================
-function ORBIT.applyTrailSettings(trail)
-    if not trail then return end
-    ORBIT.configureTrail(trail, SETTINGS.TrailLength, SETTINGS.TrailWidth)
+function ORBIT.applyTrailSettings(trail, span)
+    if not trail or not trail.Parent then return end
+    ORBIT.configureTrail(trail, SETTINGS.TrailLength, SETTINGS.TrailWidth, span)
 end
 
+-- v24.3: передаём span (иначе minScale считался от значения по умолчанию 0.5,
+-- и на маленьких формах трейл всё равно ужимался в нитку). Плюс защита
+-- от уничтоженных трейлов и от трейлов на уже удалённых блоках.
 function ORBIT.refreshAllTrails()
     for _, ring in pairs(rings) do
         for _, data in ipairs(ring.blocks) do
-            if data.trail then ORBIT.applyTrailSettings(data.trail) end
+            if data.trail and data.trail.Parent then
+                local span = math.max((data.visualSize or ORBIT.getCurrentShapeSize()) * 0.35, 0.6)
+                ORBIT.configureTrail(data.trail, SETTINGS.TrailLength, SETTINGS.TrailWidth, span)
+            end
         end
     end
     for _, data in ipairs(ORBIT.auraBlocks or {}) do
-        if data.trail then
-            ORBIT.configureTrail(data.trail, SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth)
+        if data.trail and data.trail.Parent then
+            local span = math.max((data.visualSize or ORBIT.getCurrentShapeSize()) * 0.35, 0.6)
+            ORBIT.configureTrail(data.trail, SETTINGS.AuraTrailLength, SETTINGS.AuraTrailWidth, span)
         end
     end
 end
@@ -1490,6 +1522,14 @@ function ORBIT.buildRing(ri)
             if SETTINGS.TrailEnabled then
                 trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
                     SETTINGS.TrailLength, SETTINGS.TrailWidth)
+                -- v24.3: страховка от рассинхрона с performance-режимом.
+                -- Если auto-perf уже понизил уровень, свежие кольца тоже
+                -- не должны светить трейлами (иначе «трейлы пропали только у
+                -- части колец»). Значение читаем через ORBIT.performanceLevel —
+                -- его пишет applyPerformanceLevel().
+                if ORBIT.performanceLevel == "low" or ORBIT.performanceLevel == "minimal" then
+                    trail.Enabled = false
+                end
             end
             local nameGui = Instance.new("BillboardGui")
             nameGui.Size = UDim2.new(0, 140, 0, 30)
@@ -1698,15 +1738,26 @@ local PERFORMANCE = {
     FPS_HIGH = 50, FPS_MEDIUM = 35, FPS_LOW = 22,
     MobileAuto = true, Snapshot = nil,
 }
+-- v24.3: ORBIT.performanceLevel — отдельная «шина» для buildRing (он выше
+-- по коду, до local PERFORMANCE). Пишем сюда то же значение, что в
+-- PERFORMANCE.CurrentLevel.
+ORBIT.performanceLevel = "high"
+
 local function perfSnapshot()
     PERFORMANCE.Snapshot = {
         LightEnabled = SETTINGS.LightEnabled, TrailEnabled = SETTINGS.TrailEnabled,
         AuraTrailEnabled = SETTINGS.AuraTrailEnabled, BlockCount = SETTINGS.BlockCount,
     }
 end
+-- v24.3: не трогаем TrailEnabled/AuraTrailEnabled — пользователь мог их
+-- переключить после снятия снапшота (снапшот делается через 1.5 сек).
 local function perfRestore()
     if not PERFORMANCE.Snapshot then return end
-    for k, v in pairs(PERFORMANCE.Snapshot) do SETTINGS[k] = v end
+    for k, v in pairs(PERFORMANCE.Snapshot) do
+        if k ~= "TrailEnabled" and k ~= "AuraTrailEnabled" then
+            SETTINGS[k] = v
+        end
+    end
 end
 local function setLightsEnabled(on)
     for _, ring in pairs(rings) do
@@ -1730,6 +1781,7 @@ end
 local function applyPerformanceLevel(level)
     if PERFORMANCE.CurrentLevel == level then return end
     PERFORMANCE.CurrentLevel = level
+    ORBIT.performanceLevel = level  -- v24.3: для buildRing
     if level == "high" then
         perfRestore(); setLightsEnabled(SETTINGS.LightEnabled)
         setTrailsEnabled(SETTINGS.TrailEnabled); setAuraTrailsEnabled(SETTINGS.AuraTrailEnabled)
@@ -1865,8 +1917,13 @@ function ORBIT.startUpdateLoop()
                 local px, py, pz = applyPattern(pattern, angle, radius, height + yBob, ri)
                 local offset = Vector3.new(px, py, pz)
                 local targetCF
+                -- v24.3: X-режим — кувырок вокруг собственной Z, а не наклон по X.
+                -- Иначе при spinAngle≈90° локальная Z (ширина трейла) смотрит
+                -- тангенциально → лента вырождается в нитку и «пропадает».
                 if ORBIT.spinAxisDir == "X" then
-                    targetCF = CFrame.new(root.Position + offset) * CFrame.Angles(math.rad(spinAngle), math.rad(spinAngle)*0.7, 0)
+                    targetCF = CFrame.new(root.Position + offset)
+                        * CFrame.Angles(0, -angle + math.pi/2, 0)
+                        * CFrame.Angles(0, 0, math.rad(spinAngle))
                 else
                     targetCF = CFrame.new(root.Position + offset) * CFrame.Angles(0, math.rad(spinAngle), 0)
                 end
@@ -2176,7 +2233,6 @@ function ORBIT.saveSettings()
         data.playerMode = (ORBIT.mode == "normal") and "normal" or "sans"
         data.theme = (type(sd.theme) == "string") and sd.theme or "dark"
         data.achievements = (type(sd.achievements) == "table") and sd.achievements or {}
-        -- v24.2-fix2: то, что пишут боссы и A.battle — иначе теряется при перезаходе
         data.sansUnlocked = (ORBIT.sansUnlocked == true) or (sd.sansUnlocked == true)
         data.sansKnifeUnlocked = (ORBIT.sansKnifeUnlocked == true) or (sd.sansKnifeUnlocked == true)
         data.sansBlueEyeUnlocked = (ORBIT.sansBlueEyeUnlocked == true) or (sd.sansBlueEyeUnlocked == true)
@@ -2271,6 +2327,6 @@ ORBIT.decodeSettingsForShare  = dec
 ORBIT.applySaveData           = applySaveData
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v24.2-fix2 (логика + setMode + findGroundY fix + persistence)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v24.3-trail-fix (трейлы: X→Z, spin-Z, perf-шина)", Color3.fromRGB(180,255,180), 3) end
 
 return true
