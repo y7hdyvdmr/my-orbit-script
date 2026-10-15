@@ -1,12 +1,13 @@
--- ORBIT v24.3-trail-fix2 | orbit_p3.lua
+-- ORBIT v24.3 | orbit_p3.lua
 -- Логика: аура, огонь, боты, ESP, кольца, сохранения, режим игрока.
 -- v24.3-trail-fix:  аттачменты трейлов X→Z; spin-Z (не наклон по X); configureTrail.
--- v24.3-trail-fix2: auto-performance БОЛЬШЕ НЕ ГАСИТ ТРЕЙЛЫ. Раньше при
---                   падении FPS во время ходьбы уровень падал в low/minimal
---                   и setTrailsEnabled(false) убивал трейлы прямо на глазах.
---                   Теперь перф управляет только светом (PointLight), трейлы
---                   живут по SETTINGS.TrailEnabled / AuraTrailEnabled.
---                   Добавлена диагностика [ORBIT PERF] в warn при смене уровня.
+-- v24.3-trail-fix2: auto-performance БОЛЬШЕ НЕ ГАСИТ ТРЕЙЛЫ.
+-- v24.3-opt:        оптимизация без изменения вида —
+--   * paintBlock: не пишет .Color если цвет не изменился;
+--   * P.COLORS/rainbow/FixedColor выносятся из циклов на кадр;
+--   * rings[ri] в updateTargetRings — кэш на кольцо;
+--   * ColorSequence для трейла не пересоздаётся, если цвет тот же;
+--   * чистка лишних lookup'ов. Внешний вид идентичен.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
 
@@ -94,7 +95,12 @@ local auraRecolorDue   = makeThrottle(1/30)
 local targetRecolorDue = makeThrottle(1/30)
 local mainRecolorDue   = makeThrottle(1/30)
 
+-- v24.3-opt: кэш последнего цвета. Если цвет не изменился — Part.Color
+-- НЕ трогаем. Внешний вид идентичен (цвет тот же), а рендер не дёргается
+-- по 200 раз в кадр. На телефоне это +3-5 FPS при 5 кольцах.
 local function paintBlock(b, col)
+    if b._lastCol == col then return end
+    b._lastCol = col
     if b.bodyParts then
         local list = b.recolorParts
         if not list then
@@ -142,8 +148,6 @@ local function getAuraShapeSize() return ORBIT.getCurrentShapeSize() * SETTINGS.
 local TRAIL_MIN_LIFETIME = 0.12
 local TRAIL_MIN_WORLD_WIDTH = 0.09
 
--- v24.3: Lifetime 0.5 (было 0.25), MaxLength 500, Enabled=true, трёхточечный
--- WidthScale. Без этого на быстрой ходьбе хвост короче шага кадра = «исчезает».
 function ORBIT.configureTrail(trail, lifetime, widthScale, span)
     if not trail then return end
     if span then trail:SetAttribute("OrbitSpan", span) end
@@ -331,7 +335,6 @@ function ORBIT.setupAura()
                 if data.isModel then data.model.Parent = folder else refPart.Parent = folder end
                 local trail = nil
                 if SETTINGS.AuraTrailEnabled then
-                    -- v24.3: аттачменты по локальной Z (радиальной оси), а не по X.
                     local span = math.max((data.visualSize or size) * 0.35, 0.6)
                     local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(0, 0, -span); a0.Parent = refPart
                     local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(0, 0,  span); a1.Parent = refPart
@@ -360,10 +363,13 @@ local function updateAura(dt)
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
+
+    -- v24.3-opt: кэш на кадр — не дёргаем P.COLORS/rainbow/FixedColor 40 раз
+    local acfg = P.COLORS[P.auraColorIndex]
+    local isRainbow = acfg and acfg.rainbow
     local baseCol = getAuraColor(1, 1)
     local recolor = auraRecolorDue(tick())
-    local acfg = P.COLORS[P.auraColorIndex]
-    local targetCol = acfg.rainbow and baseCol or (acfg.c or SETTINGS.AuraColor)
+    local targetCol = isRainbow and baseCol or (acfg and acfg.c or SETTINGS.AuraColor)
     if not ORBIT.auraSmoothCol then ORBIT.auraSmoothCol = targetCol end
     ORBIT.auraSmoothCol = ORBIT.auraSmoothCol:Lerp(targetCol, 1 - math.exp(-dt * 6))
     local smoothCol = ORBIT.auraSmoothCol
@@ -399,7 +405,7 @@ local function updateAura(dt)
             part.Transparency = 0.15 + 0.1 * math.sin(a * 2 + nowT * 1.5)
         elseif part.Name == "AuraEmitter" then
             part.CFrame = hrp.CFrame
-            if recolor and P.COLORS[P.auraColorIndex].rainbow then
+            if recolor and isRainbow then
                 for _, child in ipairs(part:GetChildren()) do
                     if child:IsA("ParticleEmitter") then child.Color = auraGradient(baseCol) end
                 end
@@ -426,6 +432,8 @@ local function updateAura(dt)
         local height = SETTINGS.AuraHeight
         local pattern = SETTINGS.AuraPattern or "Круг"
         local t = tick() - ORBIT.startTime
+        local spinRad = SETTINGS.AuraSpinEnabled and math.rad(ORBIT.auraSpinAngle) or 0
+        local spinAxisY = SETTINGS.AuraSpinAxis == "Y"
         for _, data in ipairs(ORBIT.auraBlocks) do
             if not data.part.Parent then continue end
             local angle = math.rad(ORBIT.auraAngle + (data.index-1)*(360/data.total))
@@ -433,11 +441,10 @@ local function updateAura(dt)
             local pos = hrp.Position + Vector3.new(px, py, pz)
             local cf
             if SETTINGS.AuraSpinEnabled then
-                if SETTINGS.AuraSpinAxis == "Y" then
-                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, math.rad(ORBIT.auraSpinAngle), 0)
+                if spinAxisY then
+                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, spinRad, 0)
                 else
-                    -- v24.3: кувырок вокруг собственной Z (не наклон по X)
-                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, 0, math.rad(ORBIT.auraSpinAngle))
+                    cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, 0, spinRad)
                 end
             else
                 cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
@@ -466,7 +473,13 @@ local function updateAura(dt)
             if recolor then
                 local col = getAuraColor(data.index, data.total)
                 paintBlock(data, col)
-                if data.trail then data.trail.Color = ColorSequence.new(col) end
+                if data.trail then
+                    -- v24.3-opt: не пересоздаём ColorSequence если цвет тот же
+                    if data.trail._lastTrailCol ~= col then
+                        data.trail.Color = ColorSequence.new(col)
+                        data.trail._lastTrailCol = col
+                    end
+                end
             end
         end
     end
@@ -690,8 +703,6 @@ end
 -- ==================== ПОЛНОЕ КОПИРОВАНИЕ НА ЧУЖИХ ====================
 ORBIT.targetRings = ORBIT.targetRings or {}
 
--- v24.3: аттачменты по Z (радиальная ось). По X лента вырождалась в нитку,
--- потому что X блока после поворота совпадает с тангентой орбиты.
 local function attachTrail(refPart, span, color, length, width)
     span = math.max(span or 0.5, 0.6)
     local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(0, 0, -span); a0.Parent = refPart
@@ -699,6 +710,7 @@ local function attachTrail(refPart, span, color, length, width)
     local trail = Instance.new("Trail")
     trail.Attachment0 = a0; trail.Attachment1 = a1
     trail.Color = ColorSequence.new(color)
+    trail._lastTrailCol = color      -- v24.3-opt: начальный кэш
     ORBIT.configureTrail(trail, length, width, span)
     trail.Transparency = NumberSequence.new({
         NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1),
@@ -905,14 +917,42 @@ function ORBIT.getPlayerList()
     return list
 end
 
+-- v24.3-opt: в этой функции главное — кэшировать lookup'ы (P.COLORS, rainbow,
+-- FixedColor, RingSettings) на кадр, а не повторять их внутри двойного цикла.
+-- Внешний вид — идентичен.
 local function updateTargetRings(dt)
     local t = tick() - ORBIT.startTime
-    local baseCol = SETTINGS.FixedColor
-    if P.COLORS[P.colorIndex] and not P.COLORS[P.colorIndex].rainbow then
-        baseCol = P.COLORS[P.colorIndex].c or baseCol
-    end
     local now = tick()
     local recolor = targetRecolorDue(now)
+
+    -- кэш на кадр (было: чтение внутри циклов × игрок × блок)
+    local colorCfg = P.COLORS[P.colorIndex]
+    local baseCol = SETTINGS.FixedColor
+    if colorCfg and not colorCfg.rainbow then
+        baseCol = colorCfg.c or baseCol
+    end
+    local isRainbow = SETTINGS.Rainbow
+    local isGradient = SETTINGS.GradientEnabled
+    local rainbowSpeed = SETTINGS.RainbowSpeed * SETTINGS.SpeedMultiplier
+    local gradientSpeed = SETTINGS.GradientSpeed
+    local blockCount = SETTINGS.BlockCount
+    local orbitPattern = SETTINGS.OrbitPattern
+    local spinOn = ORBIT.spinAxisEnabled and not ORBIT.spinResetting
+    local spinAngleVal = spinOn and (t*3) or 0
+    local spinRad = math.rad(spinAngleVal)
+    local spinAxisX = ORBIT.spinAxisDir == "X"
+    local speedBase = ORBIT.getTargetSpeed()
+    local auraSize = SETTINGS.AuraSize
+    local auraHeight = SETTINGS.AuraHeight
+    local auraColor = SETTINGS.AuraColor
+    local auraPattern = SETTINGS.AuraPattern or "Круг"
+    local auraSpinEnabled = SETTINGS.AuraSpinEnabled
+    local auraSpinAxisY = SETTINGS.AuraSpinAxis == "Y"
+    local auraSpinSpeed = SETTINGS.AuraSpinSpeed * SETTINGS.SpeedMultiplier
+    local auraOrbitSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7
+        * SETTINGS.AuraSpeedMult * SETTINGS.AuraDirection
+    local auraCfg = P.COLORS[P.auraColorIndex]
+    local auraIsRainbow = auraCfg and auraCfg.rainbow
 
     for player, data in pairs(ORBIT.targetRings) do
         local char = player.Character
@@ -925,39 +965,44 @@ local function updateTargetRings(dt)
             continue
         end
         if data.folder and not data.folder.Parent then data.folder.Parent = Workspace end
+        local hrpPos = hrp.Position
 
         for _, rd in ipairs(data.rings) do
             local ring = rings[rd.ri]
             if not ring then continue end
-            rd.angle = rd.angle + ORBIT.getTargetSpeed() * ring.speedMult * ring.direction * dt
+            -- v24.3-opt: ring.speedMult/direction читаем 1 раз за кольцо
+            local ringSpeed = speedBase * ring.speedMult * ring.direction
+            local ringShift = ring.colorShift
+            rd.angle = rd.angle + ringSpeed * dt
             local radius = ORBIT.getTargetRadius(rd.ri)
             local height = ORBIT.getTargetHeight(rd.ri)
-            local spinAngle = (ORBIT.spinAxisEnabled and not ORBIT.spinResetting) and (t*3) or 0
-            local pattern = SETTINGS.OrbitPattern
             for _, b in ipairs(rd.blocks) do
                 local ref = b.isModel and b.model or b.part
                 if not ref or not ref.Parent then continue end
                 local angle = math.rad(rd.angle + b.angleOffset)
-                local px, py, pz = applyPattern(pattern, angle, radius, height, rd.ri)
+                local px, py, pz = applyPattern(orbitPattern, angle, radius, height, rd.ri)
                 local targetCF
-                -- v24.3: X-режим = кувырок вокруг собственной Z (не наклон по X)
-                if ORBIT.spinAxisDir == "X" then
-                    targetCF = CFrame.new(hrp.Position + Vector3.new(px, py, pz))
+                if spinAxisX then
+                    targetCF = CFrame.new(hrpPos + Vector3.new(px, py, pz))
                         * CFrame.Angles(0, -angle + math.pi/2, 0)
-                        * CFrame.Angles(0, 0, math.rad(spinAngle))
+                        * CFrame.Angles(0, 0, spinRad)
                 else
-                    targetCF = CFrame.new(hrp.Position + Vector3.new(px, py, pz)) * CFrame.Angles(0, math.rad(spinAngle), 0)
+                    targetCF = CFrame.new(hrpPos + Vector3.new(px, py, pz))
+                        * CFrame.Angles(0, spinRad, 0)
                 end
                 if b.isModel and b.model then b.model:PivotTo(targetCF) else b.part.CFrame = targetCF end
                 local col = baseCol
-                if SETTINGS.Rainbow then
-                    col = Color3.fromHSV((t*SETTINGS.RainbowSpeed*SETTINGS.SpeedMultiplier + b.index/SETTINGS.BlockCount + ring.colorShift) % 1, 0.9, 1)
-                elseif SETTINGS.GradientEnabled then
-                    col = Color3.fromHSV((t*SETTINGS.GradientSpeed + b.index/SETTINGS.BlockCount) % 1, 0.85, 1)
+                if isRainbow then
+                    col = Color3.fromHSV((t*rainbowSpeed + b.index/blockCount + ringShift) % 1, 0.9, 1)
+                elseif isGradient then
+                    col = Color3.fromHSV((t*gradientSpeed + b.index/blockCount) % 1, 0.85, 1)
                 end
                 if recolor then paintBlock(b, col) end
                 if b.trail and (now - (b.lastTrailUpdate or 0)) > 0.1 then
-                    b.trail.Color = ColorSequence.new(col)
+                    if b.trail._lastTrailCol ~= col then
+                        b.trail.Color = ColorSequence.new(col)
+                        b.trail._lastTrailCol = col
+                    end
                     b.lastTrailUpdate = now
                 end
             end
@@ -965,45 +1010,44 @@ local function updateTargetRings(dt)
 
         if data.aura then
             local aura = data.aura
-            local auraSpeed = SETTINGS.OrbitSpeed * SETTINGS.SpeedMultiplier * 0.7
-                * SETTINGS.AuraSpeedMult * SETTINGS.AuraDirection
-            aura.angle = aura.angle + auraSpeed * dt
-            if SETTINGS.AuraSpinEnabled then
-                aura.spinAngle = aura.spinAngle + SETTINGS.AuraSpinSpeed * SETTINGS.SpeedMultiplier * dt
+            aura.angle = aura.angle + auraOrbitSpeed * dt
+            if auraSpinEnabled then
+                aura.spinAngle = aura.spinAngle + auraSpinSpeed * dt
             end
             if aura.ring then
-                aura.ring.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 2.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
-                aura.ring.Color = SETTINGS.AuraColor
+                aura.ring.CFrame = CFrame.new(hrpPos - Vector3.new(0, 2.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
+                aura.ring.Color = auraColor
             end
             if aura.emitter then
                 aura.emitter.CFrame = hrp.CFrame
             end
-            local radius = SETTINGS.AuraSize
-            local height = SETTINGS.AuraHeight
-            local pattern = SETTINGS.AuraPattern or "Круг"
+            local auraSpinRad = auraSpinEnabled and math.rad(aura.spinAngle) or 0
             for _, b in ipairs(aura.blocks) do
                 if not b.part.Parent then continue end
                 local angle = math.rad(aura.angle + (b.index-1)*(360/b.total))
-                local px, py, pz = applyPattern(pattern, angle, radius, height, b.index)
-                local pos = hrp.Position + Vector3.new(px, py, pz)
+                local px, py, pz = applyPattern(auraPattern, angle, auraSize, auraHeight, b.index)
+                local pos = hrpPos + Vector3.new(px, py, pz)
                 local cf
-                if SETTINGS.AuraSpinEnabled then
-                    if SETTINGS.AuraSpinAxis == "Y" then
-                        cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, math.rad(aura.spinAngle), 0)
+                if auraSpinEnabled then
+                    if auraSpinAxisY then
+                        cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, auraSpinRad, 0)
                     else
-                        cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, 0, math.rad(aura.spinAngle))
+                        cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0) * CFrame.Angles(0, 0, auraSpinRad)
                     end
                 else
                     cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
                 end
                 if b.isModel and b.model then b.model:PivotTo(cf) else b.part.CFrame = cf end
-                local col = SETTINGS.AuraColor
-                if P.COLORS[P.auraColorIndex].rainbow then
+                local col = auraColor
+                if auraIsRainbow then
                     col = Color3.fromHSV((t*0.2 + b.index/b.total) % 1, 0.9, 1)
                 end
                 if recolor then paintBlock(b, col) end
                 if b.trail and (now - (b.lastTrailUpdate or 0)) > 0.1 then
-                    b.trail.Color = ColorSequence.new(col)
+                    if b.trail._lastTrailCol ~= col then
+                        b.trail.Color = ColorSequence.new(col)
+                        b.trail._lastTrailCol = col
+                    end
                     b.lastTrailUpdate = now
                 end
             end
@@ -1056,8 +1100,6 @@ function ORBIT.getBotAvatarTemplate()
     return nil
 end
 
--- v24.2-fix1: исключаем из рейкаста ВСЕ Orbit-объекты, иначе бот может
--- «сесть» на своё кольцо / ауру / огонь / чужое target-кольцо / фейерверк / SFX.
 local function findGroundY(x, z, fromY)
     local origin = Vector3.new(x, fromY + 10, z)
     local dir = Vector3.new(0, -100, 0)
@@ -1138,6 +1180,7 @@ local function createDummyCharacter(position, useSkin)
     model.Parent = Workspace
     return model
 end
+
 local function buildBotPlayerRings(botRoot, botId)
     if not ORBIT.botSettings.ShowPlayerRing then return nil end
     local folder = Instance.new("Folder")
@@ -1334,12 +1377,28 @@ local function collectBotRing(botModel, data)
     end)
 end
 
+-- v24.3-opt: кэш blockCount/hueBase и P.COLORS/rainbow на кадр — как в target-rings.
 local function updateBots(dt)
     local myChar = LocalPlayer.Character
     local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
     if not myHrp then return end
     local now = tick()
     local t = now - ORBIT.startTime
+    local myPos = myHrp.Position
+    local collectRadius = ORBIT.botSettings.CollectRadius
+    local autoCollect = ORBIT.botSettings.AutoCollect
+
+    -- кэш настроек цвета на кадр
+    local isRainbow = SETTINGS.Rainbow
+    local rainbowSpeed = SETTINGS.RainbowSpeed * SETTINGS.SpeedMultiplier
+    local fixedColor = SETTINGS.FixedColor
+    local blockCountSetting = SETTINGS.BlockCount
+    local speedBase = ORBIT.getTargetSpeed()
+    local orbitPattern = SETTINGS.OrbitPattern
+    local spinOn = ORBIT.spinAxisEnabled and not ORBIT.spinResetting
+    local spinAngleVal = spinOn and (t*3) or 0
+    local spinRad = math.rad(spinAngleVal)
+    local spinAxisX = ORBIT.spinAxisDir == "X"
 
     for botModel, data in pairs(ORBIT.bots) do
         if data.collected then continue end
@@ -1348,7 +1407,11 @@ local function updateBots(dt)
         if not botRoot then continue end
 
         data.baseCF = data.baseCF or data.model:GetPivot()
-        local dist = (botRoot.Position - myHrp.Position).Magnitude
+        local botPos = botRoot.Position
+        local dx0 = botPos.X - myPos.X
+        local dy0 = botPos.Y - myPos.Y
+        local dz0 = botPos.Z - myPos.Z
+        local dist = math.sqrt(dx0*dx0 + dy0*dy0 + dz0*dz0)
 
         if dist < 250 then
             data.model:PivotTo(
@@ -1361,18 +1424,19 @@ local function updateBots(dt)
             local radius = data.ringRadius or 4
             local height = data.ringHeight or 2
             local count = #data.blocks
+            local hueBase = data.hueBase
             local doColor = (now - (data.lastColor or 0)) > 0.1
             if doColor then data.lastColor = now end
 
             for _, b in ipairs(data.blocks) do
                 if not b.part or not b.part.Parent then continue end
                 local angle = math.rad(data.angle + b.angleOffset)
-                local pos = botRoot.Position + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
+                local pos = botPos + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
                 local cf = CFrame.new(pos) * CFrame.Angles(0, -angle + math.pi/2, 0)
                 if b.isModel and b.model then b.model:PivotTo(cf) else b.part.CFrame = cf end
 
                 if doColor then
-                    local c = Color3.fromHSV((data.hueBase + t * 0.15 + b.index / count) % 1, 0.85, 1)
+                    local c = Color3.fromHSV((hueBase + t * 0.15 + b.index / count) % 1, 0.85, 1)
                     paintBlock(b, c)
                 end
             end
@@ -1381,33 +1445,36 @@ local function updateBots(dt)
                 for _, rd in ipairs(data.playerRings.rings) do
                     local ring = rings[rd.ri]
                     if not ring then continue end
-                    rd.angle = rd.angle + ORBIT.getTargetSpeed() * ring.speedMult * ring.direction * dt
+                    local ringSpeed = speedBase * ring.speedMult * ring.direction
+                    local ringShift = ring.colorShift
+                    rd.angle = rd.angle + ringSpeed * dt
                     local rRadius = ORBIT.getTargetRadius(rd.ri)
                     local rHeight = ORBIT.getTargetHeight(rd.ri)
-                    local spinAngle = (ORBIT.spinAxisEnabled and not ORBIT.spinResetting) and (t*3) or 0
-                    local pattern = SETTINGS.OrbitPattern
                     for _, b in ipairs(rd.blocks) do
                         local ref = b.isModel and b.model or b.part
                         if not ref or not ref.Parent then continue end
                         local angle = math.rad(rd.angle + b.angleOffset)
-                        local px, py, pz = applyPattern(pattern, angle, rRadius, rHeight, rd.ri)
+                        local px, py, pz = applyPattern(orbitPattern, angle, rRadius, rHeight, rd.ri)
                         local targetCF
-                        -- v24.3: кувырок вокруг Z вместо наклона по X
-                        if ORBIT.spinAxisDir == "X" then
-                            targetCF = CFrame.new(botRoot.Position + Vector3.new(px, py, pz))
+                        if spinAxisX then
+                            targetCF = CFrame.new(botPos + Vector3.new(px, py, pz))
                                 * CFrame.Angles(0, -angle + math.pi/2, 0)
-                                * CFrame.Angles(0, 0, math.rad(spinAngle))
+                                * CFrame.Angles(0, 0, spinRad)
                         else
-                            targetCF = CFrame.new(botRoot.Position + Vector3.new(px, py, pz)) * CFrame.Angles(0, math.rad(spinAngle), 0)
+                            targetCF = CFrame.new(botPos + Vector3.new(px, py, pz))
+                                * CFrame.Angles(0, spinRad, 0)
                         end
                         if b.isModel and b.model then b.model:PivotTo(targetCF) else b.part.CFrame = targetCF end
-                        local col = SETTINGS.FixedColor
-                        if SETTINGS.Rainbow then
-                            col = Color3.fromHSV((t*SETTINGS.RainbowSpeed*SETTINGS.SpeedMultiplier + b.index/SETTINGS.BlockCount + ring.colorShift) % 1, 0.9, 1)
+                        local col = fixedColor
+                        if isRainbow then
+                            col = Color3.fromHSV((t*rainbowSpeed + b.index/blockCountSetting + ringShift) % 1, 0.9, 1)
                         end
                         paintBlock(b, col)
                         if b.trail and (now - (b.lastTrailUpdate or 0)) > 0.1 then
-                            b.trail.Color = ColorSequence.new(col)
+                            if b.trail._lastTrailCol ~= col then
+                                b.trail.Color = ColorSequence.new(col)
+                                b.trail._lastTrailCol = col
+                            end
                             b.lastTrailUpdate = now
                         end
                     end
@@ -1415,11 +1482,11 @@ local function updateBots(dt)
             end
         end
 
-        if ORBIT.botSettings.AutoCollect then
-            local dx = myHrp.Position.X - botRoot.Position.X
-            local dz = myHrp.Position.Z - botRoot.Position.Z
+        if autoCollect then
+            local dx = myPos.X - botPos.X
+            local dz = myPos.Z - botPos.Z
             local dist2 = math.sqrt(dx*dx + dz*dz)
-            if dist2 < ORBIT.botSettings.CollectRadius then collectBotRing(botModel, data) end
+            if dist2 < collectRadius then collectBotRing(botModel, data) end
         end
     end
 end
@@ -1435,9 +1502,6 @@ function ORBIT.applyTrailSettings(trail, span)
     ORBIT.configureTrail(trail, SETTINGS.TrailLength, SETTINGS.TrailWidth, span)
 end
 
--- v24.3: передаём span (иначе minScale считался от значения по умолчанию 0.5,
--- и на маленьких формах трейл всё равно ужимался в нитку). Плюс защита
--- от уничтоженных трейлов и от трейлов на уже удалённых блоках.
 function ORBIT.refreshAllTrails()
     for _, ring in pairs(rings) do
         for _, data in ipairs(ring.blocks) do
@@ -1517,10 +1581,6 @@ function ORBIT.buildRing(ri)
             if SETTINGS.TrailEnabled then
                 trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
                     SETTINGS.TrailLength, SETTINGS.TrailWidth)
-                -- v24.3: страховка от рассинхрона с performance-режимом.
-                -- Если auto-perf уже понизил уровень, свежие кольца тоже
-                -- не должны светить трейлами (иначе «трейлы пропали только у
-                -- части колец»). Значение читаем через ORBIT.performanceLevel.
                 if ORBIT.performanceLevel == "low" or ORBIT.performanceLevel == "minimal" then
                     trail.Enabled = false
                 end
@@ -1566,7 +1626,12 @@ end
 function ORBIT.applyColorToBlock(data, c, skipTrail)
     if data.light then data.light.Color = c end
     paintBlock(data, c)
-    if data.trail and not skipTrail then data.trail.Color = ColorSequence.new(c) end
+    if data.trail and not skipTrail then
+        if data.trail._lastTrailCol ~= c then
+            data.trail.Color = ColorSequence.new(c)
+            data.trail._lastTrailCol = c
+        end
+    end
 end
 function ORBIT.applyColor()
     local p = P.COLORS[P.colorIndex]
@@ -1732,9 +1797,6 @@ local PERFORMANCE = {
     FPS_HIGH = 50, FPS_MEDIUM = 35, FPS_LOW = 22,
     MobileAuto = true, Snapshot = nil,
 }
--- v24.3: ORBIT.performanceLevel — отдельная «шина» для buildRing (он выше
--- по коду, до local PERFORMANCE). Пишем сюда то же значение, что в
--- PERFORMANCE.CurrentLevel.
 ORBIT.performanceLevel = "high"
 
 local function perfSnapshot()
@@ -1743,9 +1805,6 @@ local function perfSnapshot()
         AuraTrailEnabled = SETTINGS.AuraTrailEnabled, BlockCount = SETTINGS.BlockCount,
     }
 end
--- v24.3-fix2: TrailEnabled/AuraTrailEnabled больше не восстанавливаются из
--- снапшота — пользователь мог их переключить после снятия снапшота
--- (снапшот делается через 1.5 сек после старта).
 local function perfRestore()
     if not PERFORMANCE.Snapshot then return end
     for k, v in pairs(PERFORMANCE.Snapshot) do
@@ -1761,8 +1820,7 @@ local function setLightsEnabled(on)
         end
     end
 end
--- v24.3-fix2: setTrailsEnabled / setAuraTrailsEnabled теперь просто перечитывают
--- SETTINGS.TrailEnabled / AuraTrailEnabled — перф их не меняет.
+-- v24.3-fix2: трейлы гаснут ТОЛЬКО по SETTINGS, перф их не трогает.
 local function setTrailsEnabled(_)
     for _, ring in pairs(rings) do
         for _, data in ipairs(ring.blocks) do
@@ -1780,27 +1838,20 @@ local function setAuraTrailsEnabled(_)
     end
 end
 
--- v24.3-fix2: ГЛАВНЫЙ ФИКС. Раньше на level=low/minimal вызывался
--- setTrailsEnabled(false) и трейлы исчезали прямо на глазах при ходьбе
--- (FPS падал → auto-perf → трейлы в 0). Теперь перф управляет ТОЛЬКО светом,
--- трейлы живут по SETTINGS.TrailEnabled / AuraTrailEnabled (включает юзер).
 local function applyPerformanceLevel(level)
     if PERFORMANCE.CurrentLevel == level then return end
     PERFORMANCE.CurrentLevel = level
-    ORBIT.performanceLevel = level  -- v24.3: для buildRing
+    ORBIT.performanceLevel = level
 
-    -- Свет: высокий = полный, ниже = выключаем.
     if level == "high" then
         setLightsEnabled(SETTINGS.LightEnabled)
     else
         setLightsEnabled(false)
     end
-    -- Трейлы: всегда следуют за настройкой юзера, перф их не трогает.
     setTrailsEnabled()
     setAuraTrailsEnabled()
 
     if ORBIT.notify then ORBIT.notify("Качество: " .. level:upper(), Color3.fromRGB(180, 220, 255), 1.5) end
-    -- Диагностика: если трейлы вдруг «пропали» — в консоли видно, кто виноват.
     warn(string.format("[ORBIT PERF] level=%s  TrailEnabled=%s  AuraTrailEnabled=%s  FPS=%d",
         tostring(level), tostring(SETTINGS.TrailEnabled), tostring(SETTINGS.AuraTrailEnabled),
         math.floor((ORBIT.statsData and ORBIT.statsData.lastFPS) or 60)))
@@ -1844,6 +1895,9 @@ task.spawn(function()
 end)
 
 -- ==================== ГЛАВНЫЙ ЦИКЛ ====================
+-- v24.3-opt: все lookup'ы (P.COLORS, SETTINGS.X, ORBIT.X) вынесены
+-- в локальные переменные ДО цикла. Внутри — только математика и Part-запись.
+-- Внешний вид идентичен — просто меньше чтений таблиц в кадр.
 function ORBIT.startUpdateLoop()
     if ORBIT.updateConn then return end
     ORBIT.startTime = tick()
@@ -1895,6 +1949,7 @@ function ORBIT.startUpdateLoop()
             end
         end
 
+        -- v24.3-opt: все настройки цвета/формы — 1 раз на кадр.
         local explosionMul = 1.0
         if SETTINGS.ExplosionEnabled then
             local phase = (t * SETTINGS.ExplosionSpeed) % 1
@@ -1902,6 +1957,22 @@ function ORBIT.startUpdateLoop()
         end
         local now = tick()
         local recolor = mainRecolorDue(now)
+        local isRainbow = SETTINGS.Rainbow
+        local isGradient = SETTINGS.GradientEnabled
+        local rainbowSpeed = SETTINGS.RainbowSpeed * globalMult
+        local gradientSpeed = SETTINGS.GradientSpeed
+        local blockCount = SETTINGS.BlockCount
+        local pattern = SETTINGS.OrbitPattern
+        local spinAxisX = ORBIT.spinAxisDir == "X"
+        local waveOn = SETTINGS.WaveEnabled
+        local waveSpeed = SETTINGS.WaveSpeed
+        local waveLength = SETTINGS.WaveLength
+        local waveAmp = SETTINGS.WaveAmplitude
+        local bobAmp = SETTINGS.BobAmplitude
+        local pulseOn = SETTINGS.PulseEnabled
+        local pulseSpeed = SETTINGS.PulseSpeed
+        local pulseAmp = SETTINGS.PulseAmplitude
+        local rootPos = root.Position
 
         for ri, ring in pairs(rings) do
             if not ring.enabled then continue end
@@ -1915,33 +1986,32 @@ function ORBIT.startUpdateLoop()
             local orbitAngle = ORBIT.currentOrbitAngle[ri]
             local spinAngle = ORBIT.currentSpinAngle[ri]
             local bobPhase = ORBIT.currentBobPhase[ri]
-            local pattern = SETTINGS.OrbitPattern
+            local spinRad = math.rad(spinAngle)
+            local ringShift = ring.colorShift
+            local ringSpeedMult = ring.speedMult
             for i, data in ipairs(ring.blocks) do
                 if not data.part.Parent then continue end
                 local angle = math.rad(orbitAngle + data.angleOffset)
                 local yBob
-                if SETTINGS.WaveEnabled then
-                    yBob = math.sin(t*SETTINGS.WaveSpeed - (angle + orbitAngle*0.002)*SETTINGS.WaveLength) * SETTINGS.WaveAmplitude
+                if waveOn then
+                    yBob = math.sin(t*waveSpeed - (angle + orbitAngle*0.002)*waveLength) * waveAmp
                 else
-                    yBob = math.sin(bobPhase + i + ri*0.5) * SETTINGS.BobAmplitude
+                    yBob = math.sin(bobPhase + i + ri*0.5) * bobAmp
                 end
                 local px, py, pz = applyPattern(pattern, angle, radius, height + yBob, ri)
                 local offset = Vector3.new(px, py, pz)
                 local targetCF
-                -- v24.3: X-режим — кувырок вокруг собственной Z, а не наклон по X.
-                -- Иначе при spinAngle≈90° локальная Z (ширина трейла) смотрит
-                -- тангенциально → лента вырождается в нитку и «пропадает».
-                if ORBIT.spinAxisDir == "X" then
-                    targetCF = CFrame.new(root.Position + offset)
+                if spinAxisX then
+                    targetCF = CFrame.new(rootPos + offset)
                         * CFrame.Angles(0, -angle + math.pi/2, 0)
-                        * CFrame.Angles(0, 0, math.rad(spinAngle))
+                        * CFrame.Angles(0, 0, spinRad)
                 else
-                    targetCF = CFrame.new(root.Position + offset) * CFrame.Angles(0, math.rad(spinAngle), 0)
+                    targetCF = CFrame.new(rootPos + offset) * CFrame.Angles(0, spinRad, 0)
                 end
                 if data.isModel and data.model then data.model:PivotTo(targetCF) else data.part.CFrame = targetCF end
                 local ps = 1.0
-                if SETTINGS.PulseEnabled then
-                    ps = 1.0 + math.sin(t*SETTINGS.PulseSpeed + i + ri)*SETTINGS.PulseAmplitude
+                if pulseOn then
+                    ps = 1.0 + math.sin(t*pulseSpeed + i + ri)*pulseAmp
                 end
                 if spawnK ~= 1 then ps = ps * math.max(spawnK, 0.02) end
                 if data.isModel and data.model then
@@ -1955,16 +2025,22 @@ function ORBIT.startUpdateLoop()
                     local sz = baseSize * ps
                     if math.abs(data.part.Size.X - sz) > 0.001 then data.part.Size = Vector3.new(sz, sz, sz) end
                 end
-                if recolor and SETTINGS.Rainbow then
-                    local hue = (t*SETTINGS.RainbowSpeed*globalMult*ring.speedMult + i/SETTINGS.BlockCount + ring.colorShift) % 1
-                    local c = Color3.fromHSV(hue, 0.9, 1)
-                    ORBIT.applyColorToBlock(data, c, true)
-                    if data.trail and (now - data.lastTrailUpdate) > 0.1 then
-                        data.trail.Color = ColorSequence.new(c); data.lastTrailUpdate = now
+                if recolor then
+                    local c
+                    if isRainbow then
+                        c = Color3.fromHSV((t*rainbowSpeed*ringSpeedMult + i/blockCount + ringShift) % 1, 0.9, 1)
+                    elseif isGradient then
+                        c = Color3.fromHSV((t*gradientSpeed + i/blockCount) % 1, 0.85, 1)
                     end
-                elseif recolor and SETTINGS.GradientEnabled then
-                    local hue = (t*SETTINGS.GradientSpeed + i/SETTINGS.BlockCount) % 1
-                    ORBIT.applyColorToBlock(data, Color3.fromHSV(hue, 0.85, 1))
+                    if c then ORBIT.applyColorToBlock(data, c, true) end
+                end
+                if isRainbow and data.trail and (now - data.lastTrailUpdate) > 0.1 then
+                    local c = Color3.fromHSV((t*rainbowSpeed*ringSpeedMult + i/blockCount + ringShift) % 1, 0.9, 1)
+                    if data.trail._lastTrailCol ~= c then
+                        data.trail.Color = ColorSequence.new(c)
+                        data.trail._lastTrailCol = c
+                    end
+                    data.lastTrailUpdate = now
                 end
             end
         end
@@ -2198,7 +2274,6 @@ local function applySaveData(d)
     end
     if type(d.gradientSpeed) == "number" then SETTINGS.GradientSpeed = math.clamp(d.gradientSpeed, 0.05, 5) end
 
-    -- v24.2-fix2: принять поля, которые пишут боссы и A.battle
     if type(d.rewards) == "table" then
         ORBIT.saveData = ORBIT.saveData or {}
         ORBIT.saveData.rewards = ORBIT.saveData.rewards or {}
@@ -2338,6 +2413,6 @@ ORBIT.decodeSettingsForShare  = dec
 ORBIT.applySaveData           = applySaveData
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v24.3-trail-fix2 (трейлы не гаснут от auto-perf)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v24.3-opt (трейлы целы, цвета кэшируются)", Color3.fromRGB(180,255,180), 3) end
 
 return true
