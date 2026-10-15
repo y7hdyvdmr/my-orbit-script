@@ -1,4 +1,4 @@
--- ORBIT v25.0-fix1 | orbit_abilities.lua
+-- ORBIT v25.1 | orbit_abilities.lua
 -- 12 стихий + КОСТЬ, БЛАСТЕР, РУКА + крестики + прицел + комбо.
 -- v25.0:
 --   * buildBone STRONG (трещины, наросты, блик).
@@ -14,6 +14,9 @@
 -- v25.0-toggles: тумблеры стихий (вкл/выкл стрельбы). off[id] — выключена,
 --   слот остаётся в панели, но затемнён. Долгое нажатие 0.5с — тумблер.
 --   Голос: «выключи огонь», «включи все стихии». API: A.disableElement и др.
+-- v25.1: экспорт A.shake/A.flash для боссов + блок A.battle (~180 строк):
+--   ярость, аура <30% HP, статистика, slow-mo, награды
+--   sans_ghost/gaster_dark_cloak/blade_master/orbit_legend.
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] abilities: нет ORBIT"); return false end
@@ -2231,6 +2234,225 @@ A.spawnBones = spawnBones
 A.fireBlaster = fireBlaster
 A.spawnHand = spawnHand
 A.buildSkull = buildSkull
+-- v25.1: экспорт для боссов (Санс/Гастер используют A.shake/A.flash в атаках)
+A.shake = shake
+A.flash = flashScreen
+
+-- ===== A.battle: общий слой боя (Санс, Гастер) =====
+;(function()
+  local B = {}
+  local BS = nil
+  local conns, phasesFired = {}, {}
+  local auraPart, auraHum, auraConn
+  local C3b, V3b = C3, V3
+
+  local function emptyStats()
+    return {
+      kills = 0, deaths = 0,
+      chain = 0, bestChain = 0,
+      sessionDamageDealt = 0, sessionDamageTaken = 0,
+      totalDamageDealt = 0, totalDamageTaken = 0,
+      lastBoss = nil, lastWin = 0, lastLose = 0,
+    }
+  end
+  local stats = emptyStats()
+  if type(ORBIT.battleStats) == "table" then
+    for k, v in pairs(ORBIT.battleStats) do
+      if stats[k] ~= nil then stats[k] = v end
+    end
+  end
+  ORBIT.battleStats = stats
+
+  B.rage, B.enraged, B.aura, B.stats = 0, false, nil, stats
+
+  local function connectB(sig, fn)
+    local c = sig:Connect(fn); conns[#conns + 1] = c; return c
+  end
+  local function clearConns()
+    for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+    conns = {}
+  end
+  local function destroyAura()
+    if auraPart then pcall(function() auraPart:Destroy() end) end
+    auraPart, auraHum, B.aura = nil, nil, nil
+  end
+  local function ensureAura(root)
+    if auraPart and auraPart.Parent and auraHum == root then return end
+    destroyAura()
+    local p = Instance.new("Part")
+    p.Name = "OrbitRageAura"
+    p.Shape = PT_BALL
+    p.Size = V3b(7, 7, 7)
+    p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+    p.Material = MAT.Neon
+    p.Color = C3b(255, 60, 60)
+    p.Transparency = 0.78
+    p.Parent = folder or WS
+    auraPart, auraHum, B.aura = p, root, p
+  end
+  local function updateAura()
+    local c = LP.Character
+    local h = c and c:FindFirstChildOfClass("Humanoid")
+    local r = c and c:FindFirstChild("HumanoidRootPart")
+    if not h or not r or h.Health <= 0 then destroyAura(); return end
+    local frac = (h.MaxHealth > 0) and (h.Health / h.MaxHealth) or 1
+    if frac < 0.3 then
+      ensureAura(r)
+      if auraPart then auraPart.CFrame = r.CFrame end
+    else
+      destroyAura()
+    end
+  end
+  local function rageGain(n)
+    B.rage = math.clamp((B.rage or 0) + math.max(0, n) / 250, 0, 1)
+    if B.rage >= 1 and not B.enraged then
+      B.enraged = true
+      A.flash(C3b(255, 80, 60), 0.7, 0.4)
+      A.shake(0.85, 0.5)
+    end
+  end
+
+  function B.dmgMul()      return B.enraged and 1.35 or (1 + (B.rage or 0) * 0.25) end
+  function B.intervalMul() return B.enraged and 0.70 or (1 - (B.rage or 0) * 0.18) end
+  function B.shakeNear()   A.shake(0.5, 0.35) end
+  function B.zoom(fov)
+    local c = WS.CurrentCamera
+    if not c then return end
+    local base = c.FieldOfView
+    pcall(function()
+      TS:Create(c, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FieldOfView = fov or (base - 10) }):Play()
+    end)
+    task.delay(0.55, function()
+      if c and c.Parent then
+        pcall(function()
+          TS:Create(c, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FieldOfView = base }):Play()
+        end)
+      end
+    end)
+  end
+  function B.onPhase(p)
+    p = tonumber(p) or 1
+    if phasesFired[p] then return false end
+    phasesFired[p] = true
+    return true
+  end
+  function B.recordDamage(n, src)
+    if not BS then return end
+    n = tonumber(n) or 0
+    if n <= 0 then return end
+    if src == "boss" then
+      stats.sessionDamageDealt = (stats.sessionDamageDealt or 0) + n
+      stats.totalDamageDealt   = (stats.totalDamageDealt   or 0) + n
+      rageGain(n)
+    elseif src == "player" then
+      stats.sessionDamageTaken = (stats.sessionDamageTaken or 0) + n
+      stats.totalDamageTaken   = (stats.totalDamageTaken   or 0) + n
+    end
+  end
+  local function grant(id)
+    if not id then return end
+    local R = ORBIT.rewards
+    if not R then return end
+    if     type(R.grant)  == "function" then pcall(R.grant,  id)
+    elseif type(R.unlock) == "function" then pcall(R.unlock, id)
+    elseif type(R.add)    == "function" then pcall(R.add,    id) end
+  end
+  function B.start(bossId, opts)
+    if BS then B.cleanup() end
+    opts = opts or {}
+    BS = { bossId = bossId, opts = opts, t0 = tick(), won = false, lost = false, diedConn = nil, hpConn = nil, lastHp = 0 }
+    phasesFired = {}
+    B.rage, B.enraged = 0, false
+    stats.sessionDamageTaken = 0
+
+    local model
+    if type(opts.getModel) == "function" then
+      local ok, m = pcall(opts.getModel); if ok then model = m end
+    end
+    local hum = model and model:FindFirstChildOfClass("Humanoid")
+    if hum then
+      BS.diedConn = hum.Died:Connect(function()
+        task.defer(function()
+          if BS and BS.bossId == bossId and not BS.won then
+            B.win({ boss = bossId })
+          end
+        end)
+      end)
+    end
+    local c = LP.Character
+    local ph = c and c:FindFirstChildOfClass("Humanoid")
+    if ph then
+      BS.lastHp = ph.Health
+      BS.hpConn = connectB(ph.HealthChanged, function(newHp)
+        if not BS then return end
+        local prev = BS.lastHp or newHp
+        local d = prev - newHp
+        BS.lastHp = newHp
+        if d > 0 then B.recordDamage(d, "player") end
+        if newHp <= 0 and not BS.lost then B.lose("death") end
+      end)
+    end
+    A.flash(C3b(255, 40, 40), 0.85, 0.35)
+    A.shake(0.6, 0.5)
+    if ORBIT.notify then pcall(ORBIT.notify, "⚔ Бой: " .. tostring(bossId)) end
+    return true
+  end
+  function B.cleanup()
+    if BS and BS.diedConn then pcall(function() BS.diedConn:Disconnect() end) end
+    BS = nil
+    clearConns()
+    B.rage, B.enraged = 0, false
+    destroyAura()
+    phasesFired = {}
+  end
+  function B.win(data)
+    data = data or {}
+    local boss = data.boss or (BS and BS.bossId) or "unknown"
+    if BS and BS.won then return false end
+    if BS then BS.won = true end
+    stats.kills = (stats.kills or 0) + 1
+    stats.chain = (stats.chain or 0) + 1
+    if stats.chain > (stats.bestChain or 0) then stats.bestChain = stats.chain end
+    stats.lastBoss, stats.lastWin = boss, tick()
+
+    if boss == "sans" and (stats.sessionDamageTaken or 0) == 0 then grant("sans_ghost") end
+    if boss == "gaster" then grant("gaster_dark_cloak") end
+    if (stats.bestChain or 0) >= 5 then grant("blade_master") end
+    if (stats.kills or 0) >= 20 and (stats.bestChain or 0) >= 10 then grant("orbit_legend") end
+
+    B.cleanup()
+    if ORBIT.notify then pcall(ORBIT.notify, "🏆 Победа: " .. tostring(boss)) end
+    return true
+  end
+  function B.lose(reason)
+    if BS and BS.lost then return false end
+    if BS then BS.lost = true end
+    stats.deaths = (stats.deaths or 0) + 1
+    stats.chain = 0
+    stats.lastBoss = BS and BS.bossId or stats.lastBoss
+    stats.lastLose = tick()
+    B.cleanup()
+    if ORBIT.notify then pcall(ORBIT.notify, "💀 Поражение: " .. tostring(reason or "?")) end
+    return true
+  end
+  function B.getStats()  return stats end
+  function B.isActive()  return BS ~= nil end
+  function B.bossId()    return BS and BS.bossId or nil end
+  function B.destroy()
+    B.cleanup()
+    if auraConn then pcall(function() auraConn:Disconnect() end); auraConn = nil end
+    stats = emptyStats()
+    ORBIT.battleStats = stats
+    B.stats = stats
+  end
+
+  auraConn = RS.Heartbeat:Connect(function()
+    if not alive or not BS then return end
+    updateAura()
+  end)
+
+  A.battle = B
+end)()
 
 ORBIT.abilities = A
 ORBIT.abilityMoveUntil = 0
@@ -2238,6 +2460,7 @@ ORBIT.loaded.abilities = true
 local prevUnload = ORBIT.unload
 ORBIT.unload = function()
   pcall(A.destroy)
+  if A.battle and A.battle.destroy then pcall(A.battle.destroy) end
   if prevUnload then pcall(prevUnload) end
 end
 return true
