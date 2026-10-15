@@ -470,7 +470,8 @@ local function updateAura(dt)
             end
         end
     end
-    -- ==================== ОГОНЬ ====================
+end
+-- ==================== ОГОНЬ ====================
 function ORBIT.setupFire()
     if ORBIT.fireFolder then ORBIT.fireFolder:Destroy(); ORBIT.fireFolder = nil end
     ORBIT.fireParts = {}
@@ -1428,7 +1429,7 @@ function ORBIT.getBotCount()
     for _ in pairs(ORBIT.bots) do n = n + 1 end
     return n
 end
-    -- ==================== КОЛЬЦА (главные) ====================
+-- ==================== КОЛЬЦА (главные) ====================
 function ORBIT.applyTrailSettings(trail, span)
     if not trail or not trail.Parent then return end
     ORBIT.configureTrail(trail, SETTINGS.TrailLength, SETTINGS.TrailWidth, span)
