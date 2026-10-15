@@ -1,6 +1,9 @@
 -- ORBIT v24.2 | orbit_p4.lua  (UI-каркас; вторая половина в orbit_p4b.lua)
 -- v24.2: стихии в контейнерах с крестиками, «Вернуть все стихии»,
 --        «Мои фигуры», «Импорт фигуры», «Фраза Санса» в эмоциях.
+-- v24.2-fix1: DisplayOrder главного GUI 1000→65 (правило проекта ≤65);
+--             makeButton ставит атрибут _reg перед Parent, иначе
+--             panel.ChildAdded регистрировал контрол дважды и раскладка ехала.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P4] Часть 1 не загружена!"); return end
 if ORBIT.P4 and ORBIT.P4.ready then warn("[Orbit P4] уже загружен"); return end
@@ -36,7 +39,7 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "_OrbitMain_" .. tostring(math.random(100000, 999999))
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
-screenGui.DisplayOrder = 1000
+screenGui.DisplayOrder = 65
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ORBIT.protectGui(screenGui)
 do
@@ -447,6 +450,7 @@ do
         b.Text = text
         b.AutoButtonColor = true
         b.ZIndex = 2
+        -- v24.2-fix1: не даём panel.ChildAdded зарегистрировать контрол второй раз
         b:SetAttribute("_reg", true)
         b.Parent = panel
         Instance.new("UICorner", b).CornerRadius = UDim.new(0, 9)
