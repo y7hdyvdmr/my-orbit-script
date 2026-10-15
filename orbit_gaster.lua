@@ -19,8 +19,9 @@
 --   * Подсказка управления оружием делится по UIS.TouchEnabled.
 --   * UI через uiParent() (ORBIT.getSafeParent), страховка по имени в destroy.
 -- v25.3-fix1: guard A.battle в G.destroy и G.reset — через isActive()/bossId()
---   вместо несуществующих полей B.active/B.boss (иначе подписки на Died/HealthChanged
---   не снимались, а lose не срабатывал при сбросе во время боя).
+--   вместо несуществующих полей B.active/B.boss.
+-- v25.3-fix2: переход на A.battle от Клода — guard по полям B.active/B.boss
+--   вместо методов isActive()/bossId().
 local GENV = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = GENV.ORBIT or shared.ORBIT
 if not ORBIT then warn("[ORBIT] gaster: нет ORBIT"); return false end
@@ -57,13 +58,13 @@ local G = {
   collected = 0,
   shapeRegistered = false,
   uiHidden = false,
-  hooked = false, _origFireId = nil, _wrapper = nil,   -- v25.3: защиты хука fireId
+  hooked = false, _origFireId = nil, _wrapper = nil,
   walkTarget = nil, nextRetarget = 0, nextDodge = 0,
   nextAttack = 0, attackIndex = 0, walkPhase = 0,
   hitTimes = {},
-  bossVel = Vector3.new(0, 0, 0),                      -- v25.3: скорость босса для Rig.update
-  lastAttackId = nil, darkBlastDone = false,           -- v25.3: ротация и разовый «Тёмный взрыв»
-  rain = {}, darkBlast = nil, cc = nil, flashFrame = nil,   -- v25.3: состояния новых атак и эффектов
+  bossVel = Vector3.new(0, 0, 0),
+  lastAttackId = nil, darkBlastDone = false,
+  rain = {}, darkBlast = nil, cc = nil, flashFrame = nil,
   deadSince = nil, fxHb = nil,
 }
 local alive, folder, token = true, nil, 0
@@ -92,7 +93,6 @@ local function say(cat, force)
   if ORBIT.sans and ORBIT.sans.say then pcall(ORBIT.sans.say, cat, force) end
 end
 
--- v25.3: общий слой боя (A.battle из orbit_abilities v25.1). Без него бой работает как раньше.
 local function battle()
   local ab = ORBIT.abilities
   return ab and ab.battle or nil
@@ -112,7 +112,6 @@ local function shakeNear(pos, mag, dur)
   if B and B.shakeNear then pcall(B.shakeNear, pos, mag, dur) end
 end
 
--- v25.3: родитель для UI — ORBIT.getSafeParent(), запасной вариант PlayerGui
 local function uiParent()
   if type(ORBIT.getSafeParent) == "function" then
     local ok, p = pcall(ORBIT.getSafeParent)
@@ -120,7 +119,6 @@ local function uiParent()
   end
   return LP:FindFirstChildOfClass("PlayerGui")
 end
--- v25.3: страховка — снести GUI по имени в обоих родителях
 local function killGui(name)
   local a = uiParent()
   if a then
@@ -539,7 +537,7 @@ local function toast(text) if G.ui then G.ui.hint.Text = text end end
 local function closeUI()
   if G.ui and G.ui.sg then pcall(function() G.ui.sg:Destroy() end) end
   G.ui = nil
-  killGui("OrbitGasterGui")   -- v25.3: страховка по имени
+  killGui("OrbitGasterGui")
 end
 
 local function buildUI()
@@ -686,7 +684,6 @@ local function updateBossUI()
     elseif phase == 3 then
       G.bossUI.hpFill.BackgroundColor3 = C3(255, 60, 60)
     end
-    -- v25.3: вспышка / тряска / zoom на смене фазы
     local B = battle()
     if B and B.onPhase then pcall(B.onPhase, phase) end
   end
@@ -699,10 +696,9 @@ local function hideBossUI()
 end
 
 -- ============================================================
---       v25.3: ХОДЬБА ЧЕРЕЗ ORBIT.figureRig
---       (старые collectLegs / playWalkAnim удалены: ставили ноги в мировые координаты)
+--       ХОДЬБА ЧЕРЕЗ ORBIT.figureRig
 -- ============================================================
-local GROUND_Y = 3   -- высота корня босса над землёй (как в v25.2)
+local GROUND_Y = 3
 
 local function findWalkTarget(center, bossPos)
   local angle = math.random() * math.pi * 2
@@ -712,14 +708,12 @@ local function findWalkTarget(center, bossPos)
   return V3(ground.X, ground.Y + GROUND_Y, ground.Z)
 end
 
--- Поза лицом к игроку. Фигура построена лицом к +Z, lookAt даёт -Z → разворот на π.
 local function faceCF(pos, target)
   local flat = V3(target.X, pos.Y, target.Z)
   if (flat - pos).Magnitude < 0.05 then return CFrame.new(pos) end
   return CFrame.lookAt(pos, flat) * CFrame.Angles(0, math.pi, 0)
 end
 
--- Поза ног/рук/головы/плаща: строго ПОСЛЕ всех PivotTo босса за кадр
 local function applyRig(dt)
   local Rig = ORBIT.figureRig
   if Rig and Rig.update and G.boss and G.boss.model then
@@ -758,7 +752,6 @@ local function stepBossMovement(dt, t)
     local dir = diff.Unit
     newPos = V3(bossPos.X + dir.X * step, target.Y, bossPos.Z + dir.Z * step)
   end
-  -- скорость (сглаженная) для рига: он сам наклонит корпус и переставит ноги
   local vel = V3(newPos.X - bossPos.X, 0, newPos.Z - bossPos.Z) / math.max(dt, 0.001)
   G.bossVel = G.bossVel:Lerp(vel, math.min(1, dt * 10))
   pcall(function() G.boss.model:PivotTo(faceCF(newPos, playerPos)) end)
@@ -767,7 +760,6 @@ end
 -- ============================================================
 --       АТАКИ: прежние 4
 -- ============================================================
--- mul — множитель ярости босса (для спутника, бьющего других игроков, = 1)
 local function shootBeamSimple(from, to, dmgTarget, mul)
   mul = mul or 1
   local diff = to - from
@@ -832,8 +824,6 @@ local function attackBones(model)
   say("attack")
 end
 
--- v25.3: одна переиспользуемая вспышка вместо нового ScreenGui на каждый удар.
--- Обычный Frame (не кнопка), Active=false: тач под вспышкой не блокируется; DisplayOrder 55 ≤ 65.
 local function purpleFlash()
   local f = G.flashFrame
   if not (f and f.Parent) then
@@ -855,7 +845,6 @@ end
 local function attackWords(model)
   local c, h, r = getChar()
   if not r then return end
-  -- v25.3: голова ищется в персонаже (раньше r:FindFirstChild("Head") у HRP — всегда nil, фраза не показывалась)
   local head = c and c:FindFirstChild("Head")
   local phrases = {
     "слабо. очень слабо.",
@@ -877,10 +866,8 @@ local function attackWords(model)
 end
 
 -- ============================================================
---       v25.3: НОВАЯ АТАКА 1 — «МОЛНИЯ» (AoE сверху)
+--       НОВАЯ АТАКА 1 — «МОЛНИЯ» (AoE сверху)
 -- ============================================================
--- Телеграф на земле 0.8 с (жёлтое кольцо), затем столб молнии с неба. Урон 20 в радиусе 7.
--- Фаза 1: 1 удар, фаза 2: 2 удара, фаза 3: 3 удара (упреждение по скорости игрока).
 local function strikeAt(pos, warnT, radius, dmg)
   local g = groundAt(pos)
   local ring = ORBIT.newPart(fold(), "BoltWarn", V3(0.2, radius * 2, radius * 2),
@@ -924,7 +911,7 @@ local function attackLightning()
       local _, _, r2 = getChar()
       if not r2 then return end
       local v = r2.AssemblyLinearVelocity
-      local p = r2.Position + V3(v.X, 0, v.Z) * 0.35      -- упреждение: бьём туда, куда игрок бежит
+      local p = r2.Position + V3(v.X, 0, v.Z) * 0.35
       if i > 1 then p = p + V3(math.random(-6, 6), 0, math.random(-6, 6)) end
       strikeAt(p, 0.8, 7, 20)
     end)
@@ -932,16 +919,15 @@ local function attackLightning()
 end
 
 -- ============================================================
---       v25.3: ОБЩИЕ ХЕЛПЕРЫ НОВЫХ АТАК
+--       ОБЩИЕ ХЕЛПЕРЫ НОВЫХ АТАК
 -- ============================================================
-local destroyBossModel   -- прямое объявление: функция присваивается ниже
+local destroyBossModel
 
 local function quiet(p)
   p.CanQuery = false; p.CanTouch = false
   return p
 end
 
--- Кость с «буграми», которые следуют за ней (placeBone двигает все части вместе)
 local function makeBone(origin, size)
   local len = 3.8 * size
   local p = ORBIT.newPart(fold(), "GasterBone", V3(size * 1.4, size * 1.4, len), CF(origin), COL_BONE, true)
@@ -970,11 +956,8 @@ local function bossFlash(col, alpha, dur)
 end
 
 -- ============================================================
---       v25.3: НОВАЯ АТАКА 2 — «ТЁМНЫЙ ВЗРЫВ» (AoE вокруг босса)
+--       НОВАЯ АТАКА 2 — «ТЁМНЫЙ ВЗРЫВ» (AoE вокруг босса)
 -- ============================================================
--- Босс замирает на 1.8 с, под ним фиолетовое кольцо радиуса 20 и растущая тёмная сфера.
--- Выйди за кольцо до взрыва: внутри 35 урона + отбрасывание.
--- Срабатывает один раз при падении до 50% HP (G.darkBlastDone), затем в ротации фазы 3.
 local DB_R, DB_CHARGE = 20, 1.8
 
 local function endDarkBlast()
@@ -1027,7 +1010,6 @@ local function stepDarkBlast(dt, t)
     return
   end
 
-  -- взрыв
   local pos, g = d.pos, d.g
   local wave = ORBIT.newPart(fold(), "DarkWave", V3(2, 2, 2), CF(pos + V3(0, 3, 0)), C3(90, 30, 160), true)
   wave.Shape = PT_BALL; wave.Material = MAT.Neon; wave.Transparency = 0.2
@@ -1058,10 +1040,8 @@ local function stepDarkBlast(dt, t)
 end
 
 -- ============================================================
---       v25.3: НОВАЯ АТАКА 3 — «КОСТЯНОЙ ДОЖДЬ» (8 костей)
+--       НОВАЯ АТАКА 3 — «КОСТЯНОЙ ДОЖДЬ» (8 костей)
 -- ============================================================
--- 8 костей падают с неба. Красный телеграф на земле 0.9 с; первые 3 кости — с упреждением
--- по скорости игрока, остальные разбросаны вокруг. Урон 18 в радиусе 3.2.
 local RAIN_N, RAIN_SPEED, RAIN_WARN, RAIN_H = 8, 55, 0.9, 40
 
 local function attackBoneRain()
@@ -1111,7 +1091,6 @@ local function stepRain(dt, t)
       b.y = b.y - RAIN_SPEED * dt
       placeBone(b.p, b.extra, CFrame.new(b.g.X, b.y, b.g.Z) * CFrame.Angles(math.rad(90), 0, 0))
       if b.y <= b.g.Y + b.len * 0.5 then
-        -- падение: удар, кольцо, урон
         local ring = ORBIT.newPart(fold(), "RainHit", V3(0.3, 2, 2),
           CF(b.g + V3(0, 0.3, 0)) * CFrame.Angles(0, 0, math.rad(90)), COL_BONE, true)
         ring.Shape = PT_CYL; ring.Material = MAT.Neon; ring.Transparency = 0.3
@@ -1133,7 +1112,7 @@ local function stepRain(dt, t)
 end
 
 -- ============================================================
---       ТАБЛИЦА АТАК (7 шт.): фаза 1 — 4, фаза 2 — 6, фаза 3 — 7
+--       ТАБЛИЦА АТАК (7 шт.)
 -- ============================================================
 local function withModel(f)
   return function()
@@ -1156,8 +1135,6 @@ for _, a in ipairs(ATTACKS) do
   if a.id == "dark" then DARK_ATTACK = a; break end
 end
 
--- Выбор следующей атаки. Может вернуть nil (идёт «Тёмный взрыв») — вызывающий пропускает ход.
--- «Тёмный взрыв» один раз принудительно при HP ≤ 50%, дальше — в обычной ротации фазы 3.
 local function pickAttack()
   local b = G.boss
   if not b or G.darkBlast then return nil end
@@ -1186,7 +1163,7 @@ local function clearAttackFx()
 end
 
 -- ============================================================
---       УРОН ПО БОССУ (хук на ab.fireId) — с защитами G.hooked / G._wrapper
+--       УРОН ПО БОССУ (хук на ab.fireId)
 -- ============================================================
 local function hitBoss(n)
   local b = G.boss
@@ -1194,7 +1171,6 @@ local function hitBoss(n)
   b.hp = math.max(0, b.hp - n)
   updateBossUI()
   G.hitTimes[#G.hitTimes + 1] = tick()
-  -- ярость копится от урона по боссу (ТОЛЬКО с "boss"; урон игроку A.battle ловит сам)
   local B = battle()
   if B and B.recordDamage then pcall(B.recordDamage, n, "boss") end
   if b.hp <= 0 then G.winBoss() end
@@ -1208,7 +1184,6 @@ local function hookDamage()
   local orig = ab.fireId
   ab.fireId = function(id, ch)
     local r = orig(id, ch)
-    -- после снятия хука (G.hooked=false) обёртка прозрачна: стек с хуком Санса не ломается
     if r and G.hooked and G.boss and G.state == "boss" then
       hitBoss(ch and 45 or 25)
     end
@@ -1219,7 +1194,6 @@ end
 
 local function unhookDamage()
   local ab = ORBIT.abilities
-  -- оригинал возвращаем, только если сверху нет чужой обёртки
   if ab and G.hooked and G._origFireId and ab.fireId == G._wrapper then
     pcall(function() ab.fireId = G._origFireId end)
   end
@@ -1256,11 +1230,10 @@ function G.reset()
   clearShards()
   clearAttackFx()
   if wasBoss then
-    -- v25.3: раньше при сбросе во время боя модель босса оставалась жить в мире
     unhookDamage()
-    -- v25.3-fix1: у A.battle нет полей active/boss — используем методы isActive()/bossId()
+    -- v25.3-fix2: A.battle от Клода — поля B.active/B.boss
     local B = battle()
-    if B and B.isActive and B.isActive() and B.bossId and B.bossId() == "gaster" and B.lose then
+    if B and B.active and B.boss == "gaster" and B.lose then
       pcall(B.lose, "сброс")
     end
     destroyBossModel()
@@ -1354,8 +1327,6 @@ end
 -- ============================================================
 --       БОСС
 -- ============================================================
--- Реальная уборка модели босса (с Rig.detach). b — таблица босса (по умолчанию G.boss).
--- Присваивание, а не local: имя объявлено выше как прямое объявление.
 destroyBossModel = function(b)
   b = b or G.boss
   if not b then return end
@@ -1386,7 +1357,6 @@ function G.startBoss()
   if not alive then return end
   local c, h, root = getChar()
   if not root then
-    -- v25.3: раньше состояние «boss» ставилось до проверки персонажа
     G.state = "idle"; G.active = false
     return
   end
@@ -1406,8 +1376,6 @@ function G.startBoss()
   clearAttackFx()
   clearShards()
 
-  -- фигура босса — ТОЛЬКО пресет «ГАСТЕР» (createGasterBody с метками риг-а).
-  -- G.create — это бластер (оружие/спутник), риг на нём не заработает.
   local data = presetCreate("ГАСТЕР", 5, "GasterBoss")
   if not data then
     warn("[OrbitGaster] пресет «ГАСТЕР» не найден — бой не запущен (нужен orbit_p2 v24.5)")
@@ -1428,7 +1396,6 @@ function G.startBoss()
   TS:Create(cc, TweenInfo.new(1.5), { Brightness = -0.15, Saturation = -0.3, TintColor = C3(230, 230, 255) }):Play()
   ping("laugh", 1, 0.8)
 
-  -- руки босса ×3
   local HAND_PART_NAMES = {
     F1 = true, F2 = true, F3 = true, F4 = true,
     Palm = true, Wrap1 = true, Wrap2 = true, Spike = true,
@@ -1442,7 +1409,6 @@ function G.startBoss()
     end
   end
 
-  -- бластер босса — отдельная модель (scale 3.5); вшитые в фигуру бластеры убираем
   for _, ch in ipairs(data.model:GetChildren()) do
     if ch.Name:find("Blaster") then pcall(function() ch:Destroy() end) end
   end
@@ -1462,7 +1428,6 @@ function G.startBoss()
   local finalPos = V3(gp.X, gp.Y + GROUND_Y, gp.Z)
   pcall(function() data.model:PivotTo(faceCF(finalPos, root.Position)) end)
 
-  -- ВСЕ поля, которые читают updateBossUI (hp, maxHp, phase) и атаки (model), ставятся ДО showBossUI
   G.boss = {
     data = data, model = data.model, root = data.part or data.model.PrimaryPart,
     blaster = bossBlaster, charge = charge, light = light,
@@ -1473,7 +1438,6 @@ function G.startBoss()
   showBossUI()
   updateBossUI()
   hookDamage()
-  -- общий слой боя: ярость, аура <30% HP, статистика, награды, подписка на Died
   local B = battle()
   if B and B.start then
     pcall(B.start, "gaster", {
@@ -1521,7 +1485,6 @@ local function stepTraps(dt, t)
   end
 end
 
--- положение бластера босса (константы можно подкрутить): вперёд / вправо / вверх от босса
 local BL_FWD, BL_RIGHT, BL_UP = 2.5, 10, 20
 
 local function stepBoss(dt, t)
@@ -1533,7 +1496,6 @@ local function stepBoss(dt, t)
     return
   end
 
-  -- игрок мёртв дольше 3 с → поражение
   if not getChar() then
     G.deadSince = G.deadSince or t
     if t - G.deadSince > 3 then G.failBoss("ты пал. спишемся."); return end
@@ -1541,7 +1503,6 @@ local function stepBoss(dt, t)
     G.deadSince = nil
   end
 
-  -- движение. Пока идёт «Тёмный взрыв» босс стоит на месте лицом к игроку, скорость = 0
   if G.darkBlast then
     G.bossVel = V3(0, 0, 0)
     local _, _, r = getChar()
@@ -1554,7 +1515,6 @@ local function stepBoss(dt, t)
 
   if b.light then b.light.Brightness = 1.5 + 0.6 * math.sin(t * 3) end
 
-  -- бластер парит рядом с боссом, смотрит на игрока
   if b.blaster and b.blaster.Parent then
     local _, _, r2 = getChar()
     local mcf = model:GetPivot()
@@ -1572,7 +1532,6 @@ local function stepBoss(dt, t)
     end
   end
 
-  -- атака: pickAttack может вернуть nil (идёт «Тёмный взрыв») → пропуск хода, повтор через 0.4 с
   if t >= G.nextAttack then
     local a = pickAttack()
     if a then
@@ -1587,7 +1546,6 @@ local function stepBoss(dt, t)
 
   if #G.hitTimes > 20 then table.remove(G.hitTimes, 1) end
 
-  -- ВАЖНО: риг строго ПОСЛЕДНИМ — после всех PivotTo босса за кадр
   applyRig(dt)
 end
 
@@ -1614,7 +1572,6 @@ function G.winBoss()
   hideBossUI()
   unhookDamage()
   clearAttackFx()
-  -- slow-mo, вспышка, статистика и награды (gaster_dark_cloak при бое < 90 с, blade_master, orbit_legend)
   local B = battle()
   if B and B.win then pcall(B.win, { boss = "gaster" }) end
 
@@ -1655,8 +1612,6 @@ function G.winBoss()
   ORBIT.saveData.gasterWeaponUnlocked = true
   ORBIT.saveData.rewards = ORBIT.saveData.rewards or {}
 
-  -- v25.3: флаг ставится ПОСЛЕ проверки (раньше gaster_weapon ставился до неё, и награда
-  -- не показывалась); повторная победа не показывает старые награды второй раз
   local given = {}
   for _, rw in ipairs(REWARDS) do
     if not ORBIT.saveData.rewards[rw.id] then
@@ -1664,7 +1619,7 @@ function G.winBoss()
       given[#given + 1] = rw
     end
   end
-  ORBIT.COINS = (ORBIT.COINS or 0) + 800    -- монеты начисляются при каждой победе, как у Санса
+  ORBIT.COINS = (ORBIT.COINS or 0) + 800
   if ORBIT.saveSettings then pcall(ORBIT.saveSettings) end
   if ORBIT.saveStorage then pcall(ORBIT.saveStorage) end
 
@@ -1673,7 +1628,7 @@ function G.winBoss()
     ORBIT.notify("💰 +800 монет!", C3(255, 220, 100), 4)
     local shown = 0
     for _, rw in ipairs(given) do
-      if rw.id ~= "coins_gaster" then          -- монеты уже показаны выше
+      if rw.id ~= "coins_gaster" then
         shown = shown + 1
         task.delay(0.5 + shown * 0.35, function() ORBIT.notify(rw.name, C3(200, 220, 255), 4) end)
       end
@@ -1699,10 +1654,10 @@ function G.failBoss(reason)
   if G.ui then toast(reason or "Нажми СТАРТ.") end
   uiRefresh()
 end
-G.loseBoss = G.failBoss   -- алиас, как у Санса
+G.loseBoss = G.failBoss
 
 -- ============================================================
---       ГЛАВНЫЙ HEARTBEAT (сбор, босс, фигура-спутник)
+--       ГЛАВНЫЙ HEARTBEAT
 -- ============================================================
 G.heartbeat = RS.Heartbeat:Connect(function(dt)
   if not alive then return end
@@ -1731,7 +1686,6 @@ G.heartbeat = RS.Heartbeat:Connect(function(dt)
     stepBoss(dt, t)
   end
 
-  -- ФИГУРА-СПУТНИК (после победы летает над головой и бьёт других игроков)
   if G.figure then
     local f = G.figure
     local m = f.data.model
@@ -1808,7 +1762,6 @@ local function buildFigure()
   local data = presetCreate("ГАСТЕР БЛАСТЕР", 3.5, "GasterBlasterOrbit")
   if not data then data = createGaster(3.5, "GasterBlasterOrbit") end
   data.model.Parent = fold()
-  -- все поля, которые читает главный Heartbeat, задаются сразу
   local f = { data = data, angle = 0, riseT = 0, nextShot = tick() + 3, fire = nil, charge = nil, light = nil }
   f.charge = data.model:FindFirstChild("Charge", true)
   f.light = f.charge and f.charge:FindFirstChild("GLight") or nil
@@ -1873,7 +1826,6 @@ local function wFold()
 end
 local function wNotify(text) if ORBIT.notify then pcall(ORBIT.notify, text, C3(220, 220, 255), 3) end end
 
--- эффект-часть через ORBIT.newPart (стиль проекта)
 local function mkfx(parent, name, size, cf, col, shape, mat, tr)
   local p = ORBIT.newPart(parent, name, size, cf, col, true)
   if shape then p.Shape = shape end
@@ -1988,7 +1940,6 @@ function W.equip()
   end
   local c, h = getChar()
   if not c or h.Health <= 0 then return false end
-  -- бластер-оружие в руке scale 4.5
   for _, k in ipairs({ "L", "R" }) do
     local data = presetCreate("ГАСТЕР БЛАСТЕР", 4.5, "GasterHand" .. k)
     if not data then data = createGaster(4.5, "GasterHand" .. k) end
@@ -2131,8 +2082,6 @@ local function spawnBlueTrail(dt)
   Debris:AddItem(p, 0.6)
 end
 
--- v25.3: соединение сохраняется в G.fxHb — раньше оно нигде не отключалось
--- и после выгрузки оставалось висеть
 G.fxHb = RS.Heartbeat:Connect(function(dt)
   if not alive then return end
   if G.weapon then pcall(function() G.weapon.update(dt) end) end
@@ -2147,12 +2096,12 @@ function G.destroy()
   if not alive then return end
   alive = false
   G.active = false
-  unhookDamage()                                         -- ПЕРВЫМ: снять хук ORBIT.abilities.fireId
+  unhookDamage()
   if G.heartbeat then pcall(function() G.heartbeat:Disconnect() end); G.heartbeat = nil end
   if G.fxHb then pcall(function() G.fxHb:Disconnect() end); G.fxHb = nil end
-  -- v25.3-fix1: у A.battle нет полей active/boss — используем методы isActive()/bossId()
+  -- v25.3-fix2: A.battle от Клода — поля B.active/B.boss
   local B = battle()
-  if B and B.isActive and B.isActive() and B.bossId and B.bossId() == "gaster" and B.cleanup then
+  if B and B.active and B.boss == "gaster" and B.cleanup then
     pcall(B.cleanup)
   end
   clearShards()
@@ -2164,7 +2113,6 @@ function G.destroy()
   G.state = "idle"
   if G.weapon and G.weapon.destroy then pcall(G.weapon.destroy) end
   if G.cc then pcall(function() G.cc:Destroy() end); G.cc = nil end
-  -- вспышка слов: переиспользуемый ScreenGui + страховка по имени
   G.flashFrame = nil
   killGui("_OrbitGasterFlash")
   for _, nm in ipairs({ "OrbitGasterGui", "_OrbitGasterBoss", "OrbitGasterWeaponGui" }) do killGui(nm) end
@@ -2176,7 +2124,7 @@ end
 -- ============================================================
 --       ЭКСПОРТ
 -- ============================================================
-G.version = "v25.3-fix1"
+G.version = "v25.3-fix2"
 ORBIT.gaster = G
 if ORBIT.gasterUnlocked == nil then ORBIT.gasterUnlocked = false end
 G.registerShape()
@@ -2188,7 +2136,7 @@ ORBIT.unload = function()
 end
 
 if ORBIT.notify then
-  ORBIT.notify("👁 Гастер v25.3-fix1 (7 атак, риг ходьбы, ярость и награды)", C3(220, 200, 255), 3)
+  ORBIT.notify("👁 Гастер v25.3-fix2 (7 атак, риг ходьбы, ярость и награды)", C3(220, 200, 255), 3)
 end
 
 return true
