@@ -1,14 +1,17 @@
 -- ORBIT v24.2 | orbit_loader.lua
 -- ЕДИНЫЙ файл: ядро + GUI + загрузчик 21 модуля (+weapons_menu)
--- BUILD: v24.2-r7
+-- BUILD: v24.2-r8
 -- r3: + orbit_nolight.lua и orbit_focus.lua.
 -- r4: + orbit_sans_boss.lua (💀 Босс Санс).
 -- r5: + orbit_orbit_combo.lua + orbit_rewards.lua.
 -- r6: + orbit_weapons_menu.lua (🗡 Арсенал оружия).
 -- r7: + чтение ORBIT.saveData.stats из сейва (иначе статистика боёв A.battle
 --     не переживала перезаход, хотя p3 v24.2-fix2 её уже пишет).
+-- r8: + диагностика в fetchAndRun: лог первых 60 символов и длины ответа,
+--     отсев HTML (404-страница GitHub) и JSON-ошибки API до loadstring —
+--     вместо невнятного «compile: got '='» будет понятная причина.
 
-local BUILD = "v24.2-r7"
+local BUILD = "v24.2-r8"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
 do
@@ -1156,6 +1159,19 @@ local function fetchAndRun(file, attempts, tag)
             addLog("ERR", "loadstring недоступен")
             return false
         else
+            -- v24.2-r8: диагностика — что реально пришло с сервера (первые 60 символов + длина)
+            local head = src:sub(1, 60):gsub("[\r\n]", " ")
+            addLog("SYS", file .. " | " .. #src .. "B | " .. head)
+            -- v24.2-r8: отсев HTML/JSON, чтобы не гнать мусор в loadstring
+            if src:sub(1, 1) == "<" then
+                addLog("ERR", file .. " — HTML вместо Lua (файл не найден на GitHub)")
+                ORBIT.currentFile = nil
+                return false
+            elseif src:sub(1, 1) == "{" and src:find('"message"', 1, true) then
+                addLog("ERR", file .. " — JSON-ошибка GitHub API вместо файла")
+                ORBIT.currentFile = nil
+                return false
+            end
             print(string.format("[ORBIT LOADER] %s  %d байт  «%s»", file, #src, (src:match("^[^\r\n]*") or ""):sub(1, 60)))
             local badSig = looksLikeOldLoader(src, file)
             if badSig then
