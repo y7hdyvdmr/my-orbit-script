@@ -1,10 +1,14 @@
--- ORBIT v24.2 | orbit_sans.lua
+-- ORBIT v24.2-fix1 | orbit_sans.lua
 -- Фразы Санса во всём проекте. Лучшие фразы + дерзкие.
+-- v24.2: базовый модуль.
+-- v24.2-fix1: S.ENABLED=false в destroy (иначе обёртка A.combo после выгрузки
+--   могла пересоздать тост-панель через showToast); UI через uiParent() с
+--   fallback на PlayerGui + страховка по имени ScreenGui в destroy.
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local ORBIT = G.ORBIT or shared.ORBIT
 if not ORBIT then warn("[Orbit Sans] ORBIT не загружен"); return false end
-if ORBIT.sans and ORBIT.sans.ready and ORBIT.sans.version == "v24.2" then
-    warn("[Orbit Sans] v24.2 уже загружен"); return false
+if ORBIT.sans and ORBIT.sans.ready and ORBIT.sans.version == "v24.2-fix1" then
+    warn("[Orbit Sans] v24.2-fix1 уже загружен"); return false
 end
 if ORBIT.sans and ORBIT.sans.destroy then pcall(ORBIT.sans.destroy) end
 ORBIT.loaded = ORBIT.loaded or {}
@@ -21,7 +25,7 @@ local V3, CF, C3 = Vector3.new, CFrame.new, Color3.fromRGB
 
 ORBIT.sans = ORBIT.sans or {}
 local S = ORBIT.sans
-S.version = "v24.2"
+S.version = "v24.2-fix1"
 S.ready = true
 
 -- ============================================================
@@ -228,9 +232,18 @@ local CAT_STYLE = {
     say       = { icon = "💬", color = C3(220, 220, 255) },
 }
 
+-- v24.2-fix1: родитель для UI — ORBIT.getSafeParent(), запасной вариант PlayerGui
+local function uiParent()
+    if type(ORBIT.getSafeParent) == "function" then
+        local ok, p = pcall(ORBIT.getSafeParent)
+        if ok and typeof(p) == "Instance" then return p end
+    end
+    return LP:FindFirstChildOfClass("PlayerGui")
+end
+
 local function buildToastGui()
     if toastGui and toastGui.Parent then return end
-    local parent = LP:FindFirstChildOfClass("PlayerGui")
+    local parent = uiParent()
     if not parent then return end
     toastGui = Instance.new("ScreenGui")
     toastGui.Name = "_OrbitSansToasts_" .. tostring(math.random(100000, 999999))
@@ -591,6 +604,7 @@ end)
 -- ============================================================
 function S.destroy()
     S.ready = false
+    S.ENABLED = false   -- v24.2-fix1: гасим, иначе обёртка A.combo пересоздаст тосты
     if hpConn then pcall(function() hpConn:Disconnect() end); hpConn = nil end
     if dieConn then pcall(function() dieConn:Disconnect() end); dieConn = nil end
     if charConn then pcall(function() charConn:Disconnect() end); charConn = nil end
@@ -600,6 +614,18 @@ function S.destroy()
     S.liveTags = {}
     if toastGui then pcall(function() toastGui:Destroy() end); toastGui = nil end
     toastContainer = nil
+    -- v24.2-fix1: страховка по имени — снести любые осиротевшие тост-панели
+    pcall(function()
+        for _, pg in ipairs({ uiParent(), LP:FindFirstChildOfClass("PlayerGui") }) do
+            if pg then
+                for _, g in ipairs(pg:GetChildren()) do
+                    if g:IsA("ScreenGui") and g.Name:match("^_OrbitSansToasts_") then
+                        g:Destroy()
+                    end
+                end
+            end
+        end
+    end)
     if S.sound then
         pcall(function() S.sound:Stop() end)
         pcall(function() S.sound:Destroy() end)
@@ -622,7 +648,7 @@ task.spawn(function()
     local total = 0
     for _, list in pairs(S.phrases) do total = total + #list end
     if ORBIT.notify then
-        ORBIT.notify("💀 Санс v24.2 (" .. tostring(total) .. " фраз, работает везде)",
+        ORBIT.notify("💀 Санс v24.2-fix1 (" .. tostring(total) .. " фраз, работает везде)",
             C3(200, 220, 255), 3)
     end
 end)
