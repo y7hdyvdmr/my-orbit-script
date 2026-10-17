@@ -1,14 +1,12 @@
--- Rick & Morty Toolkit v2.0 (standalone)
--- Скины (замена частей тела), портальная пушка, мобильный прицел.
+-- Rick & Morty Toolkit v2.1 (standalone)
+-- Скины, портальная пушка (2 портала), мобильный прицел.
 -- Без 18+ контента.
--- Правила: DisplayOrder ≤ 65, getSafeParent, страховка в destroy, коннекты в conns.
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 local RM = {}
 GENV.RickMorty = RM
-RM._version = "2.0"
+RM._version = "2.1"
 
--- Защита от повторного запуска
 if GENV._RM_BUSY and os.clock() - (GENV._RM_BUSY_T or 0) < 30 then
     warn("[RickMorty] повторный запуск проигнорирован")
     return
@@ -24,6 +22,7 @@ local HttpService  = game:GetService("HttpService")
 local Workspace    = game:GetService("Workspace")
 local LocalPlayer  = Players.LocalPlayer
 local PlayerGui    = LocalPlayer:WaitForChild("PlayerGui")
+local Camera       = Workspace.CurrentCamera
 
 RM.Players = Players
 RM.RunService = RunService
@@ -32,7 +31,7 @@ RM.UIS = UIS
 RM.Workspace = Workspace
 RM.LocalPlayer = LocalPlayer
 RM.HAS_FS = (type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function")
-RM.SAVE_FILE = "rickmorty_v2.json"
+RM.SAVE_FILE = "rickmorty_v21.json"
 
 local function getSafeParent()
     local gethuiFn = rawget(GENV, "gethui")
@@ -68,10 +67,10 @@ RM.SETTINGS = {
     NotificationsEnabled = true,
     NotifDuration = 2,
     MenuKey = "RightShift",
-    LaserColor = { R = 0, G = 255, B = 100 },
+    PortalColorA = { R = 50, G = 150, B = 255 },  -- синий (вход)
+    PortalColorB = { R = 255, G = 140, B = 40 },   -- оранжевый (выход)
     ActiveSkin = nil,
-    PortalColor = { R = 80, G = 255, B = 80 }, -- зелёный, как на фото
-    AimSensitivity = 1.0,
+    AimSize = 70,
 }
 local function saveSettings()
     if not RM.HAS_FS then return end
@@ -111,10 +110,10 @@ RM.sfxFolder = sfxFolder
 
 local SFX_IDS = {
     portal = "rbxassetid://3314038600",
-    laser  = "rbxassetid://12221967",
+    shoot  = "rbxassetid://12221967",
     click  = "rbxasset://sounds/button.wav",
     notify = "rbxasset://sounds/electronicpingshort.wav",
-    shoot  = "rbxasset://sounds/snap.mp3",
+    teleport = "rbxassetid://3314038600",
 }
 local function playSound(idName, vol, pitch)
     if not RM.SETTINGS.SoundEnabled then return end
@@ -146,7 +145,7 @@ local function notify(text, color, duration)
 end
 RM.notify = notify
 
--- Цвета стиля
+-- Стиль
 local C = {
     bg      = Color3.fromRGB(18, 14, 28),
     bg2     = Color3.fromRGB(28, 22, 42),
@@ -158,6 +157,8 @@ local C = {
     danger  = Color3.fromRGB(255, 100, 120),
     success = Color3.fromRGB(120, 255, 160),
     stroke  = Color3.fromRGB(120, 90, 220),
+    blue    = Color3.fromRGB(50, 150, 255),
+    orange  = Color3.fromRGB(255, 140, 40),
 }
 
 -- Корневой GUI
@@ -197,10 +198,10 @@ do
 end
 
 -- Меню
-local WINDOW_W, WINDOW_H = 380, 500
+local WINDOW_W, WINDOW_H = 380, 520
 local window = Instance.new("Frame")
 window.Size = UDim2.fromOffset(WINDOW_W, WINDOW_H)
-window.Position = UDim2.fromOffset(90, 80)
+window.Position = UDim2.fromOffset(90, 70)
 window.BackgroundColor3 = C.bg
 window.BackgroundTransparency = 0.02
 window.Visible = false
@@ -224,7 +225,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -80, 1, 0)
 title.Position = UDim2.fromOffset(14, 0)
 title.BackgroundTransparency = 1
-title.Text = "🌀 RICK & MORTY v2.0"
+title.Text = "🌀 RICK & MORTY v2.1"
 title.TextColor3 = C.accent
 title.Font = Enum.Font.GothamBold
 title.TextSize = 14
@@ -274,14 +275,13 @@ local footer = Instance.new("TextLabel")
 footer.Size = UDim2.new(1, -20, 0, 16)
 footer.Position = UDim2.new(0, 10, 1, -22)
 footer.BackgroundTransparency = 1
-footer.Text = "v" .. RM._version .. " | мобильный прицел | без 18+"
+footer.Text = "v" .. RM._version .. " | 2 портала | мобильный прицел"
 footer.TextColor3 = C.textDim
 footer.Font = Enum.Font.Code
 footer.TextSize = 9
 footer.TextXAlignment = Enum.TextXAlignment.Left
 footer.Parent = window
 
--- Хелперы UI
 local function newButton(parent, text, color, onClick, height)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(1, -8, 0, height or 36)
@@ -320,7 +320,6 @@ local function newSection(parent, text)
     return lbl
 end
 
--- Вкладки
 local TABS = {
     { id = "skins",    label = "🎭 СКИНЫ",   color = C.accent },
     { id = "portal",   label = "🌀 ПОРТАЛ",  color = C.accent3 },
@@ -328,10 +327,8 @@ local TABS = {
 }
 local tabButtons = {}
 local tabFrames = {}
-local activeTab = "skins"
 
 local function switchTab(id)
-    activeTab = id
     for tabId, frame in pairs(tabFrames) do frame.Visible = (tabId == id) end
     for tabId, btn in pairs(tabButtons) do
         if tabId == id then
@@ -380,20 +377,14 @@ for _, t in ipairs(TABS) do
     fl.SortOrder = Enum.SortOrder.LayoutOrder
 end
 
--- Открытие/закрытие меню
-local function openMenu() window.Visible = true end
-local function closeMenu() window.Visible = false end
-RM.openMenu = openMenu
-RM.closeMenu = closeMenu
-
 mainBtn.MouseButton1Click:Connect(function()
-    if window.Visible then closeMenu() else openMenu() end
+    window.Visible = not window.Visible
 end)
 
 track(UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if tostring(input.KeyCode):find(RM.SETTINGS.MenuKey) then
-        if window.Visible then closeMenu() else openMenu() end
+        window.Visible = not window.Visible
     end
 end))
 
@@ -460,45 +451,84 @@ task.spawn(function()
 end)
 
 -- ============================================================
---  МОБИЛЬНОЕ УПРАВЛЕНИЕ: ПРИЦЕЛ И КНОПКА ВЫСТРЕЛА
+--  МОБИЛЬНЫЙ ПРИЦЕЛ (УЛУЧШЕННЫЙ)
 -- ============================================================
 local isMobile = UIS.TouchEnabled and not UIS.MouseEnabled
-local aimPos = Vector2.new(0.5, 0.5) -- относительные координаты (0..1)
+local aimPos = Vector2.new(0.5, 0.5)
 local aimActive = false
 local aimFrame = nil
 local fireBtn = nil
 
+-- Плавное движение (для сглаживания)
+local targetAimPos = aimPos
+local aimSmoothConn = nil
+
 local function createAimUI()
     if not isMobile then return end
+    local size = RM.SETTINGS.AimSize
 
-    -- Прицел
     aimFrame = Instance.new("Frame")
     aimFrame.Name = "RM_Aim"
-    aimFrame.Size = UDim2.fromOffset(60, 60)
+    aimFrame.Size = UDim2.fromOffset(size, size)
     aimFrame.Position = UDim2.fromScale(aimPos.X, aimPos.Y)
     aimFrame.AnchorPoint = Vector2.new(0.5, 0.5)
     aimFrame.BackgroundTransparency = 1
     aimFrame.ZIndex = 55
     aimFrame.Parent = gui
-    -- Круг
-    local circle = Instance.new("ImageLabel")
-    circle.Size = UDim2.fromScale(1, 1)
-    circle.BackgroundTransparency = 1
-    circle.Image = "rbxassetid://3570695787" -- круг
-    circle.ImageColor3 = C.accent
-    circle.ImageTransparency = 0.3
-    circle.ZIndex = 55
-    circle.Parent = aimFrame
+
+    -- Внешний круг
+    local outer = Instance.new("ImageLabel")
+    outer.Size = UDim2.fromScale(1, 1)
+    outer.BackgroundTransparency = 1
+    outer.Image = "rbxassetid://3570695787"
+    outer.ImageColor3 = C.accent
+    outer.ImageTransparency = 0.5
+    outer.ZIndex = 55
+    outer.Parent = aimFrame
+    outer.Name = "OuterRing"
+
+    -- Внутренний круг
+    local inner = Instance.new("ImageLabel")
+    inner.Size = UDim2.fromScale(0.5, 0.5)
+    inner.Position = UDim2.fromScale(0.5, 0.5)
+    inner.AnchorPoint = Vector2.new(0.5, 0.5)
+    inner.BackgroundTransparency = 1
+    inner.Image = "rbxassetid://3570695787"
+    inner.ImageColor3 = C.accent
+    inner.ImageTransparency = 0.3
+    inner.ZIndex = 56
+    inner.Parent = aimFrame
+
     -- Центральная точка
     local dot = Instance.new("Frame")
-    dot.Size = UDim2.fromOffset(6, 6)
+    dot.Size = UDim2.fromOffset(8, 8)
     dot.Position = UDim2.fromScale(0.5, 0.5)
     dot.AnchorPoint = Vector2.new(0.5, 0.5)
     dot.BackgroundColor3 = C.accent
     dot.BorderSizePixel = 0
-    dot.ZIndex = 56
+    dot.ZIndex = 57
     dot.Parent = aimFrame
     Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+    -- Линии перекрестия
+    local crossH = Instance.new("Frame")
+    crossH.Size = UDim2.new(1.2, 0, 0, 2)
+    crossH.Position = UDim2.fromScale(0.5, 0.5)
+    crossH.AnchorPoint = Vector2.new(0.5, 0.5)
+    crossH.BackgroundColor3 = C.accent
+    crossH.BackgroundTransparency = 0.3
+    crossH.BorderSizePixel = 0
+    crossH.ZIndex = 56
+    crossH.Parent = aimFrame
+    local crossV = Instance.new("Frame")
+    crossV.Size = UDim2.new(0, 2, 1.2, 0)
+    crossV.Position = UDim2.fromScale(0.5, 0.5)
+    crossV.AnchorPoint = Vector2.new(0.5, 0.5)
+    crossV.BackgroundColor3 = C.accent
+    crossV.BackgroundTransparency = 0.3
+    crossV.BorderSizePixel = 0
+    crossV.ZIndex = 56
+    crossV.Parent = aimFrame
 
     -- Кнопка выстрела
     fireBtn = Instance.new("TextButton")
@@ -508,7 +538,7 @@ local function createAimUI()
     fireBtn.BackgroundColor3 = C.danger
     fireBtn.BackgroundTransparency = 0.2
     fireBtn.Text = "🔥"
-    fireBtn.TextColor3 = Color3.new(1,1,1)
+    fireBtn.TextColor3 = Color3.new(1, 1, 1)
     fireBtn.Font = Enum.Font.GothamBold
     fireBtn.TextSize = 40
     fireBtn.ZIndex = 55
@@ -519,34 +549,41 @@ local function createAimUI()
     st.Thickness = 3
     st.Transparency = 0.3
 
-    -- Обработка прицела (перетаскивание)
+    -- Ввод (перетаскивание пальцем)
     aimFrame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch then
             aimActive = true
+            targetAimPos = Vector2.new(
+                input.Position.X / gui.AbsoluteSize.X,
+                input.Position.Y / gui.AbsoluteSize.Y
+            )
         end
     end)
+
     aimFrame.InputChanged:Connect(function(input)
-        if aimActive and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
-            local abs = gui.AbsoluteSize
-            local newX = math.clamp(input.Position.X / abs.X, 0, 1)
-            local newY = math.clamp(input.Position.Y / abs.Y, 0, 1)
-            aimPos = Vector2.new(newX, newY)
-            aimFrame.Position = UDim2.fromScale(newX, newY)
+        if aimActive and input.UserInputType == Enum.UserInputType.Touch then
+            targetAimPos = Vector2.new(
+                math.clamp(input.Position.X / gui.AbsoluteSize.X, 0.05, 0.95),
+                math.clamp(input.Position.Y / gui.AbsoluteSize.Y, 0.05, 0.95)
+            )
         end
     end)
+
     aimFrame.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch then
             aimActive = false
         end
     end)
 
-    -- Выстрел
+    -- Плавное движение в Heartbeat
+    aimSmoothConn = RunService.RenderStepped:Connect(function()
+        aimPos = aimPos:Lerp(targetAimPos, 0.25)
+        aimFrame.Position = UDim2.fromScale(aimPos.X, aimPos.Y)
+    end)
+
     fireBtn.MouseButton1Click:Connect(function()
         playSound("shoot", 0.5, 1)
-        if RM.fireFromAim then
-            pcall(RM.fireFromAim)
-        end
-        -- анимация кнопки
+        if RM.fireFromAim then pcall(RM.fireFromAim) end
         fireBtn.Size = UDim2.fromOffset(70, 70)
         task.delay(0.1, function()
             if fireBtn then fireBtn.Size = UDim2.fromOffset(80, 80) end
@@ -554,11 +591,8 @@ local function createAimUI()
     end)
 end
 
--- Функция получения направления от прицела (если мобильный) или камеры
-local Camera = Workspace.CurrentCamera
 local function getAimDirection()
     if isMobile and aimFrame then
-        -- Преобразуем позицию на экране в 3D-луч
         local vpSize = Camera.ViewportSize
         local screenPos = Vector2.new(aimPos.X * vpSize.X, aimPos.Y * vpSize.Y)
         local ray = Camera:ViewportPointToRay(screenPos.X, screenPos.Y)
@@ -569,20 +603,14 @@ local function getAimDirection()
 end
 RM.getAimDirection = getAimDirection
 
--- Вызов при создании UI
 task.spawn(createAimUI)
-
--- Заглушка для стрельбы (будет переопределена в части 3)
 RM.fireFromAim = function() end
 
-notify("🌀 Rick & Morty v2.0 загружен", C.accent, 3)
-
-warn("[RickMorty v2.0] Мобильный прицел: " .. (isMobile and "ВКЛ" or "ВЫКЛ"))
+notify("🌀 Rick & Morty v2.1 загружен", C.accent, 3)
+warn("[RickMorty v2.1] Мобильный прицел: " .. (isMobile and "ВКЛ" or "ВЫКЛ"))
 -- ============================================================
---  СКИНЫ: КАСТОМНЫЕ МОДЕЛИ
+--  ХЕЛПЕРЫ ДЛЯ СКИНОВ
 -- ============================================================
-
--- Хелпер для создания части
 local function createPart(name, size, cf, color, material)
     local p = Instance.new("Part")
     p.Name = name
@@ -600,7 +628,6 @@ local function createPart(name, size, cf, color, material)
     return p
 end
 
--- Хелпер для приваривания части к корню
 local function weldToRoot(part, root, offsetCF)
     part.CFrame = root.CFrame * offsetCF
     local weld = Instance.new("WeldConstraint")
@@ -610,8 +637,34 @@ local function weldToRoot(part, root, offsetCF)
     return part
 end
 
+-- Функция для создания шипов волос (Рик)
+local function addHairSpikes(root, model, color)
+    local spikes = {
+        -- центр
+        { pos = Vector3.new(0, 3.1, 0.1), rot = Vector3.new(0, 0, 0), size = Vector3.new(0.35, 1.0, 0.35) },
+        -- верхние
+        { pos = Vector3.new(-0.5, 2.9, 0.1), rot = Vector3.new(0, 0, -15), size = Vector3.new(0.3, 0.9, 0.3) },
+        { pos = Vector3.new(0.5, 2.9, 0.1), rot = Vector3.new(0, 0, 15), size = Vector3.new(0.3, 0.9, 0.3) },
+        -- боковые
+        { pos = Vector3.new(-0.9, 2.6, 0.1), rot = Vector3.new(0, 0, -30), size = Vector3.new(0.25, 0.8, 0.25) },
+        { pos = Vector3.new(0.9, 2.6, 0.1), rot = Vector3.new(0, 0, 30), size = Vector3.new(0.25, 0.8, 0.25) },
+        -- сзади
+        { pos = Vector3.new(-0.6, 2.7, 0.5), rot = Vector3.new(20, 0, -15), size = Vector3.new(0.25, 0.7, 0.25) },
+        { pos = Vector3.new(0.6, 2.7, 0.5), rot = Vector3.new(20, 0, 15), size = Vector3.new(0.25, 0.7, 0.25) },
+        -- спереди (чёлка)
+        { pos = Vector3.new(-0.3, 2.7, -0.4), rot = Vector3.new(-25, 0, -20), size = Vector3.new(0.25, 0.7, 0.25) },
+        { pos = Vector3.new(0.3, 2.7, -0.4), rot = Vector3.new(-25, 0, 20), size = Vector3.new(0.25, 0.7, 0.25) },
+    }
+    for _, s in ipairs(spikes) do
+        local spike = createPart("Hair", s.size, CFrame.new(), color, Enum.Material.SmoothPlastic)
+        spike.Parent = model
+        local rot = CFrame.Angles(math.rad(s.rot.X), math.rad(s.rot.Y), math.rad(s.rot.Z))
+        weldToRoot(spike, root, CFrame.new(s.pos) * rot)
+    end
+end
+
 -- ============================================================
---  ГЕНЕРАТОРЫ СКИНОВ (из частей)
+--  ГЕНЕРАТОРЫ СКИНОВ
 -- ============================================================
 
 local function buildRick(root, model)
@@ -621,126 +674,138 @@ local function buildRick(root, model)
     local C_SHIRT = Color3.fromRGB(150, 220, 220)
     local C_PANTS = Color3.fromRGB(80, 75, 50)
     local C_SHOE = Color3.fromRGB(40, 40, 45)
-    
-    -- Торс (халат + рубашка)
-    local torso = createPart("Torso", Vector3.new(2, 2, 1), CFrame.new(), C_COAT)
+    local C_EYE_W = Color3.fromRGB(255, 255, 255)
+    local C_EYE_B = Color3.fromRGB(0, 0, 0)
+
+    -- Торс (рубашка)
+    local torso = createPart("Torso", Vector3.new(2, 2, 1), CFrame.new(), C_SHIRT)
     torso.Parent = model
     weldToRoot(torso, root, CFrame.new(0, 0, 0))
-    
-    local shirt = createPart("Shirt", Vector3.new(1, 1.6, 1.05), CFrame.new(), C_SHIRT)
-    shirt.Parent = model
-    weldToRoot(shirt, root, CFrame.new(0, 0, 0))
-    
+
+    -- Халат (верхняя часть)
+    local coatBack = createPart("CoatBack", Vector3.new(2.2, 2.2, 0.2), CFrame.new(), C_COAT)
+    coatBack.Parent = model
+    weldToRoot(coatBack, root, CFrame.new(0, 0, 0.55))
+
+    local coatL = createPart("CoatL", Vector3.new(0.2, 2.2, 1.2), CFrame.new(), C_COAT)
+    coatL.Parent = model
+    weldToRoot(coatL, root, CFrame.new(-1.05, 0, 0))
+
+    local coatR = createPart("CoatR", Vector3.new(0.2, 2.2, 1.2), CFrame.new(), C_COAT)
+    coatR.Parent = model
+    weldToRoot(coatR, root, CFrame.new(1.05, 0, 0))
+
+    -- Длинные полы халата (сзади до колен)
+    local coatTail = createPart("CoatTail", Vector3.new(2.2, 1.6, 0.2), CFrame.new(), C_COAT)
+    coatTail.Parent = model
+    weldToRoot(coatTail, root, CFrame.new(0, -1.8, 0.55))
+
     -- Голова
     local head = createPart("Head", Vector3.new(1.5, 1.5, 1.5), CFrame.new(), C_SKIN)
     head.Parent = model
     weldToRoot(head, root, CFrame.new(0, 1.75, 0))
-    
-    -- Глаза (простые)
-    local eyeL = createPart("EyeL", Vector3.new(0.3, 0.3, 0.1), CFrame.new(), Color3.new(1,1,1))
+
+    -- Глаза (большие, как в мультике)
+    local eyeL = createPart("EyeL", Vector3.new(0.45, 0.45, 0.1), CFrame.new(), C_EYE_W)
     eyeL.Parent = model
-    weldToRoot(eyeL, root, CFrame.new(-0.3, 1.85, -0.76))
-    local pupilL = createPart("PupilL", Vector3.new(0.1, 0.1, 0.12), CFrame.new(), Color3.new(0,0,0))
+    weldToRoot(eyeL, root, CFrame.new(-0.32, 1.85, -0.76))
+    local pupilL = createPart("PupilL", Vector3.new(0.12, 0.12, 0.12), CFrame.new(), C_EYE_B)
     pupilL.Parent = model
-    weldToRoot(pupilL, root, CFrame.new(-0.3, 1.85, -0.77))
-    
-    local eyeR = createPart("EyeR", Vector3.new(0.3, 0.3, 0.1), CFrame.new(), Color3.new(1,1,1))
+    weldToRoot(pupilL, root, CFrame.new(-0.32, 1.85, -0.77))
+
+    local eyeR = createPart("EyeR", Vector3.new(0.45, 0.45, 0.1), CFrame.new(), C_EYE_W)
     eyeR.Parent = model
-    weldToRoot(eyeR, root, CFrame.new(0.3, 1.85, -0.76))
-    local pupilR = createPart("PupilR", Vector3.new(0.1, 0.1, 0.12), CFrame.new(), Color3.new(0,0,0))
+    weldToRoot(eyeR, root, CFrame.new(0.32, 1.85, -0.76))
+    local pupilR = createPart("PupilR", Vector3.new(0.12, 0.12, 0.12), CFrame.new(), C_EYE_B)
     pupilR.Parent = model
-    weldToRoot(pupilR, root, CFrame.new(0.3, 1.85, -0.77))
-    
-    -- Брови (одна сплошная)
-    local brow = createPart("Brow", Vector3.new(0.8, 0.1, 0.1), CFrame.new(), Color3.fromRGB(100, 180, 240))
+    weldToRoot(pupilR, root, CFrame.new(0.32, 1.85, -0.77))
+
+    -- Брови (одна сплошная, сердитая)
+    local brow = createPart("Brow", Vector3.new(0.9, 0.12, 0.12), CFrame.new(), C_HAIR)
     brow.Parent = model
-    weldToRoot(brow, root, CFrame.new(0, 2.05, -0.76))
-    
-    -- Рот
-    local mouth = createPart("Mouth", Vector3.new(0.4, 0.1, 0.1), CFrame.new(), Color3.fromRGB(50, 20, 20))
+    weldToRoot(brow, root, CFrame.new(0, 2.15, -0.76))
+
+    -- Рот (кривой)
+    local mouth = createPart("Mouth", Vector3.new(0.5, 0.08, 0.1), CFrame.new(), Color3.fromRGB(100, 30, 30))
     mouth.Parent = model
     weldToRoot(mouth, root, CFrame.new(0, 1.55, -0.76))
-    
+
     -- Волосы (шипы)
-    local hairPositions = {
-        Vector3.new(0, 2.65, 0), -- центр
-        Vector3.new(-0.6, 2.5, 0), Vector3.new(0.6, 2.5, 0),
-        Vector3.new(-0.8, 2.2, 0), Vector3.new(0.8, 2.2, 0),
-        Vector3.new(-0.4, 2.6, 0), Vector3.new(0.4, 2.6, 0)
-    }
-    for i, pos in ipairs(hairPositions) do
-        local spike = createPart("Hair", Vector3.new(0.3, 0.8, 0.3), CFrame.new(), C_HAIR)
-        spike.Parent = model
-        local cf = CFrame.new(pos) * CFrame.Angles(math.rad(math.random(-20,20)), 0, math.rad(math.random(-20,20)))
-        weldToRoot(spike, root, cf)
-    end
-    
-    -- Руки
+    addHairSpikes(root, model, C_HAIR)
+
+    -- Руки (рукава халата)
     local armL = createPart("ArmL", Vector3.new(1, 2, 1), CFrame.new(), C_COAT)
     armL.Parent = model
     weldToRoot(armL, root, CFrame.new(-1.5, 0, 0))
     local handL = createPart("HandL", Vector3.new(0.8, 0.5, 0.8), CFrame.new(), C_SKIN)
     handL.Parent = model
     weldToRoot(handL, root, CFrame.new(-1.5, -1.2, 0))
-    
+
     local armR = createPart("ArmR", Vector3.new(1, 2, 1), CFrame.new(), C_COAT)
     armR.Parent = model
     weldToRoot(armR, root, CFrame.new(1.5, 0, 0))
     local handR = createPart("HandR", Vector3.new(0.8, 0.5, 0.8), CFrame.new(), C_SKIN)
     handR.Parent = model
     weldToRoot(handR, root, CFrame.new(1.5, -1.2, 0))
-    
-    -- Ноги
+
+    -- Ноги (брюки)
     local legL = createPart("LegL", Vector3.new(1, 2, 1), CFrame.new(), C_PANTS)
     legL.Parent = model
     weldToRoot(legL, root, CFrame.new(-0.5, -2, 0))
-    local shoeL = createPart("ShoeL", Vector3.new(1, 0.5, 1.2), CFrame.new(), C_SHOE)
+    local shoeL = createPart("ShoeL", Vector3.new(1, 0.5, 1.3), CFrame.new(), C_SHOE)
     shoeL.Parent = model
-    weldToRoot(shoeL, root, CFrame.new(-0.5, -3.2, -0.1))
-    
+    weldToRoot(shoeL, root, CFrame.new(-0.5, -3.2, -0.15))
+
     local legR = createPart("LegR", Vector3.new(1, 2, 1), CFrame.new(), C_PANTS)
     legR.Parent = model
     weldToRoot(legR, root, CFrame.new(0.5, -2, 0))
-    local shoeR = createPart("ShoeR", Vector3.new(1, 0.5, 1.2), CFrame.new(), C_SHOE)
+    local shoeR = createPart("ShoeR", Vector3.new(1, 0.5, 1.3), CFrame.new(), C_SHOE)
     shoeR.Parent = model
-    weldToRoot(shoeR, root, CFrame.new(0.5, -3.2, -0.1))
+    weldToRoot(shoeR, root, CFrame.new(0.5, -3.2, -0.15))
 end
 
 local function buildMorty(root, model)
     local C_SKIN = Color3.fromRGB(245, 210, 180)
-    local C_HAIR = Color3.fromRGB(120, 80, 50)
+    local C_HAIR = Color3.fromRGB(130, 90, 60)
     local C_SHIRT = Color3.fromRGB(245, 230, 100)
     local C_PANTS = Color3.fromRGB(60, 80, 140)
     local C_SHOE = Color3.fromRGB(245, 245, 245)
-    
+    local C_EYE_W = Color3.fromRGB(255, 255, 255)
+    local C_EYE_B = Color3.fromRGB(0, 0, 0)
+
     local torso = createPart("Torso", Vector3.new(2, 2, 1), CFrame.new(), C_SHIRT)
     torso.Parent = model
     weldToRoot(torso, root, CFrame.new(0, 0, 0))
-    
-    local head = createPart("Head", Vector3.new(1.5, 1.5, 1.5), CFrame.new(), C_SKIN)
+
+    local head = createPart("Head", Vector3.new(1.6, 1.6, 1.6), CFrame.new(), C_SKIN)
     head.Parent = model
-    weldToRoot(head, root, CFrame.new(0, 1.75, 0))
-    
-    -- Глаза (большие)
-    local eyeL = createPart("EyeL", Vector3.new(0.4, 0.4, 0.1), CFrame.new(), Color3.new(1,1,1))
+    weldToRoot(head, root, CFrame.new(0, 1.8, 0))
+
+    -- Огромные глаза Морти
+    local eyeL = createPart("EyeL", Vector3.new(0.5, 0.6, 0.1), CFrame.new(), C_EYE_W)
     eyeL.Parent = model
-    weldToRoot(eyeL, root, CFrame.new(-0.35, 1.85, -0.76))
-    local pupilL = createPart("PupilL", Vector3.new(0.15, 0.15, 0.12), CFrame.new(), Color3.new(0,0,0))
+    weldToRoot(eyeL, root, CFrame.new(-0.38, 1.9, -0.81))
+    local pupilL = createPart("PupilL", Vector3.new(0.15, 0.15, 0.12), CFrame.new(), C_EYE_B)
     pupilL.Parent = model
-    weldToRoot(pupilL, root, CFrame.new(-0.35, 1.85, -0.77))
-    
-    local eyeR = createPart("EyeR", Vector3.new(0.4, 0.4, 0.1), CFrame.new(), Color3.new(1,1,1))
+    weldToRoot(pupilL, root, CFrame.new(-0.38, 1.9, -0.82))
+
+    local eyeR = createPart("EyeR", Vector3.new(0.5, 0.6, 0.1), CFrame.new(), C_EYE_W)
     eyeR.Parent = model
-    weldToRoot(eyeR, root, CFrame.new(0.35, 1.85, -0.76))
-    local pupilR = createPart("PupilR", Vector3.new(0.15, 0.15, 0.12), CFrame.new(), Color3.new(0,0,0))
+    weldToRoot(eyeR, root, CFrame.new(0.38, 1.9, -0.81))
+    local pupilR = createPart("PupilR", Vector3.new(0.15, 0.15, 0.12), CFrame.new(), C_EYE_B)
     pupilR.Parent = model
-    weldToRoot(pupilR, root, CFrame.new(0.35, 1.85, -0.77))
-    
+    weldToRoot(pupilR, root, CFrame.new(0.38, 1.9, -0.82))
+
     -- Волосы (шапка)
-    local hair = createPart("Hair", Vector3.new(1.6, 0.6, 1.6), CFrame.new(), C_HAIR)
+    local hair = createPart("Hair", Vector3.new(1.7, 0.7, 1.7), CFrame.new(), C_HAIR)
     hair.Parent = model
-    weldToRoot(hair, root, CFrame.new(0, 2.4, 0.1))
-    
+    weldToRoot(hair, root, CFrame.new(0, 2.45, 0.1))
+
+    -- Нос
+    local nose = createPart("Nose", Vector3.new(0.15, 0.2, 0.15), CFrame.new(), C_SKIN)
+    nose.Parent = model
+    weldToRoot(nose, root, CFrame.new(0, 1.7, -0.81))
+
     -- Руки (короткие рукава)
     local armL = createPart("ArmL", Vector3.new(1, 1, 1), CFrame.new(), C_SHIRT)
     armL.Parent = model
@@ -748,128 +813,139 @@ local function buildMorty(root, model)
     local handL = createPart("HandL", Vector3.new(0.8, 1.5, 0.8), CFrame.new(), C_SKIN)
     handL.Parent = model
     weldToRoot(handL, root, CFrame.new(-1.5, -0.75, 0))
-    
+
     local armR = createPart("ArmR", Vector3.new(1, 1, 1), CFrame.new(), C_SHIRT)
     armR.Parent = model
     weldToRoot(armR, root, CFrame.new(1.5, 0.5, 0))
     local handR = createPart("HandR", Vector3.new(0.8, 1.5, 0.8), CFrame.new(), C_SKIN)
     handR.Parent = model
     weldToRoot(handR, root, CFrame.new(1.5, -0.75, 0))
-    
-    -- Ноги
+
     local legL = createPart("LegL", Vector3.new(1, 2, 1), CFrame.new(), C_PANTS)
     legL.Parent = model
     weldToRoot(legL, root, CFrame.new(-0.5, -2, 0))
-    local shoeL = createPart("ShoeL", Vector3.new(1, 0.5, 1.2), CFrame.new(), C_SHOE)
+    local shoeL = createPart("ShoeL", Vector3.new(1, 0.5, 1.3), CFrame.new(), C_SHOE)
     shoeL.Parent = model
-    weldToRoot(shoeL, root, CFrame.new(-0.5, -3.2, -0.1))
-    
+    weldToRoot(shoeL, root, CFrame.new(-0.5, -3.2, -0.15))
+
     local legR = createPart("LegR", Vector3.new(1, 2, 1), CFrame.new(), C_PANTS)
     legR.Parent = model
     weldToRoot(legR, root, CFrame.new(0.5, -2, 0))
-    local shoeR = createPart("ShoeR", Vector3.new(1, 0.5, 1.2), CFrame.new(), C_SHOE)
+    local shoeR = createPart("ShoeR", Vector3.new(1, 0.5, 1.3), CFrame.new(), C_SHOE)
     shoeR.Parent = model
-    weldToRoot(shoeR, root, CFrame.new(0.5, -3.2, -0.1))
+    weldToRoot(shoeR, root, CFrame.new(0.5, -3.2, -0.15))
 end
 
 local function buildEvilMorty(root, model)
-    -- База Морти
     buildMorty(root, model)
-    -- Добавляем повязку
-    local patch = createPart("EyePatch", Vector3.new(0.5, 0.5, 0.1), CFrame.new(), Color3.fromRGB(20, 20, 20))
+    -- Повязка на левый глаз
+    local patch = createPart("EyePatch", Vector3.new(0.55, 0.55, 0.1), CFrame.new(), Color3.fromRGB(15, 15, 15))
     patch.Parent = model
-    weldToRoot(patch, root, CFrame.new(-0.35, 1.85, -0.77))
-    -- Ремешок
-    local strap = createPart("Strap", Vector3.new(1.6, 0.1, 0.1), CFrame.new(), Color3.fromRGB(20, 20, 20))
-    strap.Parent = model
-    weldToRoot(strap, root, CFrame.new(0, 1.95, -0.76))
+    weldToRoot(patch, root, CFrame.new(-0.38, 1.9, -0.83))
+    -- Ремешок через голову
+    local strap1 = createPart("Strap1", Vector3.new(1.7, 0.1, 0.1), CFrame.new(), Color3.fromRGB(15, 15, 15))
+    strap1.Parent = model
+    weldToRoot(strap1, root, CFrame.new(0, 2.0, -0.81))
+    local strap2 = createPart("Strap2", Vector3.new(1.7, 0.1, 0.1), CFrame.new(), Color3.fromRGB(15, 15, 15))
+    strap2.Parent = model
+    weldToRoot(strap2, root, CFrame.new(0, 1.85, 0.81))
 end
 
 local function buildRickPrime(root, model)
     local C_SKIN = Color3.fromRGB(190, 210, 220)
     local C_HAIR = Color3.fromRGB(180, 210, 250)
-    local C_COAT = Color3.fromRGB(40, 40, 50) -- Тёмный халат
-    local C_SHIRT = Color3.fromRGB(180, 40, 40) -- Красная рубашка
-    local C_PANTS = Color3.fromRGB(30, 30, 35)
+    local C_COAT = Color3.fromRGB(35, 35, 45)
+    local C_SHIRT = Color3.fromRGB(180, 40, 40)
+    local C_PANTS = Color3.fromRGB(25, 25, 30)
     local C_SHOE = Color3.fromRGB(10, 10, 10)
-    
-    local torso = createPart("Torso", Vector3.new(2, 2, 1), CFrame.new(), C_COAT)
+    local C_EYE_W = Color3.fromRGB(255, 255, 255)
+    local C_EYE_B = Color3.fromRGB(0, 0, 0)
+
+    local torso = createPart("Torso", Vector3.new(2, 2, 1), CFrame.new(), C_SHIRT)
     torso.Parent = model
     weldToRoot(torso, root, CFrame.new(0, 0, 0))
-    
-    local shirt = createPart("Shirt", Vector3.new(1, 1.6, 1.05), CFrame.new(), C_SHIRT)
-    shirt.Parent = model
-    weldToRoot(shirt, root, CFrame.new(0, 0, 0))
-    
+
+    local coatBack = createPart("CoatBack", Vector3.new(2.2, 2.2, 0.2), CFrame.new(), C_COAT)
+    coatBack.Parent = model
+    weldToRoot(coatBack, root, CFrame.new(0, 0, 0.55))
+
+    local coatL = createPart("CoatL", Vector3.new(0.2, 2.2, 1.2), CFrame.new(), C_COAT)
+    coatL.Parent = model
+    weldToRoot(coatL, root, CFrame.new(-1.05, 0, 0))
+
+    local coatR = createPart("CoatR", Vector3.new(0.2, 2.2, 1.2), CFrame.new(), C_COAT)
+    coatR.Parent = model
+    weldToRoot(coatR, root, CFrame.new(1.05, 0, 0))
+
     local head = createPart("Head", Vector3.new(1.5, 1.5, 1.5), CFrame.new(), C_SKIN)
     head.Parent = model
     weldToRoot(head, root, CFrame.new(0, 1.75, 0))
-    
-    -- Злые глаза
-    local eyeL = createPart("EyeL", Vector3.new(0.3, 0.2, 0.1), CFrame.new(), Color3.new(1,1,1))
+
+    -- Злые глаза (более узкие)
+    local eyeL = createPart("EyeL", Vector3.new(0.4, 0.25, 0.1), CFrame.new(), C_EYE_W)
     eyeL.Parent = model
-    weldToRoot(eyeL, root, CFrame.new(-0.3, 1.85, -0.76))
-    
-    local eyeR = createPart("EyeR", Vector3.new(0.3, 0.2, 0.1), CFrame.new(), Color3.new(1,1,1))
+    weldToRoot(eyeL, root, CFrame.new(-0.32, 1.85, -0.76))
+    local pupilL = createPart("PupilL", Vector3.new(0.1, 0.1, 0.12), CFrame.new(), C_EYE_B)
+    pupilL.Parent = model
+    weldToRoot(pupilL, root, CFrame.new(-0.32, 1.85, -0.77))
+
+    local eyeR = createPart("EyeR", Vector3.new(0.4, 0.25, 0.1), CFrame.new(), C_EYE_W)
     eyeR.Parent = model
-    weldToRoot(eyeR, root, CFrame.new(0.3, 1.85, -0.76))
-    
-    -- Волосы
-    local hairPositions = {
-        Vector3.new(0, 2.65, 0),
-        Vector3.new(-0.6, 2.5, 0), Vector3.new(0.6, 2.5, 0),
-        Vector3.new(-0.8, 2.2, 0), Vector3.new(0.8, 2.2, 0),
-    }
-    for i, pos in ipairs(hairPositions) do
-        local spike = createPart("Hair", Vector3.new(0.3, 0.8, 0.3), CFrame.new(), C_HAIR)
-        spike.Parent = model
-        local cf = CFrame.new(pos) * CFrame.Angles(math.rad(math.random(-20,20)), 0, math.rad(math.random(-20,20)))
-        weldToRoot(spike, root, cf)
-    end
-    
-    -- Руки
+    weldToRoot(eyeR, root, CFrame.new(0.32, 1.85, -0.76))
+    local pupilR = createPart("PupilR", Vector3.new(0.1, 0.1, 0.12), CFrame.new(), C_EYE_B)
+    pupilR.Parent = model
+    weldToRoot(pupilR, root, CFrame.new(0.32, 1.85, -0.77))
+
+    -- Сердитые брови
+    local browL = createPart("BrowL", Vector3.new(0.45, 0.1, 0.1), CFrame.new(), C_HAIR)
+    browL.Parent = model
+    weldToRoot(browL, root, CFrame.new(-0.32, 2.05, -0.76) * CFrame.Angles(0, 0, math.rad(-15)))
+    local browR = createPart("BrowR", Vector3.new(0.45, 0.1, 0.1), CFrame.new(), C_HAIR)
+    browR.Parent = model
+    weldToRoot(browR, root, CFrame.new(0.32, 2.05, -0.76) * CFrame.Angles(0, 0, math.rad(15)))
+
+    addHairSpikes(root, model, C_HAIR)
+
     local armL = createPart("ArmL", Vector3.new(1, 2, 1), CFrame.new(), C_COAT)
     armL.Parent = model
     weldToRoot(armL, root, CFrame.new(-1.5, 0, 0))
     local handL = createPart("HandL", Vector3.new(0.8, 0.5, 0.8), CFrame.new(), C_SKIN)
     handL.Parent = model
     weldToRoot(handL, root, CFrame.new(-1.5, -1.2, 0))
-    
+
     local armR = createPart("ArmR", Vector3.new(1, 2, 1), CFrame.new(), C_COAT)
     armR.Parent = model
     weldToRoot(armR, root, CFrame.new(1.5, 0, 0))
     local handR = createPart("HandR", Vector3.new(0.8, 0.5, 0.8), CFrame.new(), C_SKIN)
     handR.Parent = model
     weldToRoot(handR, root, CFrame.new(1.5, -1.2, 0))
-    
-    -- Ноги
+
     local legL = createPart("LegL", Vector3.new(1, 2, 1), CFrame.new(), C_PANTS)
     legL.Parent = model
     weldToRoot(legL, root, CFrame.new(-0.5, -2, 0))
-    local shoeL = createPart("ShoeL", Vector3.new(1, 0.5, 1.2), CFrame.new(), C_SHOE)
+    local shoeL = createPart("ShoeL", Vector3.new(1, 0.5, 1.3), CFrame.new(), C_SHOE)
     shoeL.Parent = model
-    weldToRoot(shoeL, root, CFrame.new(-0.5, -3.2, -0.1))
-    
+    weldToRoot(shoeL, root, CFrame.new(-0.5, -3.2, -0.15))
+
     local legR = createPart("LegR", Vector3.new(1, 2, 1), CFrame.new(), C_PANTS)
     legR.Parent = model
     weldToRoot(legR, root, CFrame.new(0.5, -2, 0))
-    local shoeR = createPart("ShoeR", Vector3.new(1, 0.5, 1.2), CFrame.new(), C_SHOE)
+    local shoeR = createPart("ShoeR", Vector3.new(1, 0.5, 1.3), CFrame.new(), C_SHOE)
     shoeR.Parent = model
-    weldToRoot(shoeR, root, CFrame.new(0.5, -3.2, -0.1))
+    weldToRoot(shoeR, root, CFrame.new(0.5, -3.2, -0.15))
 end
 
 -- ============================================================
 --  ПРИМЕНЕНИЕ И СНЯТИЕ СКИНА
 -- ============================================================
 local currentSkinModel = nil
-local savedCharacterParts = {} -- сохраняем оригинальные части и их прозрачность
+local savedCharacterParts = {}
 
 local function clearCurrentSkin()
     if currentSkinModel then
         pcall(function() currentSkinModel:Destroy() end)
         currentSkinModel = nil
     end
-    -- Восстанавливаем прозрачность
     for part, origTransparency in pairs(savedCharacterParts) do
         if part and part.Parent then
             part.Transparency = origTransparency
@@ -883,11 +959,9 @@ local function applySkin(skinId)
     if not char then notify("Нет персонажа", C.danger); return end
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then notify("Нет HumanoidRootPart", C.danger); return end
-    
-    -- Очищаем предыдущий
+
     clearCurrentSkin()
-    
-    -- Скрываем стандартное тело (кроме HRP, чтобы камера не глючила)
+
     savedCharacterParts = {}
     for _, d in ipairs(char:GetDescendants()) do
         if d:IsA("BasePart") and d ~= root then
@@ -895,12 +969,11 @@ local function applySkin(skinId)
             d.Transparency = 1
         end
     end
-    
-    -- Создаём модель скина
+
     local model = Instance.new("Model")
     model.Name = "RM_Skin_" .. skinId
     model.Parent = char
-    
+
     if skinId == "rick" then
         buildRick(root, model)
     elseif skinId == "morty" then
@@ -910,7 +983,7 @@ local function applySkin(skinId)
     elseif skinId == "rick_prime" then
         buildRickPrime(root, model)
     end
-    
+
     currentSkinModel = model
     RM.SETTINGS.ActiveSkin = skinId
     saveSettings()
@@ -924,7 +997,6 @@ local function removeSkin()
     notify("🎭 Скин снят", C.text, 2)
 end
 
--- Обновление при респавне
 track(LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1)
     if RM.SETTINGS.ActiveSkin then
@@ -937,15 +1009,15 @@ end))
 -- ============================================================
 do
     local frame = tabFrames["skins"]
-    newSection(frame, "ЗАМЕНА ТЕЛА")
-    
+    newSection(frame, "ЗАМЕНА ТЕЛА (детализированные)")
+
     local SKINS = {
-        { id = "rick", name = "🧪 Рик Санчес", desc = "Халат, синие волосы" },
-        { id = "morty", name = "😰 Морти Смит", desc = "Жёлтая футболка" },
-        { id = "evil_morty", name = "🖤 Злой Морти", desc = "С повязкой на глазу" },
-        { id = "rick_prime", name = "💀 Рик Прайм", desc = "Тёмный халат, красная рубашка" },
+        { id = "rick", name = "🧪 Рик Санчес", desc = "Халат с полами, шипы волос" },
+        { id = "morty", name = "😰 Морти Смит", desc = "Жёлтая футболка, большие глаза" },
+        { id = "evil_morty", name = "🖤 Злой Морти", desc = "Повязка, ремешок через голову" },
+        { id = "rick_prime", name = "💀 Рик Прайм", desc = "Тёмный халат, сердитые брови" },
     }
-    
+
     for _, s in ipairs(SKINS) do
         local btn = newButton(frame, s.name, C.bg2, nil, 40)
         local lblName = Instance.new("TextLabel")
@@ -959,7 +1031,7 @@ do
         lblName.TextXAlignment = Enum.TextXAlignment.Left
         lblName.ZIndex = 43
         lblName.Parent = btn
-        
+
         local lblDesc = Instance.new("TextLabel")
         lblDesc.Size = UDim2.new(1, -20, 0, 12)
         lblDesc.Position = UDim2.fromOffset(10, 20)
@@ -977,14 +1049,13 @@ do
             applySkin(s.id)
         end)
     end
-    
+
     newSection(frame, "")
     local resetBtn = newButton(frame, "↩ Вернуть своё тело", C.bg2, nil, 34)
     resetBtn.TextColor3 = C.danger
     resetBtn.MouseButton1Click:Connect(removeSkin)
 end
 
--- Восстанавливаем скин из сохранения при загрузке
 if RM.SETTINGS.ActiveSkin then
     task.spawn(function()
         task.wait(2)
@@ -992,7 +1063,6 @@ if RM.SETTINGS.ActiveSkin then
     end)
 end
 
--- Восстанавливаем прозрачность при выгрузке
 RM._cleanup = RM._cleanup or {}
 RM._cleanup[#RM._cleanup + 1] = function()
     clearCurrentSkin()
@@ -1007,41 +1077,48 @@ local function buildPortalGun()
     tool.Name = "Portal Gun"
     tool.RequiresHandle = true
     tool.CanBeDropped = false
-    tool.ToolTip = "ЛКМ / кнопка 🔥 — открыть портал"
+    tool.ToolTip = "ЛКМ / 🔥 — открыть портал (2 выстрела = 2 портала)"
     tool.GripForward = Vector3.new(0, 0, -1)
     tool.GripRight = Vector3.new(1, 0, 0)
     tool.GripUp = Vector3.new(0, 1, 0)
 
-    -- Ручка
-    local handle = createPart("Handle", Vector3.new(0.4, 1.2, 0.4), CFrame.new(), Color3.fromRGB(60, 60, 65))
+    -- Ручка (тёмно-серая)
+    local handle = createPart("Handle", Vector3.new(0.4, 1.2, 0.4), CFrame.new(), Color3.fromRGB(55, 55, 60))
     handle.Parent = tool
-    
-    -- Тело пушки
-    local body = createPart("Body", Vector3.new(0.8, 0.8, 1.6), CFrame.new(), Color3.fromRGB(220, 220, 225))
+
+    -- Корпус (белый, как на фото)
+    local body = createPart("Body", Vector3.new(0.9, 0.8, 1.6), CFrame.new(), Color3.fromRGB(230, 230, 235))
     body.Parent = tool
     local w1 = Instance.new("WeldConstraint"); w1.Part0 = handle; w1.Part1 = body; w1.Parent = body
-    body.CFrame = handle.CFrame * CFrame.new(0, 0.6, -0.4)
-    
-    -- Зелёная колба (стекло)
-    local orb = createPart("Orb", Vector3.new(0.5, 0.7, 0.5), CFrame.new(), Color3.fromRGB(50, 255, 50), Enum.Material.Glass)
-    orb.Transparency = 0.2
+    body.CFrame = handle.CFrame * CFrame.new(0, 0.55, -0.35)
+
+    -- Зелёная колба (стекло, полупрозрачная)
+    local orb = createPart("Orb", Vector3.new(0.55, 0.7, 0.55), CFrame.new(), Color3.fromRGB(50, 255, 50), Enum.Material.Glass)
+    orb.Transparency = 0.15
     orb.Parent = tool
     local w2 = Instance.new("WeldConstraint"); w2.Part0 = body; w2.Part1 = orb; w2.Parent = orb
-    orb.CFrame = body.CFrame * CFrame.new(0, 0.5, -0.2)
-    
+    orb.CFrame = body.CFrame * CFrame.new(0, 0.5, -0.35)
+
     local orbLight = Instance.new("PointLight", orb)
     orbLight.Color = Color3.fromRGB(50, 255, 50)
     orbLight.Range = 6
     orbLight.Brightness = 2
     orbLight.Shadows = false
-    
-    -- Экранчик (красный)
-    local screen = createPart("Screen", Vector3.new(0.4, 0.2, 0.05), CFrame.new(), Color3.fromRGB(200, 30, 30))
+
+    -- Красный экранчик с "цифрами"
+    local screen = createPart("Screen", Vector3.new(0.4, 0.2, 0.05), CFrame.new(), Color3.fromRGB(255, 30, 30))
     screen.Material = Enum.Material.Neon
     screen.Parent = tool
     local w3 = Instance.new("WeldConstraint"); w3.Part0 = body; w3.Part1 = screen; w3.Parent = screen
-    screen.CFrame = body.CFrame * CFrame.new(0, 0.1, 0.81)
-    
+    screen.CFrame = body.CFrame * CFrame.new(0, 0.05, 0.81)
+
+    -- Маленький красный огонёк на экране (точка)
+    local led = createPart("Led", Vector3.new(0.08, 0.08, 0.05), CFrame.new(), Color3.fromRGB(255, 50, 50))
+    led.Material = Enum.Material.Neon
+    led.Parent = tool
+    local w4 = Instance.new("WeldConstraint"); w4.Part0 = screen; w4.Part1 = led; w4.Parent = led
+    led.CFrame = screen.CFrame * CFrame.new(-0.12, 0, 0.03)
+
     tool.Parent = LocalPlayer.Backpack
     return tool
 end
@@ -1054,117 +1131,183 @@ local function equipPortalGun()
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hum then return end
-    
+
     activePortalGun = buildPortalGun()
-    if hum:FindFirstChild("RightHand") or hum:FindFirstChild("Right Arm") then
-        hum:EquipTool(activePortalGun)
-    end
-    notify("🌀 Портальная пушка экипирована", C.accent, 2)
+    hum:EquipTool(activePortalGun)
+    activePortalGun.Activated:Connect(function()
+        if RM.shootPortal then pcall(RM.shootPortal) end
+    end)
+    notify("🌀 Портальная пушка в руках", C.accent, 2)
 end
 
 -- ============================================================
---  ЗЕЛЁНЫЙ СПИРАЛЬНЫЙ ПОРТАЛ
+--  ПОРТАЛЫ (ОДНОГО ЦВЕТА) + ТЕЛЕПОРТАЦИЯ
 -- ============================================================
-local currentPortal = nil
-local portalSpinnerConn = nil
+local portalA = nil   -- {model=, position=, normal=, conn=}
+local portalB = nil
+local teleportCooldown = 0
 
-local function createPortal(position, normal)
-    if currentPortal then
-        pcall(function() currentPortal:Destroy() end)
-        if portalSpinnerConn then
-            pcall(function() portalSpinnerConn:Disconnect() end)
-            portalSpinnerConn = nil
-        end
-    end
-    
-    local c = RM.SETTINGS.PortalColor
-    local pColor = Color3.fromRGB(c.R, c.G, c.B)
-    
+local function createPortalModel(position, normal, color3)
     local model = Instance.new("Model")
     model.Name = "RM_Portal"
     model.Parent = Workspace
-    
+
     local center = CFrame.new(position, position + normal)
-    
-    -- Внешнее кольцо
-    local ring1 = createPart("Ring1", Vector3.new(0.2, 8, 8), center, pColor, Enum.Material.Neon)
+
+    -- Внешнее кольцо (толстое, вращается)
+    local ring1 = createPart("Ring1", Vector3.new(0.25, 9, 9), center, color3, Enum.Material.Neon)
     ring1.Shape = Enum.PartType.Cylinder
-    ring1.Transparency = 0.2
+    ring1.Transparency = 0.15
     ring1.CFrame = center * CFrame.Angles(0, math.rad(90), 0)
     ring1.Parent = model
-    
-    -- Внутреннее кольцо (меньше)
-    local ring2 = createPart("Ring2", Vector3.new(0.2, 6, 6), center, pColor, Enum.Material.Neon)
+
+    -- Внутреннее кольцо (тонкое)
+    local ring2 = createPart("Ring2", Vector3.new(0.2, 7, 7), center, color3, Enum.Material.Neon)
     ring2.Shape = Enum.PartType.Cylinder
-    ring2.Transparency = 0.5
+    ring2.Transparency = 0.45
     ring2.CFrame = center * CFrame.Angles(0, math.rad(90), 0)
     ring2.Parent = model
-    
-    -- Ядро (светящаяся сфера)
-    local core = createPart("Core", Vector3.new(5, 5, 5), center, Color3.fromRGB(150, 255, 150), Enum.Material.Neon)
+
+    -- Спираль внутри (для эффекта завихрения)
+    local spiral = Instance.new("Folder")
+    spiral.Name = "Spiral"
+    spiral.Parent = model
+    for i = 1, 12 do
+        local a = (i - 1) / 12 * math.pi * 2
+        local r = 1.2 + (i / 12) * 2.2
+        local seg = createPart("SpiralSeg", Vector3.new(0.15, 0.7, 0.15), CFrame.new(), color3, Enum.Material.Neon)
+        seg.Transparency = 0.3
+        seg.CFrame = center * CFrame.Angles(0, math.rad(90), 0) * CFrame.new(math.cos(a) * r, math.sin(a) * r, 0)
+        seg.Parent = spiral
+    end
+
+    -- Ядро (мягкое свечение)
+    local core = createPart("Core", Vector3.new(5.5, 5.5, 5.5), center, Color3.fromRGB(200, 255, 200), Enum.Material.Neon)
     core.Shape = Enum.PartType.Ball
-    core.Transparency = 0.6
+    core.Transparency = 0.7
     core.Parent = model
-    
+
     -- Частицы
     local pe = Instance.new("ParticleEmitter")
     pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-    pe.Rate = 50
-    pe.Lifetime = NumberRange.new(0.5, 1.5)
-    pe.Speed = NumberRange.new(2, 5)
+    pe.Rate = 60
+    pe.Lifetime = NumberRange.new(0.4, 1.2)
+    pe.Speed = NumberRange.new(2, 6)
     pe.SpreadAngle = Vector2.new(180, 180)
-    pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.5), NumberSequenceKeypoint.new(1, 0) })
-    pe.Color = ColorSequence.new(pColor)
+    pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.4), NumberSequenceKeypoint.new(1, 0) })
+    pe.Color = ColorSequence.new(color3)
     pe.LightEmission = 1
     pe.LightInfluence = 0
     pe.Parent = core
-    
+
     local light = Instance.new("PointLight", core)
-    light.Color = pColor
+    light.Color = color3
     light.Range = 15
     light.Brightness = 3
     light.Shadows = false
-    
+
+    -- Детектор входа (невидимый триггер)
+    local trigger = createPart("Trigger", Vector3.new(8, 8, 0.5), center, Color3.new(1, 1, 1))
+    trigger.Transparency = 1
+    trigger.CanCollide = false
+    trigger.CanTouch = true
+    trigger.CFrame = center * CFrame.Angles(0, math.rad(90), 0)
+    trigger.Parent = model
+
     -- Анимация вращения
     local angle = 0
-    portalSpinnerConn = RunService.Heartbeat:Connect(function(dt)
-        angle = angle + dt * 2
-        ring1.CFrame = center * CFrame.Angles(math.rad(angle), math.rad(90), 0)
-        ring2.CFrame = center * CFrame.Angles(math.rad(-angle*1.5), math.rad(90), 0)
-    end)
-    
-    currentPortal = model
-    playSound("portal", 0.8, 0.8)
-    
-    task.delay(10, function()
-        if currentPortal == model then
-            if portalSpinnerConn then portalSpinnerConn:Disconnect(); portalSpinnerConn = nil end
-            model:Destroy()
-            currentPortal = nil
+    local conn
+    conn = RunService.Heartbeat:Connect(function(dt)
+        if not model.Parent then
+            conn:Disconnect()
+            return
         end
+        angle = angle + dt * 2.5
+        ring1.CFrame = center * CFrame.Angles(math.rad(angle), math.rad(90), 0)
+        ring2.CFrame = center * CFrame.Angles(math.rad(-angle * 1.5), math.rad(90), 0)
+        spiral.CFrame = center * CFrame.Angles(math.rad(angle * 0.8), math.rad(90), 0)
     end)
+
+    return {
+        model = model,
+        position = position,
+        normal = normal,
+        trigger = trigger,
+        conn = conn,
+        created = os.clock(),
+    }
+end
+
+local function destroyPortal(portal)
+    if not portal then return end
+    pcall(function() if portal.conn then portal.conn:Disconnect() end end)
+    pcall(function() if portal.model then portal.model:Destroy() end end)
+end
+
+local function getPortalColor()
+    -- Оба портала одного цвета. Берём из настроек PortalColorA
+    local c = RM.SETTINGS.PortalColorA
+    return Color3.fromRGB(c.R, c.G, c.B)
+end
+
+local function teleportPlayer(targetCF)
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if os.clock() < teleportCooldown then return end
+    teleportCooldown = os.clock() + 0.8  -- защита от зацикливания
+
+    playSound("teleport", 0.8, 1.2)
+    spawnBurstPortal(hrp.Position, getPortalColor())
+    hrp.CFrame = targetCF * CFrame.new(0, 0, -2)  -- смещаем чуть вперед от портала
+    spawnBurstPortal(hrp.Position, getPortalColor())
+end
+
+function spawnBurstPortal(pos, color3)
+    local p = Instance.new("Part")
+    p.Anchored = true
+    p.CanCollide = false
+    p.Transparency = 1
+    p.Size = Vector3.new(0.1, 0.1, 0.1)
+    p.CFrame = CFrame.new(pos)
+    p.Parent = Workspace
+    local pe = Instance.new("ParticleEmitter")
+    pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+    pe.Rate = 0
+    pe.Lifetime = NumberRange.new(0.3, 0.8)
+    pe.Speed = NumberRange.new(10, 25)
+    pe.SpreadAngle = Vector2.new(180, 180)
+    pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.5), NumberSequenceKeypoint.new(1, 0) })
+    pe.Color = ColorSequence.new(color3)
+    pe.LightEmission = 1
+    pe.LightInfluence = 0
+    pe.Parent = p
+    pe:Emit(50)
+    task.delay(1.5, function() pcall(function() p:Destroy() end) end)
 end
 
 -- ============================================================
---  СТРЕЛЬБА ИЗ ПУШКИ
+--  СТРЕЛЬБА: 1-й выстрел = A, 2-й = B, 3-й = удаляет A (цикл)
 -- ============================================================
 local function shootPortal()
     local dir, origin = RM.getAimDirection()
     if not dir or not origin then return end
-    
-    -- Если стоим вплотную к стене, смещаем origin вперед
+
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if hrp then
         origin = hrp.Position + dir * 2
     end
-    
+
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = {char, currentPortal}
-    
+    local ignore = {char}
+    if portalA and portalA.model then table.insert(ignore, portalA.model) end
+    if portalB and portalB.model then table.insert(ignore, portalB.model) end
+    raycastParams.FilterDescendantsInstances = ignore
+
     local result = Workspace:Raycast(origin, dir * 500, raycastParams)
-    
+
     local spawnPos, spawnNormal
     if result then
         spawnPos = result.Position
@@ -1173,22 +1316,80 @@ local function shootPortal()
         spawnPos = origin + dir * 50
         spawnNormal = -dir
     end
-    
-    createPortal(spawnPos, spawnNormal)
-    
-    -- Визуальный луч от пушки к порталу (если пушка в руках)
-    if activePortalGun and char then
+
+    local color = getPortalColor()
+
+    -- Логика: A -> B -> удаляем A и создаём новый A? Нет: A, B, затем следующий выстрел перезаписывает A.
+    if not portalA then
+        portalA = createPortalModel(spawnPos, spawnNormal, color)
+        notify("🌀 Портал A создан", color, 2)
+    elseif not portalB then
+        portalB = createPortalModel(spawnPos, spawnNormal, color)
+        notify("🌀 Портал B создан", color, 2)
+    else
+        -- перезаписываем A
+        destroyPortal(portalA)
+        portalA = createPortalModel(spawnPos, spawnNormal, color)
+        notify("🌀 Портал A пересоздан", color, 2)
+    end
+
+    -- Визуальный луч от пушки к порталу
+    if activePortalGun then
         local handle = activePortalGun:FindFirstChild("Handle")
         if handle then
-            local beamPart = createPart("BeamFx", Vector3.new(0.2, 0.2, (spawnPos - handle.Position).Magnitude), CFrame.new(handle.Position, spawnPos) * CFrame.new(0, 0, -(spawnPos - handle.Position).Magnitude/2), Color3.fromRGB(50, 255, 50), Enum.Material.Neon)
-            beamPart.Parent = Workspace
-            task.delay(0.15, function() pcall(function() beamPart:Destroy() end) end)
+            local dist = (spawnPos - handle.Position).Magnitude
+            local beam = createPart("BeamFx", Vector3.new(0.2, 0.2, dist), CFrame.new(handle.Position, spawnPos) * CFrame.new(0, 0, -dist/2), color, Enum.Material.Neon)
+            beam.Parent = Workspace
+            task.delay(0.15, function() pcall(function() beam:Destroy() end) end)
         end
     end
-end
 
--- Переопределяем функцию стрельбы из части 1 (привязка к кнопке 🔥)
+    playSound("shoot", 0.6, 1)
+end
+RM.shootPortal = shootPortal
 RM.fireFromAim = shootPortal
+
+-- ============================================================
+--  ДЕТЕКТОР ТЕЛЕПОРТАЦИИ
+-- ============================================================
+task.spawn(function()
+    while alive do
+        task.wait(0.05)
+        if portalA and portalB and portalA.model and portalB.model then
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local pos = hrp.Position
+                -- проверяем расстояние до центра каждого портала
+                local dA = (pos - portalA.position).Magnitude
+                local dB = (pos - portalB.position).Magnitude
+                if dA < 3.5 then
+                    -- вошли в A -> телепорт в B
+                    teleportPlayer(CFrame.new(portalB.position, portalB.position + portalB.normal))
+                elseif dB < 3.5 then
+                    -- вошли в B -> телепорт в A
+                    teleportPlayer(CFrame.new(portalA.position, portalA.position + portalA.normal))
+                end
+            end
+        end
+    end
+end)
+
+-- Автоочистка порталов через 60 секунд
+local function clearOldPortals()
+    if portalA and os.clock() - portalA.created > 60 then
+        destroyPortal(portalA); portalA = nil
+    end
+    if portalB and os.clock() - portalB.created > 60 then
+        destroyPortal(portalB); portalB = nil
+    end
+end
+task.spawn(function()
+    while alive do
+        task.wait(5)
+        clearOldPortals()
+    end
+end)
 
 -- ============================================================
 --  UI: ВКЛАДКА «ПОРТАЛ»
@@ -1196,19 +1397,26 @@ RM.fireFromAim = shootPortal
 do
     local frame = tabFrames["portal"]
     newSection(frame, "ПОРТАЛЬНАЯ ПУШКА")
-    
+
     local equipBtn = newButton(frame, "🌀 Экипировать пушку", C.accent, nil, 40)
     equipBtn.MouseButton1Click:Connect(equipPortalGun)
-    
-    local shootBtn = newButton(frame, "🔥 Выстрелить (ПКМ)", C.bg2, nil, 40)
+
+    local shootBtn = newButton(frame, "🔥 Создать портал", C.bg2, nil, 40)
     shootBtn.MouseButton1Click:Connect(shootPortal)
-    
-    newSection(frame, "УПРАВЛЕНИЕ")
+
+    local clearBtn = newButton(frame, "🗑 Удалить оба портала", C.danger, nil, 34)
+    clearBtn.MouseButton1Click:Connect(function()
+        destroyPortal(portalA); portalA = nil
+        destroyPortal(portalB); portalB = nil
+        notify("🗑 Порталы удалены", C.text, 2)
+    end)
+
+    newSection(frame, "КАК РАБОТАЕТ")
     local info = Instance.new("TextLabel")
-    info.Size = UDim2.new(1, -8, 0, 60)
+    info.Size = UDim2.new(1, -8, 0, 90)
     info.BackgroundColor3 = C.bg2
     info.BackgroundTransparency = 0.2
-    info.Text = "\n  ПК: ЛКМ по экрану или кнопка «Выстрелить»\n  Мобилка: двигай прицел пальцем, жми 🔥\n  Пушка стреляет туда, куда смотрит камера/прицел."
+    info.Text = "\n  1-й выстрел — портал A\n  2-й выстрел — портал B\n  3-й выстрел — перезаписывает A\n  Зайди в любой портал — вылетишь из другого.\n  Оба портала одного цвета."
     info.TextColor3 = C.textDim
     info.Font = Enum.Font.Gotham
     info.TextSize = 10
@@ -1216,36 +1424,6 @@ do
     info.TextWrapped = true
     info.Parent = frame
     Instance.new("UICorner", info).CornerRadius = UDim.new(0, 8)
-end
-
--- ============================================================
---  СТРЕЛЬБА ЧЕРЕЗ ИНСТРУМЕНТ (Tool.Activated)
--- ============================================================
-local function onToolActivated()
-    shootPortal()
-end
-
--- Следим за экипировкой пушки, чтобы повесить Activated
-track(LocalPlayer.CharacterAdded:Connect(function(char)
-    task.wait(1)
-    if activePortalGun then
-        equipPortalGun()
-    end
-end))
-
-local function bindToolActivated()
-    if activePortalGun then
-        pcall(function()
-            activePortalGun.Activated:Connect(onToolActivated)
-        end)
-    end
-end
-
--- Переопределим equipPortalGun, чтобы сразу вешать Activated
-local oldEquip = equipPortalGun
-equipPortalGun = function()
-    oldEquip()
-    bindToolActivated()
 end
 
 -- ============================================================
@@ -1253,7 +1431,7 @@ end
 -- ============================================================
 do
     local frame = tabFrames["settings"]
-    
+
     newSection(frame, "ЗВУК")
     local soundBtn = newButton(frame, "🔊 Звуки: " .. (RM.SETTINGS.SoundEnabled and "ВКЛ" or "ВЫКЛ"), C.bg2, nil, 32)
     soundBtn.MouseButton1Click:Connect(function()
@@ -1261,52 +1439,74 @@ do
         soundBtn.Text = "🔊 Звуки: " .. (RM.SETTINGS.SoundEnabled and "ВКЛ" or "ВЫКЛ")
         saveSettings()
     end)
-    
-    newSection(frame, "ЦВЕТ ПОРТАЛА")
+
+    newSection(frame, "ЦВЕТ ПОРТАЛОВ (оба одинаковые)")
     local PORTAL_COLORS = {
-        { name = "🟢 Зелёный", c = { R = 50, G = 255, B = 50 } },
-        { name = "🔵 Синий",   c = { R = 50, G = 150, B = 255 } },
-        { name = "🟣 Фиолет",  c = { R = 180, G = 50, B = 255 } },
-        { name = "🟡 Жёлтый",  c = { R = 255, G = 220, B = 50 } },
+        { name = "🟢 Зелёный",  c = { R = 50, G = 255, B = 50 } },
+        { name = "🔵 Синий",    c = { R = 50, G = 150, B = 255 } },
+        { name = "🟣 Фиолет",   c = { R = 180, G = 50, B = 255 } },
+        { name = "🟡 Жёлтый",   c = { R = 255, G = 220, B = 50 } },
+        { name = "🔴 Красный",  c = { R = 255, G = 60, B = 60 } },
     }
     local pIdx = 1
     for i, p in ipairs(PORTAL_COLORS) do
-        if p.c.R == RM.SETTINGS.PortalColor.R and p.c.G == RM.SETTINGS.PortalColor.G then pIdx = i; break end
+        if p.c.R == RM.SETTINGS.PortalColorA.R and p.c.G == RM.SETTINGS.PortalColorA.G then pIdx = i; break end
     end
     local pBtn = newButton(frame, "🎨 " .. PORTAL_COLORS[pIdx].name, C.bg2, nil, 32)
     pBtn.MouseButton1Click:Connect(function()
         pIdx = pIdx % #PORTAL_COLORS + 1
-        RM.SETTINGS.PortalColor = PORTAL_COLORS[pIdx].c
+        RM.SETTINGS.PortalColorA = PORTAL_COLORS[pIdx].c
+        RM.SETTINGS.PortalColorB = PORTAL_COLORS[pIdx].c
         pBtn.Text = "🎨 " .. PORTAL_COLORS[pIdx].name
         saveSettings()
+        notify("🎨 Цвет порталов изменён", C.accent, 2)
     end)
-    
-    newSection(frame, "ИНТЕРФЕЙС")
+
+    newSection(frame, "ПРИЦЕЛ")
+    local AIM_SIZES = { 50, 70, 90, 110 }
+    local aIdx = 1
+    for i, v in ipairs(AIM_SIZES) do if v == RM.SETTINGS.AimSize then aIdx = i; break end end
+    local aimBtn = newButton(frame, "🎯 Размер прицела: " .. RM.SETTINGS.AimSize, C.bg2, nil, 32)
+    aimBtn.MouseButton1Click:Connect(function()
+        aIdx = aIdx % #AIM_SIZES + 1
+        RM.SETTINGS.AimSize = AIM_SIZES[aIdx]
+        aimBtn.Text = "🎯 Размер прицела: " .. RM.SETTINGS.AimSize
+        if aimFrame then
+            aimFrame.Size = UDim2.fromOffset(RM.SETTINGS.AimSize, RM.SETTINGS.AimSize)
+        end
+        saveSettings()
+    end)
+
+    newSection(frame, "СБРОС")
     local resetBtn = newButton(frame, "🔄 Сбросить всё", C.danger, nil, 34)
     resetBtn.MouseButton1Click:Connect(function()
         RM.SETTINGS.SoundEnabled = true
         RM.SETTINGS.NotificationsEnabled = true
-        RM.SETTINGS.PortalColor = { R = 50, G = 255, B = 50 }
+        RM.SETTINGS.PortalColorA = { R = 50, G = 255, B = 50 }
+        RM.SETTINGS.PortalColorB = { R = 50, G = 255, B = 50 }
         RM.SETTINGS.ActiveSkin = nil
+        RM.SETTINGS.AimSize = 70
         saveSettings()
         removeSkin()
         soundBtn.Text = "🔊 Звуки: ВКЛ"
         pBtn.Text = "🎨 " .. PORTAL_COLORS[1].name
+        aimBtn.Text = "🎯 Размер прицела: 70"
+        if aimFrame then aimFrame.Size = UDim2.fromOffset(70, 70) end
         notify("🔄 Настройки сброшены", C.success, 2)
     end)
-    
+
     newSection(frame, "ВЫХОД")
     local unloadBtn = newButton(frame, "❌ ВЫГРУЗИТЬ СКРИПТ", C.danger, nil, 36)
     unloadBtn.MouseButton1Click:Connect(function()
         RM.unload()
     end)
-    
+
     newSection(frame, "О СКРИПТЕ")
     local info = Instance.new("TextLabel")
-    info.Size = UDim2.new(1, -8, 0, 70)
+    info.Size = UDim2.new(1, -8, 0, 80)
     info.BackgroundColor3 = C.bg2
     info.BackgroundTransparency = 0.2
-    info.Text = "\n  Rick & Morty Toolkit v" .. RM._version .. "\n  Скины: 4  |  Пушка: 1  |  Портал: 1\n  Всё локально, без серверного урона.\n  Без 18+ контента."
+    info.Text = "\n  Rick & Morty Toolkit v" .. RM._version .. "\n  Скины: 4  |  2 портала (один цвет)\n  Мобильный прицел с перекрестием.\n  Без 18+ контента."
     info.TextColor3 = C.textDim
     info.Font = Enum.Font.Gotham
     info.TextSize = 10
@@ -1317,32 +1517,28 @@ do
 end
 
 -- ============================================================
---  ФИНАЛЬНАЯ ИНИЦИАЛИЗАЦИЯ И UNLOAD
+--  UNLOAD
 -- ============================================================
 switchTab("skins")
 
--- Функция очистки всего
 function RM.unload()
     alive = false
     GENV._RM_BUSY = nil
-    
-    for _, c in ipairs(conns) do
-        pcall(function() c:Disconnect() end)
-    end
+
+    for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
     conns = {}
-    
-    -- Чистим эффекты/модели
+
     for _, fn in ipairs(RM._cleanup or {}) do pcall(fn) end
-    
+
+    destroyPortal(portalA); portalA = nil
+    destroyPortal(portalB); portalB = nil
+
     if activePortalGun then pcall(function() activePortalGun:Destroy() end) end
-    if currentPortal then pcall(function() currentPortal:Destroy() end) end
-    if portalSpinnerConn then pcall(function() portalSpinnerConn:Disconnect() end) end
     if sfxFolder then pcall(function() sfxFolder:Destroy() end) end
-    
-    -- Восстанавливаем тело (скин)
+    if aimSmoothConn then pcall(function() aimSmoothConn:Disconnect() end) end
+
     clearCurrentSkin()
-    
-    -- Удаляем GUI
+
     if gui then
         local gname = gui.Name
         if gui.Parent and gui.Parent:FindFirstChild(gname) then
@@ -1352,13 +1548,13 @@ function RM.unload()
             PlayerGui:FindFirstChild(gname):Destroy()
         end
     end
-    
+
     GENV.RickMorty = nil
     warn("[RickMorty] Скрипт выгружен")
 end
 
--- Финальный лог
-warn(string.format("[RickMorty v%s] Загружен. Скины: 4. Пушка и портал готовы. Мобильный прицел: %s", RM._version, isMobile and "ВКЛ" or "ВЫКЛ"))
+warn(string.format("[RickMorty v%s] Загружен. Скины: 4. Двойные порталы одного цвета. Мобильный прицел: %s",
+    RM._version, isMobile and "ВКЛ" or "ВЫКЛ"))
 notify("🌀 Rick & Morty v" .. RM._version .. " загружен", C.accent, 4)
 
 GENV._RM_BUSY = nil
