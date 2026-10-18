@@ -25,18 +25,18 @@ local alive = true
 -- ============================================================
 local function setupCursor()
     pcall(function()
-        local mouse = LocalPlayer:GetMouse()
         local cursorGui = Instance.new("ScreenGui")
         cursorGui.Name = "Orbit_Cursor"
         cursorGui.IgnoreGuiInset = true
         cursorGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        cursorGui.DisplayOrder = 64
         cursorGui.Parent = ORBIT.getSafeParent and ORBIT.getSafeParent() or LocalPlayer:WaitForChild("PlayerGui")
         
         local img = Instance.new("ImageLabel")
         img.Name = "CursorImg"
         img.Size = UDim2.fromOffset(32, 32)
         img.BackgroundTransparency = 1
-        img.Image = "rbxassetid://3570695787" -- Круглая точка
+        img.Image = "rbxassetid://3570695787"
         img.ImageColor3 = C3(100, 255, 140)
         img.AnchorPoint = Vector2.new(0.5, 0.5)
         img.Parent = cursorGui
@@ -63,7 +63,7 @@ end
 setupCursor()
 
 -- ============================================================
--- 2. РЫВОК (DASH) — Shift для быстрого ускорения
+-- 2. РЫВОК (DASH)
 -- ============================================================
 local dashCooldown = 0
 local function setupDash()
@@ -75,15 +75,13 @@ local function setupDash()
             if not hrp then return end
             if tick() < dashCooldown then return end
             
-            dashCooldown = tick() + 2 -- КД рывка 2 секунды
-            
+            dashCooldown = tick() + 2
             local dir = hrp.CFrame.LookVector
             local bv = Instance.new("BodyVelocity")
             bv.Velocity = dir * 120 + Vector3.new(0, 20, 0)
             bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
             bv.Parent = hrp
             
-            -- Визуальный шлейф при рывке
             local trailPart = Instance.new("Part")
             trailPart.Anchored = true; trailPart.CanCollide = false
             trailPart.Transparency = 0.5; trailPart.Color = C3(100, 255, 140)
@@ -93,10 +91,7 @@ local function setupDash()
             task.delay(0.5, function() trailPart:Destroy() end)
             
             if ORBIT.playSound then ORBIT.playSound("rbxasset://sounds/snap.mp3", 0.5, 1.5) end
-            
-            task.delay(0.2, function()
-                bv:Destroy()
-            end)
+            task.delay(0.2, function() bv:Destroy() end)
         end
     end))
 end
@@ -154,7 +149,6 @@ task.spawn(function()
         local bossHp, bossMaxHp = 0, 1
         local bossName = "БОСС"
         
-        -- Ищем боссов в Workspace (по именам моделей)
         for _, obj in ipairs(Workspace:GetChildren()) do
             if obj:IsA("Model") and (obj.Name:find("Sans") or obj.Name:find("Gaster")) then
                 local hum = obj:FindFirstChildOfClass("Humanoid")
@@ -170,18 +164,20 @@ task.spawn(function()
         
         if foundBoss then
             currentBoss = foundBoss
-            if bossGui then bossGui.BossBar.Visible = true end
-            bossLabel.Text = bossName .. " [" .. math.floor(bossHp) .. "/" .. math.floor(bossMaxHp) .. "]"
-            bossFill.Size = UDim2.new(math.clamp(bossHp / bossMaxHp, 0, 1), 0, 1, 0)
+            if bossGui and bossGui:FindFirstChild("BossBar") then 
+                bossGui.BossBar.Visible = true 
+                bossLabel.Text = bossName .. " [" .. math.floor(bossHp) .. "/" .. math.floor(bossMaxHp) .. "]"
+                bossFill.Size = UDim2.new(math.clamp(bossHp / bossMaxHp, 0, 1), 0, 1, 0)
+            end
         else
             currentBoss = nil
-            if bossGui then bossGui.BossBar.Visible = false end
+            if bossGui and bossGui:FindFirstChild("BossBar") then bossGui.BossBar.Visible = false end
         end
     end
 end)
 
 -- ============================================================
--- 4. РАДАР ИГРОКОВ (Мини-карта в углу)
+-- 4. РАДАР ИГРОКОВ
 -- ============================================================
 local radarGui, radarFrame
 local dots = {}
@@ -218,12 +214,11 @@ task.spawn(function()
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not hrp then continue end
         
-        -- Очищаем старые точки
         for _, dot in pairs(dots) do dot:Destroy() end
         dots = {}
         
         local myPos = hrp.Position
-        local radarRadius = 300 -- Радиус обзора радара
+        local radarRadius = 300
         
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character then
@@ -232,7 +227,6 @@ task.spawn(function()
                     local dist = (oHrp.Position - myPos).Magnitude
                     if dist <= radarRadius then
                         local relPos = oHrp.Position - myPos
-                        -- Переводим 3D позицию в 2D на радаре
                         local x = (relPos.X / radarRadius) * 70 + 70
                         local y = (relPos.Z / radarRadius) * 70 + 70
                         
@@ -250,19 +244,8 @@ task.spawn(function()
     end
 end)
 
-if ORBIT.unload then
-    local prevUnload = ORBIT.unload
-    ORBIT.unload = function()
-        alive = false
-        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-        for _, fn in ipairs(ORBIT._cleanup or {}) do pcall(fn) end
-        if prevUnload then pcall(prevUnload) end
-    end
-end
-
-if ORBIT.notify then ORBIT.notify("✨ Features: UI, Dash и Радар загружены!", C3(180, 255, 180), 3) end
 -- ============================================================
--- 5. МЕНЮ ФИШЕК (Отдельное окно)
+-- 5. МЕНЮ ФИШЕК (Отдельное окно с кнопкой 🎮)
 -- ============================================================
 local featureGui = Instance.new("ScreenGui")
 featureGui.Name = "Orbit_FeaturesMenu"
@@ -274,22 +257,35 @@ ORBIT._cleanup = ORBIT._cleanup or {}
 table.insert(ORBIT._cleanup, function() featureGui:Destroy() end)
 
 local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.fromOffset(50, 50)
-toggleBtn.Position = UDim2.fromOffset(20, 200)
-toggleBtn.BackgroundColor3 = C3(28, 22, 42)
-toggleBtn.TextColor3 = C3(100, 255, 140)
+toggleBtn.Size = UDim2.fromOffset(60, 60)
+toggleBtn.Position = UDim2.fromOffset(20, 170)
+toggleBtn.BackgroundColor3 = C3(70, 40, 110)
+toggleBtn.TextColor3 = C3(255, 255, 255)
 toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 24
-toggleBtn.Text = "✨"
+toggleBtn.TextSize = 22
+toggleBtn.Text = "🎮"
+toggleBtn.ZIndex = 60
 toggleBtn.Parent = featureGui
 Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 14)
-local st = Instance.new("UIStroke", toggleBtn); st.Color = C3(100, 255, 140); st.Thickness = 2
+local st = Instance.new("UIStroke", toggleBtn); st.Color = C3(200, 150, 255); st.Thickness = 2
+
+local featureLabel = Instance.new("TextLabel")
+featureLabel.Size = UDim2.fromOffset(60, 14)
+featureLabel.Position = UDim2.fromOffset(20, 232)
+featureLabel.BackgroundTransparency = 1
+featureLabel.Text = "ФИШКИ"
+featureLabel.TextColor3 = C3(200, 150, 255)
+featureLabel.Font = Enum.Font.GothamBold
+featureLabel.TextSize = 10
+featureLabel.ZIndex = 60
+featureLabel.Parent = featureGui
 
 local fWindow = Instance.new("Frame")
 fWindow.Size = UDim2.fromOffset(280, 360)
-fWindow.Position = UDim2.fromOffset(80, 200)
+fWindow.Position = UDim2.fromOffset(90, 170)
 fWindow.BackgroundColor3 = C3(18, 14, 28)
 fWindow.Visible = false
+fWindow.ZIndex = 60
 fWindow.Parent = featureGui
 Instance.new("UICorner", fWindow).CornerRadius = UDim.new(0, 14)
 local wStroke = Instance.new("UIStroke", fWindow); wStroke.Color = C3(150, 120, 255)
@@ -305,6 +301,7 @@ fTitle.Parent = fWindow
 
 toggleBtn.MouseButton1Click:Connect(function()
     fWindow.Visible = not fWindow.Visible
+    if ORBIT.playClick then ORBIT.playClick() end
 end)
 
 local function makeFButton(text, y, color, cb)
@@ -326,7 +323,7 @@ local function makeFButton(text, y, color, cb)
 end
 
 -- ============================================================
--- 6. РЕЖИМ «ЗМЕЙКА» (Шлейф из блоков за игроком)
+-- 6. РЕЖИМ «ЗМЕЙКА»
 -- ============================================================
 local snakeEnabled = false
 local snakeFolder = Instance.new("Folder")
@@ -369,7 +366,6 @@ task.spawn(function()
                 for i, p in ipairs(snakeParts) do
                     if snakeHistory[i] then
                         p.CFrame = snakeHistory[i].cf
-                        -- Пульсация
                         local scale = 1 + math.sin(tick() * 5 - i * 0.3) * 0.2
                         p.Size = Vector3.new(1.2, 1.2, 1.2) * scale
                     end
@@ -380,7 +376,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- 7. ЧЕРНАЯ ДЫРА (Притягивает NPC и ботов)
+-- 7. ЧЕРНАЯ ДЫРА
 -- ============================================================
 local blackHoleCooldown = 0
 makeFButton("🕳 Черная дыра (Притяжение)", 92, C3(60, 30, 80), function()
@@ -406,12 +402,11 @@ makeFButton("🕳 Черная дыра (Притяжение)", 92, C3(60, 30, 
     glow.Texture = "rbxasset://textures/particles/sparkles_main.dds"
     glow.Color = ColorSequence.new(C3(150, 50, 255))
     glow.Rate = 100
-    glow.Speed = NumberRange.new(-20, -10) -- Частицы летят ВНУТРЬ
+    glow.Speed = NumberRange.new(-20, -10)
     glow.Size = NumberSequence.new(2, 0)
     glow.Lifetime = NumberRange.new(0.5, 1)
     glow.LightEmission = 1
     
-    -- Притягиваем всех, у кого есть HumanoidRootPart
     local pullConn
     pullConn = RunService.Heartbeat:Connect(function()
         if not hole.Parent then pullConn:Disconnect() return end
@@ -436,7 +431,7 @@ makeFButton("🕳 Черная дыра (Притяжение)", 92, C3(60, 30, 
 end)
 
 -- ============================================================
--- 8. ОРБИТАЛЬНОЕ ОРУЖИЕ (Мечи/Кости вокруг игрока)
+-- 8. ОРБИТАЛЬНОЕ ОРУЖИЕ
 -- ============================================================
 local orbWeaponEnabled = false
 local orbFolder = Instance.new("Folder")
@@ -451,7 +446,7 @@ local orbBtn = makeFButton("⚔ Орбитальное оружие: ВЫКЛ", 
     if orbWeaponEnabled then
         for i = 1, 6 do
             local p = Instance.new("Part")
-            p.Size = Vector3.new(0.3, 4, 0.8) -- Форма меча
+            p.Size = Vector3.new(0.3, 4, 0.8)
             p.Material = Enum.Material.Neon
             p.Color = C3(255, 200, 50)
             p.Anchored = true
@@ -484,7 +479,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- 9. ЭФФЕКТ «МАТРИЦА» (Зеленый дождь символов)
+-- 9. ЭФФЕКТ «МАТРИЦА»
 -- ============================================================
 local matrixEnabled = false
 local matrixFolder = Instance.new("Folder")
@@ -510,7 +505,7 @@ local matrixBtn = makeFButton("🟩 Эффект Матрицы: ВЫКЛ", 176,
         emitterPart.Parent = matrixFolder
         
         matrixEmitter = Instance.new("ParticleEmitter")
-        matrixEmitter.Texture = "rbxassetid://243660364" -- Текстура буквы/символа
+        matrixEmitter.Texture = "rbxassetid://243660364"
         matrixEmitter.Color = ColorSequence.new(C3(0, 255, 0))
         matrixEmitter.Rate = 100
         matrixEmitter.Lifetime = NumberRange.new(1, 2)
@@ -540,8 +535,9 @@ local matrixBtn = makeFButton("🟩 Эффект Матрицы: ВЫКЛ", 176,
         for _, obj in ipairs(matrixFolder:GetChildren()) do obj:Destroy() end
     end
 end)
+
 -- ============================================================
--- 10. КОМБО-УРОН (Счетчик x2, x3, x4...)
+-- 10. КОМБО-УРОН
 -- ============================================================
 local comboGui = Instance.new("ScreenGui")
 comboGui.Name = "Orbit_Combo"
@@ -564,19 +560,17 @@ comboLabel.Parent = comboGui
 
 local comboCount = 0
 local lastHitTime = 0
-local comboTimeout = 1.5 -- Секунд до сброса комбо
+local comboTimeout = 1.5
 local lastBossHp = 0
 
 ORBIT._cleanup = ORBIT._cleanup or {}
 table.insert(ORBIT._cleanup, function() comboGui:Destroy() end)
 
--- Функция обновления визуала комбо
 local function updateCombo()
     if comboCount >= 2 then
         comboLabel.Text = "x" .. comboCount .. " КОМБО!"
         comboLabel.Visible = true
         
-        -- Эффект "пружины" (увеличение и уменьшение)
         comboLabel.Size = UDim2.new(0, 400, 0, 100)
         comboLabel.Position = UDim2.new(0.5, -200, 0.3, -10)
         TweenService:Create(comboLabel, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
@@ -584,13 +578,12 @@ local function updateCombo()
             Position = UDim2.new(0.5, -150, 0.3, 0)
         }):Play()
         
-        -- Меняем цвет в зависимости от комбо
         if comboCount >= 5 then
-            comboLabel.TextColor3 = C3(255, 50, 50) -- Красный на 5+
+            comboLabel.TextColor3 = C3(255, 50, 50)
         elseif comboCount >= 3 then
-            comboLabel.TextColor3 = C3(255, 150, 50) -- Оранжевый на 3+
+            comboLabel.TextColor3 = C3(255, 150, 50)
         else
-            comboLabel.TextColor3 = C3(255, 255, 50) -- Желтый
+            comboLabel.TextColor3 = C3(255, 255, 50)
         end
         
         if ORBIT.playSound then ORBIT.playSound("rbxasset://sounds/electronicpingshort.wav", 0.5, 1 + comboCount * 0.1) end
@@ -599,7 +592,6 @@ local function updateCombo()
     end
 end
 
--- Логика отслеживания комбо (на основе падения HP босса)
 task.spawn(function()
     while alive do
         task.wait(0.1)
@@ -619,26 +611,23 @@ task.spawn(function()
             local hum = bossModel:FindFirstChildOfClass("Humanoid")
             local currentHp = hum.Health
             
-            -- Если HP упало (нанесен урон)
             if lastBossHp > 0 and currentHp < lastBossHp then
                 local now = tick()
                 if now - lastHitTime <= comboTimeout then
                     comboCount = comboCount + 1
                 else
-                    comboCount = 1 -- Первый удар
+                    comboCount = 1
                 end
                 lastHitTime = now
                 updateCombo()
             end
             lastBossHp = currentHp
         else
-            -- Босса нет — сбрасываем
             lastBossHp = 0
             comboCount = 0
             comboLabel.Visible = false
         end
         
-        -- Сброс комбо по таймеру
         if comboCount > 0 and tick() - lastHitTime > comboTimeout then
             comboCount = 0
             comboLabel.Visible = false
@@ -647,7 +636,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- 11. ФАЗЫ БОЯ (Ярость Босса при 50% HP)
+-- 11. ФАЗЫ БОЯ (Ярость Босса)
 -- ============================================================
 local enrageOverlay = Instance.new("Frame")
 enrageOverlay.Size = UDim2.new(1, 0, 1, 0)
@@ -667,11 +656,9 @@ local function triggerEnrage(bossModel)
     enragedBossModel = bossModel
     bossPhase = 2
     
-    -- 1. Красный экран
     enrageOverlay.BackgroundTransparency = 0.5
     TweenService:Create(enrageOverlay, TweenInfo.new(1.5), { BackgroundTransparency = 0.9 }):Play()
     
-    -- 2. Тряска камеры
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if hum then
@@ -682,7 +669,6 @@ local function triggerEnrage(bossModel)
         hum.CameraOffset = Vector3.zero
     end
     
-    -- 3. Визуал босса (Красная аура + огонь)
     local root = bossModel:FindFirstChild("HumanoidRootPart") or bossModel:FindFirstChild("Torso")
     if root then
         local fire = Instance.new("Fire")
@@ -699,16 +685,14 @@ local function triggerEnrage(bossModel)
         light.Parent = root
     end
     
-    if ORBIT.playSound then ORBIT.playSound("rbxassetid://113650760423588", 1, 0.8) end -- Злой смех
+    if ORBIT.playSound then ORBIT.playSound("rbxassetid://113650760423588", 1, 0.8) end
     if ORBIT.notify then ORBIT.notify("🔥 БОСС В ЯРОСТИ! Урон увеличен!", C3(255, 50, 50), 4) end
 end
 
--- Отслеживание HP босса для активации фазы
 task.spawn(function()
     while alive do
         task.wait(0.5)
         if enrageActive then
-            -- Если босс умер, сбрасываем фазу
             if not enragedBossModel or not enragedBossModel.Parent then
                 enrageActive = false
                 enragedBossModel = nil
@@ -735,7 +719,6 @@ end)
 -- ============================================================
 -- 12. ЗАВЕРШЕНИЕ И ОЧИСТКА
 -- ============================================================
--- Переопределяем unload, чтобы убрать за собой всё
 local prevUnload = ORBIT.unload
 ORBIT.unload = function()
     alive = false
