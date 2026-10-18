@@ -1592,12 +1592,11 @@ function ORBIT.buildRing(ri)
                 ORBIT.activeLightCount = ORBIT.activeLightCount + 1
             end
             local trail = nil
-            if SETTINGS.TrailEnabled then
-                trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
-                    SETTINGS.TrailLength, SETTINGS.TrailWidth)
-                if ORBIT.performanceLevel == "low" or ORBIT.performanceLevel == "minimal" then
-                    trail.Enabled = false
-                end
+if SETTINGS.TrailEnabled then
+    trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
+        SETTINGS.TrailLength, SETTINGS.TrailWidth)
+    -- v24.3-fix2: перф-режим больше не гасит трейлы — только SETTINGS.TrailEnabled.
+    trail.Enabled = true
             end
             local nameGui = Instance.new("BillboardGui")
             nameGui.Size = UDim2.new(0, 140, 0, 30)
