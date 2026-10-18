@@ -1,5 +1,7 @@
 -- ORBIT v24.2 | orbit_p3.lua
 -- Логика: аура, огонь, боты, ESP, кольца, сохранения, режим игрока.
+-- v24.2-trailfix: трейлы не рвутся при беге (Lifetime 0.5, MaxLength 500),
+--                 перф-режим больше не выключает трейлы (только свет).
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit P3] Часть 1 не загружена!"); return end
 
@@ -142,12 +144,15 @@ function ORBIT.configureTrail(trail, lifetime, widthScale, span)
     local base = math.max(2 * sp, 0.05)
     local minScale = TRAIL_MIN_WORLD_WIDTH / base
     local w = math.max(widthScale or 0.5, minScale)
-    trail.Lifetime = math.max(lifetime or 0.25, TRAIL_MIN_LIFETIME)
+    -- ПАТЧ 1: Lifetime больше, MaxLength 500, трёхточечный WidthScale
+    trail.Lifetime = math.max(lifetime or 0.5, TRAIL_MIN_LIFETIME)
     trail.WidthScale = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, w), NumberSequenceKeypoint.new(1, 0),
+        NumberSequenceKeypoint.new(0, w),
+        NumberSequenceKeypoint.new(0.6, w * 0.75),
+        NumberSequenceKeypoint.new(1, 0),
     })
-    trail.MinLength = 0.02
-    trail.MaxLength = 0
+    trail.MinLength = 0.01
+    trail.MaxLength = 500
     trail.FaceCamera = true
     trail.LightEmission = 0.6
 end
@@ -1029,8 +1034,6 @@ function ORBIT.getBotAvatarTemplate()
     return nil
 end
 
--- v24.2-fix1: исключаем из рейкаста ВСЕ Orbit-объекты, иначе бот может
--- «сесть» на своё кольцо / ауру / огонь / чужое target-кольцо / фейерверк / SFX.
 local function findGroundY(x, z, fromY)
     local origin = Vector3.new(x, fromY + 10, z)
     local dir = Vector3.new(0, -100, 0)
@@ -1725,11 +1728,12 @@ local function applyPerformanceLevel(level)
         perfRestore(); setLightsEnabled(SETTINGS.LightEnabled)
         setTrailsEnabled(SETTINGS.TrailEnabled); setAuraTrailsEnabled(SETTINGS.AuraTrailEnabled)
     elseif level == "medium" then
-        setLightsEnabled(false); setTrailsEnabled(true); setAuraTrailsEnabled(SETTINGS.AuraTrailEnabled)
+        -- ПАТЧ 2: перф не выключает трейлы
+        setLightsEnabled(false); setTrailsEnabled(true); setAuraTrailsEnabled(true)
     elseif level == "low" then
-        setLightsEnabled(false); setTrailsEnabled(false); setAuraTrailsEnabled(false)
+        setLightsEnabled(false); setTrailsEnabled(true); setAuraTrailsEnabled(true)
     elseif level == "minimal" then
-        setLightsEnabled(false); setTrailsEnabled(false); setAuraTrailsEnabled(false)
+        setLightsEnabled(false); setTrailsEnabled(true); setAuraTrailsEnabled(true)
     end
     if ORBIT.notify then ORBIT.notify("Качество: " .. level:upper(), Color3.fromRGB(180, 220, 255), 1.5) end
 end
@@ -2121,7 +2125,6 @@ local function applySaveData(d)
     end
     if type(d.gradientSpeed) == "number" then SETTINGS.GradientSpeed = math.clamp(d.gradientSpeed, 0.05, 5) end
 
-    -- v24.2-fix2: принять поля, которые пишут боссы и A.battle
     if type(d.rewards) == "table" then
         ORBIT.saveData = ORBIT.saveData or {}
         ORBIT.saveData.rewards = ORBIT.saveData.rewards or {}
@@ -2167,7 +2170,6 @@ function ORBIT.saveSettings()
         data.playerMode = (ORBIT.mode == "normal") and "normal" or "sans"
         data.theme = (type(sd.theme) == "string") and sd.theme or "dark"
         data.achievements = (type(sd.achievements) == "table") and sd.achievements or {}
-        -- v24.2-fix2: то, что пишут боссы и A.battle — иначе теряется при перезаходе
         data.sansUnlocked = (ORBIT.sansUnlocked == true) or (sd.sansUnlocked == true)
         data.sansKnifeUnlocked = (ORBIT.sansKnifeUnlocked == true) or (sd.sansKnifeUnlocked == true)
         data.sansBlueEyeUnlocked = (ORBIT.sansBlueEyeUnlocked == true) or (sd.sansBlueEyeUnlocked == true)
@@ -2262,6 +2264,6 @@ ORBIT.decodeSettingsForShare  = dec
 ORBIT.applySaveData           = applySaveData
 
 if ORBIT.refreshLoaderStatus then ORBIT.refreshLoaderStatus() end
-if ORBIT.notify then ORBIT.notify("P3 v24.2-fix2 (логика + setMode + findGroundY fix + persistence)", Color3.fromRGB(180,255,180), 3) end
+if ORBIT.notify then ORBIT.notify("P3 v24.2-trailfix (оригинал + патчи трейлов)", Color3.fromRGB(180,255,180), 3) end
 
 return true
