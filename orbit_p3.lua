@@ -157,10 +157,11 @@ function ORBIT.configureTrail(trail, lifetime, widthScale, span)
         NumberSequenceKeypoint.new(0.6, w * 0.75),
         NumberSequenceKeypoint.new(1, 0),
     })
-    trail.MinLength = 0.01
-    trail.MaxLength = 500
-    trail.FaceCamera = true
-    trail.LightEmission = 0.6
+    -- ФИКС МОБИЛЬНОГО РЕНДЕРА: MaxLength 15, FaceCamera = false, LightEmission = 0
+    trail.MinLength = 0.1
+    trail.MaxLength = 15
+    trail.FaceCamera = false
+    trail.LightEmission = 0
     trail.Enabled = true
 end
 
@@ -453,7 +454,7 @@ local function updateAura(dt)
             end
             if data.isModel and data.model then
                 data.model:PivotTo(cf)
-                local tgt = pulseScale
+                local tgt = math.max(pulseScale, 0.1) -- ФИКС: запрет нулевого размера
                 local cur = data.model:GetAttribute("Scale") or 1
                 if math.abs(cur - tgt) > 0.015 or (tgt == 1 and cur ~= 1) then
                     pcall(function() data.model:ScaleTo(tgt) end)
@@ -462,7 +463,7 @@ local function updateAura(dt)
             else
                 data.part.CFrame = cf
                 if math.abs(pulseScale - 1.0) > 0.001 then
-                    local baseSz = getAuraShapeSize() * pulseScale
+                    local baseSz = getAuraShapeSize() * math.max(pulseScale, 0.1)
                     data.part.Size = Vector3.new(baseSz, baseSz, baseSz)
                 end
             end
@@ -692,7 +693,6 @@ function ORBIT.isTagged(player) return ORBIT.taggedPlayers[player] == true end
 function ORBIT.clearAllTags()
     for p in pairs(ORBIT.taggedPlayers) do ORBIT.tagCheater(p, false) end
 end
-
 -- ==================== ПОЛНОЕ КОПИРОВАНИЕ НА ЧУЖИХ ====================
 ORBIT.targetRings = ORBIT.targetRings or {}
 
@@ -1592,11 +1592,11 @@ function ORBIT.buildRing(ri)
                 ORBIT.activeLightCount = ORBIT.activeLightCount + 1
             end
             local trail = nil
-if SETTINGS.TrailEnabled then
-    trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
-        SETTINGS.TrailLength, SETTINGS.TrailWidth)
-    -- v24.3-fix2: перф-режим больше не гасит трейлы — только SETTINGS.TrailEnabled.
-    trail.Enabled = true
+            if SETTINGS.TrailEnabled then
+                trail = attachTrail(refPart, visualSize*0.35, SETTINGS.FixedColor,
+                    SETTINGS.TrailLength, SETTINGS.TrailWidth)
+                -- ФИКС: убрали проверку performanceLevel, трейлы всегда включены
+                trail.Enabled = true
             end
             local nameGui = Instance.new("BillboardGui")
             nameGui.Size = UDim2.new(0, 140, 0, 30)
@@ -1679,7 +1679,6 @@ function ORBIT.rebuildAllRings()
     ORBIT.applyColor()
     ORBIT.applyNameVisibility()
 end
-
 function ORBIT.setEnabled(state)
     ORBIT.enabled = state
     if state then
@@ -1689,6 +1688,8 @@ function ORBIT.setEnabled(state)
         end
         ORBIT.applyColor(); ORBIT.applyNameVisibility()
         ORBIT.startUpdateLoop()
+        ORBIT.setupAura() -- ФИКС: возвращаем ауру
+        ORBIT.setupFire() -- ФИКС: возвращаем огонь
         ORBIT.notify("Скрипт включён", Color3.fromRGB(100,255,150))
     else
         ORBIT.stopUpdateLoop()
@@ -2023,6 +2024,7 @@ function ORBIT.startUpdateLoop()
                     ps = 1.0 + math.sin(t*pulseSpeed + i + ri)*pulseAmp
                 end
                 if spawnK ~= 1 then ps = ps * math.max(spawnK, 0.02) end
+                ps = math.max(ps, 0.1) -- ФИКС: запрещаем сжатие в 0 (иначе ломается Trail)
                 if data.isModel and data.model then
                     local tgt = ps
                     local cur = data.model:GetAttribute("Scale") or 1
@@ -2043,7 +2045,8 @@ function ORBIT.startUpdateLoop()
                     end
                     if c then ORBIT.applyColorToBlock(data, c, true) end
                 end
-                if isRainbow and data.trail and (now - data.lastTrailUpdate) > 0.1 then
+                -- ФИКС: обновляем цвет трейла реже (0.25с вместо 0.1с), чтобы не грузить телефон
+                if isRainbow and data.trail and (now - data.lastTrailUpdate) > 0.25 then
                     local c = Color3.fromHSV((t*rainbowSpeed*ringSpeedMult + i/blockCount + ringShift) % 1, 0.9, 1)
                     if data.trail._lastTrailCol ~= c then
                         data.trail.Color = ColorSequence.new(c)
