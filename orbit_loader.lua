@@ -1,17 +1,9 @@
--- ORBIT v24.2 | orbit_loader.lua
--- ЕДИНЫЙ файл: ядро + GUI + загрузчик 21 модуля (+weapons_menu)
--- BUILD: v24.2-r8
--- r3: + orbit_nolight.lua и orbit_focus.lua.
--- r4: + orbit_sans_boss.lua (💀 Босс Санс).
--- r5: + orbit_orbit_combo.lua + orbit_rewards.lua.
--- r6: + orbit_weapons_menu.lua (🗡 Арсенал оружия).
--- r7: + чтение ORBIT.saveData.stats из сейва (иначе статистика боёв A.battle
---     не переживала перезаход, хотя p3 v24.2-fix2 её уже пишет).
--- r8: + диагностика в fetchAndRun: лог первых 60 символов и длины ответа,
---     отсев HTML (404-страница GitHub) и JSON-ошибки API до loadstring —
---     вместо невнятного «compile: got '='» будет понятная причина.
+-- ORBIT v24.3 | orbit_loader.lua
+-- ЕДИНЫЙ файл: ядро + GUI + загрузчик 22 модулей (+weapons_menu +features)
+-- BUILD: v24.3-r1
+-- r9: + orbit_features.lua (✨ Фишки: Dash, Boss Bar, Радар, Змейка, Фазы боя).
 
-local BUILD = "v24.2-r8"
+local BUILD = "v24.3-r1"
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 
 do
@@ -110,7 +102,7 @@ rawset(_G, "ORBIT", ORBIT)
 if GENV then GENV.ORBIT = ORBIT end
 
 ORBIT.stub = true
-ORBIT.version = "v24.2"
+ORBIT.version = "v24.3"
 ORBIT.build = BUILD
 ORBIT.started = false
 ORBIT.PLATFORM = nil
@@ -140,7 +132,8 @@ ORBIT.loaded = {
     shop = false, editor3d = false, minigame = false, anticheat = false,
     nolight = false, focus = false,
     sans_boss = false, orbit_combo = false, rewards = false,
-    weapons = false,   -- v24.2-r6: арсенал оружия
+    weapons = false,
+    features = false,   -- v24.3-r1: новые фишки
 }
 
 ORBIT.saveData = {
@@ -166,7 +159,6 @@ do
             if type(d.theme) == "string" then ORBIT.saveData.theme = d.theme end
             if type(d.achievements) == "table" then ORBIT.saveData.achievements = d.achievements end
             if type(d.rewards) == "table" then ORBIT.saveData.rewards = d.rewards end
-            -- r7: статистика боёв (пишет p3 v24.2-fix2, читает A.battle Клода)
             if type(d.stats) == "table" then ORBIT.saveData.stats = d.stats end
             if d.rigType == "R6" or d.rigType == "R15" then ORBIT.saveData.rigType = d.rigType end
         end
@@ -270,7 +262,6 @@ ORBIT.DEFAULT_SETTINGS = {
     ReactSparksEnabled = false, ReactSparksColorIndex = 1,
 }
 ORBIT.SETTINGS = table.clone(ORBIT.DEFAULT_SETTINGS)
-
 -- ============================================================
 --                    ПРЕСЕТЫ
 -- ============================================================
@@ -532,7 +523,7 @@ function ORBIT.saveSavesList()
 end
 
 -- ============================================================
---       UNLOAD (r6: + weapons)
+--       UNLOAD (r9: + features)
 -- ============================================================
 ORBIT.unload = function()
     ORBIT.unloaded = true
@@ -573,11 +564,10 @@ ORBIT.unload = function()
     if GENV._ORBIT_AC_UNLOAD then
         pcall(GENV._ORBIT_AC_UNLOAD)
     end
-    -- v24.2-r6: полный список модулей (+weapons)
     for _, k in ipairs({
         "sans", "abilities", "animations", "deathFx", "deathfx",
         "gaster", "sans_boss", "orbit_combo", "rewards",
-        "weapons",
+        "weapons", "features",  -- v24.3-r1: + features
         "tools", "anticheat", "extras", "shop", "minigame",
         "editor3d", "nolight", "focus",
     }) do
@@ -586,7 +576,7 @@ ORBIT.unload = function()
     end
     for _, ch in ipairs(Workspace:GetChildren()) do
         local nm = ch.Name
-        if nm:find("^OrbitAbility_") or nm:find("^OrbitDeathFx_") or nm:find("^OrbitAtmo_") or nm:find("^OrbitSfx_") or nm:find("^OrbitSansBoss_") or nm:find("^OrbitCombo_") or nm:find("^OrbitGasterFx_") or nm:find("^OrbitWeapons_") then
+        if nm:find("^OrbitAbility_") or nm:find("^OrbitDeathFx_") or nm:find("^OrbitAtmo_") or nm:find("^OrbitSfx_") or nm:find("^OrbitSansBoss_") or nm:find("^OrbitCombo_") or nm:find("^OrbitGasterFx_") or nm:find("^OrbitWeapons_") or nm:find("^Orbit_Features") or nm:find("^Orbit_Snake") or nm:find("^Orbit_Weapons") or nm:find("^Orbit_Matrix") then
             pcall(function() ch:Destroy() end)
         end
     end
@@ -604,7 +594,7 @@ ORBIT.refreshLoaderStatus = function() end
 ORBIT.currentFile = nil
 
 -- ============================================================
---                    ОЧЕРЕДЬ МОДУЛЕЙ (22 шт.)
+--                    ОЧЕРЕДЬ МОДУЛЕЙ (23 шт.)
 -- ============================================================
 local QUEUE = {
     { file = "orbit_p2.lua",          key = "p2",         short = "P2",   tag = "🔷 Фигуры",        cover = "ФИГУРЫ",       icon = "🔷", color = Color3.fromRGB(120, 200, 255), critical = true },
@@ -618,7 +608,7 @@ local QUEUE = {
     { file = "orbit_sans.lua",        key = "sans",       short = "SNS",  tag = "🎭 Санс",          cover = "САНС",         icon = "🎭", color = Color3.fromRGB(200, 220, 255) },
     { file = "orbit_death_fx.lua",    key = "deathfx",    short = "DFX",  tag = "💀 Смерть FX",     cover = "DEATH FX",     icon = "💀", color = Color3.fromRGB(255, 180, 180) },
     { file = "orbit_gaster.lua",      key = "gaster",     short = "GST",  tag = "👁 Гастер",        cover = "ГАСТЕР",       icon = "👁", color = Color3.fromRGB(200, 140, 255) },
-    { file = "orbit_weapons_menu.lua",key = "weapons",    short = "WPN",  tag = "🗡 Оружие",        cover = "АРСЕНАЛ",      icon = "🗡", color = Color3.fromRGB(180, 200, 255) },   -- v24.2-r6
+    { file = "orbit_weapons_menu.lua",key = "weapons",    short = "WPN",  tag = "🗡 Оружие",        cover = "АРСЕНАЛ",      icon = "🗡", color = Color3.fromRGB(180, 200, 255) },
     { file = "orbit_sans_boss.lua",   key = "sans_boss",  short = "SB",   tag = "💀 Босс Санс",     cover = "БОСС САНС",    icon = "💀", color = Color3.fromRGB(200, 230, 255) },
     { file = "orbit_orbit_combo.lua", key = "orbit_combo",short = "OC",   tag = "🌀 Орбит-комбо",   cover = "ОРБИТ-КОМБО",  icon = "🌀", color = Color3.fromRGB(180, 160, 255) },
     { file = "orbit_rewards.lua",     key = "rewards",    short = "RW",   tag = "🎁 Награды",       cover = "НАГРАДЫ",      icon = "🎁", color = Color3.fromRGB(220, 200, 255) },
@@ -629,6 +619,7 @@ local QUEUE = {
     { file = "orbit_anticheat.lua",   key = "anticheat",  short = "AC",   tag = "🛡 Античит",       cover = "АНТИЧИТ",      icon = "🛡", color = Color3.fromRGB(200, 255, 180) },
     { file = "orbit_nolight.lua",     key = "nolight",    short = "NL",   tag = "💡 Свет",          cover = "УПРАВЛЕНИЕ СВЕТОМ", icon = "💡", color = Color3.fromRGB(255, 240, 180) },
     { file = "orbit_focus.lua",       key = "focus",      short = "FOC",  tag = "🎮 Режим игры",    cover = "РЕЖИМ ИГРЫ",   icon = "🎮", color = Color3.fromRGB(180, 255, 200) },
+    { file = "orbit_features.lua",    key = "features",   short = "FTR",  tag = "✨ Фишки",         cover = "ФИШКИ",        icon = "✨", color = Color3.fromRGB(255, 200, 100) }, -- v24.3-r1
 }
 local TOTAL_LOADED = #QUEUE
 for _, it in ipairs(QUEUE) do
@@ -1159,10 +1150,8 @@ local function fetchAndRun(file, attempts, tag)
             addLog("ERR", "loadstring недоступен")
             return false
         else
-            -- v24.2-r8: диагностика — что реально пришло с сервера (первые 60 символов + длина)
             local head = src:sub(1, 60):gsub("[\r\n]", " ")
             addLog("SYS", file .. " | " .. #src .. "B | " .. head)
-            -- v24.2-r8: отсев HTML/JSON, чтобы не гнать мусор в loadstring
             if src:sub(1, 1) == "<" then
                 addLog("ERR", file .. " — HTML вместо Lua (файл не найден на GitHub)")
                 ORBIT.currentFile = nil
