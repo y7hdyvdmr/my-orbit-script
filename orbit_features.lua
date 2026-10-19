@@ -258,7 +258,7 @@ table.insert(ORBIT._cleanup, function() featureGui:Destroy() end)
 
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.fromOffset(60, 60)
-toggleBtn.Position = UDim2.fromOffset(20, 170)
+toggleBtn.Position = UDim2.fromOffset(20, 330) -- Сдвинули вниз, чтобы не пряталась
 toggleBtn.BackgroundColor3 = C3(70, 40, 110)
 toggleBtn.TextColor3 = C3(255, 255, 255)
 toggleBtn.Font = Enum.Font.GothamBold
@@ -271,7 +271,7 @@ local st = Instance.new("UIStroke", toggleBtn); st.Color = C3(200, 150, 255); st
 
 local featureLabel = Instance.new("TextLabel")
 featureLabel.Size = UDim2.fromOffset(60, 14)
-featureLabel.Position = UDim2.fromOffset(20, 232)
+featureLabel.Position = UDim2.fromOffset(20, 392)
 featureLabel.BackgroundTransparency = 1
 featureLabel.Text = "ФИШКИ"
 featureLabel.TextColor3 = C3(200, 150, 255)
@@ -282,7 +282,7 @@ featureLabel.Parent = featureGui
 
 local fWindow = Instance.new("Frame")
 fWindow.Size = UDim2.fromOffset(280, 360)
-fWindow.Position = UDim2.fromOffset(90, 170)
+fWindow.Position = UDim2.fromOffset(90, 330)
 fWindow.BackgroundColor3 = C3(18, 14, 28)
 fWindow.Visible = false
 fWindow.ZIndex = 60
@@ -431,7 +431,7 @@ makeFButton("🕳 Черная дыра (Притяжение)", 92, C3(60, 30, 
 end)
 
 -- ============================================================
--- 8. ОРБИТАЛЬНОЕ ОРУЖИЕ
+-- 8. ОРБИТАЛЬНОЕ ОРУЖИЕ (Награда за Босса + Урон)
 -- ============================================================
 local orbWeaponEnabled = false
 local orbFolder = Instance.new("Folder")
@@ -439,24 +439,53 @@ orbFolder.Name = "Orbit_Weapons"
 orbFolder.Parent = Workspace
 local orbParts = {}
 local orbAngle = 0
+local orbHitCooldowns = {}
+
+local function isBossDefeated()
+    if not ORBIT.saveData or not ORBIT.saveData.stats then return false end
+    return (ORBIT.saveData.stats.wins_total or 0) > 0
+end
 
 local orbBtn = makeFButton("⚔ Орбитальное оружие: ВЫКЛ", 134, C3(70, 50, 30), function(b)
+    if not isBossDefeated() then
+        if ORBIT.notify then
+            ORBIT.notify("🔒 Убей Санса или Гастера, чтобы разблокировать!", C3(255, 100, 100), 3)
+        end
+        return
+    end
+
     orbWeaponEnabled = not orbWeaponEnabled
     b.Text = "⚔ Орбитальное оружие: " .. (orbWeaponEnabled and "ВКЛ" or "ВЫКЛ")
+    
     if orbWeaponEnabled then
         for i = 1, 6 do
-            local p = Instance.new("Part")
-            p.Size = Vector3.new(0.3, 4, 0.8)
+            local p = Instance.new("WedgePart")
+            p.Size = Vector3.new(0.4, 3, 1.2)
             p.Material = Enum.Material.Neon
-            p.Color = C3(255, 200, 50)
+            p.Color = C3(255, 50, 50)
             p.Anchored = true
             p.CanCollide = false
             p.Parent = orbFolder
+            
+            local light = Instance.new("PointLight", p)
+            light.Color = C3(255, 50, 50)
+            light.Range = 5
+            light.Brightness = 2
+            
             table.insert(orbParts, p)
         end
     else
         for _, p in ipairs(orbParts) do p:Destroy() end
         orbParts = {}
+    end
+end)
+
+task.delay(1, function()
+    if isBossDefeated() then
+        orbBtn.Text = "⚔ Орбитальное оружие: ВЫКЛ"
+    else
+        orbBtn.Text = "🔒 Орбитальное оружие (Убей босса)"
+        orbBtn.TextColor3 = C3(150, 150, 150)
     end
 end)
 
@@ -468,10 +497,37 @@ task.spawn(function()
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             if hrp then
                 orbAngle = orbAngle + dt * 5
+                
                 for i, p in ipairs(orbParts) do
                     local a = orbAngle + (i - 1) * (math.pi * 2 / #orbParts)
-                    local offset = Vector3.new(math.cos(a) * 6, math.sin(tick() * 2 + i) * 0.5, math.sin(a) * 6)
+                    local offset = Vector3.new(math.cos(a) * 7, math.sin(tick() * 2 + i) * 0.5, math.sin(a) * 7)
                     p.CFrame = CFrame.new(hrp.Position + offset, hrp.Position + offset + Vector3.new(-math.sin(a), 0, math.cos(a)))
+                    
+                    for _, model in ipairs(Workspace:GetChildren()) do
+                        if model:IsA("Model") and model ~= char then
+                            local hum = model:FindFirstChildOfClass("Humanoid")
+                            local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso")
+                            
+                            if hum and root and hum.Health > 0 then
+                                local dist = (root.Position - p.Position).Magnitude
+                                if dist < 3 then
+                                    local lastHit = orbHitCooldowns[model] or 0
+                                    if tick() - lastHit > 0.6 then
+                                        orbHitCooldowns[model] = tick()
+                                        hum:TakeDamage(15)
+                                        
+                                        local hitFx = Instance.new("Part")
+                                        hitFx.Anchored = true; hitFx.CanCollide = false
+                                        hitFx.Size = Vector3.new(1,1,1); hitFx.Color = C3(255, 0, 0)
+                                        hitFx.Material = Enum.Material.Neon; hitFx.Position = root.Position
+                                        hitFx.Parent = Workspace
+                                        TweenService:Create(hitFx, TweenInfo.new(0.3), { Size = Vector3.new(3,3,3), Transparency = 1 }):Play()
+                                        task.delay(0.3, function() hitFx:Destroy() end)
+                                    end
+                                end
+                            end
+                        end
+                    end
                 end
             end
         end
@@ -505,15 +561,15 @@ local matrixBtn = makeFButton("🟩 Эффект Матрицы: ВЫКЛ", 176,
         emitterPart.Parent = matrixFolder
         
         matrixEmitter = Instance.new("ParticleEmitter")
-        matrixEmitter.Texture = "rbxassetid://243660364"
+        matrixEmitter.Texture = "rbxasset://textures/particles/sparkles_main.dds" -- Безопасная текстура
         matrixEmitter.Color = ColorSequence.new(C3(0, 255, 0))
-        matrixEmitter.Rate = 100
-        matrixEmitter.Lifetime = NumberRange.new(1, 2)
-        matrixEmitter.Speed = NumberRange.new(30, 40)
-        matrixEmitter.SpreadAngle = Vector2.new(10, 10)
-        matrixEmitter.Size = NumberSequence.new(1.5)
+        matrixEmitter.Rate = 150
+        matrixEmitter.Lifetime = NumberRange.new(1.5, 2.5)
+        matrixEmitter.Speed = NumberRange.new(10, 15)
+        matrixEmitter.SpreadAngle = Vector2.new(180, 180)
+        matrixEmitter.Size = NumberSequence.new(2.5, 0.5)
         matrixEmitter.LightEmission = 1
-        matrixEmitter.Acceleration = Vector3.new(0, -50, 0)
+        matrixEmitter.Acceleration = Vector3.new(0, -60, 0)
         matrixEmitter.Parent = emitterPart
         
         local conn
