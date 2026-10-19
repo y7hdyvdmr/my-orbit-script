@@ -1,4 +1,4 @@
--- ORBIT v25.3 | orbit_features.lua (SAFE EDITION)
+-- ORBIT v25.4 | orbit_features.lua (ZINDEX FIX)
 -- Фишки: Dash, Boss Bar, Радар, Курсор, Змейка, Черная дыра, 
 -- Оружие, Матрица, Комбо и Фазы боя.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
@@ -110,12 +110,14 @@ local function createBossBar()
     f.BackgroundColor3 = C3(20, 20, 30)
     f.BackgroundTransparency = 0.2
     f.Visible = false
+    f.ZIndex = 10
     f.Parent = sg
     Instance.new("UICorner", f).CornerRadius = UDim.new(0, 6)
     
     bossFill = Instance.new("Frame")
     bossFill.Size = UDim2.new(1, 0, 1, 0)
     bossFill.BackgroundColor3 = C3(255, 50, 80)
+    bossFill.ZIndex = 11
     bossFill.Parent = f
     Instance.new("UICorner", bossFill).CornerRadius = UDim.new(0, 6)
     
@@ -126,7 +128,7 @@ local function createBossBar()
     bossLabel.TextColor3 = C3(255, 255, 255)
     bossLabel.Font = Enum.Font.GothamBold
     bossLabel.TextSize = 14
-    bossLabel.ZIndex = 2
+    bossLabel.ZIndex = 12
     bossLabel.Parent = f
     
     bossGui = sg
@@ -173,6 +175,7 @@ local function createRadar()
     radarFrame.Position = UDim2.new(1, -160, 1, -160)
     radarFrame.BackgroundColor3 = C3(15, 15, 25)
     radarFrame.BackgroundTransparency = 0.5
+    radarFrame.ZIndex = 10
     radarFrame.Parent = sg
     Instance.new("UICorner", radarFrame).CornerRadius = UDim.new(1, 0)
     
@@ -213,6 +216,7 @@ task.spawn(function()
                         dot.Size = UDim2.fromOffset(6, 6)
                         dot.Position = UDim2.fromOffset(x - 3, y - 3)
                         dot.BackgroundColor3 = C3(255, 50, 50)
+                        dot.ZIndex = 11
                         dot.Parent = radarFrame
                         Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
                         table.insert(dots, dot)
@@ -224,7 +228,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- 5. МЕНЮ ФИШЕК (ФИКСИРОВАННЫЕ ПОЗИЦИИ, БЕЗ СПИСКОВ)
+-- 5. МЕНЮ ФИШЕК (ZINDEX FIX)
 -- ============================================================
 local featureGui = Instance.new("ScreenGui")
 featureGui.Name = "Orbit_FeaturesMenu"
@@ -276,6 +280,7 @@ fTitle.Text = "✨ ФИШКИ"
 fTitle.TextColor3 = C3(200, 220, 255)
 fTitle.Font = Enum.Font.GothamBold
 fTitle.TextSize = 16
+fTitle.ZIndex = 61 -- ВАЖНО: выше окна
 fTitle.Parent = fWindow
 
 toggleBtn.MouseButton1Click:Connect(function()
@@ -283,7 +288,7 @@ toggleBtn.MouseButton1Click:Connect(function()
     if ORBIT.playClick then ORBIT.playClick() end
 end)
 
--- Универсальная функция создания кнопки с явным Y
+-- Универсальная функция создания кнопки
 local function addBtn(text, yPos, color, cb)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(1, -20, 0, 40)
@@ -293,6 +298,7 @@ local function addBtn(text, yPos, color, cb)
     b.Font = Enum.Font.GothamBold
     b.TextSize = 12
     b.Text = text
+    b.ZIndex = 61 -- ВАЖНО: выше окна
     b.Parent = fWindow
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
     b.MouseButton1Click:Connect(function()
@@ -524,7 +530,7 @@ addBtn("🟩 Матрица: ВЫКЛ", 194, C3(30, 70, 30), function(b)
 end)
 
 -- ============================================================
--- 10. КОМБО И ФАЗЫ (Без UI, только логика)
+-- 10. КОМБО И ФАЗЫ
 -- ============================================================
 local comboGui = Instance.new("ScreenGui")
 comboGui.Name = "Orbit_Combo"
@@ -539,6 +545,7 @@ comboLabel.BackgroundTransparency = 1
 comboLabel.Font = Enum.Font.GothamBlack
 comboLabel.TextSize = 50
 comboLabel.Visible = false
+comboLabel.ZIndex = 12
 comboLabel.Parent = comboGui
 
 local comboCount, lastHitTime, lastBossHp = 0, 0, 0
@@ -573,7 +580,7 @@ local enrageOverlay = Instance.new("Frame", comboGui)
 enrageOverlay.Size = UDim2.new(1, 0, 1, 0)
 enrageOverlay.BackgroundColor3 = C3(255, 0, 0)
 enrageOverlay.BackgroundTransparency = 1
-enrageOverlay.ZIndex = 10
+enrageOverlay.ZIndex = 11 -- Ниже комбо-текста
 
 task.spawn(function()
     local enraged = false
