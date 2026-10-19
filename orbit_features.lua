@@ -1,7 +1,6 @@
--- ORBIT v25.0 | orbit_features.lua
--- Дополнительные фишки: Dash, Boss Bar, Радар, Кастомный курсор,
--- Режим "Змейка", Черная дыра, Орбитальное оружие, Матрица,
--- Фазы боя и Комбо-урон.
+-- ORBIT v25.3 | orbit_features.lua (SAFE EDITION)
+-- Фишки: Dash, Boss Bar, Радар, Курсор, Змейка, Черная дыра, 
+-- Оружие, Матрица, Комбо и Фазы боя.
 local ORBIT = rawget(shared, "ORBIT") or rawget(_G, "ORBIT") or (rawget(_G, "getgenv") and getgenv().ORBIT)
 if not ORBIT then warn("[Orbit Features] ORBIT не найден!"); return end
 
@@ -11,17 +10,14 @@ local Workspace    = ORBIT.Workspace
 local LocalPlayer  = ORBIT.LocalPlayer
 local TweenService = ORBIT.TweenService
 local UIS          = ORBIT.UIS
-local Camera       = Workspace.CurrentCamera
-
-local SETTINGS = ORBIT.SETTINGS
-local C3 = Color3.fromRGB
+local C3           = Color3.fromRGB
 
 local conns = {}
 local function track(c) table.insert(conns, c); return c end
 local alive = true
 
 -- ============================================================
--- 1. КАСТОМНЫЙ КУРСОР (Заменяет стандартную стрелку)
+-- 1. КАСТОМНЫЙ КУРСОР
 -- ============================================================
 local function setupCursor()
     pcall(function()
@@ -33,7 +29,6 @@ local function setupCursor()
         cursorGui.Parent = ORBIT.getSafeParent and ORBIT.getSafeParent() or LocalPlayer:WaitForChild("PlayerGui")
         
         local img = Instance.new("ImageLabel")
-        img.Name = "CursorImg"
         img.Size = UDim2.fromOffset(32, 32)
         img.BackgroundTransparency = 1
         img.Image = "rbxassetid://3570695787"
@@ -98,11 +93,9 @@ end
 setupDash()
 
 -- ============================================================
--- 3. ПОЛОСА ЗДОРОВЬЯ БОССА (Boss Bar)
+-- 3. ПОЛОСА ЗДОРОВЬЯ БОССА
 -- ============================================================
 local bossGui, bossFill, bossLabel
-local currentBoss = nil
-
 local function createBossBar()
     local sg = Instance.new("ScreenGui")
     sg.Name = "Orbit_BossBar"
@@ -145,43 +138,29 @@ createBossBar()
 task.spawn(function()
     while alive do
         task.wait(0.5)
-        local foundBoss = nil
-        local bossHp, bossMaxHp = 0, 1
-        local bossName = "БОСС"
-        
+        local found = false
         for _, obj in ipairs(Workspace:GetChildren()) do
             if obj:IsA("Model") and (obj.Name:find("Sans") or obj.Name:find("Gaster")) then
                 local hum = obj:FindFirstChildOfClass("Humanoid")
                 if hum and hum.Health > 0 then
-                    foundBoss = obj
-                    bossHp = hum.Health
-                    bossMaxHp = hum.MaxHealth
-                    bossName = (obj.Name:find("Sans") and "💀 САНС" or "👁 ГАСТЕР")
+                    bossGui.BossBar.Visible = true
+                    local name = obj.Name:find("Sans") and "💀 САНС" or "👁 ГАСТЕР"
+                    bossLabel.Text = name .. " [" .. math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth) .. "]"
+                    bossFill.Size = UDim2.new(math.clamp(hum.Health / hum.MaxHealth, 0, 1), 0, 1, 0)
+                    found = true
                     break
                 end
             end
         end
-        
-        if foundBoss then
-            currentBoss = foundBoss
-            if bossGui and bossGui:FindFirstChild("BossBar") then 
-                bossGui.BossBar.Visible = true 
-                bossLabel.Text = bossName .. " [" .. math.floor(bossHp) .. "/" .. math.floor(bossMaxHp) .. "]"
-                bossFill.Size = UDim2.new(math.clamp(bossHp / bossMaxHp, 0, 1), 0, 1, 0)
-            end
-        else
-            currentBoss = nil
-            if bossGui and bossGui:FindFirstChild("BossBar") then bossGui.BossBar.Visible = false end
-        end
+        if not found and bossGui then bossGui.BossBar.Visible = false end
     end
 end)
 
 -- ============================================================
--- 4. РАДАР ИГРОКОВ
+-- 4. РАДАР
 -- ============================================================
 local radarGui, radarFrame
 local dots = {}
-
 local function createRadar()
     local sg = Instance.new("ScreenGui")
     sg.Name = "Orbit_Radar"
@@ -218,17 +197,17 @@ task.spawn(function()
         dots = {}
         
         local myPos = hrp.Position
-        local radarRadius = 300
+        local radius = 300
         
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character then
                 local oHrp = p.Character:FindFirstChild("HumanoidRootPart")
                 if oHrp then
                     local dist = (oHrp.Position - myPos).Magnitude
-                    if dist <= radarRadius then
+                    if dist <= radius then
                         local relPos = oHrp.Position - myPos
-                        local x = (relPos.X / radarRadius) * 70 + 70
-                        local y = (relPos.Z / radarRadius) * 70 + 70
+                        local x = (relPos.X / radius) * 70 + 70
+                        local y = (relPos.Z / radius) * 70 + 70
                         
                         local dot = Instance.new("Frame")
                         dot.Size = UDim2.fromOffset(6, 6)
@@ -245,7 +224,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- 5. МЕНЮ ФИШЕК (Отдельное окно с кнопкой 🎮)
+-- 5. МЕНЮ ФИШЕК (ФИКСИРОВАННЫЕ ПОЗИЦИИ, БЕЗ СПИСКОВ)
 -- ============================================================
 local featureGui = Instance.new("ScreenGui")
 featureGui.Name = "Orbit_FeaturesMenu"
@@ -258,7 +237,7 @@ table.insert(ORBIT._cleanup, function() featureGui:Destroy() end)
 
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.fromOffset(60, 60)
-toggleBtn.Position = UDim2.fromOffset(20, 330) -- Сдвинули вниз, чтобы не пряталась
+toggleBtn.Position = UDim2.fromOffset(20, 330)
 toggleBtn.BackgroundColor3 = C3(70, 40, 110)
 toggleBtn.TextColor3 = C3(255, 255, 255)
 toggleBtn.Font = Enum.Font.GothamBold
@@ -281,8 +260,8 @@ featureLabel.ZIndex = 60
 featureLabel.Parent = featureGui
 
 local fWindow = Instance.new("Frame")
-fWindow.Size = UDim2.fromOffset(280, 360)
-fWindow.Position = UDim2.fromOffset(90, 330)
+fWindow.Size = UDim2.fromOffset(280, 380)
+fWindow.Position = UDim2.fromOffset(90, 300)
 fWindow.BackgroundColor3 = C3(18, 14, 28)
 fWindow.Visible = false
 fWindow.ZIndex = 60
@@ -293,10 +272,10 @@ local wStroke = Instance.new("UIStroke", fWindow); wStroke.Color = C3(150, 120, 
 local fTitle = Instance.new("TextLabel")
 fTitle.Size = UDim2.new(1, 0, 0, 40)
 fTitle.BackgroundTransparency = 1
-fTitle.Text = "✨ ДОПОЛНИТЕЛЬНЫЕ ФИШКИ"
+fTitle.Text = "✨ ФИШКИ"
 fTitle.TextColor3 = C3(200, 220, 255)
 fTitle.Font = Enum.Font.GothamBold
-fTitle.TextSize = 14
+fTitle.TextSize = 16
 fTitle.Parent = fWindow
 
 toggleBtn.MouseButton1Click:Connect(function()
@@ -304,10 +283,11 @@ toggleBtn.MouseButton1Click:Connect(function()
     if ORBIT.playClick then ORBIT.playClick() end
 end)
 
-local function makeFButton(text, y, color, cb)
+-- Универсальная функция создания кнопки с явным Y
+local function addBtn(text, yPos, color, cb)
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(1, -20, 0, 36)
-    b.Position = UDim2.fromOffset(10, y)
+    b.Size = UDim2.new(1, -20, 0, 40)
+    b.Position = UDim2.fromOffset(10, yPos)
     b.BackgroundColor3 = color or C3(40, 40, 60)
     b.TextColor3 = C3(255, 255, 255)
     b.Font = Enum.Font.GothamBold
@@ -323,16 +303,15 @@ local function makeFButton(text, y, color, cb)
 end
 
 -- ============================================================
--- 6. РЕЖИМ «ЗМЕЙКА»
+-- 6. ЗМЕЙКА
 -- ============================================================
 local snakeEnabled = false
-local snakeFolder = Instance.new("Folder")
+local snakeFolder = Instance.new("Folder", Workspace)
 snakeFolder.Name = "Orbit_Snake"
-snakeFolder.Parent = Workspace
 local snakeParts = {}
 local snakeHistory = {}
 
-local snakeBtn = makeFButton("🐍 Режим Змейка: ВЫКЛ", 50, C3(50, 70, 50), function(b)
+addBtn("🐍 Режим Змейка: ВЫКЛ", 50, C3(50, 70, 50), function(b)
     snakeEnabled = not snakeEnabled
     b.Text = "🐍 Режим Змейка: " .. (snakeEnabled and "ВКЛ" or "ВЫКЛ")
     if snakeEnabled then
@@ -360,15 +339,10 @@ task.spawn(function()
             local char = LocalPlayer.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             if hrp then
-                table.insert(snakeHistory, 1, {cf = hrp.CFrame, t = tick()})
+                table.insert(snakeHistory, 1, {cf = hrp.CFrame})
                 if #snakeHistory > 20 then table.remove(snakeHistory) end
-                
                 for i, p in ipairs(snakeParts) do
-                    if snakeHistory[i] then
-                        p.CFrame = snakeHistory[i].cf
-                        local scale = 1 + math.sin(tick() * 5 - i * 0.3) * 0.2
-                        p.Size = Vector3.new(1.2, 1.2, 1.2) * scale
-                    end
+                    if snakeHistory[i] then p.CFrame = snakeHistory[i].cf end
                 end
             end
         end
@@ -379,7 +353,7 @@ end)
 -- 7. ЧЕРНАЯ ДЫРА
 -- ============================================================
 local blackHoleCooldown = 0
-makeFButton("🕳 Черная дыра (Притяжение)", 92, C3(60, 30, 80), function()
+addBtn("🕳 Черная дыра", 98, C3(60, 30, 80), function()
     if tick() < blackHoleCooldown then return end
     blackHoleCooldown = tick() + 5
     local char = LocalPlayer.Character
@@ -387,12 +361,10 @@ makeFButton("🕳 Черная дыра (Притяжение)", 92, C3(60, 30, 
     if not hrp then return end
     
     local targetPos = hrp.Position + hrp.CFrame.LookVector * 20
-    
     local hole = Instance.new("Part")
     hole.Shape = Enum.PartType.Ball
     hole.Size = Vector3.new(4, 4, 4)
     hole.Color = C3(0, 0, 0)
-    hole.Material = Enum.Material.SmoothPlastic
     hole.Anchored = true
     hole.CanCollide = false
     hole.Position = targetPos
@@ -404,39 +376,29 @@ makeFButton("🕳 Черная дыра (Притяжение)", 92, C3(60, 30, 
     glow.Rate = 100
     glow.Speed = NumberRange.new(-20, -10)
     glow.Size = NumberSequence.new(2, 0)
-    glow.Lifetime = NumberRange.new(0.5, 1)
     glow.LightEmission = 1
     
-    local pullConn
-    pullConn = RunService.Heartbeat:Connect(function()
-        if not hole.Parent then pullConn:Disconnect() return end
+    local conn
+    conn = RunService.Heartbeat:Connect(function()
+        if not hole.Parent then conn:Disconnect() return end
         for _, m in ipairs(Workspace:GetChildren()) do
             if m:IsA("Model") and m ~= char then
                 local root = m:FindFirstChild("HumanoidRootPart")
-                if root then
-                    local dist = (root.Position - targetPos).Magnitude
-                    if dist < 50 then
-                        local dir = (targetPos - root.Position).Unit
-                        root.AssemblyLinearVelocity = dir * 60
-                    end
+                if root and (root.Position - targetPos).Magnitude < 50 then
+                    root.AssemblyLinearVelocity = (targetPos - root.Position).Unit * 60
                 end
             end
         end
     end)
-    
-    task.delay(3, function()
-        if pullConn then pullConn:Disconnect() end
-        hole:Destroy()
-    end)
+    task.delay(3, function() conn:Disconnect() hole:Destroy() end)
 end)
 
 -- ============================================================
--- 8. ОРБИТАЛЬНОЕ ОРУЖИЕ (Награда за Босса + Урон)
+-- 8. ОРБИТАЛЬНОЕ ОРУЖИЕ (Награда)
 -- ============================================================
 local orbWeaponEnabled = false
-local orbFolder = Instance.new("Folder")
+local orbFolder = Instance.new("Folder", Workspace)
 orbFolder.Name = "Orbit_Weapons"
-orbFolder.Parent = Workspace
 local orbParts = {}
 local orbAngle = 0
 local orbHitCooldowns = {}
@@ -446,16 +408,13 @@ local function isBossDefeated()
     return (ORBIT.saveData.stats.wins_total or 0) > 0
 end
 
-local orbBtn = makeFButton("⚔ Орбитальное оружие: ВЫКЛ", 134, C3(70, 50, 30), function(b)
+local orbBtn = addBtn("⚔ Орбитальное оружие", 146, C3(70, 50, 30), function(b)
     if not isBossDefeated() then
-        if ORBIT.notify then
-            ORBIT.notify("🔒 Убей Санса или Гастера, чтобы разблокировать!", C3(255, 100, 100), 3)
-        end
+        if ORBIT.notify then ORBIT.notify("🔒 Убей Санса или Гастера!", C3(255, 100, 100), 3) end
         return
     end
-
     orbWeaponEnabled = not orbWeaponEnabled
-    b.Text = "⚔ Орбитальное оружие: " .. (orbWeaponEnabled and "ВКЛ" or "ВЫКЛ")
+    b.Text = "⚔ Оружие: " .. (orbWeaponEnabled and "ВКЛ" or "ВЫКЛ")
     
     if orbWeaponEnabled then
         for i = 1, 6 do
@@ -466,12 +425,8 @@ local orbBtn = makeFButton("⚔ Орбитальное оружие: ВЫКЛ", 
             p.Anchored = true
             p.CanCollide = false
             p.Parent = orbFolder
-            
             local light = Instance.new("PointLight", p)
-            light.Color = C3(255, 50, 50)
-            light.Range = 5
-            light.Brightness = 2
-            
+            light.Color = C3(255, 50, 50); light.Range = 5
             table.insert(orbParts, p)
         end
     else
@@ -481,10 +436,8 @@ local orbBtn = makeFButton("⚔ Орбитальное оружие: ВЫКЛ", 
 end)
 
 task.delay(1, function()
-    if isBossDefeated() then
-        orbBtn.Text = "⚔ Орбитальное оружие: ВЫКЛ"
-    else
-        orbBtn.Text = "🔒 Орбитальное оружие (Убей босса)"
+    if not isBossDefeated() then
+        orbBtn.Text = "🔒 Оружие (Убей босса)"
         orbBtn.TextColor3 = C3(150, 150, 150)
     end
 end)
@@ -497,7 +450,6 @@ task.spawn(function()
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             if hrp then
                 orbAngle = orbAngle + dt * 5
-                
                 for i, p in ipairs(orbParts) do
                     local a = orbAngle + (i - 1) * (math.pi * 2 / #orbParts)
                     local offset = Vector3.new(math.cos(a) * 7, math.sin(tick() * 2 + i) * 0.5, math.sin(a) * 7)
@@ -507,23 +459,16 @@ task.spawn(function()
                         if model:IsA("Model") and model ~= char then
                             local hum = model:FindFirstChildOfClass("Humanoid")
                             local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso")
-                            
-                            if hum and root and hum.Health > 0 then
-                                local dist = (root.Position - p.Position).Magnitude
-                                if dist < 3 then
-                                    local lastHit = orbHitCooldowns[model] or 0
-                                    if tick() - lastHit > 0.6 then
-                                        orbHitCooldowns[model] = tick()
-                                        hum:TakeDamage(15)
-                                        
-                                        local hitFx = Instance.new("Part")
-                                        hitFx.Anchored = true; hitFx.CanCollide = false
-                                        hitFx.Size = Vector3.new(1,1,1); hitFx.Color = C3(255, 0, 0)
-                                        hitFx.Material = Enum.Material.Neon; hitFx.Position = root.Position
-                                        hitFx.Parent = Workspace
-                                        TweenService:Create(hitFx, TweenInfo.new(0.3), { Size = Vector3.new(3,3,3), Transparency = 1 }):Play()
-                                        task.delay(0.3, function() hitFx:Destroy() end)
-                                    end
+                            if hum and root and hum.Health > 0 and (root.Position - p.Position).Magnitude < 3.5 then
+                                local lastHit = orbHitCooldowns[model] or 0
+                                if tick() - lastHit > 0.6 then
+                                    orbHitCooldowns[model] = tick()
+                                    hum:TakeDamage(15)
+                                    local fx = Instance.new("Part", Workspace)
+                                    fx.Anchored = true; fx.CanCollide = false; fx.Size = Vector3.new(1,1,1)
+                                    fx.Color = C3(255, 0, 0); fx.Material = Enum.Material.Neon; fx.Position = root.Position
+                                    TweenService:Create(fx, TweenInfo.new(0.3), { Size = Vector3.new(3,3,3), Transparency = 1 }):Play()
+                                    task.delay(0.3, function() fx:Destroy() end)
                                 end
                             end
                         end
@@ -535,70 +480,55 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- 9. ЭФФЕКТ «МАТРИЦА»
+-- 9. МАТРИЦА
 -- ============================================================
 local matrixEnabled = false
-local matrixFolder = Instance.new("Folder")
+local matrixFolder = Instance.new("Folder", Workspace)
 matrixFolder.Name = "Orbit_Matrix"
-matrixFolder.Parent = Workspace
-local matrixEmitter
 
-local matrixBtn = makeFButton("🟩 Эффект Матрицы: ВЫКЛ", 176, C3(30, 70, 30), function(b)
+addBtn("🟩 Матрица: ВЫКЛ", 194, C3(30, 70, 30), function(b)
     matrixEnabled = not matrixEnabled
-    b.Text = "🟩 Эффект Матрицы: " .. (matrixEnabled and "ВКЛ" or "ВЫКЛ")
+    b.Text = "🟩 Матрица: " .. (matrixEnabled and "ВКЛ" or "ВЫКЛ")
     if matrixEnabled then
         local char = LocalPlayer.Character
         if not char then return end
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if not root then return end
         
         local emitterPart = Instance.new("Part")
-        emitterPart.Name = "MatrixEmitter"
-        emitterPart.Anchored = true
-        emitterPart.CanCollide = false
-        emitterPart.Transparency = 1
-        emitterPart.Size = Vector3.new(1, 1, 1)
-        emitterPart.Parent = matrixFolder
+        emitterPart.Anchored = true; emitterPart.CanCollide = false; emitterPart.Transparency = 1
+        emitterPart.Size = Vector3.new(1, 1, 1); emitterPart.Parent = matrixFolder
         
-        matrixEmitter = Instance.new("ParticleEmitter")
-        matrixEmitter.Texture = "rbxasset://textures/particles/sparkles_main.dds" -- Безопасная текстура
-        matrixEmitter.Color = ColorSequence.new(C3(0, 255, 0))
-        matrixEmitter.Rate = 150
-        matrixEmitter.Lifetime = NumberRange.new(1.5, 2.5)
-        matrixEmitter.Speed = NumberRange.new(10, 15)
-        matrixEmitter.SpreadAngle = Vector2.new(180, 180)
-        matrixEmitter.Size = NumberSequence.new(2.5, 0.5)
-        matrixEmitter.LightEmission = 1
-        matrixEmitter.Acceleration = Vector3.new(0, -60, 0)
-        matrixEmitter.Parent = emitterPart
+        local pe = Instance.new("ParticleEmitter", emitterPart)
+        pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+        pe.Color = ColorSequence.new(C3(0, 255, 0))
+        pe.Rate = 100
+        pe.Lifetime = NumberRange.new(1.5, 2.5)
+        pe.Speed = NumberRange.new(10, 15)
+        pe.SpreadAngle = Vector2.new(180, 180)
+        pe.Size = NumberSequence.new(2, 0)
+        pe.LightEmission = 1
+        pe.Acceleration = Vector3.new(0, -60, 0)
         
         local conn
         conn = RunService.Heartbeat:Connect(function()
             if not matrixEnabled or not char.Parent then conn:Disconnect() return end
             local r = char:FindFirstChild("HumanoidRootPart")
             if r then
-                emitterPart.CFrame = CFrame.new(r.Position + Vector3.new(0, 40, 0))
-                emitterPart.CFrame = CFrame.lookAt(emitterPart.Position, emitterPart.Position + Vector3.new(0, -1, 0))
+                emitterPart.CFrame = CFrame.new(r.Position + Vector3.new(0, 20, 0))
             end
         end)
         ORBIT._cleanup = ORBIT._cleanup or {}
-        table.insert(ORBIT._cleanup, function()
-            matrixEnabled = false
-            conn:Disconnect()
-            emitterPart:Destroy()
-        end)
+        table.insert(ORBIT._cleanup, function() matrixEnabled = false conn:Disconnect() emitterPart:Destroy() end)
     else
         for _, obj in ipairs(matrixFolder:GetChildren()) do obj:Destroy() end
     end
 end)
 
 -- ============================================================
--- 10. КОМБО-УРОН
+-- 10. КОМБО И ФАЗЫ (Без UI, только логика)
 -- ============================================================
 local comboGui = Instance.new("ScreenGui")
 comboGui.Name = "Orbit_Combo"
 comboGui.ResetOnSpawn = false
-comboGui.IgnoreGuiInset = true
 comboGui.DisplayOrder = 62
 comboGui.Parent = ORBIT.getSafeParent and ORBIT.getSafeParent() or LocalPlayer:WaitForChild("PlayerGui")
 
@@ -606,164 +536,65 @@ local comboLabel = Instance.new("TextLabel")
 comboLabel.Size = UDim2.new(0, 300, 0, 80)
 comboLabel.Position = UDim2.new(0.5, -150, 0.3, 0)
 comboLabel.BackgroundTransparency = 1
-comboLabel.Text = ""
-comboLabel.TextColor3 = C3(255, 200, 50)
 comboLabel.Font = Enum.Font.GothamBlack
 comboLabel.TextSize = 50
-comboLabel.TextStrokeTransparency = 0.5
 comboLabel.Visible = false
 comboLabel.Parent = comboGui
 
-local comboCount = 0
-local lastHitTime = 0
-local comboTimeout = 1.5
-local lastBossHp = 0
-
-ORBIT._cleanup = ORBIT._cleanup or {}
-table.insert(ORBIT._cleanup, function() comboGui:Destroy() end)
-
-local function updateCombo()
-    if comboCount >= 2 then
-        comboLabel.Text = "x" .. comboCount .. " КОМБО!"
-        comboLabel.Visible = true
-        
-        comboLabel.Size = UDim2.new(0, 400, 0, 100)
-        comboLabel.Position = UDim2.new(0.5, -200, 0.3, -10)
-        TweenService:Create(comboLabel, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 300, 0, 80),
-            Position = UDim2.new(0.5, -150, 0.3, 0)
-        }):Play()
-        
-        if comboCount >= 5 then
-            comboLabel.TextColor3 = C3(255, 50, 50)
-        elseif comboCount >= 3 then
-            comboLabel.TextColor3 = C3(255, 150, 50)
-        else
-            comboLabel.TextColor3 = C3(255, 255, 50)
-        end
-        
-        if ORBIT.playSound then ORBIT.playSound("rbxasset://sounds/electronicpingshort.wav", 0.5, 1 + comboCount * 0.1) end
-    else
-        comboLabel.Visible = false
-    end
-end
-
+local comboCount, lastHitTime, lastBossHp = 0, 0, 0
 task.spawn(function()
     while alive do
         task.wait(0.1)
-        
-        local bossModel = nil
+        local bModel = nil
         for _, obj in ipairs(Workspace:GetChildren()) do
             if obj:IsA("Model") and (obj.Name:find("Sans") or obj.Name:find("Gaster")) then
                 local hum = obj:FindFirstChildOfClass("Humanoid")
-                if hum and hum.Health > 0 then
-                    bossModel = obj
-                    break
-                end
+                if hum and hum.Health > 0 then bModel = obj break end
             end
         end
-        
-        if bossModel then
-            local hum = bossModel:FindFirstChildOfClass("Humanoid")
-            local currentHp = hum.Health
-            
-            if lastBossHp > 0 and currentHp < lastBossHp then
-                local now = tick()
-                if now - lastHitTime <= comboTimeout then
-                    comboCount = comboCount + 1
-                else
-                    comboCount = 1
-                end
-                lastHitTime = now
-                updateCombo()
+        if bModel then
+            local hp = bModel:FindFirstChildOfClass("Humanoid").Health
+            if lastBossHp > 0 and hp < lastBossHp then
+                if tick() - lastHitTime <= 1.5 then comboCount = comboCount + 1 else comboCount = 1 end
+                lastHitTime = tick()
+                comboLabel.Text = "x" .. comboCount .. " КОМБО!"
+                comboLabel.TextColor3 = comboCount >= 5 and C3(255,50,50) or C3(255,255,50)
+                comboLabel.Visible = true
             end
-            lastBossHp = currentHp
+            lastBossHp = hp
         else
             lastBossHp = 0
-            comboCount = 0
-            comboLabel.Visible = false
         end
-        
-        if comboCount > 0 and tick() - lastHitTime > comboTimeout then
-            comboCount = 0
-            comboLabel.Visible = false
-        end
+        if tick() - lastHitTime > 1.5 then comboLabel.Visible = false end
     end
 end)
 
--- ============================================================
--- 11. ФАЗЫ БОЯ (Ярость Босса)
--- ============================================================
-local enrageOverlay = Instance.new("Frame")
+local enrageOverlay = Instance.new("Frame", comboGui)
 enrageOverlay.Size = UDim2.new(1, 0, 1, 0)
 enrageOverlay.BackgroundColor3 = C3(255, 0, 0)
 enrageOverlay.BackgroundTransparency = 1
-enrageOverlay.BorderSizePixel = 0
 enrageOverlay.ZIndex = 10
-enrageOverlay.Parent = comboGui
-
-local bossPhase = 1
-local enrageActive = false
-local enragedBossModel = nil
-
-local function triggerEnrage(bossModel)
-    if enrageActive then return end
-    enrageActive = true
-    enragedBossModel = bossModel
-    bossPhase = 2
-    
-    enrageOverlay.BackgroundTransparency = 0.5
-    TweenService:Create(enrageOverlay, TweenInfo.new(1.5), { BackgroundTransparency = 0.9 }):Play()
-    
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        for i = 1, 10 do
-            hum.CameraOffset = Vector3.new(math.random(-1, 1), math.random(-1, 1), 0)
-            task.wait(0.05)
-        end
-        hum.CameraOffset = Vector3.zero
-    end
-    
-    local root = bossModel:FindFirstChild("HumanoidRootPart") or bossModel:FindFirstChild("Torso")
-    if root then
-        local fire = Instance.new("Fire")
-        fire.Size = 10
-        fire.Heat = 20
-        fire.Color = C3(255, 0, 0)
-        fire.SecondaryColor = C3(150, 0, 0)
-        fire.Parent = root
-        
-        local light = Instance.new("PointLight")
-        light.Color = C3(255, 0, 0)
-        light.Range = 15
-        light.Brightness = 5
-        light.Parent = root
-    end
-    
-    if ORBIT.playSound then ORBIT.playSound("rbxassetid://113650760423588", 1, 0.8) end
-    if ORBIT.notify then ORBIT.notify("🔥 БОСС В ЯРОСТИ! Урон увеличен!", C3(255, 50, 50), 4) end
-end
 
 task.spawn(function()
+    local enraged = false
+    local enragedModel = nil
     while alive do
         task.wait(0.5)
-        if enrageActive then
-            if not enragedBossModel or not enragedBossModel.Parent then
-                enrageActive = false
-                enragedBossModel = nil
-                bossPhase = 1
-                enrageOverlay.BackgroundTransparency = 1
+        if enraged then
+            if not enragedModel or not enragedModel.Parent then
+                enraged = false; enrageOverlay.BackgroundTransparency = 1
             end
         else
             for _, obj in ipairs(Workspace:GetChildren()) do
                 if obj:IsA("Model") and (obj.Name:find("Sans") or obj.Name:find("Gaster")) then
                     local hum = obj:FindFirstChildOfClass("Humanoid")
-                    if hum and hum.Health > 0 then
-                        local hpPercent = hum.Health / hum.MaxHealth
-                        if hpPercent <= 0.5 then
-                            triggerEnrage(obj)
-                        end
+                    if hum and hum.Health > 0 and (hum.Health/hum.MaxHealth) <= 0.5 then
+                        enraged = true; enragedModel = obj
+                        enrageOverlay.BackgroundTransparency = 0.5
+                        TweenService:Create(enrageOverlay, TweenInfo.new(1.5), { BackgroundTransparency = 0.9 }):Play()
+                        if ORBIT.notify then ORBIT.notify("🔥 БОСС В ЯРОСТИ!", C3(255,50,50), 4) end
+                        local r = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Torso")
+                        if r then Instance.new("Fire", r).Color = C3(255,0,0) end
                         break
                     end
                 end
@@ -773,7 +604,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- 12. ЗАВЕРШЕНИЕ И ОЧИСТКА
+-- ОЧИСТКА
 -- ============================================================
 local prevUnload = ORBIT.unload
 ORBIT.unload = function()
@@ -783,11 +614,6 @@ ORBIT.unload = function()
     if prevUnload then pcall(prevUnload) end
 end
 
-if ORBIT.notify then ORBIT.notify("⚔ Features: Комбо и Фазы загружены!", C3(180, 255, 180), 3) end
-
--- ============================================================
--- 13. ЗАГРУЗКА (Обязательный возврат)
--- ============================================================
 ORBIT.loaded = ORBIT.loaded or {}
 ORBIT.loaded.features = true
 return true
