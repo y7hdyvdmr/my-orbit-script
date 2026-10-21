@@ -1,17 +1,16 @@
--- Вкусно — и Точка Generator (standalone)
+-- Вкусно — и Точка Generator v2 (Полная детализация)
 local G = rawget(_G, "getgenv") and getgenv() or _G
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local LP = Players.LocalPlayer
 local V3, RGB = Vector3.new, Color3.fromRGB
 
-local function mkp(name, size, pos, color, mat, shape, parent)
+-- Универсальная функция создания детали
+local function mkp(name, size, cf, color, mat, shape, parent)
     local p = Instance.new("Part")
     p.Name = name
     p.Size = size
-    p.Position = pos
+    p.CFrame = cf
     p.Anchored = true
     p.CanCollide = false
     p.CanQuery = false
@@ -25,113 +24,152 @@ local function mkp(name, size, pos, color, mat, shape, parent)
 end
 
 -- Создание одного ресторана
-local function buildRestaurant(cf, targetPart)
-    if targetPart then
-        targetPart.Transparency = 1
-        targetPart.CanCollide = false
-    end
-    
+local function buildRestaurant(cf)
     local model = Instance.new("Model")
     model.Name = "Vkusno_i_Tochka"
     model.Parent = Workspace
     
-    -- Масштаб здания (примерно 40x20x40 стадов)
-    local base = CFrame.new(cf.Position) * CFrame.Angles(0, math.rad(math.random(-4, 4) * 90), 0)
+    -- Центр здания
+    local center = CFrame.new(cf.Position) * CFrame.Angles(0, cf.LookVector.X, 0) -- Разворот по взгляду
     
-    -- 1. ПОЛ И ПОТОЛОК
-    local floor = mkp("Floor", V3(40, 1, 40), base.Position - V3(0, 0.5, 0), RGB(40, 40, 40), Enum.Material.Concrete, nil, model)
-    local roof = mkp("Roof", V3(40, 1, 40), base.Position + V3(0, 15, 0), RGB(20, 20, 25), Enum.Material.Metal, nil, model)
+    -- ================= ЭКСТЕРЬЕР =================
+    -- 1. Основной пол
+    mkp("Floor", V3(44, 1, 44), center * CFrame.new(0, -0.5, 0), RGB(60, 60, 60), Enum.Material.Concrete, nil, model)
     
-    -- 2. ВНЕШНИЕ СТЕНЫ (Деревянные рейки снаружи)
-    local wallColor = RGB(120, 70, 40)
-    local function makeWall(offset, size, isGlass)
-        local w = mkp("Wall", size, base.Position + offset, isGlass and RGB(150, 220, 255) or wallColor, isGlass and Enum.Material.Glass or Enum.Material.WoodPlanks, nil, model)
-        w.CFrame = base * CFrame.new(offset)
-        w.Transparency = isGlass and 0.5 or 0
-        return w
+    -- 2. Деревянные стены (задняя и боковые)
+    local woodColor = RGB(130, 75, 45)
+    local wallMat = Enum.Material.WoodPlanks
+    mkp("BackWall", V3(44, 16, 1), center * CFrame.new(0, 8, 22), woodColor, wallMat, nil, model)
+    mkp("LeftWall", V3(1, 16, 44), center * CFrame.new(-22, 8, 0), woodColor, wallMat, nil, model)
+    mkp("RightWall", V3(1, 16, 44), center * CFrame.new(22, 8, 0), woodColor, wallMat, nil, model)
+    
+    -- 3. Стеклянный фасад
+    local glassColor = RGB(200, 230, 255)
+    for i = -1, 1 do
+        -- Окна
+        mkp("GlassWindow", V3(12, 10, 0.5), center * CFrame.new(i * 14, 6, -22), glassColor, Enum.Material.Glass, nil, model).Transparency = 0.4
     end
     
-    -- Задняя и боковые стены (сплошные)
-    makeWall(V3(0, 7.5, 20), V3(40, 15, 1))
-    makeWall(V3(20, 7.5, 0), V3(1, 15, 40))
-    makeWall(V3(-20, 7.5, 0), V3(1, 15, 40))
+    -- 4. Наклонная деревянная крыша (Козырек)
+    local roofCF = center * CFrame.new(0, 16, -22) * CFrame.Angles(math.rad(-15), 0, 0)
+    mkp("WoodRoof", V3(46, 6, 4), roofCF, woodColor, wallMat, nil, model)
+    -- Рейки на крыше
+    for i = -22, 22, 2 do
+        mkp("RoofSlat", V3(0.5, 6.5, 4.2), roofCF * CFrame.new(i, 0, 0), RGB(100, 55, 35), wallMat, nil, model)
+    end
     
-    -- Фасад (передняя часть с окнами)
-    makeWall(V3(0, 7.5, -20), V3(40, 3, 1)) -- Верхняя часть
-    makeWall(V3(-15, 5, -20), V3(10, 10, 1), true) -- Окно левое
-    makeWall(V3(15, 5, -20), V3(10, 10, 1), true) -- Окно правое
-    makeWall(V3(0, 5, -20), V3(10, 10, 1)) -- Центральная дверь (стекло)
-    
-    -- 3. ВЫВЕСКА "ВКУСНО И ТОЧКА"
-    local sign = mkp("SignBoard", V3(30, 5, 1), base.Position + V3(0, 12, -20.5), RGB(255, 255, 255), Enum.Material.SmoothPlastic, nil, model)
-    sign.CFrame = base * CFrame.new(0, 12, -20.5)
+    -- 5. Вывеска "ВКУСНО — И ТОЧКА"
+    local signPart = mkp("Sign", V3(30, 4, 0.5), center * CFrame.new(0, 15, -23.5), RGB(130, 75, 45), Enum.Material.SmoothPlastic, nil, model)
     local sg = Instance.new("SurfaceGui")
     sg.Face = Enum.NormalId.Front
-    sg.CanvasSize = Vector2.new(800, 120)
-    sg.Parent = sign
-    local text = Instance.new("TextLabel")
-    text.Size = UDim2.fromScale(1, 1)
-    text.BackgroundTransparency = 1
-    text.Text = "ВКУСНО — И ТОЧКА"
-    text.TextColor3 = RGB(255, 255, 255)
-    text.Font = Enum.Font.GothamBlack
-    text.TextScaled = true
-    text.Parent = sg
-    
+    sg.CanvasSize = Vector2.new(1000, 150)
+    sg.LightInfluence = 0
+    sg.Parent = signPart
+    local txt = Instance.new("TextLabel")
+    txt.Size = UDim2.fromScale(1, 1)
+    txt.BackgroundTransparency = 1
+    txt.Text = "ВКУСНО — И ТОЧКА"
+    txt.TextColor3 = RGB(255, 255, 255)
+    txt.Font = Enum.Font.GothamBlack
+    txt.TextScaled = true
+    txt.Parent = sg
     -- Логотип (оранжевые палочки)
-    for i=1, 3 do
-        mkp("Logo", V3(1.5, 4, 0.5), base.Position + V3(-18 + i*2, 12, -21), RGB(255, 100, 0), Enum.Material.Neon, nil, model)
+    for i = 1, 3 do
+        mkp("Logo", V3(1.5, 4, 0.5), center * CFrame.new(-18 + i*2, 15, -23.2), RGB(255, 100, 0), Enum.Material.Neon, nil, model)
     end
-
-    -- 4. ИНТЕРЬЕР: Касса и стойка
-    local counter = mkp("Counter", V3(25, 3, 4), base.Position + V3(0, 1.5, 5), RGB(240, 240, 240), Enum.Material.SmoothPlastic, nil, model)
-    counter.CFrame = base * CFrame.new(0, 1.5, 5)
     
-    -- Кассовые аппараты (черные коробочки)
-    for i=1, 3 do
-        mkp("Cashier", V3(2, 1.5, 1.5), base.Position + V3(-8 + i*8, 3.5, 5), RGB(30, 30, 30), Enum.Material.Metal, nil, model).CFrame = base * CFrame.new(-8 + i*8, 3.5, 5)
-        mkp("Screen", V3(1.5, 1, 0.2), base.Position + V3(-8 + i*8, 4, 4.5), RGB(0, 200, 255), Enum.Material.Neon, nil, model).CFrame = base * CFrame.new(-8 + i*8, 4, 4.5)
+    -- 6. Уличные зонтики и столики
+    for i = -1, 1, 2 do
+        local umbPos = center * CFrame.new(i * 16, 0, -30)
+        -- Ножка зонтика
+        mkp("UmbPole", V3(0.5, 10, 0.5), umbPos * CFrame.new(0, 5, 0), RGB(40, 40, 40), Enum.Material.Metal, nil, model)
+        -- Купол зонтика (используем цилиндр)
+        mkp("UmbTop", V3(0.5, 12, 12), umbPos * CFrame.new(0, 10, 0) * CFrame.Angles(0, 0, math.rad(90)), RGB(30, 30, 30), Enum.Material.Fabric, Enum.PartType.Cylinder, model)
+        -- Столик
+        mkp("Table", V3(4, 0.2, 4), umbPos * CFrame.new(0, 2, 0), RGB(100, 60, 40), Enum.Material.Wood, nil, model)
+        -- Скамейки
+        mkp("Bench", V3(4, 0.2, 1), umbPos * CFrame.new(0, 1, 3), RGB(100, 60, 40), Enum.Material.Wood, nil, model)
     end
 
-    -- 5. ПОТОЛОЧНЫЕ ЭКРАНЫ (Меню)
-    for i=1, 3 do
-        local menu = mkp("MenuScreen", V3(10, 4, 0.5), base.Position + V3(-10 + (i-1)*10, 10, 7), RGB(10, 10, 10), Enum.Material.SmoothPlastic, nil, model)
-        menu.CFrame = base * CFrame.new(-10 + (i-1)*10, 10, 7)
+    -- 7. Заборчик и кусты
+    for i = -22, 22, 2 do
+        mkp("Bush", V3(2, 2, 2), center * CFrame.new(i, 0, -25), RGB(40, 80, 30), Enum.Material.Grass, Enum.PartType.Ball, model)
+    end
+
+    -- ================= ИНТЕРЬЕР =================
+    -- 1. Черный потолок
+    mkp("Ceiling", V3(42, 1, 42), center * CFrame.new(0, 16, 0), RGB(15, 15, 18), Enum.Material.Metal, nil, model)
+    
+    -- 2. Квадратные светильники на потолке
+    for x = -12, 12, 12 do
+        for z = -10, 10, 10 do
+            local lightPart = mkp("LightPanel", V3(3, 0.2, 3), center * CFrame.new(x, 15.4, z), RGB(255, 255, 255), Enum.Material.Neon, nil, model)
+            local pl = Instance.new("PointLight")
+            pl.Color = RGB(255, 255, 255)
+            pl.Range = 15
+            pl.Brightness = 2
+            pl.Parent = lightPart
+        end
+    end
+
+    -- 3. Гирлянды из шаров (Оранжевые, Зеленые, Белые)
+    local bColors = {RGB(255, 100, 0), RGB(0, 160, 80), RGB(255, 255, 255)}
+    local function makeBalloonCluster(pos, amount)
+        for i = 1, amount do
+            local c = bColors[math.random(1, 3)]
+            local offset = V3(math.random(-2, 2), math.random(-2, 2), math.random(-2, 2))
+            mkp("Balloon", V3(1.5, 1.8, 1.5), center * CFrame.new(pos + offset), c, Enum.Material.SmoothPlastic, Enum.PartType.Ball, model)
+        end
+    end
+    -- Шарики вдоль потолка
+    for i = -15, 15, 5 do
+        makeBalloonCluster(V3(i, 14, -8), 4)
+        makeBalloonCluster(V3(i, 14, 8), 4)
+    end
+
+    -- 4. Кассовая стойка (Белая с черным)
+    mkp("CounterBase", V3(30, 3, 4), center * CFrame.new(0, 1.5, 5), RGB(250, 250, 250), Enum.Material.SmoothPlastic, nil, model)
+    mkp("CounterTop", V3(31, 0.4, 5), center * CFrame.new(0, 3.2, 5), RGB(30, 30, 30), Enum.Material.SmoothPlastic, nil, model)
+    
+    -- Кассы и мониторы
+    for i = -1, 1 do
+        mkp("Cashier", V3(2.5, 1.5, 1.5), center * CFrame.new(i * 8, 3.8, 5), RGB(20, 20, 20), Enum.Material.Metal, nil, model)
+        mkp("Screen", V3(2, 1.2, 0.2), center * CFrame.new(i * 8, 4.5, 4.2), RGB(0, 150, 255), Enum.Material.Neon, nil, model)
+        -- Деревянные подносы на стойке
+        mkp("Tray", V3(4, 0.5, 2), center * CFrame.new(i * 8, 3.5, 6.5), RGB(180, 130, 90), Enum.Material.Wood, nil, model)
+    end
+
+    -- 5. Экраны меню на потолке (черные панели с текстом)
+    for i = -1, 1 do
+        local menuPos = center * CFrame.new(i * 12, 11, 10)
+        local menuPart = mkp("MenuBoard", V3(10, 4, 0.2), menuPos, RGB(10, 10, 15), Enum.Material.SmoothPlastic, nil, model)
         local msg = Instance.new("SurfaceGui")
         msg.Face = Enum.NormalId.Front
-        msg.CanvasSize = Vector2.new(400, 160)
-        msg.Parent = menu
+        msg.CanvasSize = Vector2.new(500, 200)
+        msg.LightInfluence = 0
+        msg.Parent = menuPart
         local lbl = Instance.new("TextLabel")
         lbl.Size = UDim2.fromScale(1, 1)
         lbl.BackgroundTransparency = 1
-        lbl.Text = i == 1 and "Бургеры\nи Наггетсы" or (i == 2 and "Картофель\nи Соусы" or "Напитки\nи Десерты")
+        lbl.Text = i == -1 and "ТЕ САМЫЕ\nВКУСЫ" or (i == 0 and "БУРГЕРЫ\nИ КАРТОШКА" or "НАПИТКИ\nИ ДЕСЕРТЫ")
         lbl.TextColor3 = RGB(255, 255, 255)
         lbl.Font = Enum.Font.GothamBold
         lbl.TextScaled = true
         lbl.Parent = msg
     end
 
-    -- 6. ШАРИКИ (Оранжевые, Зелёные, Белые)
-    local balloonColors = {RGB(255, 100, 0), RGB(0, 180, 80), RGB(255, 255, 255)}
-    for i=1, 15 do
-        local c = balloonColors[math.random(1, 3)]
-        local b = mkp("Balloon", V3(2, 2, 2), base.Position + V3(math.random(-15, 15), math.random(9, 13), math.random(0, 10)), c, Enum.Material.SmoothPlastic, Enum.PartType.Ball, model)
-        b.CFrame = base * CFrame.new(math.random(-15, 15), math.random(9, 13), math.random(0, 10))
-    end
-
-    -- 7. ПЕЧЬ (Справа)
-    local oven = mkp("Oven", V3(8, 6, 8), base.Position + V3(14, 3, 10), RGB(150, 150, 150), Enum.Material.Metal, nil, model)
-    oven.CFrame = base * CFrame.new(14, 3, 10)
-    local fire = mkp("Fire", V3(6, 3, 1), base.Position + V3(14, 3, 6), RGB(255, 100, 0), Enum.Material.Neon, nil, model)
-    fire.CFrame = base * CFrame.new(14, 3, 6)
-    local light = Instance.new("PointLight")
-    light.Color = RGB(255, 150, 50)
-    light.Range = 12
-    light.Brightness = 3
-    light.Parent = fire
+    -- 6. Печь на заднем плане (справа)
+    local ovenBase = center * CFrame.new(15, 2, 15)
+    mkp("OvenBase", V3(8, 4, 6), ovenBase, RGB(120, 120, 120), Enum.Material.Metal, nil, model)
+    local fire = mkp("Fire", V3(6, 3, 1), ovenBase * CFrame.new(0, 0, -3.5), RGB(255, 100, 0), Enum.Material.Neon, nil, model)
+    local fl = Instance.new("PointLight")
+    fl.Color = RGB(255, 150, 50)
+    fl.Range = 15
+    fl.Brightness = 3
+    fl.Parent = fire
 
     -- Эффект появления
-    local burst = mkp("Burst", V3(1,1,1), base.Position, RGB(255,255,255), Enum.Material.Neon, nil, model)
+    local burst = mkp("Burst", V3(1,1,1), center.Position, RGB(255,255,255), Enum.Material.Neon, nil, model)
     local pe = Instance.new("ParticleEmitter")
     pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
     pe.Rate = 0
@@ -139,23 +177,31 @@ local function buildRestaurant(cf, targetPart)
     pe.Lifetime = NumberRange.new(0.5, 1)
     pe.Color = ColorSequence.new(RGB(255, 200, 100))
     pe.Parent = burst
-    pe:Emit(100)
+    pe:Emit(150)
     task.delay(2, function() burst:Destroy() end)
     
     return model
 end
 -- ============================================================
---  СОЗДАНИЕ ПРЕДМЕТА
+--  СОЗДАНИЕ ПРЕДМЕТА (ИСПРАВЛЕН БАГ С ЗАСТРЕВАНИЕМ)
 -- ============================================================
 local tool = Instance.new("Tool")
-tool.Name = "Генератор Вкусно — и Точка"
+tool.Name = "Вкусно — и Точка"
 tool.RequiresHandle = true
 tool.CanBeDropped = false
 
--- Ручка (коробка с логотипом)
-local handle = mkp("Handle", V3(1.5, 1.5, 1.5), V3(0,0,0), RGB(255, 100, 0), Enum.Material.SmoothPlastic, nil, tool)
-handle.CFrame = CFrame.new(0, 0, 0)
+-- ВАЖНО: Handle НЕ Anchored, иначе игрок застрянет!
+local handle = Instance.new("Part")
+handle.Name = "Handle"
+handle.Size = V3(1.5, 1.5, 1.5)
+handle.Anchored = false 
+handle.CanCollide = false
+handle.Massless = true
+handle.Color = RGB(255, 100, 0) -- Оранжевый
+handle.Material = Enum.Material.SmoothPlastic
+handle.Parent = tool
 
+-- Логотип на коробке
 local sg = Instance.new("SurfaceGui")
 sg.Face = Enum.NormalId.Front
 sg.CanvasSize = Vector2.new(200, 200)
@@ -175,22 +221,23 @@ tool.Activated:Connect(function()
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     
-    -- Луч из камеры в точку клика
     local mouse = LP:GetMouse()
     local targetPos = mouse.Hit.Position
-    local targetPart = mouse.Target
     
     -- Проверка на дистанцию (не дальше 100 стадов)
-    if (targetPos - hrp.Position).Magnitude > 100 then
-        return
+    if (targetPos - hrp.Position).Magnitude > 100 then return end
+    
+    -- Если кликнули по пустоте, ставим под ноги
+    if mouse.Target == nil then
+        targetPos = hrp.Position - V3(0, 3, 0)
     end
     
-    -- Строим ресторан на месте блока
-    buildRestaurant(mouse.Hit, targetPart)
+    -- Строим ресторан
+    buildRestaurant(mouse.Hit)
     
     -- Звук
     local snd = Instance.new("Sound")
-    snd.SoundId = "rbxassetid://3314038600" -- Portal sound
+    snd.SoundId = "rbxassetid://3314038600"
     snd.Volume = 1
     snd.Parent = handle
     snd:Play()
@@ -200,9 +247,4 @@ end)
 -- Выдаем предмет игроку
 tool.Parent = LP:WaitForChild("Backpack")
 
--- Оповещение
-local function notify(text)
-    print("[В&Т] " .. text)
-    -- Если хочешь красивое уведомление на экране, можем добавить позже
-end
-notify("Генератор Вкусно — и Точка выдан! Кликай по блокам.")
+print("[В&Т] Генератор выдан! Кликай по земле, чтобы построить ресторан.")
