@@ -1,11 +1,11 @@
--- Rick & Morty Toolkit v2.2 (standalone)
--- Скины, портальная пушка (2 портала), продвинутый прицел (как в ORBIT).
+-- Rick & Morty Toolkit v2.3 (standalone)
+-- Скины, портальная пушка (2 портала), продвинутый прицел, перетаскиваемый UI.
 -- Без 18+ контента.
 
 local GENV = rawget(_G, "getgenv") and getgenv() or _G
 local RM = {}
 GENV.RickMorty = RM
-RM._version = "2.2"
+RM._version = "2.3"
 
 if GENV._RM_BUSY and os.clock() - (GENV._RM_BUSY_T or 0) < 30 then
     warn("[RickMorty] повторный запуск проигнорирован")
@@ -31,7 +31,7 @@ RM.UIS = UIS
 RM.Workspace = Workspace
 RM.LocalPlayer = LocalPlayer
 RM.HAS_FS = (type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function")
-RM.SAVE_FILE = "rickmorty_v22.json"
+RM.SAVE_FILE = "rickmorty_v23.json"
 
 local function getSafeParent()
     local gethuiFn = rawget(GENV, "gethui")
@@ -67,7 +67,7 @@ RM.SETTINGS = {
     NotificationsEnabled = true,
     NotifDuration = 2,
     MenuKey = "RightShift",
-    PortalColor = { R = 50, G = 255, B = 50 }, -- Один цвет для обоих порталов
+    PortalColor = { R = 50, G = 255, B = 50 },
     ActiveSkin = nil,
     AimSize = 64,
 }
@@ -170,6 +170,37 @@ local okp = pcall(function() gui.Parent = getSafeParent() end)
 if not okp or not gui.Parent then gui.Parent = PlayerGui end
 RM.gui = gui
 
+-- Функция перетаскивания
+local function makeDraggable(frame, dragArea)
+    local dragging = false
+    local dragInput = nil
+    local dragStart = nil
+    local startPos = nil
+    local dragTarget = dragArea or frame
+
+    dragTarget.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    dragTarget.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
 -- Кнопка меню
 local mainBtn = Instance.new("TextButton")
 mainBtn.Size = UDim2.fromOffset(60, 60)
@@ -183,6 +214,7 @@ mainBtn.Text = "🌀"
 mainBtn.AutoButtonColor = false
 mainBtn.ZIndex = 50
 mainBtn.Parent = gui
+makeDraggable(mainBtn)
 Instance.new("UICorner", mainBtn).CornerRadius = UDim.new(0, 16)
 do
     local st = Instance.new("UIStroke", mainBtn)
@@ -204,6 +236,7 @@ window.BackgroundTransparency = 0.02
 window.Visible = false
 window.ZIndex = 40
 window.Parent = gui
+makeDraggable(window)
 Instance.new("UICorner", window).CornerRadius = UDim.new(0, 16)
 do
     local gr = Instance.new("UIGradient", window)
@@ -218,11 +251,12 @@ header.Size = UDim2.new(1, 0, 0, 44)
 header.BackgroundTransparency = 1
 header.ZIndex = 41
 header.Parent = window
+
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -80, 1, 0)
 title.Position = UDim2.fromOffset(14, 0)
 title.BackgroundTransparency = 1
-title.Text = "🌀 RICK & MORTY v2.2"
+title.Text = "🌀 RICK & MORTY v2.3"
 title.TextColor3 = C.accent
 title.Font = Enum.Font.GothamBold
 title.TextSize = 14
@@ -448,11 +482,11 @@ task.spawn(function()
 end)
 
 -- ============================================================
---  ПРОДВИНУТЫЙ ПРИЦЕЛ (КАК В ORBIT)
+--  ПРОДВИНУТЫЙ ПРИЦЕЛ (УЛУЧШЕННЫЙ)
 -- ============================================================
 local isMobile = UIS.TouchEnabled and not UIS.MouseEnabled
-local aiming = true -- прицел всегда включен для стрельбы
-local crossPos = nil -- Позиция прицела (Vector2)
+local aiming = true
+local crossPos = nil
 local aimFrame = nil
 local aimLabel = nil
 local fireBtn = nil
@@ -460,21 +494,32 @@ local fireBtn = nil
 local function createAimUI()
     local size = RM.SETTINGS.AimSize
     
-    -- Контейнер прицела (крестик)
     aimFrame = Instance.new("Frame")
     aimFrame.Name = "RM_Aim"
     aimFrame.Size = UDim2.fromOffset(size, size)
     aimFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    aimFrame.Position = UDim2.fromScale(0.5, 0.5) -- По центру по умолчанию
+    aimFrame.Position = UDim2.fromScale(0.5, 0.5)
     aimFrame.BackgroundTransparency = 1
     aimFrame.Visible = aiming
     aimFrame.Active = true
     aimFrame.ZIndex = 55
     aimFrame.Parent = gui
 
+    local circle = Instance.new("Frame")
+    circle.Size = UDim2.fromScale(0.8, 0.8)
+    circle.Position = UDim2.fromScale(0.5, 0.5)
+    circle.AnchorPoint = Vector2.new(0.5, 0.5)
+    circle.BackgroundTransparency = 1
+    circle.ZIndex = 55
+    circle.Parent = aimFrame
+    Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
+    local cStroke = Instance.new("UIStroke", circle)
+    cStroke.Color = Color3.fromRGB(100, 255, 140)
+    cStroke.Thickness = 1.5
+    cStroke.Transparency = 0.5
+
     local color = Color3.fromRGB(100, 255, 140)
 
-    -- 4 линии
     local function makeLine(x, y, w, h)
         local f = Instance.new("Frame")
         f.Position = UDim2.fromOffset(x, y)
@@ -486,7 +531,6 @@ local function createAimUI()
         return f
     end
     
-    -- Центральная точка
     local dot = Instance.new("Frame")
     dot.Size = UDim2.fromOffset(4, 4)
     dot.Position = UDim2.fromScale(0.5, 0.5)
@@ -497,19 +541,18 @@ local function createAimUI()
     dot.Parent = aimFrame
     Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
 
-    -- Линии (верх, низ, лево, право)
     local half = size / 2
-    local gap = 6
+    local gap = 8
     local len = 12
-    makeLine(half - 1, half - gap - len, 2, len) -- верх
-    makeLine(half - 1, half + gap, 2, len)       -- низ
-    makeLine(half - gap - len, half - 1, len, 2) -- лево
-    makeLine(half + gap, half - 1, len, 2)       -- право
+    local t = 2
+    makeLine(half - t/2, half - gap - len, t, len)
+    makeLine(half - t/2, half + gap, t, len)
+    makeLine(half - gap - len, half - t/2, len, t)
+    makeLine(half + gap, half - t/2, len, t)
 
-    -- Текст с дистанцией
     aimLabel = Instance.new("TextLabel")
     aimLabel.Size = UDim2.new(0, 150, 0, 20)
-    aimLabel.Position = UDim2.fromScale(0.5, 1.5)
+    aimLabel.Position = UDim2.fromScale(0.5, 1.3)
     aimLabel.AnchorPoint = Vector2.new(0.5, 0)
     aimLabel.BackgroundTransparency = 1
     aimLabel.TextColor3 = color
@@ -519,60 +562,54 @@ local function createAimUI()
     aimLabel.ZIndex = 57
     aimLabel.Parent = aimFrame
 
-    -- Кнопка выстрела (только для мобилок)
+    local draggingAim = false
+    aimFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            draggingAim = true
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if draggingAim and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+            local sp = input.Position
+            aimFrame.Position = UDim2.fromOffset(sp.X, sp.Y)
+            crossPos = sp
+        end
+    end)
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            draggingAim = false
+        end
+    end)
+
     if isMobile then
         fireBtn = Instance.new("TextButton")
         fireBtn.Name = "RM_Fire"
-        fireBtn.Size = UDim2.fromOffset(80, 80)
-        fireBtn.Position = UDim2.new(1, -100, 1, -140)
-        fireBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 120)
+        fireBtn.Size = UDim2.fromOffset(70, 70)
+        fireBtn.Position = UDim2.new(1, -90, 1, -130)
+        fireBtn.BackgroundColor3 = Color3.fromRGB(255, 60, 80)
         fireBtn.BackgroundTransparency = 0.2
         fireBtn.Text = "🔥"
         fireBtn.TextColor3 = Color3.new(1, 1, 1)
         fireBtn.Font = Enum.Font.GothamBold
-        fireBtn.TextSize = 40
+        fireBtn.TextSize = 35
         fireBtn.ZIndex = 55
         fireBtn.Parent = gui
         Instance.new("UICorner", fireBtn).CornerRadius = UDim.new(1, 0)
         local st = Instance.new("UIStroke", fireBtn)
-        st.Color = color; st.Thickness = 3; st.Transparency = 0.3
+        st.Color = color; st.Thickness = 2; st.Transparency = 0.3
+        makeDraggable(fireBtn)
 
         fireBtn.MouseButton1Click:Connect(function()
             playSound("shoot", 0.5, 1)
             if RM.fireFromAim then pcall(RM.fireFromAim) end
-            fireBtn.Size = UDim2.fromOffset(70, 70)
+            fireBtn.Size = UDim2.fromOffset(60, 60)
             task.delay(0.1, function()
-                if fireBtn then fireBtn.Size = UDim2.fromOffset(80, 80) end
+                if fireBtn then fireBtn.Size = UDim2.fromOffset(70, 70) end
             end)
         end)
     end
-
-    -- Логика перетаскивания (для мобилок)
-    local dragging = false
-    local dragStart = nil
-    
-    aimFrame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            crossPos = input.Position
-        end
-    end)
-
-    aimFrame.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.Touch then
-            crossPos = input.Position
-        end
-    end)
-
-    aimFrame.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
 end
 
--- Функция получения экранных координат (где находится прицел)
 local function screenPoint()
     if isMobile then
         if crossPos then return crossPos end
@@ -582,7 +619,6 @@ local function screenPoint()
     end
 end
 
--- Функция получения направления (луч из камеры в точку прицела)
 local function getAimDirection()
     local sp = screenPoint()
     local ray = Camera:ViewportPointToRay(sp.X, sp.Y)
@@ -590,43 +626,59 @@ local function getAimDirection()
 end
 RM.getAimDirection = getAimDirection
 
--- Функция для получения точки в мире, куда смотрит прицел
 local function aimPoint(origin)
     local sp = screenPoint()
     local ray = Camera:ViewportPointToRay(sp.X, sp.Y)
-    
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    local ignore = {LocalPlayer.Character}
-    raycastParams.FilterDescendantsInstances = ignore
-    
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
     local result = Workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
     if result then return result.Position end
     return ray.Origin + ray.Direction * 1000
 end
 RM.aimPoint = aimPoint
 
--- Обновление позиции прицела и дистанции
 task.spawn(function()
     while alive do
         task.wait(0.05)
         if aiming and aimFrame then
             local sp = screenPoint()
-            
-            -- В мобилке мы двигаем сам фрейм в позицию пальца
             if isMobile then
                 aimFrame.Position = UDim2.fromOffset(sp.X, sp.Y)
             else
                 aimFrame.Position = UDim2.fromOffset(sp.X, sp.Y)
             end
             
-            -- Обновляем текст дистанции
             if aimLabel then
                 local origin = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                 if origin then
-                    local target = aimPoint(origin.Position)
-                    local dist = (target - origin.Position).Magnitude
+                    local sp = screenPoint()
+                    local ray = Camera:ViewportPointToRay(sp.X, sp.Y)
+                    local rParams = RaycastParams.new()
+                    rParams.FilterType = Enum.RaycastFilterType.Exclude
+                    rParams.FilterDescendantsInstances = {LocalPlayer.Character}
+                    local res = Workspace:Raycast(ray.Origin, ray.Direction * 1000, rParams)
+                    local targetPos = res and res.Position or (ray.Origin + ray.Direction * 1000)
+                    local dist = (targetPos - origin.Position).Magnitude
                     aimLabel.Text = math.floor(dist) .. " st"
+
+                    local isTargetingPlayer = false
+                    if res and res.Instance then
+                        local parentModel = res.Instance:FindFirstAncestorOfClass("Model")
+                        if parentModel and Players:GetPlayerFromCharacter(parentModel) then
+                            isTargetingPlayer = true
+                        end
+                    end
+                    
+                    local targetColor = isTargetingPlayer and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(100, 255, 140)
+                    aimLabel.TextColor3 = targetColor
+                    for _, child in ipairs(aimFrame:GetDescendants()) do
+                        if child:IsA("Frame") and child.BackgroundColor3 then
+                            child.BackgroundColor3 = targetColor
+                        elseif child:IsA("UIStroke") then
+                            child.Color = targetColor
+                        end
+                    end
                 end
             end
         end
@@ -635,9 +687,6 @@ end)
 
 task.spawn(createAimUI)
 RM.fireFromAim = function() end
-
-notify("🌀 Rick & Morty v2.2 загружен", C.accent, 3)
-warn("[RickMorty v2.2] Продвинутый прицел готов.")
 -- ============================================================
 --  ХЕЛПЕРЫ ДЛЯ СКИНОВ
 -- ============================================================
@@ -667,7 +716,6 @@ local function weldToRoot(part, root, offsetCF)
     return part
 end
 
--- Функция для создания шипов волос (Рик)
 local function addHairSpikes(root, model, color)
     local spikes = {
         { pos = Vector3.new(0, 3.1, 0.1), rot = Vector3.new(0, 0, 0), size = Vector3.new(0.35, 1.0, 0.35) },
@@ -937,7 +985,6 @@ local function buildRickPrime(root, model)
     shoeR.Parent = model
     weldToRoot(shoeR, root, CFrame.new(0.5, -3.2, -0.15))
 end
-
 -- ============================================================
 --  ПРИМЕНЕНИЕ И СНЯТИЕ СКИНА
 -- ============================================================
@@ -1008,70 +1055,7 @@ track(LocalPlayer.CharacterAdded:Connect(function()
 end))
 
 -- ============================================================
---  UI: ВКЛАДКА «СКИНЫ»
--- ============================================================
-do
-    local frame = tabFrames["skins"]
-    newSection(frame, "ЗАМЕНА ТЕЛА (детализированные)")
-
-    local SKINS = {
-        { id = "rick", name = "🧪 Рик Санчес", desc = "Халат с полами, шипы волос" },
-        { id = "morty", name = "😰 Морти Смит", desc = "Жёлтая футболка, большие глаза" },
-        { id = "evil_morty", name = "🖤 Злой Морти", desc = "Повязка, ремешок через голову" },
-        { id = "rick_prime", name = "💀 Рик Прайм", desc = "Тёмный халат, сердитые брови" },
-    }
-
-    for _, s in ipairs(SKINS) do
-        local btn = newButton(frame, s.name, C.bg2, nil, 40)
-        local lblName = Instance.new("TextLabel")
-        lblName.Size = UDim2.new(1, -20, 0, 14)
-        lblName.Position = UDim2.fromOffset(10, 3)
-        lblName.BackgroundTransparency = 1
-        lblName.Text = s.name
-        lblName.TextColor3 = C.text
-        lblName.Font = Enum.Font.GothamBold
-        lblName.TextSize = 11
-        lblName.TextXAlignment = Enum.TextXAlignment.Left
-        lblName.ZIndex = 43
-        lblName.Parent = btn
-
-        local lblDesc = Instance.new("TextLabel")
-        lblDesc.Size = UDim2.new(1, -20, 0, 12)
-        lblDesc.Position = UDim2.fromOffset(10, 20)
-        lblDesc.BackgroundTransparency = 1
-        lblDesc.Text = s.desc
-        lblDesc.TextColor3 = C.textDim
-        lblDesc.Font = Enum.Font.Gotham
-        lblDesc.TextSize = 9
-        lblDesc.TextXAlignment = Enum.TextXAlignment.Left
-        lblDesc.ZIndex = 43
-        lblDesc.Parent = btn
-        btn.Text = ""
-
-        btn.MouseButton1Click:Connect(function()
-            applySkin(s.id)
-        end)
-    end
-
-    newSection(frame, "")
-    local resetBtn = newButton(frame, "↩ Вернуть своё тело", C.bg2, nil, 34)
-    resetBtn.TextColor3 = C.danger
-    resetBtn.MouseButton1Click:Connect(removeSkin)
-end
-
-if RM.SETTINGS.ActiveSkin then
-    task.spawn(function()
-        task.wait(2)
-        applySkin(RM.SETTINGS.ActiveSkin)
-    end)
-end
-
-RM._cleanup = RM._cleanup or {}
-RM._cleanup[#RM._cleanup + 1] = function()
-    clearCurrentSkin()
-end
--- ============================================================
---  ПОРТАЛЬНАЯ ПУШКА (МОДЕЛЬ В РУКЕ)
+--  ПОРТАЛЬНАЯ ПУШКА (УЛУЧШЕННАЯ МОДЕЛЬ)
 -- ============================================================
 local activePortalGun = nil
 
@@ -1080,19 +1064,22 @@ local function buildPortalGun()
     tool.Name = "Portal Gun"
     tool.RequiresHandle = true
     tool.CanBeDropped = false
-    tool.ToolTip = "ЛКМ / 🔥 — открыть портал (2 выстрела = 2 портала)"
+    tool.ToolTip = "ЛКМ / 🔥 — открыть портал"
     tool.GripForward = Vector3.new(0, 0, -1)
     tool.GripRight = Vector3.new(1, 0, 0)
     tool.GripUp = Vector3.new(0, 1, 0)
 
+    -- Ручка
     local handle = createPart("Handle", Vector3.new(0.4, 1.2, 0.4), CFrame.new(), Color3.fromRGB(55, 55, 60))
     handle.Parent = tool
 
+    -- Корпус
     local body = createPart("Body", Vector3.new(0.9, 0.8, 1.6), CFrame.new(), Color3.fromRGB(230, 230, 235))
     body.Parent = tool
     local w1 = Instance.new("WeldConstraint"); w1.Part0 = handle; w1.Part1 = body; w1.Parent = body
     body.CFrame = handle.CFrame * CFrame.new(0, 0.55, -0.35)
 
+    -- Зеленая колба
     local orb = createPart("Orb", Vector3.new(0.55, 0.7, 0.55), CFrame.new(), Color3.fromRGB(50, 255, 50), Enum.Material.Glass)
     orb.Transparency = 0.15
     orb.Parent = tool
@@ -1101,10 +1088,11 @@ local function buildPortalGun()
 
     local orbLight = Instance.new("PointLight", orb)
     orbLight.Color = Color3.fromRGB(50, 255, 50)
-    orbLight.Range = 6
-    orbLight.Brightness = 2
+    orbLight.Range = 8
+    orbLight.Brightness = 3
     orbLight.Shadows = false
 
+    -- Табло (красный экран)
     local screen = createPart("Screen", Vector3.new(0.4, 0.2, 0.05), CFrame.new(), Color3.fromRGB(255, 30, 30))
     screen.Material = Enum.Material.Neon
     screen.Parent = tool
@@ -1139,7 +1127,7 @@ local function equipPortalGun()
 end
 
 -- ============================================================
---  ПОРТАЛЫ (ОДИН ЦВЕТ) + ТЕЛЕПОРТАЦИЯ
+--  ПОРТАЛЫ (УЛУЧШЕННАЯ ГРАФИКА)
 -- ============================================================
 local portalA = nil
 local portalB = nil
@@ -1183,7 +1171,7 @@ local function createPortalModel(position, normal, color3)
 
     local pe = Instance.new("ParticleEmitter")
     pe.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-    pe.Rate = 60
+    pe.Rate = 80
     pe.Lifetime = NumberRange.new(0.4, 1.2)
     pe.Speed = NumberRange.new(2, 6)
     pe.SpreadAngle = Vector2.new(180, 180)
@@ -1327,12 +1315,10 @@ local function shootPortal()
             task.delay(0.15, function() pcall(function() beam:Destroy() end) end)
         end
     end
-
     playSound("shoot", 0.6, 1)
 end
 RM.shootPortal = shootPortal
 RM.fireFromAim = shootPortal
-
 -- ============================================================
 --  ДЕТЕКТОР ТЕЛЕПОРТАЦИИ
 -- ============================================================
@@ -1370,6 +1356,70 @@ task.spawn(function()
         clearOldPortals()
     end
 end)
+
+-- ============================================================
+--  UI: ВКЛАДКА «СКИНЫ»
+-- ============================================================
+do
+    local frame = tabFrames["skins"]
+    newSection(frame, "ЗАМЕНА ТЕЛА (детализированные)")
+
+    local SKINS = {
+        { id = "rick", name = "🧪 Рик Санчес", desc = "Халат с полами, шипы волос" },
+        { id = "morty", name = "😰 Морти Смит", desc = "Жёлтая футболка, большие глаза" },
+        { id = "evil_morty", name = "🖤 Злой Морти", desc = "Повязка, ремешок через голову" },
+        { id = "rick_prime", name = "💀 Рик Прайм", desc = "Тёмный халат, сердитые брови" },
+    }
+
+    for _, s in ipairs(SKINS) do
+        local btn = newButton(frame, s.name, C.bg2, nil, 40)
+        local lblName = Instance.new("TextLabel")
+        lblName.Size = UDim2.new(1, -20, 0, 14)
+        lblName.Position = UDim2.fromOffset(10, 3)
+        lblName.BackgroundTransparency = 1
+        lblName.Text = s.name
+        lblName.TextColor3 = C.text
+        lblName.Font = Enum.Font.GothamBold
+        lblName.TextSize = 11
+        lblName.TextXAlignment = Enum.TextXAlignment.Left
+        lblName.ZIndex = 43
+        lblName.Parent = btn
+
+        local lblDesc = Instance.new("TextLabel")
+        lblDesc.Size = UDim2.new(1, -20, 0, 12)
+        lblDesc.Position = UDim2.fromOffset(10, 20)
+        lblDesc.BackgroundTransparency = 1
+        lblDesc.Text = s.desc
+        lblDesc.TextColor3 = C.textDim
+        lblDesc.Font = Enum.Font.Gotham
+        lblDesc.TextSize = 9
+        lblDesc.TextXAlignment = Enum.TextXAlignment.Left
+        lblDesc.ZIndex = 43
+        lblDesc.Parent = btn
+        btn.Text = ""
+
+        btn.MouseButton1Click:Connect(function()
+            applySkin(s.id)
+        end)
+    end
+
+    newSection(frame, "")
+    local resetBtn = newButton(frame, "↩ Вернуть своё тело", C.bg2, nil, 34)
+    resetBtn.TextColor3 = C.danger
+    resetBtn.MouseButton1Click:Connect(removeSkin)
+end
+
+if RM.SETTINGS.ActiveSkin then
+    task.spawn(function()
+        task.wait(2)
+        applySkin(RM.SETTINGS.ActiveSkin)
+    end)
+end
+
+RM._cleanup = RM._cleanup or {}
+RM._cleanup[#RM._cleanup + 1] = function()
+    clearCurrentSkin()
+end
 
 -- ============================================================
 --  UI: ВКЛАДКА «ПОРТАЛ»
