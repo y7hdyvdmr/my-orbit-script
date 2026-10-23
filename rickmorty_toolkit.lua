@@ -1146,7 +1146,7 @@ local function playerInput(hum, root)
   local boarding = ship and ship.board and ship.boardW or nil
   return {
     speed = sp, walkSpeed = hum.WalkSpeed,
-    air = (not RIDING) and (not boarding) and hum.FloorMaterial == Enum.Material.Air,
+    air = (not RIDING) and (not boarding) and (not SH.onDeck) and hum.FloorMaterial == Enum.Material.Air,
     hold = HOLDING, ride = RIDING, emote = EMOTE, boarding = boarding,
   }
 end
@@ -1225,14 +1225,14 @@ end))
 -- ============================================================
 --  МИР: луч прицела, земля
 -- ============================================================
-local function aimHit(maxDist)
+local function aimHit(maxDist, farDist)
   local d, o = RM.getAimDirection()
   local rp = RaycastParams.new()
   rp.FilterType = Enum.RaycastFilterType.Exclude
   rp.FilterDescendantsInstances = { LP.Character, ship and ship.model }
   local r = Workspace:Raycast(o, d * maxDist, rp)
   if r then return r.Position, r.Normal end
-  return o + d * math.min(maxDist, 50), -d
+  return o + d * math.min(maxDist, farDist or 50), -d
 end
 local function groundAt(pos)
   local rp = RaycastParams.new()
@@ -2151,6 +2151,13 @@ local function buildShip()
     add("Foot", V3(.9, .4, 1.1), RGB(30, 32, 38), CFrame.new(x * 1.12, -3.25, z * 1.12) * CFrame.Angles(0, a, 0))
   end
   I("PointLight", { Color = RGB(180, 220, 255), Range = 18, Brightness = 1.5, Shadows = false }, hull)
+  -- большие пушки по бокам (дула смотрят вперёд)
+  for _, s in ipairs({ -1, 1 }) do
+    add("CannonBase", V3(1.8, .9, 1.8), DARK, CFrame.new(s * 3.2, .35, -3.6), Enum.Material.Metal)
+    add("Cannon", V3(4.2, 1.3, 1.3), RGB(70, 76, 86), CFrame.new(s * 3.2, .7, -4.8) * RZ, Enum.Material.Metal, Enum.PartType.Cylinder)
+    add("CannonRing", V3(.5, 1.8, 1.8), YEL, CFrame.new(s * 3.2, .7, -6.7) * RZ, Enum.Material.Metal, Enum.PartType.Cylinder)
+    add("CannonGlow", V3(.2, 1, 1), RGB(255, 90, 60), CFrame.new(s * 3.2, .7, -6.95) * RZ, Enum.Material.Neon, Enum.PartType.Cylinder)
+  end
   -- твёрдые части (на них можно стоять) и кликабельность всего корабля
   local solids = {}
   for _, p in ipairs(model:GetChildren()) do
@@ -2165,7 +2172,7 @@ end
 local function summonShip()
   local _, _, hr = getChar()
   if not hr then return end
-  dismount(true)
+  if RIDING or (ship and ship.board) then dismount(true) end
   if ship then pcall(function() ship.model:Destroy() end) ship = nil end
   local lv = V3(hr.CFrame.LookVector.X, 0, hr.CFrame.LookVector.Z)
   lv = lv.Magnitude > .01 and lv.Unit or V3(0, 0, -1)
@@ -2183,6 +2190,7 @@ local function summonShip()
 end
 -- твёрдость: пока корабль стоит, на него можно залезть и стоять на палубе
 function SH.solid(on)
+  do return end -- физическая твёрдость отключена (толкала людей)
   if not ship or not ship.solids then return end
   for _, p in ipairs(ship.solids) do
     if p.Parent then p.CanCollide = on end
@@ -2195,7 +2203,7 @@ function SH.dome(open)
     * CFrame.Angles(open * .9, 0, 0) * CFrame.new(0, 0, -3.2)
 end
 -- пушки крейсера: красные болты в точку прицела, урон по цели рядом (визуально)
-function SH.fire()
+function SH.fireOld()
   if not RIDING or not ship or ship.board then return end
   local now = os.clock()
   if now < SH.fireCd then return end
@@ -2222,6 +2230,67 @@ function SH.fire()
     burst(pos, RGB(255, 120, 60), 16)
     local tg = CB.nearest(CB.scan(pos, 7, ST.AttackPlayers), pos)
     if tg then CB.damage(tg, 20, 35) end
+  end)
+end
+-- виртуальный пол палубы: ставит тебя на крышу корабля, не толкает ни тебя, ни других
+SH.onDeck = false
+function SH.deck(hr, hum)
+  SH.onDeck = false
+  if not ship or ship.state ~= "idle" or RIDING or ship.board or not hr or not hum then return end
+  local off = hr.Position - ship.pos
+  if V3(off.X, 0, off.Z).Magnitude > 4.6 then return end
+  local half = hum.RigType == Enum.HumanoidRigType.R15 and (hum.HipHeight + hr.Size.Y / 2) or 3
+  local feet = hr.Position.Y - half
+  local top = ship.pos.Y + 1.8
+  local vel = hr.AssemblyLinearVelocity
+  if vel.Y <= 1 and feet >= top - .7 and feet <= top + .5 then
+    hr.CFrame = hr.CFrame + V3(0, top - feet, 0)
+    if hum.Jump then
+      local jv = hum.UseJumpPower and hum.JumpPower or math.sqrt(2 * Workspace.Gravity * hum.JumpHeight)
+      hr.AssemblyLinearVelocity = V3(vel.X, jv, vel.Z)
+    else
+      hr.AssemblyLinearVelocity = V3(vel.X, 0, vel.Z)
+    end
+    SH.onDeck = true
+  end
+end
+-- большие пушки: крупные болты, дальность x5, взрыв со сферой
+function SH.fire()
+  if not RIDING or not ship or ship.board then return end
+  local now = os.clock()
+  if now < SH.fireCd then return end
+  SH.fireCd = now + .28
+  local pos = aimHit(4000, 250)
+  SH.side = -SH.side
+  local muzzle = (ship.cf * CFrame.new(SH.side * 3.2, .7, -7.2)).Position
+  local delta = pos - muzzle
+  local dist = delta.Magnitude
+  if dist < 2 then return end
+  local dir = delta.Unit
+  local len = math.min(dist, 16)
+  local bolt = mkp("Bolt", V3(1.3, 1.3, len), RGB(255, 70, 70), Enum.Material.Neon)
+  bolt.Anchored = true
+  I("PointLight", { Color = RGB(255, 80, 60), Range = 22, Brightness = 4, Shadows = false }, bolt)
+  bolt.CFrame = CFrame.lookAt(muzzle, muzzle + dir) * CFrame.new(0, 0, -len / 2)
+  bolt.Parent = Workspace
+  local fly = math.clamp(dist / 900, .05, 1.2)
+  TweenService:Create(bolt, TweenInfo.new(fly, Enum.EasingStyle.Linear), {
+    CFrame = CFrame.lookAt(pos, pos + dir) * CFrame.new(0, 0, len / 2),
+  }):Play()
+  burst(muzzle, RGB(255, 200, 80), 14)
+  snd("shoot", .7, .9)
+  task.delay(fly, function()
+    bolt:Destroy()
+    burst(pos, RGB(255, 120, 60), 40)
+    local ex = mkp("Blast", V3(2, 2, 2), RGB(255, 140, 60), Enum.Material.Neon, Enum.PartType.Ball)
+    ex.Anchored = true
+    ex.Transparency = .3
+    ex.Position = pos
+    ex.Parent = Workspace
+    TweenService:Create(ex, TweenInfo.new(.4), { Size = V3(16, 16, 16), Transparency = 1 }):Play()
+    task.delay(.45, function() ex:Destroy() end)
+    local tg = CB.nearest(CB.scan(pos, 14, ST.AttackPlayers), pos)
+    if tg then CB.damage(tg, 40, 70) end
   end)
 end
 -- гипер-прыжок: рывок вперёд с эффектом перехода между измерениями
@@ -2292,7 +2361,7 @@ local function shipAction()
   if ship.state == "idle" and (hr.Position - ship.pos).Magnitude < 90 then board() else summonShip() end
 end
 local function stepShip(dt)
-  if not ship or not ship.model.Parent then return end
+  if not ship or not ship.model.Parent then SH.onDeck = false return end
   local _, hum, hr = getChar()
   if (RIDING or ship.board) and (not hum or hum.Health <= 0 or not hr) then dismount(true) end
   if SH.held and RIDING and not ship.board then SH.fire() end
@@ -2328,9 +2397,10 @@ local function stepShip(dt)
     pitch = lv.Z / speed * .25
     roll = -lv.X / speed * .3
   end
-  local bobY = (ship.state == "idle" or RIDING) and math.sin(now * 2) * .12 or 0
+  local bobY = RIDING and math.sin(now * 2) * .12 or 0
   ship.cf = CFrame.new(ship.pos + V3(0, bobY, 0)) * CFrame.Angles(0, ship.yaw, 0) * CFrame.Angles(pitch, 0, roll)
   ship.model:PivotTo(ship.cf)
+  SH.deck(hr, hum)
   local open = 0
   local b = ship.board
   if b and hr then
@@ -2465,7 +2535,7 @@ local function clearAll()
     pcall(function() zones[i].mo:Destroy() end)
     table.remove(zones, i)
   end
-  dismount(true)
+  if RIDING or (ship and ship.board) then dismount(true) end
   if ship then pcall(function() ship.model:Destroy() end) ship = nil end
   ridePanel.Visible = false
   dismountBtn.Visible = false
