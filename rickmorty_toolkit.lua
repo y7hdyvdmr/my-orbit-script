@@ -1,8 +1,9 @@
 -- ============================================================
 --  Rick & Morty Toolkit v4.1 (standalone, один файл)
 --  Скины на Motor6D, мимика, движения, портальная пушка,
---  большие порталы, замораживатель времени, ящик Мисиксов (бой),
---  батарея микровселенной, космический крейсер, эффект перехода.
+--  большие порталы с мгновенным касанием, замораживатель времени,
+--  ящик Мисиксов, батарея микровселенной, космический крейсер,
+--  эффект перехода между измерениями. Без 18+.
 --  Всё создаётся локально: видишь только ты.
 -- ============================================================
 local G = rawget(_G, "getgenv") and getgenv() or _G
@@ -34,6 +35,8 @@ local ship, helpers, zones = nil, {}, {}
 local TIMESTOP_UNTIL, TS_CD, BAT, inZone = 0, 0, 100, false
 local rideKeys = { up = false, down = false }
 local PORTAL_LIFE = 60
+local CB = {} -- боевой модуль (заполняется ниже)
+local SH = { fireCd = 0, hyperCd = 0, side = 1, held = false } -- функции и состояние крейсера
 local PORTAL_R = 6 -- радиус портала в стадах (диаметр 12)
 local detachHand, attachHand, refreshGrip, board, dismount -- объявлены заранее
 
@@ -51,10 +54,11 @@ end
 --  НАСТРОЙКИ (сохраняются в файл, если executor умеет writefile)
 -- ============================================================
 local HAS_FS = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
-local FILE = "rickmorty_v41.json"
+local FILE = "rickmorty_v40.json"
 local ST = {
   SoundEnabled = true, NotificationsEnabled = true, NotifDuration = 2, MenuKey = "RightShift",
   PortalColor = { R = 50, G = 255, B = 50 }, ActiveSkin = "", AimSize = 64, Emotion = "normal", DimFx = true,
+  ShipSpeed = 150, AttackPlayers = true,
 }
 RM.SETTINGS = ST
 local function save()
@@ -195,6 +199,7 @@ local function notify(text, col, dur)
 end
 RM.notify = notify
 
+-- запуск с показом ошибок (раньше ошибки молча глотались)
 local function safe(fn, ...)
   local ok, err = pcall(fn, ...)
   if not ok then
@@ -307,6 +312,79 @@ local function newGrid(parent, cols)
   return g
 end
 
+-- ползунок со значениями + кнопки - и +
+local function newSlider(parent, label, minV, maxV, value, onChange, onDone)
+  local row = I("Frame", {
+    Size = UDim2.new(1, -8, 0, 62), BackgroundColor3 = C.bg2, BackgroundTransparency = .1, ZIndex = 42,
+  }, parent)
+  cr(row, 8)
+  local lbl = I("TextLabel", {
+    Size = UDim2.new(1, -16, 0, 18), Position = UDim2.fromOffset(8, 4), BackgroundTransparency = 1, Text = "",
+    TextColor3 = C.tx, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 43,
+  }, row)
+  local bar = I("Frame", {
+    Size = UDim2.new(1, -90, 0, 12), Position = UDim2.fromOffset(45, 38), BackgroundColor3 = C.bg, ZIndex = 43,
+  }, row)
+  cr(bar, 6)
+  local fill = I("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.ac, BorderSizePixel = 0, ZIndex = 44 }, bar)
+  cr(fill, 6)
+  local knob = I("Frame", {
+    Size = UDim2.fromOffset(22, 22), AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(0, .5),
+    BackgroundColor3 = WHITE, ZIndex = 45,
+  }, bar)
+  cr(knob, 11)
+  local function apply(v)
+    local cur = math.clamp(math.floor(v / 10 + .5) * 10, minV, maxV)
+    local a = (cur - minV) / (maxV - minV)
+    fill.Size = UDim2.fromScale(a, 1)
+    knob.Position = UDim2.fromScale(a, .5)
+    lbl.Text = label .. ": " .. cur
+    onChange(cur)
+    return cur
+  end
+  local cur = apply(value)
+  local function fromX(x)
+    local a = math.clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1)
+    cur = apply(minV + (maxV - minV) * a)
+  end
+  local hit = I("TextButton", {
+    Size = UDim2.new(1, -90, 0, 34), Position = UDim2.fromOffset(45, 27), BackgroundTransparency = 1, Text = "", ZIndex = 46,
+  }, row)
+  local dragging = false
+  hit.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+      dragging = true
+      fromX(i.Position.X)
+    end
+  end)
+  track(UIS.InputChanged:Connect(function(i)
+    if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+      fromX(i.Position.X)
+    end
+  end))
+  track(UIS.InputEnded:Connect(function(i)
+    if dragging and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+      dragging = false
+      if onDone then onDone() end
+    end
+  end))
+  local function stepBtn(txt, pos, d)
+    local b = I("TextButton", {
+      Size = UDim2.fromOffset(34, 28), Position = pos, BackgroundColor3 = C.bg, TextColor3 = C.tx,
+      Font = Enum.Font.GothamBold, TextSize = 18, Text = txt, ZIndex = 43,
+    }, row)
+    cr(b, 8)
+    b.MouseButton1Click:Connect(function()
+      snd("click", .3)
+      cur = apply(cur + d)
+      if onDone then onDone() end
+    end)
+  end
+  stepBtn("−", UDim2.fromOffset(6, 30), -50)
+  stepBtn("+", UDim2.new(1, -40, 0, 30), 50)
+  return row
+end
+
 local TABS = {
   { "skins", "🎭 СКИНЫ", 84 }, { "moves", "🕺 ДВИЖЕНИЯ", 100 }, { "items", "🧰 ПРЕДМЕТЫ", 100 },
   { "portal", "🌀 ПОРТАЛ", 84 }, { "settings", "⚙️", 40 },
@@ -342,7 +420,7 @@ track(UIS.InputBegan:Connect(function(i, gpe)
 end))
 
 -- ============================================================
---  ПРИЦЕЛ
+--  ПРИЦЕЛ (кнопка 🔥 на телефоне стреляет текущим предметом)
 -- ============================================================
 local mob = UIS.TouchEnabled and not UIS.MouseEnabled
 local aimF, aimL, aimE, cross
@@ -440,7 +518,7 @@ do
 end
 
 -- ============================================================
---  ЭФФЕКТЫ
+--  ЭФФЕКТЫ: искры, ПЕРЕХОД МЕЖДУ ИЗМЕРЕНИЯМИ, пузыри речи
 -- ============================================================
 local function pcol()
   local c = ST.PortalColor
@@ -461,7 +539,7 @@ local function burst(pos, col, count)
 end
 
 local ccFx, fovBusy = nil, false
-local function flicker(R)
+local function flicker(R) -- мерцание скина при переходе
   if not R then return end
   task.spawn(function()
     for i = 1, 6 do
@@ -473,6 +551,7 @@ local function flicker(R)
     end
   end)
 end
+-- вспышка, расходящиеся кольца, цветокоррекция, рывок FOV, мерцание тела
 local function dimFx(col, power)
   if not ST.DimFx then return end
   power = power or 1
@@ -523,7 +602,7 @@ local function dimFx(col, power)
 end
 RM.dimFx = dimFx
 
-local function bubble(adornee, text, secs)
+local function bubble(adornee, text, secs) -- пузырь с репликой над головой
   if not adornee or not adornee.Parent then return end
   local old = adornee:FindFirstChild("RM_Bubble")
   if old then old:Destroy() end
@@ -573,7 +652,7 @@ local function motor(a, b, c0, c1)
 end
 
 -- ============================================================
---  СКИНЫ: данные
+--  СКИНЫ: данные персонажей
 -- ============================================================
 local SK = {
   rick = {
@@ -633,6 +712,7 @@ SK.evil_morty.hips = true
 SK.evil_morty.brow = .2
 local SKIN_ORDER = { "rick", "morty", "evil_morty", "rick_prime", "jerry", "summer", "meeseeks", "pickle" }
 
+-- выражения лица (переопределяют значения по умолчанию)
 local EM = {
   { "normal", "😐 Обычный", {} },
   { "happy", "😄 Весёлый", { eh = .85, by = .05, br = -.12, mw = 1.35, mo = .3, cr = .6, cy = .08, te = 1, tg = 0, hx = -.05 } },
@@ -665,7 +745,7 @@ local function ftar(S, id)
 end
 
 -- ============================================================
---  РИГ: сборка скелета на Motor6D
+--  РИГ: сборка скелета на Motor6D (работает и для тебя, и для Мисиксов)
 -- ============================================================
 local function newRig(root, S, K)
   local R = {
@@ -676,7 +756,7 @@ local function newRig(root, S, K)
   model.Name = "RM_Rig"
   R.model = model
   local mot, base = R.mot, R.base
-  local function kcf(o)
+  local function kcf(o) -- смещение в стадах -> масштабированный CFrame
     if typeof(o) == "Vector3" then return CFrame.new(o * K) end
     return CFrame.new(o.Position * K) * o.Rotation
   end
@@ -686,12 +766,12 @@ local function newRig(root, S, K)
     R.all[#R.all + 1] = p
     return p
   end
-  local function fixed(par, n, sz, col, o, mat, shape)
+  local function fixed(par, n, sz, col, o, mat, shape) -- неподвижная деталь
     local p = part(n, sz, col, mat, shape)
     motor(par, p, kcf(o))
     return p
   end
-  local function face(n, par, sz, col, o, mat, shape)
+  local function face(n, par, sz, col, o, mat, shape) -- подвижная деталь лица
     local p = part(n, sz, col, mat, shape)
     local m = motor(par, p, kcf(o))
     mot[n] = m
@@ -699,7 +779,7 @@ local function newRig(root, S, K)
     R.fp[n] = p
     return p
   end
-  local function limb(par, n, sz, col, o, mat, zo)
+  local function limb(par, n, sz, col, o, mat, zo) -- сустав: деталь свисает вниз
     local p = part(n, sz, col, mat)
     local m = motor(par, p, kcf(o), CFrame.new(0, sz.Y / 2 * K, (zo or 0) * K))
     mot[n] = m
@@ -724,6 +804,7 @@ local function newRig(root, S, K)
     end
   end
 
+  -- голова и лицо
   local H = part("Head", hs, sc)
   mot.Head = motor(T, H, kcf(V3(0, 1, 0)), CFrame.new(0, -hs.Y / 2 * K, 0))
   base.Head = mot.Head.C0
@@ -748,6 +829,7 @@ local function newRig(root, S, K)
   face("fTe", H, V3(.4, .08, .05), S.open and RGB(215, 200, 120) or RGB(240, 240, 235), V3(0, my, fz - .05))
   face("fTg", H, V3(.22, .1, .05), RGB(220, 70, 90), V3(.08, my, fz - .05))
 
+  -- причёска
   local hst = S.hstyle or "morty"
   if hst == "spikes" then
     for i = 0, 12 do
@@ -774,7 +856,7 @@ local function newRig(root, S, K)
       fixed(H, "Sideburn", V3(.12, sideL, .45), S.hair, V3(s * (hs.X / 2 + .03), hs.Y / 2 - sideL / 2 - .1, .15))
     end
   end
-  if S.patch then
+  if S.patch then -- повязка Злого Морти
     local dk = RGB(12, 12, 12)
     fixed(H, "Patch", V3(.1, .7, .7), dk, CFrame.new(S.ex, S.ey, fz - .07) * CFrame.Angles(0, math.rad(90), 0), nil, Enum.PartType.Cylinder)
     fixed(H, "StrapF", V3(hs.X + .08, .09, .07), dk, CFrame.new(0, S.ey + .1, fz - .03) * CFrame.Angles(0, 0, -.3))
@@ -784,6 +866,7 @@ local function newRig(root, S, K)
     end
   end
 
+  -- халат (полы качаются при ходьбе)
   if S.coat then
     local c = S.coat
     for _, s in ipairs({ -1, 1 }) do
@@ -798,7 +881,7 @@ local function newRig(root, S, K)
       fixed(T, "Fold", V3(.05, 1.7, .04), S.fold, V3(x, 0, .58))
     end
   end
-  if S.jacket then
+  if S.jacket then -- куртка Рика Прайма
     fixed(T, "Hood", V3(1.5, .4, .55), S.pad, V3(0, .98, .2))
     fixed(T, "Zip", V3(.06, 1.8, .04), RGB(200, 195, 225), V3(0, 0, -.46))
     for _, s in ipairs({ -1, 1 }) do
@@ -807,6 +890,7 @@ local function newRig(root, S, K)
     end
   end
 
+  -- руки (плечо, локоть, кисть, пальцы) и ноги (бедро, колено, стопа)
   for _, s in ipairs({ -1, 1 }) do
     local n = s < 0 and "L" or "R"
     local au = limb(T, "A" .. n, V3(.5, 1, .5), S.up, V3(s * 1.15, .82, 0))
@@ -840,7 +924,7 @@ local function newRig(root, S, K)
 end
 
 -- ============================================================
---  АНИМАТОР
+--  АНИМАТОР: idle, ходьба, бег, прыжок, хват предмета, посадка, эмоции тела, мимика
 -- ============================================================
 local function smooth(st, key, v, a)
   local c = st[key] or v
@@ -868,14 +952,17 @@ local function stepRig(R, dt, inp)
   local br = math.sin(t * 1.9)
   local hips = (S.hips and 1 or 0) * idle * (1 - ag)
 
-  local J = {}
+  local J = {} -- углы суставов
   local function set(n, x, y, z) J[n] = { x or 0, y or 0, z or 0 } end
 
+  -- торс
   local bob = br * .03 * idle + math.abs(c) * .07 * w
   local trx, try, trz = -.1 * w + br * .02 * idle, -s * .12 * w, 0
+  -- голова
   set("Head", .08 * w - br * .02 * idle + ag * .15 + F.hx,
     math.sin(t * .7) * .1 * idle + math.sin(t * 40) * .05 * F.sh,
     math.sin(t * .5) * .03 * idle + F.hz)
+  -- ноги
   local swg = .75 * w
   local lh = s * swg * (1 - ag) + .45 * ag
   local rh = -s * swg * (1 - ag) - .15 * ag
@@ -887,6 +974,7 @@ local function stepRig(R, dt, inp)
   set("KR", rk)
   set("FL", -(lh + lk) * .6)
   set("FR", -(rh + rk) * .6)
+  -- руки
   local sa = .7 * w * (1 - ag)
   local ar, al = s * sa, -s * sa
   local z = .07 + br * .03 * idle + .9 * ag + .5 * hips
@@ -895,11 +983,13 @@ local function stepRig(R, dt, inp)
   set("AL", al, 0, -z)
   set("ER", eb + math.max(0, ar) * .6, 0, -1.3 * hips)
   set("EL", eb + math.max(0, al) * .6, 0, 1.3 * hips)
+  -- полы халата
   local tl = -(.06 + .3 * w * (.5 + .5 * math.sin(ph * 2))) + ag * .1
   set("TB", tl)
   set("TL", tl, 0, -.04 - .1 * w)
   set("TR", tl, 0, .04 + .1 * w)
 
+  -- посадка (крейсер)
   if inp.ride then
     trx, try = -.05, 0
     set("HL", 1.45, 0, -.08)
@@ -913,11 +1003,31 @@ local function stepRig(R, dt, inp)
     set("ER", .5)
     set("EL", .5)
   end
+  -- посадка/высадка: прыжок с поднятыми руками и поджатыми ногами
+  if inp.boarding then
+    local bw = inp.boarding
+    local function bm(n, x, y, zz)
+      local j = J[n] or { 0, 0, 0 }
+      J[n] = { j[1] + ((x or 0) - j[1]) * bw, j[2] + ((y or 0) - j[2]) * bw, j[3] + ((zz or 0) - j[3]) * bw }
+    end
+    trx = trx + (-.2 - trx) * bw
+    bm("HL", 1.1, 0, -.1)
+    bm("HR", .6, 0, .1)
+    bm("KL", -1.3)
+    bm("KR", -.8)
+    bm("AR", 2.3, 0, .5)
+    bm("AL", 2.3, 0, -.5)
+    bm("ER", .3)
+    bm("EL", .3)
+    bm("Head", -.2)
+  end
+  -- хват предмета: правая рука вперёд (вперёд = положительный угол)
   if inp.hold then
     set("AR", 1.35, 0, .05)
     set("ER", .25)
   end
 
+  -- эмоции тела
   if inp.emote then R.curEm = inp.emote end
   local want = (inp.emote ~= nil) and idle > .5 and not air and not inp.ride
   local ew = smooth(st, "em", want and 1 or 0, math.min(1, dt * 8))
@@ -984,6 +1094,7 @@ local function stepRig(R, dt, inp)
     if m then m.C0 = base[n] * CFrame.Angles(j[1], j[2], j[3]) end
   end
 
+  -- мимика: плавный переход к целевому выражению + моргание
   local fa = math.min(1, dt * 9)
   for k, vv in pairs(FT) do F[k] = F[k] + (vv - F[k]) * fa end
   if t > R.nextBlink then
@@ -1032,9 +1143,11 @@ local function playerInput(hum, root)
   local vl = root.AssemblyLinearVelocity
   local sp = V3(vl.X, 0, vl.Z).Magnitude
   if EMOTE and sp > 1.5 then EMOTE = nil end
+  local boarding = ship and ship.board and ship.boardW or nil
   return {
-    speed = sp, walkSpeed = hum.WalkSpeed, air = (not RIDING) and hum.FloorMaterial == Enum.Material.Air,
-    hold = HOLDING, ride = RIDING, emote = EMOTE,
+    speed = sp, walkSpeed = hum.WalkSpeed,
+    air = (not RIDING) and (not boarding) and hum.FloorMaterial == Enum.Material.Air,
+    hold = HOLDING, ride = RIDING, emote = EMOTE, boarding = boarding,
   }
 end
 local function clearSkin()
@@ -1104,6 +1217,7 @@ track(LP.CharacterAdded:Connect(function()
   RIDING = false
   EMOTE = nil
   rideKeys.up, rideKeys.down = false, false
+  if ship then ship.board = nil end
   task.wait(1)
   if ST.ActiveSkin ~= "" then safe(applySkin, ST.ActiveSkin) end
 end))
@@ -1115,7 +1229,7 @@ local function aimHit(maxDist)
   local d, o = RM.getAimDirection()
   local rp = RaycastParams.new()
   rp.FilterType = Enum.RaycastFilterType.Exclude
-  rp.FilterDescendantsInstances = { LP.Character }
+  rp.FilterDescendantsInstances = { LP.Character, ship and ship.model }
   local r = Workspace:Raycast(o, d * maxDist, rp)
   if r then return r.Position, r.Normal end
   return o + d * math.min(maxDist, 50), -d
@@ -1123,15 +1237,15 @@ end
 local function groundAt(pos)
   local rp = RaycastParams.new()
   rp.FilterType = Enum.RaycastFilterType.Exclude
-  rp.FilterDescendantsInstances = { LP.Character }
+  rp.FilterDescendantsInstances = { LP.Character, ship and ship.model }
   local r = Workspace:Raycast(pos + V3(0, 6, 0), V3(0, -80, 0), rp)
   return r and r.Position.Y or nil
 end
 
 -- ============================================================
---  ПОРТАЛЫ
+--  ПОРТАЛЫ: большие, мгновенное касание
 -- ============================================================
-local function pl(par, x, y, w, h, rot, col)
+local function pl(par, x, y, w, h, rot, col) -- скруглённая «таблетка» в SurfaceGui
   local f = I("Frame", {
     AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(x, y), Size = UDim2.fromScale(w, h),
     Rotation = rot or 0, BackgroundColor3 = col, BorderSizePixel = 0,
@@ -1157,7 +1271,7 @@ local function newPortal(pos, n, col)
     Face = Enum.NormalId.Front, CanvasSize = Vector2.new(256, 256), LightInfluence = 0, Brightness = 1.3,
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
   }, d)
-  local function lay(spd)
+  local function lay(spd) -- вращающийся слой
     local f = I("Frame", {
       AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromScale(1, 1),
       BackgroundTransparency = 1,
@@ -1165,10 +1279,10 @@ local function newPortal(pos, n, col)
     P.L[#P.L + 1] = { f, spd }
     return f
   end
-  for i, s in ipairs({ .88, .72, .56, .4, .24 }) do
+  for i, s in ipairs({ .88, .72, .56, .4, .24 }) do -- градиент от светлого края к тёмному центру
     pl(g, .5, .5, s, s, 0, md:Lerp(dk, (i - 1) * .22))
   end
-  for k, cfg in ipairs({ { 14, -14 }, { 11, 19 } }) do
+  for k, cfg in ipairs({ { 14, -14 }, { 11, 19 } }) do -- два слоя «рваных» кругов по краю
     local f = lay(cfg[2])
     for i = 1, cfg[1] do
       local a = i / cfg[1] * 6.283 + k
@@ -1176,24 +1290,24 @@ local function newPortal(pos, n, col)
       pl(f, .5 + .385 * math.cos(a), .5 + .385 * math.sin(a), s, s, 0, k == 1 and md or md:Lerp(lt, .4))
     end
   end
-  local f = lay(38)
+  local f = lay(38) -- 5 спиральных рукавов
   for arm = 0, 4 do
     for j = 0, 4 do
       local r, an = .41 - j * .07, arm * 1.2566 + j * .6
       pl(f, .5 + r * math.cos(an), .5 + r * math.sin(an), .2 - j * .025, .045, math.deg(an) + 108, j % 2 == 0 and lt or md:Lerp(lt, .5))
     end
   end
-  f = lay(52)
+  f = lay(52) -- белые мазки
   for i = 0, 15 do
     local r, an = .26 + .14 * ((i * 3) % 5) / 4, i * 2.4
     pl(f, .5 + r * math.cos(an), .5 + r * math.sin(an), .12 + .08 * ((i * 5) % 3) / 2, .035, math.deg(an) + 102, wh)
   end
-  f = lay(95)
+  f = lay(95) -- быстрый внутренний слой
   for i = 0, 5 do
     local r, an = .1 + i * .03, i * 1.1
     pl(f, .5 + r * math.cos(an), .5 + r * math.sin(an), .13, .04, math.deg(an) + 105, lt)
   end
-  local g2 = g:Clone()
+  local g2 = g:Clone() -- обратная сторона (статичная копия)
   g2.Face = Enum.NormalId.Back
   g2.Parent = d
   I("PointLight", { Color = col, Range = 24, Brightness = 2, Shadows = false }, d)
@@ -1220,6 +1334,7 @@ local function updPortal(P, t)
   end
   for _, l in ipairs(P.L) do l[1].Rotation = t * l[2] end
 end
+-- зона касания: почти весь диск портала, глубина ~5 стадов; проверяем корпус и ступни
 local function inPortal(P, pos)
   local off = pos - P.pos
   local dep = off:Dot(P.n)
@@ -1231,7 +1346,7 @@ local function playerInPortal(P, hr)
 end
 local function teleportTo(hr, from, to)
   tpCd = os.clock() + .3
-  to.locked = true
+  to.locked = true -- пока не выйдешь из зоны выходного портала, он не сработает
   local col = pcol()
   burst(hr.Position, col, 30)
   local ex = to.pos + to.n * 4
@@ -1277,7 +1392,7 @@ end
 RM.shootPortal = shootPortal
 
 -- ============================================================
---  ПРЕДМЕТЫ
+--  ПРЕДМЕТЫ: сборка моделей и хват рукой скина
 -- ============================================================
 local function toolPart(tool, handle, name, size, color, offset, material, shape)
   local p = mkp(name, size, color, material, shape)
@@ -1290,9 +1405,10 @@ local function toolPart(tool, handle, name, size, color, offset, material, shape
   w.Parent = p
   return p
 end
-local R90 = CFrame.Angles(0, 0, math.rad(90))
-local RZ = CFrame.Angles(0, math.rad(90), 0)
+local R90 = CFrame.Angles(0, 0, math.rad(90)) -- ось цилиндра: X -> вертикаль
+local RZ = CFrame.Angles(0, math.rad(90), 0)  -- ось цилиндра: X -> вдоль Z
 
+-- портальная пушка по фото
 local function buildGun()
   local tool = I("Tool", { Name = "Портальная пушка", RequiresHandle = true, CanBeDropped = false, ToolTip = "Открыть портал" })
   local h = mkp("Handle", V3(.45, 1.3, .6), RGB(214, 217, 222))
@@ -1328,6 +1444,7 @@ local function buildGun()
   return tool
 end
 
+-- замораживатель времени (дизайн мой: картинки не было)
 local function buildFreezer()
   local tool = I("Tool", { Name = "Замораживатель времени", RequiresHandle = true, CanBeDropped = false, ToolTip = "Остановить время" })
   local h = mkp("Handle", V3(.5, 1.2, .5), RGB(60, 64, 74))
@@ -1348,6 +1465,7 @@ local function buildFreezer()
   return tool
 end
 
+-- ящик Мисиксов по фото: тёмно-бирюзовый куб, зелёные окна, синяя кнопка сверху
 local function buildMeeseeksBox()
   local tool = I("Tool", { Name = "Ящик Мисиксов", RequiresHandle = true, CanBeDropped = false, ToolTip = "Нажми кнопку — помощник" })
   local h = mkp("Handle", V3(1.5, 1.5, 1.5), RGB(30, 66, 64), Enum.Material.Metal)
@@ -1363,7 +1481,7 @@ local function buildMeeseeksBox()
   P("ButtonBase", V3(.1, .66, .66), RGB(8, 24, 24), CFrame.new(0, .86, 0) * R90, nil, Enum.PartType.Cylinder)
   local btn = P("Button", V3(.24, .5, .5), RGB(70, 170, 240), CFrame.new(0, .97, 0) * R90, Enum.Material.Neon, Enum.PartType.Cylinder)
   I("PointLight", { Color = RGB(70, 170, 240), Range = 8, Brightness = 1.5, Shadows = false }, btn)
-  for i = 0, 3 do
+  for i = 0, 3 do -- «восьмиугольные» окна на 4 гранях
     local side = CFrame.Angles(0, math.rad(i * 90), 0) * CFrame.new(0, -.02, -.755)
     P("WinA", V3(.86, .5, .05), GREEN, side, Enum.Material.Neon)
     P("WinB", V3(.5, .86, .05), GREEN, side, Enum.Material.Neon)
@@ -1374,6 +1492,7 @@ local function buildMeeseeksBox()
   return tool
 end
 
+-- батарея микровселенной по фото: фиолетовое желе в чёрной раме, три глаза, экран заряда
 local function buildBattery()
   local tool = I("Tool", { Name = "Батарея микровселенной", RequiresHandle = true, CanBeDropped = false, ToolTip = "Зона энергии" })
   local h = mkp("Handle", V3(1.2, .8, .8), RGB(170, 60, 230), Enum.Material.Neon)
@@ -1396,7 +1515,7 @@ local function buildBattery()
     end
   end
   P("Panel", V3(.6, .7, .06), dk, CFrame.new(-.35, 0, -.53), Enum.Material.Metal)
-  for i = 0, 2 do
+  for i = 0, 2 do -- три глаза
     local ex = -.5 + i * .15
     local ey = (i == 1) and .22 or .15
     P("Eye", V3(.16, .16, .16), RGB(240, 240, 240), CFrame.new(ex, ey, -.58), nil, Enum.PartType.Ball)
@@ -1415,6 +1534,7 @@ local function buildBattery()
   return tool, lbl
 end
 
+-- пульт вызова крейсера
 local function buildRemote()
   local tool = I("Tool", { Name = "Пульт крейсера", RequiresHandle = true, CanBeDropped = false, ToolTip = "Вызвать / сесть / слезть" })
   local h = mkp("Handle", V3(.5, 1, .3), RGB(55, 60, 68), Enum.Material.Metal)
@@ -1433,6 +1553,7 @@ local function buildRemote()
   return tool
 end
 
+-- хват: убираем стандартный RightGrip и привариваем предмет к ладони скина
 function detachHand()
   HOLDING = false
   if gripW then pcall(function() gripW:Destroy() end) gripW = nil end
@@ -1440,7 +1561,7 @@ function detachHand()
 end
 function attachHand(tool, off)
   detachHand()
-  if not RIG or not RIG.hand then return end
+  if not RIG or not RIG.hand then return end -- без скина работает стандартный хват Roblox
   local handle = tool:FindFirstChild("Handle")
   local ch = LP.Character
   if not handle or not ch then return end
@@ -1454,11 +1575,12 @@ function attachHand(tool, off)
   gripW.Name = "RM_Grip"
   gripW.Part0 = RIG.hand
   gripW.Part1 = handle
+  -- рука вытянута вперёд: «вниз» кисти смотрит вперёд, «вперёд» кисти смотрит вверх
   gripW.C0 = CFrame.new(off or V3()) * CFrame.Angles(-math.pi / 2, 0, 0)
   gripW.Parent = RIG.hand
   HOLDING = true
 end
-function refreshGrip()
+function refreshGrip() -- вернуть стандартный хват после снятия скина
   detachHand()
   local ch, hum = getChar()
   if hum and heldTool and heldTool.Parent == ch then
@@ -1469,6 +1591,10 @@ function refreshGrip()
   end
 end
 
+-- ============================================================
+--  ПРЕДМЕТЫ: действия
+-- ============================================================
+-- ❄ замораживатель времени: пузырь, экран в серых тонах, помощники замирают на 4 с
 local ccStop
 local function timeStop()
   local now = os.clock()
@@ -1504,6 +1630,7 @@ local function timeStop()
   notify("⏱ Время остановлено на 4 с", RGB(150, 230, 255), 2)
 end
 
+-- 🟦 ящик Мисиксов: помощник бежит к точке прицела, «выполняет задание» и исчезает
 local helperFolder = I("Folder", { Name = "RM_Helpers" }, Workspace)
 local MEE_CATCH = {
   "Я Мистер Мисикс, посмотри на меня!", "Ооо, да, можно!", "Существование — это боль!",
@@ -1537,7 +1664,7 @@ local function spawnMeeseeks()
   bubble(R.parts.Head, MEE_CATCH[math.random(#MEE_CATCH)], 2.8)
   snd("teleport", .5, 1.6)
 end
-local function stepHelper(h, dt)
+local function stepHelper(h, dt) -- false = удалить помощника
   local R, root = h.R, h.root
   if not root.Parent then return false end
   local _, _, hr = getChar()
@@ -1585,7 +1712,9 @@ local function stepHelper(h, dt)
   return true
 end
 
--- ===== БЛОК A: бой и приказы Мисиксов =====
+-- ============================================================
+--  БОЙ: приказы Мисиксам, мишени, урон (всё визуально, ничего настоящего не меняется)
+-- ============================================================
 do
   local hpOf, deadUntil, dummies = {}, {}, {}
   local FIGHT_CATCH = { "Получай!", "За Рика!", "Ооо, дерёмся!", "Я тебя уничтожу!" }
@@ -1598,7 +1727,7 @@ do
     follow = "🚶 Мисиксы идут за тобой", stay = "🛑 Мисиксы стоят", vanish = "💨 Мисиксы исчезают",
   }
 
-  -- цель жива? (у NPC смотрим Health, у мишени свой счётчик)
+  -- цель жива? (у NPC и игроков смотрим Health, у мишени свой счётчик)
   local function alive(tg)
     if not tg or not tg.model or not tg.model.Parent or not tg.root or not tg.root.Parent then return false end
     local du = deadUntil[tg.model]
@@ -1606,17 +1735,17 @@ do
       if os.clock() < du then return false end
       deadUntil[tg.model], hpOf[tg.model] = nil, nil
     end
-    if tg.kind == "npc" then
+    if tg.kind ~= "dummy" then
       local hum = tg.model:FindFirstChildOfClass("Humanoid")
       if not hum or hum.Health <= 0 then return false end
     end
     return true
   end
 
-  -- поиск целей: мишени + NPC с Humanoid (игроки исключены)
+  -- поиск целей: мишени, NPC и (если разрешено) игроки; себя не трогаем
   local op = OverlapParams.new()
   op.FilterType = Enum.RaycastFilterType.Exclude
-  local function scan(center, radius)
+  local function scan(center, radius, withPlayers)
     local list = {}
     for _, d in ipairs(dummies) do
       if alive(d) and (d.root.Position - center).Magnitude <= radius then list[#list + 1] = d end
@@ -1627,13 +1756,14 @@ do
       local seen = {}
       for _, p in ipairs(parts) do
         local m = p:FindFirstAncestorOfClass("Model")
-        if m and not seen[m] then
+        if m and not seen[m] and m ~= LP.Character then
           seen[m] = true
-          if not Players:GetPlayerFromCharacter(m) then
-            local hum = m:FindFirstChildOfClass("Humanoid")
-            local root = m:FindFirstChild("HumanoidRootPart")
-            if hum and root then
-              local tg = { model = m, root = root, kind = "npc" }
+          local hum = m:FindFirstChildOfClass("Humanoid")
+          local root = m:FindFirstChild("HumanoidRootPart")
+          if hum and root then
+            local isPlayer = Players:GetPlayerFromCharacter(m) ~= nil
+            if withPlayers or not isPlayer then
+              local tg = { model = m, root = root, kind = isPlayer and "player" or "npc" }
               if alive(tg) then list[#list + 1] = tg end
             end
           end
@@ -1651,7 +1781,7 @@ do
     return best
   end
 
-  -- эффекты удара
+  -- эффекты удара: цифра урона, красная подсветка, искры (видишь только ты)
   local function dmgText(adornee, amount)
     local bb = I("BillboardGui", {
       Size = UDim2.fromOffset(60, 24), StudsOffset = V3((math.random() - .5) * 1.5, 2.5, 0),
@@ -1673,8 +1803,8 @@ do
       if d.model.Parent then d.model:PivotTo(d.cf) end
     end)
   end
-  local function hitFx(tg) -- true, если цель добита
-    local dmg = math.random(8, 15)
+  local function hitFx(tg, lo, hi) -- true, если цель добита (на экране)
+    local dmg = math.random(lo or 8, hi or 15)
     hpOf[tg.model] = (hpOf[tg.model] or 100) - dmg
     dmgText(tg.root, dmg)
     burst(tg.root.Position, RGB(255, 200, 80), 8)
@@ -1689,6 +1819,14 @@ do
     snd("click", .4, 1.4)
     return hpOf[tg.model] <= 0
   end
+  local function damage(tg, lo, hi) -- удар + обработка «победы»
+    if not hitFx(tg, lo, hi) then return false end
+    deadUntil[tg.model] = os.clock() + (tg.kind == "dummy" and 5 or 12)
+    burst(tg.root.Position, RGB(255, 200, 80), 24)
+    if tg.kind == "dummy" then koDummy(tg) end
+    return true
+  end
+  CB.scan, CB.nearest, CB.damage = scan, nearest, damage
 
   -- мишень для тренировки (стоит там, куда смотришь)
   local function spawnDummy()
@@ -1725,7 +1863,7 @@ do
     end
   end
 
-  -- ящик теперь вызывает Мисикса-охранника
+  -- ящик вызывает Мисикса-охранника
   spawnMeeseeks = function()
     if #helpers >= 3 then notify("Максимум 3 Мисикса сразу", C.dg, 1.5) return end
     local _, _, hr = getChar()
@@ -1766,14 +1904,14 @@ do
     end
     local pos, P = root.Position, hr.Position
     local order = h.order
-    -- поиск цели
+    -- поиск цели (охрана бьёт только NPC и мишени; игроков — только по приказу «Атакуй»)
     if (order == "guard" or order == "attack") and not alive(h.target) then
       h.target = nil
       if now >= h.nextScan then
         h.nextScan = now + .6
         local center, radius = P, 32
         if order == "attack" then center, radius = h.orderPos or P, 26 end
-        h.target = nearest(scan(center, radius), pos)
+        h.target = nearest(scan(center, radius, order == "attack" and ST.AttackPlayers), pos)
         if h.target then bubble(R.parts.Head, FIGHT_CATCH[math.random(#FIGHT_CATCH)], 1.8) end
       end
     end
@@ -1826,10 +1964,7 @@ do
     local fighting = tg ~= nil and inRange
     if fighting and now >= h.nextHit then
       h.nextHit = now + .45
-      if hitFx(tg) then
-        deadUntil[tg.model] = now + (tg.kind == "dummy" and 5 or 12)
-        burst(tg.root.Position, RGB(255, 200, 80), 24)
-        if tg.kind == "dummy" then koDummy(tg) end
+      if damage(tg, 8, 15) then
         bubble(R.parts.Head, "Победа!", 1.6)
         h.target = nil
         h.fought = true
@@ -1873,7 +2008,7 @@ do
     local now = os.clock()
     local target = nil
     if order == "attack" then
-      target = nearest(scan(pos, 26), pos)
+      target = nearest(scan(pos, 26, ST.AttackPlayers), pos)
       if not target then notify("Рядом с точкой прицела целей нет", C.dg, 2) end
     end
     for _, h in ipairs(helpers) do
@@ -1956,9 +2091,10 @@ local function updateZones(hr, now)
   end
 end
 
-local SHIP_H, SHIP_SPEED, SHIP_VSPEED = 3.7, 70, 45
+-- 🚀 космический крейсер по фото (серая тарелка, купол, жёлтые полосы, двигатель, ножки)
+local SHIP_H = 3.7 -- высота центра корпуса над землёй (скорость берётся из ST.ShipSpeed)
 local SEAT = CFrame.new(0, 1.75, .5)
-local function ell(model, name, size, col, rel, mat)
+local function ell(model, name, size, col, rel, mat) -- эллипсоид через SpecialMesh
   local p = mkp(name, size, col, mat)
   p.Anchored = true
   p.CFrame = rel
@@ -2008,67 +2144,158 @@ local function buildShip()
   for _, s in ipairs({ -1, 1 }) do
     add("Support", V3(.3, 1.6, .3), DARK, CFrame.new(s * 2.5, 2.2, 5.2))
   end
-  for i = 0, 3 do
+  for i = 0, 3 do -- четыре ножки с опорами
     local a = math.rad(45 + i * 90)
     local x, z = math.sin(a) * 3.8, math.cos(a) * 3.8
     add("Leg", V3(.35, 2.6, .35), DARK, CFrame.new(x, -1.9, z) * CFrame.Angles(math.sin(a) * .0, 0, 0))
     add("Foot", V3(.9, .4, 1.1), RGB(30, 32, 38), CFrame.new(x * 1.12, -3.25, z * 1.12) * CFrame.Angles(0, a, 0))
   end
   I("PointLight", { Color = RGB(180, 220, 255), Range = 18, Brightness = 1.5, Shadows = false }, hull)
-  return model
+  -- твёрдые части (на них можно стоять) и кликабельность всего корабля
+  local solids = {}
+  for _, p in ipairs(model:GetChildren()) do
+    p.CanQuery = true
+    local nm = p.Name
+    if nm == "Hull" or nm == "Rim" or nm == "Deck" or nm == "Wing" or nm == "Engine" or nm == "Foot" then
+      solids[#solids + 1] = p
+    end
+  end
+  return model, dome, solids
 end
 local function summonShip()
   local _, _, hr = getChar()
   if not hr then return end
-  if RIDING then dismount() end
+  dismount(true)
   if ship then pcall(function() ship.model:Destroy() end) ship = nil end
   local lv = V3(hr.CFrame.LookVector.X, 0, hr.CFrame.LookVector.Z)
   lv = lv.Magnitude > .01 and lv.Unit or V3(0, 0, -1)
   local ahead = hr.Position + lv * 18
   local gy = groundAt(ahead) or (hr.Position.Y - 3)
   local land = V3(ahead.X, gy + SHIP_H, ahead.Z)
-  local model = buildShip()
+  local model, dome, solids = buildShip()
   ship = {
-    model = model, land = land, pos = land + V3(0, 60, 0), yaw = math.atan2(-lv.X, -lv.Z),
-    vel = V3(), state = "landing", t = 0, cf = CFrame.new(land),
+    model = model, dome = dome, solids = solids, land = land, pos = land + V3(0, 60, 0),
+    yaw = math.atan2(-lv.X, -lv.Z), vel = V3(), state = "landing", t = 0, cf = CFrame.new(land),
   }
   model:PivotTo(CFrame.new(ship.pos) * CFrame.Angles(0, ship.yaw, 0))
   dimFx(RGB(255, 170, 70), .6)
   notify("🚀 Крейсер прибывает...", C.ac, 2)
 end
+-- твёрдость: пока корабль стоит, на него можно залезть и стоять на палубе
+function SH.solid(on)
+  if not ship or not ship.solids then return end
+  for _, p in ipairs(ship.solids) do
+    if p.Parent then p.CanCollide = on end
+  end
+end
+-- купол открывается на шарнире сзади (open: 0..1)
+function SH.dome(open)
+  if not ship or not ship.dome or not ship.dome.Parent then return end
+  ship.dome.CFrame = ship.cf * CFrame.new(0, 2.4, -.6) * CFrame.new(0, 0, 3.2)
+    * CFrame.Angles(open * .9, 0, 0) * CFrame.new(0, 0, -3.2)
+end
+-- пушки крейсера: красные болты в точку прицела, урон по цели рядом (визуально)
+function SH.fire()
+  if not RIDING or not ship or ship.board then return end
+  local now = os.clock()
+  if now < SH.fireCd then return end
+  SH.fireCd = now + .22
+  local pos = aimHit(800)
+  SH.side = -SH.side
+  local muzzle = (ship.cf * CFrame.new(SH.side * 3.2, .2, -4.4)).Position
+  local delta = pos - muzzle
+  local dist = delta.Magnitude
+  if dist < 2 then return end
+  local dir = delta.Unit
+  local len = math.min(dist, 7)
+  local bolt = mkp("Bolt", V3(.4, .4, len), RGB(255, 70, 70), Enum.Material.Neon)
+  bolt.Anchored = true
+  bolt.CFrame = CFrame.lookAt(muzzle, muzzle + dir) * CFrame.new(0, 0, -len / 2)
+  bolt.Parent = Workspace
+  local fly = math.clamp(dist / 500, .05, .5)
+  TweenService:Create(bolt, TweenInfo.new(fly, Enum.EasingStyle.Linear), {
+    CFrame = CFrame.lookAt(pos, pos + dir) * CFrame.new(0, 0, len / 2),
+  }):Play()
+  snd("shoot", .5, 1.3)
+  task.delay(fly, function()
+    bolt:Destroy()
+    burst(pos, RGB(255, 120, 60), 16)
+    local tg = CB.nearest(CB.scan(pos, 7, ST.AttackPlayers), pos)
+    if tg then CB.damage(tg, 20, 35) end
+  end)
+end
+-- гипер-прыжок: рывок вперёд с эффектом перехода между измерениями
+function SH.hyper()
+  if not RIDING or not ship or ship.board then return end
+  local now = os.clock()
+  if now < SH.hyperCd then notify("🌌 Гипер-прыжок через " .. math.ceil(SH.hyperCd - now) .. " с", C.dg, 1) return end
+  SH.hyperCd = now + 6
+  local fwd = CFrame.Angles(0, ship.yaw, 0).LookVector
+  local dist = math.clamp(ST.ShipSpeed * .8, 120, 600)
+  local col = RGB(160, 120, 255)
+  dimFx(col, 1.2)
+  for i = 1, 6 do burst(ship.pos + fwd * (dist * i / 6), col, 10) end
+  ship.pos = ship.pos + fwd * dist
+  ship.vel = fwd * math.max(ship.vel.Magnitude, ST.ShipSpeed * .5)
+  notify("🌌 Гипер-прыжок!", col, 1.5)
+end
+
+-- посадка: тап по кораблю или кнопка; персонаж прыгает в кабину, купол открывается
 function board()
   local _, hum, hr = getChar()
-  if not ship or RIDING or not hum or not hr then return end
+  if not ship or RIDING or ship.board or not hum or not hr then return end
   if ship.state ~= "idle" then notify("Крейсер ещё садится", C.dg, 1.5) return end
-  if (hr.Position - ship.pos).Magnitude > 22 then notify("Крейсер далеко: вызови его", C.dg, 2) return end
-  RIDING = true
+  local dist = (hr.Position - ship.pos).Magnitude
+  if dist > 90 then notify("Крейсер далеко: вызови его", C.dg, 2) return end
   EMOTE = nil
   hum.PlatformStand = true
+  SH.solid(false)
   ship.vel = V3()
-  notify("🚀 Полёт: джойстик/WASD, ▲▼ или Space/Shift", C.ac, 3)
+  ship.board = { kind = "in", t = 0, dur = .95, from = hr.CFrame, arc = 3 + dist * .04 }
+  snd("teleport", .5, 1.5)
+  notify("🚀 Полёт: джойстик/WASD, ▲▼, 🔥 — огонь, 🌌 — прыжок", C.ac, 3)
 end
-function dismount()
-  if not RIDING then return end
+-- высадка с прыжком; instant = мгновенно (смерть, пересоздание корабля)
+function dismount(instant)
+  local _, hum, hr = getChar()
+  if not ship then
+    RIDING = false
+    if hum then hum.PlatformStand = false end
+    return
+  end
+  if instant then
+    RIDING = false
+    ship.board = nil
+    rideKeys.up, rideKeys.down = false, false
+    if hum then hum.PlatformStand = false end
+    if hr then
+      hr.CFrame = CFrame.new(ship.pos) * CFrame.Angles(0, ship.yaw, 0) * CFrame.new(7, 2.2, 0)
+      hr.AssemblyLinearVelocity = V3()
+    end
+    SH.solid(true)
+    return
+  end
+  if not RIDING or ship.board or not hr then return end
   RIDING = false
   rideKeys.up, rideKeys.down = false, false
-  local _, hum, hr = getChar()
-  if hum then hum.PlatformStand = false end
-  if hr and ship then
-    hr.CFrame = ship.cf * CFrame.new(7, 2, 0)
-    hr.AssemblyLinearVelocity = V3()
-  end
+  ship.vel = V3()
+  ship.board = {
+    kind = "out", t = 0, dur = .85, from = hr.CFrame, arc = 3.5,
+    to = CFrame.new(ship.pos) * CFrame.Angles(0, ship.yaw, 0) * CFrame.new(7, 2.2, 0),
+  }
 end
 local function shipAction()
   local _, _, hr = getChar()
   if not hr then return end
   if RIDING then dismount() return end
   if not ship then summonShip() return end
-  if ship.state == "idle" and (hr.Position - ship.pos).Magnitude < 20 then board() else summonShip() end
+  if ship.state == "idle" and (hr.Position - ship.pos).Magnitude < 90 then board() else summonShip() end
 end
 local function stepShip(dt)
   if not ship or not ship.model.Parent then return end
   local _, hum, hr = getChar()
-  if RIDING and (not hum or hum.Health <= 0 or not hr) then dismount() end
+  if (RIDING or ship.board) and (not hum or hum.Health <= 0 or not hr) then dismount(true) end
+  if SH.held and RIDING and not ship.board then SH.fire() end
   local now = os.clock()
   local pitch, roll = 0, 0
   if ship.state == "landing" then
@@ -2076,11 +2303,15 @@ local function stepShip(dt)
     local a = math.min(1, ship.t / 1.5)
     a = 1 - (1 - a) ^ 3
     ship.pos = V3(ship.land.X, ship.land.Y + (1 - a) * 60, ship.land.Z)
-    if ship.t >= 1.5 then ship.state = "idle" end
-  elseif RIDING then
+    if ship.t >= 1.5 then
+      ship.state = "idle"
+      SH.solid(true)
+    end
+  elseif RIDING and not ship.board and hum then
+    local speed = ST.ShipSpeed
     local md = hum.MoveDirection
     local vy = (rideKeys.up and 1 or 0) - (rideKeys.down and 1 or 0)
-    local want = V3(md.X * SHIP_SPEED, vy * SHIP_VSPEED, md.Z * SHIP_SPEED)
+    local want = V3(md.X * speed, vy * math.max(40, speed * .6), md.Z * speed)
     ship.vel = ship.vel:Lerp(want, math.min(1, dt * 2.5))
     ship.pos = ship.pos + ship.vel * dt
     local gy = groundAt(ship.pos)
@@ -2094,37 +2325,64 @@ local function stepShip(dt)
       ship.yaw = ship.yaw + diff * math.min(1, dt * 4)
     end
     local lv = CFrame.Angles(0, ship.yaw, 0):VectorToObjectSpace(ship.vel)
-    pitch = lv.Z / SHIP_SPEED * .25
-    roll = -lv.X / SHIP_SPEED * .3
+    pitch = lv.Z / speed * .25
+    roll = -lv.X / speed * .3
   end
   local bobY = (ship.state == "idle" or RIDING) and math.sin(now * 2) * .12 or 0
   ship.cf = CFrame.new(ship.pos + V3(0, bobY, 0)) * CFrame.Angles(0, ship.yaw, 0) * CFrame.Angles(pitch, 0, roll)
   ship.model:PivotTo(ship.cf)
-  if RIDING and hr then
+  local open = 0
+  local b = ship.board
+  if b and hr then
+    -- анимация посадки/высадки: дуга прыжка, купол открывается и закрывается
+    b.t = b.t + dt
+    local u = math.min(1, b.t / b.dur)
+    local e = u * u * (3 - 2 * u)
+    local target = (b.kind == "in") and (ship.cf * SEAT) or b.to
+    hr.CFrame = b.from:Lerp(target, e) + V3(0, math.sin(math.pi * e) * b.arc, 0)
+    hr.AssemblyLinearVelocity = V3()
+    open = (u < .2) and (u / .2) or ((u < .75) and 1 or (1 - u) / .25)
+    ship.boardW = math.sin(math.pi * u)
+    if u >= 1 then
+      ship.board, ship.boardW = nil, nil
+      if b.kind == "in" then
+        RIDING = true
+      else
+        if hum then hum.PlatformStand = false end
+        SH.solid(true)
+      end
+    end
+  elseif RIDING and hr then
     hr.CFrame = ship.cf * SEAT
     hr.AssemblyLinearVelocity = V3()
     hr.AssemblyAngularVelocity = V3()
   end
+  SH.dome(open)
 end
 track(RunService.RenderStepped:Connect(function(dt) stepShip(dt) end))
 
+-- панель управления полётом: ▲ ▼ 🌌 и кнопка слезть
 local ridePanel = I("Frame", {
-  Size = UDim2.fromOffset(70, 140), Position = UDim2.new(1, -90, 1, -290), BackgroundTransparency = 1,
+  Size = UDim2.fromOffset(70, 212), Position = UDim2.new(1, -90, 1, -350), BackgroundTransparency = 1,
   Visible = false, ZIndex = 58,
 }, gui)
-local function rideBtn(txt, y, key)
+local function rideBtn(txt, y, key, fn)
   local b = I("TextButton", {
     Size = UDim2.fromOffset(64, 64), Position = UDim2.fromOffset(0, y), BackgroundColor3 = C.bg, BackgroundTransparency = .15,
     TextColor3 = C.tx, Font = Enum.Font.GothamBold, TextSize = 26, Text = txt, ZIndex = 59,
   }, ridePanel)
   cr(b, 16)
   sk(b, C.ac, 1.5, .3)
-  b.MouseButton1Down:Connect(function() rideKeys[key] = true end)
-  b.MouseButton1Up:Connect(function() rideKeys[key] = false end)
-  b.MouseLeave:Connect(function() rideKeys[key] = false end)
+  if key then
+    b.MouseButton1Down:Connect(function() rideKeys[key] = true end)
+    b.MouseButton1Up:Connect(function() rideKeys[key] = false end)
+    b.MouseLeave:Connect(function() rideKeys[key] = false end)
+  end
+  if fn then b.MouseButton1Click:Connect(fn) end
 end
 rideBtn("▲", 0, "up")
 rideBtn("▼", 72, "down")
+rideBtn("🌌", 144, nil, function() SH.hyper() end)
 local dismountBtn = I("TextButton", {
   Size = UDim2.fromOffset(120, 40), Position = UDim2.new(.5, -60, 0, 12), BackgroundColor3 = C.bg, BackgroundTransparency = .15,
   TextColor3 = C.tx, Font = Enum.Font.GothamBold, TextSize = 13, Text = "🚪 Слезть", Visible = false, ZIndex = 59,
@@ -2132,16 +2390,34 @@ local dismountBtn = I("TextButton", {
 cr(dismountBtn, 10)
 sk(dismountBtn, C.ac, 1.5, .3)
 dismountBtn.MouseButton1Click:Connect(function() dismount() end)
+-- клавиши: Space/Shift — вверх/вниз, H — гипер-прыжок, зажатая ЛКМ — огонь
 track(UIS.InputBegan:Connect(function(i, gpe)
   if gpe then return end
   if i.KeyCode == Enum.KeyCode.Space then rideKeys.up = true end
   if i.KeyCode == Enum.KeyCode.LeftShift then rideKeys.down = true end
+  if i.KeyCode == Enum.KeyCode.H then SH.hyper() end
+  if i.UserInputType == Enum.UserInputType.MouseButton1 and RIDING then SH.held = true end
 end))
 track(UIS.InputEnded:Connect(function(i)
   if i.KeyCode == Enum.KeyCode.Space then rideKeys.up = false end
   if i.KeyCode == Enum.KeyCode.LeftShift then rideKeys.down = false end
+  if i.UserInputType == Enum.UserInputType.MouseButton1 then SH.held = false end
+end))
+-- тап/клик по кораблю: сразу садимся
+track(UIS.InputBegan:Connect(function(i, gpe)
+  if gpe or not ship or RIDING or ship.board or ship.state ~= "idle" then return end
+  if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
+  local r = Workspace.CurrentCamera:ViewportPointToRay(i.Position.X, i.Position.Y)
+  local rp = RaycastParams.new()
+  rp.FilterType = Enum.RaycastFilterType.Exclude
+  rp.FilterDescendantsInstances = { LP.Character }
+  local res = Workspace:Raycast(r.Origin, r.Direction * 300, rp)
+  if res and res.Instance:IsDescendantOf(ship.model) then board() end
 end))
 
+-- ============================================================
+--  ПРЕДМЕТЫ: список и выдача
+-- ============================================================
 local ITEMS = {
   { id = "gun", ico = "🔫", name = "Портальная пушка", desc = "Два больших портала", build = buildGun, act = shootPortal, grip = V3(0, -.05, 0) },
   { id = "freeze", ico = "❄", name = "Замораживатель времени", desc = "Пузырь и стоп-кадр на 4 с", build = buildFreezer, act = timeStop, grip = V3(0, -.1, 0) },
@@ -2171,10 +2447,13 @@ local function giveItem(def)
   hum:EquipTool(tool)
   notify(def.ico .. " " .. def.name, C.ac)
 end
+-- кнопка 🔥 на телефоне стреляет предметом в руке
 RM.fireFromAim = function()
+  if RIDING then SH.fire() return end
   if ITEM_ACT then ITEM_ACT() else shootPortal() end
 end
 local function clearAll()
+  if RM.clearDummies then RM.clearDummies() end
   detachHand()
   if heldTool then pcall(function() heldTool:Destroy() end) end
   heldTool, heldDef, ITEM_ACT, batLabel = nil, nil, nil, nil
@@ -2186,7 +2465,7 @@ local function clearAll()
     pcall(function() zones[i].mo:Destroy() end)
     table.remove(zones, i)
   end
-  if RIDING then dismount() end
+  dismount(true)
   if ship then pcall(function() ship.model:Destroy() end) ship = nil end
   ridePanel.Visible = false
   dismountBtn.Visible = false
@@ -2195,6 +2474,9 @@ local function clearAll()
   PA, PB = nil, nil
 end
 
+-- ============================================================
+--  ВКЛАДКИ: наполнение
+-- ============================================================
 do -- 🎭 СКИНЫ
   local f = tabFrames.skins
   newSec(f, "ЗАМЕНА ТЕЛА (Motor6D, 8 скинов)")
@@ -2263,7 +2545,6 @@ do -- 🧰 ПРЕДМЕТЫ
       TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 43,
     }, b)
   end
-  
   newSec(f, "ПРИКАЗЫ МИСИКСАМ (идут туда, куда смотришь)")
   local og = newGrid(f, 2)
   newBtn(og, "🛡 Защищай меня", C.ac, function() RM.helperOrder("guard") end, 36)
@@ -2272,10 +2553,16 @@ do -- 🧰 ПРЕДМЕТЫ
   newBtn(og, "🚶 За мной", C.bg2, function() RM.helperOrder("follow") end, 36)
   newBtn(og, "🛑 Стой", C.bg2, function() RM.helperOrder("stay") end, 36)
   newBtn(og, "💨 Исчезни", C.dg, function() RM.helperOrder("vanish") end, 36)
+  local pvp
+  pvp = newBtn(f, "👥 Бить игроков (только визуально): " .. (ST.AttackPlayers and "ВКЛ" or "ВЫКЛ"), C.bg2, function()
+    ST.AttackPlayers = not ST.AttackPlayers
+    pvp.Text = "👥 Бить игроков (только визуально): " .. (ST.AttackPlayers and "ВКЛ" or "ВЫКЛ")
+    save()
+  end, 36)
   newBtn(f, "🎯 Поставить мишень (куда смотришь)", C.bg2, function() RM.spawnDummy() end, 34)
   newBtn(f, "🗑 Убрать мишени", C.bg2, function() RM.clearDummies() end, 34)
-
   newSec(f, "КРЕЙСЕР")
+  newSlider(f, "🚀 Скорость корабля", 50, 1000, ST.ShipSpeed, function(v) ST.ShipSpeed = v end, save)
   newBtn(f, "🚀 Вызвать крейсер", C.ac, summonShip, 36)
   newBtn(f, "🪑 Сесть", C.bg2, board, 34)
   newBtn(f, "🚪 Слезть", C.bg2, dismount, 34)
@@ -2283,7 +2570,7 @@ do -- 🧰 ПРЕДМЕТЫ
     clearAll()
     notify("🗑 Всё убрано", C.tx)
   end, 36)
-  newInfo(f, "\n  Нажми на предмет, затем ЛКМ или 🔥 на экране.\n  Ящик Мисиксов: помощник бежит к точке прицела.\n  Батарея: зона энергии, расход 25% заряда.\n  Крейсер: пульт вызывает, второй клик садит.\n  Всё видишь только ты.", 100)
+  newInfo(f, "\n  Нажми на предмет, затем ЛКМ или 🔥 на экране.\n  Ящик Мисиксов: помощник бежит к точке прицела.\n  Батарея: зона энергии, расход 25% заряда.\n  Крейсер: тап по нему сажает. 🔥 огонь, 🌌 прыжок.\n  Всё видишь только ты.", 100)
 end
 
 do -- 🌀 ПОРТАЛ
@@ -2355,6 +2642,7 @@ do -- ⚙️ НАСТРОЙКИ
     ST.SoundEnabled, ST.NotificationsEnabled, ST.DimFx = true, true, true
     ST.PortalColor = { R = 50, G = 255, B = 50 }
     ST.AimSize, ST.Emotion = 64, "normal"
+    ST.ShipSpeed, ST.AttackPlayers = 150, true
     removeSkin()
     clearAll()
     sb.Text = "🔊 Звуки: ВКЛ"
@@ -2373,11 +2661,15 @@ do -- ⚙️ НАСТРОЙКИ
 end
 switchTab("skins")
 
+-- ============================================================
+--  ГЛАВНЫЙ ЦИКЛ: телепорт, порталы, помощники, батарея
+-- ============================================================
 do
   local acc, acc2 = 0, 0
   track(RunService.Heartbeat:Connect(function(dt)
     local now = os.clock()
     local _, _, hr = getChar()
+    -- мгновенный телепорт при касании портала
     if hr and PA and PB and now >= tpCd and not RIDING then
       local inA, inB = playerInPortal(PA, hr), playerInPortal(PB, hr)
       if not inA then PA.locked = false end
@@ -2390,6 +2682,7 @@ do
         end
       end
     end
+    -- визуал порталов ~30 Гц и срок жизни
     acc = acc + dt
     if acc >= .033 then
       acc = 0
@@ -2398,6 +2691,7 @@ do
     end
     if PA and now - PA.t0 > PORTAL_LIFE then killPortal(PA) PA = nil end
     if PB and now - PB.t0 > PORTAL_LIFE then killPortal(PB) PB = nil end
+    -- помощники Мисиксы
     for i = #helpers, 1, -1 do
       local h = helpers[i]
       local ok, alive = pcall(stepHelper, h, dt)
@@ -2406,6 +2700,7 @@ do
         table.remove(helpers, i)
       end
     end
+    -- батарея: заряд растёт, зоны проверяются 4 раза в секунду
     BAT = math.min(100, BAT + dt * 4)
     acc2 = acc2 + dt
     if acc2 >= .25 then
@@ -2418,6 +2713,9 @@ do
   end))
 end
 
+-- ============================================================
+--  ВЫГРУЗКА
+-- ============================================================
 function RM.unload()
   for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
   conns = {}
