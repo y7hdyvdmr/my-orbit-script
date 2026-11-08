@@ -1,5 +1,5 @@
 -- ============================================================
---  Rick & Morty Toolkit v4.1 (standalone, один файл)
+--  Rick & Morty Toolkit v4.3 (standalone, один файл)
 --  Скины на Motor6D, мимика, движения, портальная пушка,
 --  большие порталы с мгновенным касанием, замораживатель времени,
 --  ящик Мисиксов, батарея микровселенной, космический крейсер,
@@ -8,7 +8,7 @@
 -- ============================================================
 local G = rawget(_G, "getgenv") and getgenv() or _G
 if G.RickMorty and G.RickMorty.unload then pcall(G.RickMorty.unload) end
-local RM = { _version = "4.1" }
+local RM = { _version = "4.3" }
 G.RickMorty = RM
 
 local Players = game:GetService("Players")
@@ -520,7 +520,18 @@ end
 -- ============================================================
 --  ЭФФЕКТЫ: искры, ПЕРЕХОД МЕЖДУ ИЗМЕРЕНИЯМИ, пузыри речи
 -- ============================================================
+-- Пушка по скинам (v4.2): дальность и цвет порталов, пока скин активен
+local GUN_CFG = {
+  rick = { range = 1000, col = RGB(50, 255, 50) },
+  rick_prime = { range = 10000, col = RGB(50, 255, 50) },
+  evil_morty = { range = 700, col = RGB(255, 220, 50) },
+}
+local function gunCfg()
+  return GUN_CFG[ST.ActiveSkin]
+end
 local function pcol()
+  local g = gunCfg()
+  if g and g.col then return g.col end
   local c = ST.PortalColor
   return RGB(c.R, c.G, c.B)
 end
@@ -1359,7 +1370,9 @@ local function teleportTo(hr, from, to)
   dimFx(col, .8)
 end
 local function shootPortal()
-  local pos, n = aimHit(500)
+  local g = gunCfg()
+  local range = g and g.range or 500
+  local pos, n = aimHit(range, g and g.range or 50)
   local col = pcol()
   if not PA then
     PA = newPortal(pos, n, col)
@@ -2564,6 +2577,53 @@ do -- 🎭 СКИНЫ
       TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 43,
     }, b)
   end
+  -- v4.3: копия аватара игрока по нику (встроенные API Players, без HttpGet)
+  newSec(f, "КОПИЯ АВАТАРА (полная, по нику)")
+  local nickBox = I("TextBox", {
+    Size = UDim2.new(1, -8, 0, 36), BackgroundColor3 = C.bg2, BackgroundTransparency = .1,
+    TextColor3 = C.tx, PlaceholderColor3 = C.dim, PlaceholderText = "Ник игрока, например bapcuk",
+    Text = "", Font = Enum.Font.Gotham, TextSize = 12, ClearTextOnFocus = false, ZIndex = 42,
+  }, f)
+  cr(nickBox, 8)
+  local function applyDesc(desc)
+    local ch, hum = getChar()
+    if not hum then notify("Нет персонажа", C.dg) return false end
+    local ok, err = pcall(function() hum:ApplyDescription(desc) end)
+    if not ok then
+      warn("[RickMorty] ApplyDescription: " .. tostring(err))
+      notify("Не удалось применить аватар", C.dg)
+      return false
+    end
+    return true
+  end
+  newBtn(f, "📋 Скопировать аватар", C.bg2, function()
+    local name = (nickBox.Text or ""):match("^%s*@?(.-)%s*$") or ""
+    if name == "" then notify("Введи ник", C.dg) return end
+    task.spawn(function()
+      notify("⏳ Ищу " .. name .. "...", C.ac)
+      local ok, uid = pcall(function() return Players:GetUserIdFromNameAsync(name) end)
+      if not ok or not uid then notify("Ник не найден", C.dg) return end
+      local ok2, desc = pcall(function() return Players:GetHumanoidDescriptionFromUserId(uid) end)
+      if not ok2 or not desc then notify("Не удалось получить аватар", C.dg) return end
+      clearSkin()
+      ST.ActiveSkin = ""
+      save()
+      if applyDesc(desc) then
+        safe(refreshGrip)
+        notify("👤 Скопирован аватар: " .. name, C.ac)
+      end
+    end)
+  end, 40)
+  newBtn(f, "↩ Вернуть мой аватар", C.bg2, function()
+    task.spawn(function()
+      local ok, desc = pcall(function() return Players:GetHumanoidDescriptionFromUserId(LP.UserId) end)
+      if not ok or not desc then notify("Не удалось вернуть аватар", C.dg) return end
+      if applyDesc(desc) then
+        safe(refreshGrip)
+        notify("↩ Твой аватар возвращён", C.ac)
+      end
+    end)
+  end, 40)
   newSec(f, "ВЫРАЖЕНИЕ ЛИЦА")
   local gr = newGrid(f, 3)
   for _, e in ipairs(EM) do
