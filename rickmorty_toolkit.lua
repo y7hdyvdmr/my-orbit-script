@@ -1,5 +1,5 @@
 -- ============================================================
---  Rick & Morty Toolkit v4.3 (standalone, один файл)
+--  Rick & Morty Toolkit v4.4 (standalone, один файл)
 --  Скины на Motor6D, мимика, движения, портальная пушка,
 --  большие порталы с мгновенным касанием, замораживатель времени,
 --  ящик Мисиксов, батарея микровселенной, космический крейсер,
@@ -8,7 +8,7 @@
 -- ============================================================
 local G = rawget(_G, "getgenv") and getgenv() or _G
 if G.RickMorty and G.RickMorty.unload then pcall(G.RickMorty.unload) end
-local RM = { _version = "4.3" }
+local RM = { _version = "4.4" }
 G.RickMorty = RM
 
 local Players = game:GetService("Players")
@@ -1422,7 +1422,43 @@ local R90 = CFrame.Angles(0, 0, math.rad(90)) -- ось цилиндра: X -> �
 local RZ = CFrame.Angles(0, math.rad(90), 0)  -- ось цилиндра: X -> вдоль Z
 
 -- портальная пушка по фото
+-- пушка Рика Прайма (v4.4): по фото, своя форма (купол, панель точек, рукоять)
+local function buildGunPrime()
+  local tool = I("Tool", { Name = "Портальная пушка", RequiresHandle = true, CanBeDropped = false, ToolTip = "Открыть портал" })
+  local h = mkp("Handle", V3(.45, 1.3, .6), RGB(214, 217, 222))
+  h.Parent = tool
+  local function P(...) return toolPart(tool, h, ...) end
+  local GR = RGB(60, 255, 90)
+  local WH = RGB(225, 228, 232)
+  P("Body", V3(.95, .9, 2), WH, CFrame.new(0, .45, -.9))
+  P("Trim", V3(1, .08, 2.05), RGB(185, 190, 196), CFrame.new(0, .92, -.9))
+  P("Flange", V3(.12, .85, .85), RGB(200, 204, 210), CFrame.new(0, 1, -1) * R90, nil, Enum.PartType.Cylinder)
+  local dome = P("Dome", V3(1, .7, .7), GR, CFrame.new(0, 1.5, -1) * R90, Enum.Material.Glass, Enum.PartType.Cylinder)
+  dome.Transparency = .3
+  P("DomeTop", V3(.7, .7, .7), GR, CFrame.new(0, 2, -1), Enum.Material.Glass, Enum.PartType.Ball).Transparency = .3
+  local core = P("Core", V3(.9, .45, .45), RGB(110, 255, 110), CFrame.new(0, 1.5, -1) * R90, Enum.Material.Neon, Enum.PartType.Cylinder)
+  core.Transparency = .3
+  I("PointLight", { Color = GR, Range = 9, Brightness = 2, Shadows = false }, core)
+  -- панель точек на передней грани
+  P("Panel", V3(.02, .8, .8), RGB(25, 25, 28), CFrame.new(-.485, .45, -.9))
+  for r = -1, 1 do
+    for c = -1, 1 do
+      P("Dot", V3(.18, .18, .18), RGB(60, 255, 60), CFrame.new(-.5, .45 + r * .26, -.9 + c * .26), Enum.Material.Neon, Enum.PartType.Ball)
+    end
+  end
+  -- рукоять, наклон назад и вниз
+  P("Grip", V3(.7, 1.4, .75), RGB(170, 175, 180), CFrame.new(0, -.5, .55) * CFrame.Angles(math.rad(-15), 0, 0))
+  P("GripDark", V3(.72, .7, .78), RGB(70, 74, 80), CFrame.new(0, -.9, .6) * CFrame.Angles(math.rad(-15), 0, 0))
+  P("Trigger", V3(.14, .35, .18), RGB(30, 30, 34), CFrame.new(0, .05, -.25) * CFrame.Angles(math.rad(15), 0, 0))
+  -- красный предохранитель сзади сверху
+  P("Switch", V3(.25, .14, .3), RGB(230, 40, 40), CFrame.new(0, 1.0, .85))
+  -- тёмная квадратная пластина на боку
+  P("Plate", V3(.03, .35, .35), RGB(70, 72, 78), CFrame.new(.49, .45, -.5))
+  return tool
+end
+
 local function buildGun()
+  if ST.ActiveSkin == "rick_prime" then return buildGunPrime() end
   local tool = I("Tool", { Name = "Портальная пушка", RequiresHandle = true, CanBeDropped = false, ToolTip = "Открыть портал" })
   local h = mkp("Handle", V3(.45, 1.3, .6), RGB(214, 217, 222))
   h.Parent = tool
