@@ -1,5 +1,5 @@
 -- ============================================================
---  Rick & Morty Toolkit v4.5 (standalone, один файл)
+--  Rick & Morty Toolkit v4.6 (standalone, один файл)
 --  Скины на Motor6D, мимика, движения, портальная пушка,
 --  большие порталы с мгновенным касанием, замораживатель времени,
 --  ящик Мисиксов, батарея микровселенной, космический крейсер,
@@ -8,7 +8,7 @@
 -- ============================================================
 local G = rawget(_G, "getgenv") and getgenv() or _G
 if G.RickMorty and G.RickMorty.unload then pcall(G.RickMorty.unload) end
-local RM = { _version = "4.5" }
+local RM = { _version = "4.6" }
 G.RickMorty = RM
 
 local Players = game:GetService("Players")
@@ -38,7 +38,7 @@ local PORTAL_LIFE = 60
 local CB = {} -- боевой модуль (заполняется ниже)
 local SH = { fireCd = 0, hyperCd = 0, side = 1, held = false } -- функции и состояние крейсера
 local PORTAL_R = 6 -- радиус портала в стадах (диаметр 12)
-local detachHand, attachHand, refreshGrip, board, dismount -- объявлены заранее
+local detachHand, attachHand, refreshGrip, board, dismount, giveItem -- объявлены заранее
 
 local function copy(t)
   local n = {}
@@ -1324,6 +1324,11 @@ local function playerInput(hum, root)
     hold = HOLDING, ride = RIDING, emote = EMOTE, boarding = boarding,
   }
 end
+-- v4.6: если пушка в руке, пересобрать её под выбранный скин
+local function regun()
+  if heldDef and heldDef.id == "gun" then task.defer(giveItem, heldDef) end
+end
+
 -- v4.5: лёгкая аура-частицы у каждого скина
 local AURA = {
   rick = { col = RGB(140, 255, 140), rate = 3, spd = 2 },
@@ -1386,12 +1391,14 @@ local function applySkin(id)
   dimFx(nil, .8)
   local tl = ch:FindFirstChildOfClass("Tool")
   if tl and tl == heldTool and heldDef then attachHand(tl, heldDef.grip) end
+  regun()
 end
 local function removeSkin()
   clearSkin()
   ST.ActiveSkin = ""
   save()
   refreshGrip()
+  regun()
   notify("🎭 Скин снят", C.tx)
 end
 local function setEmo(id)
@@ -1628,86 +1635,135 @@ local R90 = CFrame.Angles(0, 0, math.rad(90)) -- ось цилиндра: X -> �
 local RZ = CFrame.Angles(0, math.rad(90), 0)  -- ось цилиндра: X -> вдоль Z
 
 -- портальная пушка по фото
--- пушки по фото (v4.5): Рик Прайм (квадратная пластина) и Злой Морти (диск с ручкой, жёлтый свет)
-local function buildGunPhoto(kind)
-  local evil = kind == "evil"
+-- пушки по фото (v4.6): Рик (мультяшная), Рик Прайм (диск с ручкой, панель точек), Злой Морти (золотая)
+local function gunBase()
   local tool = I("Tool", { Name = "Портальная пушка", RequiresHandle = true, CanBeDropped = false, ToolTip = "Открыть портал" })
   local h = mkp("Handle", V3(.45, 1.3, .6), RGB(214, 217, 222))
+  h.Transparency = 1
   h.Parent = tool
-  local function P(...) return toolPart(tool, h, ...) end
-  local GR = evil and RGB(255, 220, 50) or RGB(60, 255, 90)
-  local NE = evil and RGB(255, 235, 90) or RGB(110, 255, 110)
-  local WH = RGB(225, 228, 232)
-  -- корпус (ствол вперёд = -Z), панель точек на передней грани
-  P("Body", V3(.95, .9, 2), WH, CFrame.new(0, .45, -.9))
-  P("Trim", V3(1, .08, 2.05), RGB(185, 190, 196), CFrame.new(0, .92, -.9))
-  P("Panel", V3(.8, .8, .03), RGB(25, 25, 28), CFrame.new(0, .45, -1.91))
-  for r = -1, 1 do
-    for c = -1, 1 do
-      P("Dot", V3(.18, .18, .18), NE, CFrame.new(c * .26, .45 + r * .26, -1.94), Enum.Material.Neon, Enum.PartType.Ball)
-    end
+  return tool, function(...) return toolPart(tool, h, ...) end
+end
+local function buildGunRick()
+  local tool, P = gunBase()
+  local H = math.rad
+  P("HandleBar", V3(.55, .42, 1.7), RGB(190, 192, 196), CFrame.new(0, 0, .4))
+  P("HandleCap", V3(.55, .42, .55), RGB(190, 192, 196), CFrame.new(0, 0, 1.25), nil, Enum.PartType.Ball)
+  P("Body", V3(1.35, .5, 2.3), RGB(205, 207, 210), CFrame.new(0, .02, -1.45))
+  P("Under", V3(1.25, .12, 2.1), RGB(150, 152, 158), CFrame.new(0, -.22, -1.45))
+  P("Emitter", V3(.5, .2, .05), RGB(30, 30, 34), CFrame.new(0, .02, -2.62))
+  P("Button", V3(.6, .08, .42), RGB(215, 30, 40), CFrame.new(0, .29, -.95))
+  P("Knob", V3(.22, .5, .5), RGB(35, 35, 38), CFrame.new(0, .36, -.35) * CFrame.Angles(H(0), H(0), H(90)), nil, Enum.PartType.Cylinder)
+  P("Ring", V3(.1, .9, .9), RGB(170, 172, 176), CFrame.new(0, .3, -1.9) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Metal, Enum.PartType.Cylinder)
+  do
+    local q = P("Dome", V3(.8, .7, .7), RGB(60, 255, 90), CFrame.new(0, .75, -1.9) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Glass, Enum.PartType.Cylinder)
+    q.Transparency = .25
   end
-  -- купол на фланце
-  P("Flange", V3(.1, .85, .85), RGB(200, 204, 210), CFrame.new(0, .97, -1.2) * R90, nil, Enum.PartType.Cylinder)
-  P("Dome", V3(1, .7, .7), GR, CFrame.new(0, 1.5, -1.2) * R90, Enum.Material.Glass, Enum.PartType.Cylinder).Transparency = .3
-  P("DomeTop", V3(.7, .7, .7), GR, CFrame.new(0, 2, -1.2), Enum.Material.Glass, Enum.PartType.Ball).Transparency = .3
-  local core = P("Core", V3(.9, .45, .45), NE, CFrame.new(0, 1.5, -1.2) * R90, Enum.Material.Neon, Enum.PartType.Cylinder)
-  core.Transparency = .3
-  I("PointLight", { Color = GR, Range = 9, Brightness = 2, Shadows = false }, core)
-  -- рукоять, наклон назад и вниз, курок, красная кнопка
-  P("Grip", V3(.7, 1.4, .75), RGB(170, 175, 180), CFrame.new(0, -.5, .55) * CFrame.Angles(math.rad(-15), 0, 0))
-  P("GripDark", V3(.72, .7, .78), RGB(70, 74, 80), CFrame.new(0, -.9, .6) * CFrame.Angles(math.rad(-15), 0, 0))
-  P("Trigger", V3(.14, .35, .18), RGB(30, 30, 34), CFrame.new(0, .05, -.25) * CFrame.Angles(math.rad(15), 0, 0))
-  P("Switch", V3(.25, .14, .3), RGB(230, 40, 40), CFrame.new(0, 1.0, .85))
-  if evil then
-    -- диск с ручкой, два отверстия и тумблер на боку
-    P("DialRing", V3(.07, .6, .6), RGB(205, 208, 214), CFrame.new(.5, .45, -.7), nil, Enum.PartType.Cylinder)
-    P("Dial", V3(.09, .5, .5), RGB(190, 194, 200), CFrame.new(.52, .45, -.7), nil, Enum.PartType.Cylinder)
-    P("DialPtr", V3(.06, .08, .36), RGB(235, 238, 242), CFrame.new(.58, .45, -.7) * CFrame.Angles(math.rad(35), 0, 0))
-    P("Hole1", V3(.03, .1, .1), RGB(20, 20, 22), CFrame.new(.49, .3, -.25), nil, Enum.PartType.Cylinder)
-    P("Hole2", V3(.03, .1, .1), RGB(20, 20, 22), CFrame.new(.49, .1, -.25), nil, Enum.PartType.Cylinder)
-    P("Toggle", V3(.14, .05, .05), RGB(190, 194, 200), CFrame.new(.52, .72, -.3))
-  else
-    P("Plate", V3(.03, .35, .35), RGB(70, 72, 78), CFrame.new(.49, .45, -.7))
+  do
+    local q = P("DomeTop", V3(.7, .7, .7), RGB(60, 255, 90), CFrame.new(0, 1.15, -1.9), Enum.Material.Glass, Enum.PartType.Ball)
+    q.Transparency = .25
   end
+  do
+    local q = P("Core", V3(.75, .44, .44), RGB(110, 255, 110), CFrame.new(0, .75, -1.9) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Neon, Enum.PartType.Cylinder)
+    q.Transparency = .2
+    I("PointLight", { Color = RGB(60, 255, 90), Range = 9, Brightness = 2, Shadows = false }, q)
+  end
+  do
+    local q = P("CoreTop", V3(.44, .44, .44), RGB(110, 255, 110), CFrame.new(0, 1.13, -1.9), Enum.Material.Neon, Enum.PartType.Ball)
+    q.Transparency = .2
+  end
+  return tool
+end
+local function buildGunPrime()
+  local tool, P = gunBase()
+  local H = math.rad
+  P("Grip", V3(.62, 1.55, .78), RGB(205, 208, 213), CFrame.new(0, 0, .2) * CFrame.Angles(H(-14), H(0), H(0)))
+  P("GripDark", V3(.5, 1, .2), RGB(82, 85, 92), CFrame.new(0, -.42, -.2) * CFrame.Angles(H(-14), H(0), H(0)))
+  P("Body", V3(.95, .85, 1.95), RGB(225, 228, 232), CFrame.new(0, 1.05, -.8))
+  P("Slope", V3(.66, .5, .95), RGB(225, 228, 232), CFrame.new(0, 1.2, .38) * CFrame.Angles(H(14), H(0), H(0)))
+  P("Strut", V3(.55, .2, 1.75), RGB(200, 203, 208), CFrame.new(0, 0, -.3) * CFrame.Angles(H(45), H(0), H(0)))
+  P("Trigger", V3(.14, .42, .2), RGB(45, 45, 50), CFrame.new(0, .42, -.3) * CFrame.Angles(H(20), H(0), H(0)))
+  P("Switch", V3(.28, .16, .32), RGB(225, 35, 35), CFrame.new(0, 1.45, .65))
+  P("Panel", V3(.86, .8, .03), RGB(28, 28, 30), CFrame.new(0, 1.05, -1.79))
+  P("Dot", V3(.22, .22, .22), RGB(110, 255, 110), CFrame.new(-.27, .79, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
+  P("Dot", V3(.22, .22, .22), RGB(110, 255, 110), CFrame.new(0, .79, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
+  P("Dot", V3(.22, .22, .22), RGB(110, 255, 110), CFrame.new(.27, .79, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
+  P("Dot", V3(.22, .22, .22), RGB(110, 255, 110), CFrame.new(-.27, 1.05, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
+  P("Dot", V3(.22, .22, .22), RGB(110, 255, 110), CFrame.new(0, 1.05, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
+  P("Dot", V3(.22, .22, .22), RGB(110, 255, 110), CFrame.new(.27, 1.05, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
+  P("Dot", V3(.22, .22, .22), RGB(110, 255, 110), CFrame.new(-.27, 1.31, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
+  P("Dot", V3(.22, .22, .22), RGB(110, 255, 110), CFrame.new(0, 1.31, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
+  P("Dot", V3(.22, .22, .22), RGB(110, 255, 110), CFrame.new(.27, 1.31, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
+  P("Flange", V3(.1, .85, .85), RGB(200, 204, 210), CFrame.new(0, 1.52, -.95) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Metal, Enum.PartType.Cylinder)
+  do
+    local q = P("Dome", V3(.75, .72, .72), RGB(60, 255, 90), CFrame.new(0, 1.95, -.95) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Glass, Enum.PartType.Cylinder)
+    q.Transparency = .25
+  end
+  do
+    local q = P("DomeTop", V3(.72, .72, .72), RGB(60, 255, 90), CFrame.new(0, 2.32, -.95), Enum.Material.Glass, Enum.PartType.Ball)
+    q.Transparency = .25
+  end
+  do
+    local q = P("Core", V3(.7, .46, .46), RGB(110, 255, 110), CFrame.new(0, 1.95, -.95) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Neon, Enum.PartType.Cylinder)
+    q.Transparency = .2
+    I("PointLight", { Color = RGB(60, 255, 90), Range = 9, Brightness = 2, Shadows = false }, q)
+  end
+  do
+    local q = P("CoreTop", V3(.46, .46, .46), RGB(110, 255, 110), CFrame.new(0, 2.3, -.95), Enum.Material.Neon, Enum.PartType.Ball)
+    q.Transparency = .2
+  end
+  P("DialRing", V3(.07, .62, .62), RGB(210, 213, 218), CFrame.new(.5, 1, -.55), Enum.Material.Metal, Enum.PartType.Cylinder)
+  P("Dial", V3(.09, .5, .5), RGB(190, 194, 200), CFrame.new(.53, 1, -.55), nil, Enum.PartType.Cylinder)
+  P("DialPtr", V3(.07, .09, .4), RGB(232, 235, 240), CFrame.new(.58, 1, -.55) * CFrame.Angles(H(35), H(0), H(0)))
+  P("Hole1", V3(.03, .1, .1), RGB(20, 20, 22), CFrame.new(.49, 1.05, -1.25), nil, Enum.PartType.Cylinder)
+  P("Hole2", V3(.03, .1, .1), RGB(20, 20, 22), CFrame.new(.49, .82, -1.25), nil, Enum.PartType.Cylinder)
+  P("Toggle", V3(.12, .05, .05), RGB(190, 194, 200), CFrame.new(.52, 1.28, -1.25))
+  return tool
+end
+local function buildGunEvil()
+  local tool, P = gunBase()
+  local H = math.rad
+  P("Grip", V3(.5, 1.4, .6), RGB(120, 115, 120), CFrame.new(0, 0, .1) * CFrame.Angles(H(-10), H(0), H(0)))
+  P("Trigger", V3(.14, .45, .18), RGB(30, 30, 34), CFrame.new(0, .45, -.3) * CFrame.Angles(H(15), H(0), H(0)))
+  P("Slab", V3(.75, .7, 2.6), RGB(175, 150, 45), CFrame.new(0, .95, -.9))
+  P("SlabEdge", V3(.77, .06, 2.6), RGB(215, 190, 75), CFrame.new(0, 1.3, -.9))
+  P("Block", V3(1.05, 1.1, 1.1), RGB(150, 125, 35), CFrame.new(0, .95, -2.35))
+  P("BlockEdge", V3(1.07, .06, 1.1), RGB(215, 190, 75), CFrame.new(0, 1.5, -2.35))
+  P("LensRing", V3(.06, .78, .78), RGB(35, 40, 35), CFrame.new(.55, .95, -2.35), nil, Enum.PartType.Cylinder)
+  P("Lens", V3(.08, .62, .62), RGB(85, 100, 85), CFrame.new(.57, .95, -2.35), nil, Enum.PartType.Cylinder)
+  P("LensCore", V3(.1, .28, .28), RGB(60, 170, 255), CFrame.new(.6, .95, -2.35), Enum.Material.Neon, Enum.PartType.Cylinder)
+  P("LensRing", V3(.06, .78, .78), RGB(35, 40, 35), CFrame.new(-.55, .95, -2.35), nil, Enum.PartType.Cylinder)
+  P("Lens", V3(.08, .62, .62), RGB(85, 100, 85), CFrame.new(-.57, .95, -2.35), nil, Enum.PartType.Cylinder)
+  P("LensCore", V3(.1, .28, .28), RGB(60, 170, 255), CFrame.new(-.6, .95, -2.35), Enum.Material.Neon, Enum.PartType.Cylinder)
+  do
+    local q = P("Orb", V3(.55, .55, .55), RGB(255, 240, 140), CFrame.new(0, .95, -3), Enum.Material.Neon, Enum.PartType.Ball)
+    q.Transparency = .15
+    I("PointLight", { Color = RGB(255, 220, 50), Range = 9, Brightness = 2, Shadows = false }, q)
+  end
+  do
+    local q = P("Jar", V3(.95, .5, .5), RGB(255, 225, 80), CFrame.new(0, 1.75, -1.55) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Glass, Enum.PartType.Cylinder)
+    q.Transparency = .4
+  end
+  do
+    local q = P("DomeTop", V3(.5, .5, .5), RGB(255, 225, 80), CFrame.new(0, 2.25, -1.55), Enum.Material.Glass, Enum.PartType.Ball)
+    q.Transparency = .4
+  end
+  do
+    local q = P("Core", V3(.8, .25, .25), RGB(255, 240, 140), CFrame.new(0, 1.75, -1.55) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Neon, Enum.PartType.Cylinder)
+    q.Transparency = .3
+    I("PointLight", { Color = RGB(255, 220, 50), Range = 9, Brightness = 2, Shadows = false }, q)
+  end
+  P("GreyA", V3(.45, .5, .5), RGB(110, 118, 115), CFrame.new(0, 1.5, -.65))
+  P("GreyB", V3(.3, .35, .3), RGB(130, 135, 130), CFrame.new(0, 1.45, -.25))
+  P("Canister", V3(1, .4, .4), RGB(110, 78, 50), CFrame.new(0, 1.75, .25) * CFrame.Angles(H(0), H(0), H(90)), nil, Enum.PartType.Cylinder)
+  P("Strap", V3(.1, .44, .44), RGB(70, 50, 35), CFrame.new(0, 1.9, .25) * CFrame.Angles(H(0), H(0), H(90)), nil, Enum.PartType.Cylinder)
   return tool
 end
 
 local function buildGun()
-  if ST.ActiveSkin == "rick_prime" then return buildGunPhoto("prime") end
-  if ST.ActiveSkin == "evil_morty" then return buildGunPhoto("evil") end
-  local tool = I("Tool", { Name = "Портальная пушка", RequiresHandle = true, CanBeDropped = false, ToolTip = "Открыть портал" })
-  local h = mkp("Handle", V3(.45, 1.3, .6), RGB(214, 217, 222))
-  h.Parent = tool
-  local function P(...) return toolPart(tool, h, ...) end
-  local GR = RGB(60, 255, 90)
-  P("Body", V3(1.15, .3, 2.2), RGB(228, 230, 233), CFrame.new(0, .8, -.75))
-  P("Under", V3(.95, .14, 1.7), RGB(140, 145, 152), CFrame.new(0, .63, -.9))
-  P("Nozzle", V3(.5, .2, .35), RGB(95, 100, 108), CFrame.new(0, .82, -1.95))
-  P("GripEnd", V3(.5, .32, .66), RGB(150, 155, 160), CFrame.new(0, -.62, .03))
-  P("Ring", V3(.12, .95, .95), RGB(140, 215, 175), CFrame.new(0, .99, -1.2) * R90, Enum.Material.Fabric, Enum.PartType.Cylinder)
-  P("Dome", V3(.9, .6, .6), GR, CFrame.new(0, 1.5, -1.2) * R90, Enum.Material.Glass, Enum.PartType.Cylinder).Transparency = .35
-  P("DomeTop", V3(.6, .6, .6), GR, CFrame.new(0, 1.95, -1.2), Enum.Material.Glass, Enum.PartType.Ball).Transparency = .35
-  local core = P("Core", V3(.9, .38, .38), RGB(110, 255, 110), CFrame.new(0, 1.5, -1.2) * R90, Enum.Material.Neon, Enum.PartType.Cylinder)
-  core.Transparency = .25
-  P("CoreTop", V3(.38, .38, .38), RGB(110, 255, 110), CFrame.new(0, 1.95, -1.2), Enum.Material.Neon, Enum.PartType.Ball).Transparency = .25
-  I("PointLight", { Color = GR, Range = 9, Brightness = 2, Shadows = false }, core)
-  local led = P("Led", V3(.8, .05, .34), RGB(14, 14, 16), CFrame.new(0, .97, -.25))
-  local sg = I("SurfaceGui", { Face = Enum.NormalId.Top, CanvasSize = Vector2.new(160, 68), LightInfluence = 0, Brightness = 2 }, led)
-  I("TextLabel", {
-    Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "C-137", TextColor3 = RGB(255, 40, 40),
-    Font = Enum.Font.Code, TextScaled = true,
-  }, sg)
-  P("Btn", V3(.1, .4, .4), RGB(28, 28, 30), CFrame.new(0, .99, .12) * R90, nil, Enum.PartType.Cylinder)
-  local function cable(pts, col)
-    for i = 1, #pts - 1 do
-      local a, b = pts[i], pts[i + 1]
-      P("Wire", V3((b - a).Magnitude, .07, .07), col, CFrame.lookAt((a + b) / 2, b) * CFrame.Angles(0, math.rad(90), 0), nil, Enum.PartType.Cylinder)
-    end
-  end
-  cable({ V3(.32, 1.02, -1.4), V3(.52, 1.08, -1), V3(.55, 1, -.5), V3(.42, .9, .05) }, RGB(30, 30, 34))
-  cable({ V3(-.32, 1.02, -1.4), V3(-.52, 1.08, -1), V3(-.55, 1, -.5), V3(-.42, .9, .05) }, RGB(60, 62, 70))
-  return tool
+  local sid = ST.ActiveSkin
+  if sid == "rick_prime" then return buildGunPrime() end
+  if sid == "evil_morty" then return buildGunEvil() end
+  return buildGunRick()
 end
 
 -- замораживатель времени (дизайн мой: картинки не было)
@@ -2761,7 +2817,7 @@ local ITEMS = {
   { id = "battery", ico = "🔋", name = "Батарея микровселенной", desc = "Зона энергии 15 с", build = buildBattery, act = useBattery, grip = V3(0, -.5, -.1) },
   { id = "ship", ico = "🚀", name = "Пульт крейсера", desc = "Вызвать, сесть, лететь", build = buildRemote, act = shipAction, grip = V3(0, -.05, 0) },
 }
-local function giveItem(def)
+function giveItem(def)
   detachHand()
   if heldTool then pcall(function() heldTool:Destroy() end) end
   heldTool, heldDef, ITEM_ACT, batLabel = nil, nil, nil, nil
@@ -2830,7 +2886,7 @@ do -- 🎭 СКИНЫ
       TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 43,
     }, b)
   end
-  -- v4.5: копирование аватара: игрок на сервере, описание аватара или модель внешнего вида
+  -- v4.6: копирование аватара: полная копия внешнего вида; твой старый вид и скин удаляются
   newSec(f, "КОПИЯ АВАТАРА (по нику или из списка)")
   local function shortErr(e, n)
     e = tostring(e)
@@ -2840,51 +2896,111 @@ do -- 🎭 СКИНЫ
   local function isLook(d)
     return d:IsA("Shirt") or d:IsA("Pants") or d:IsA("ShirtGraphic") or d:IsA("BodyColors") or d:IsA("CharacterMesh")
   end
-  local function copyFromModel(src)
-    local ch, hum = getChar()
-    if not hum then return false, "нет персонажа" end
-    pcall(function() hum:RemoveAccessories() end)
-    for _, d in ipairs(ch:GetChildren()) do
-      if isLook(d) then d:Destroy() end
+  local copyOv = {} -- наложенные копии частей тела
+  local function undoOverlay()
+    for _, o in ipairs(copyOv) do
+      pcall(function() o.clone:Destroy() end)
+      if o.our and o.our.Parent then o.our.Transparency = o.tr end
     end
+    copyOv = {}
+  end
+  local function addAccessories(src, hum)
     local n = 0
     for _, d in ipairs(src:GetChildren()) do
       if d:IsA("Accessory") then
         local c = d:Clone()
-        local hd = c:FindFirstChild("Handle")
-        if hd then
-          for _, w in ipairs(hd:GetChildren()) do
-            if w:IsA("Weld") or w:IsA("WeldConstraint") then w:Destroy() end
+        if c then
+          local hd = c:FindFirstChild("Handle")
+          if hd then
+            for _, w in ipairs(hd:GetChildren()) do
+              if w:IsA("Weld") or w:IsA("WeldConstraint") then w:Destroy() end
+            end
+          end
+          if pcall(function() hum:AddAccessory(c) end) then n = n + 1 else c:Destroy() end
+        end
+      end
+    end
+    return n
+  end
+  -- src: живой персонаж игрока (withBody = true) или модель внешнего вида (false)
+  local function copyLook(src, withBody)
+    local ch, hum = getChar()
+    if not hum then return false, "нет персонажа" end
+    undoOverlay()
+    pcall(function() hum:RemoveAccessories() end)
+    for _, d in ipairs(ch:GetChildren()) do
+      if isLook(d) then d:Destroy() end
+    end
+    local items, parts = 0, 0
+    for _, d in ipairs(src:GetChildren()) do
+      if isLook(d) then
+        local c = d:Clone()
+        if c then
+          c.Parent = ch
+          items = items + 1
+        end
+      end
+    end
+    items = items + addAccessories(src, hum)
+    if withBody then
+      for _, sp in ipairs(src:GetChildren()) do
+        if sp:IsA("BasePart") and sp.Name ~= "HumanoidRootPart" then
+          local our = ch:FindFirstChild(sp.Name)
+          local c = our and our:IsA("BasePart") and sp:Clone() or nil
+          if c then
+            for _, d in ipairs(c:GetDescendants()) do
+              if d:IsA("Motor6D") or d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("LuaSourceContainer") or d:IsA("Sound") then
+                d:Destroy()
+              end
+            end
+            c.Name = "RMC_" .. sp.Name
+            c.Anchored = false
+            c.CanCollide = false
+            c.CanTouch = false
+            c.CanQuery = false
+            c.Massless = true
+            local w = Instance.new("Weld")
+            w.Part0 = our
+            w.Part1 = c
+            w.Parent = c
+            c.Parent = ch
+            copyOv[#copyOv + 1] = { clone = c, our = our, tr = our.Transparency }
+            our.Transparency = 1
+            parts = parts + 1
           end
         end
-        if pcall(function() hum:AddAccessory(c) end) then n = n + 1 else c:Destroy() end
-      elseif isLook(d) then
-        d:Clone().Parent = ch
-        n = n + 1
+      end
+    else
+      local sh, mh = src:FindFirstChild("Head"), ch:FindFirstChild("Head")
+      if sh and mh then
+        local sf, mf = sh:FindFirstChildOfClass("Decal"), mh:FindFirstChildOfClass("Decal")
+        if sf and mf then mf.Texture = sf.Texture end
+        local sm, mm = sh:FindFirstChildOfClass("SpecialMesh"), mh:FindFirstChildOfClass("SpecialMesh")
+        if sm and mm then
+          pcall(function()
+            mm.Scale = sm.Scale
+            mm.MeshId = sm.MeshId
+            mm.TextureId = sm.TextureId
+          end)
+        end
       end
     end
-    local sh, mh = src:FindFirstChild("Head"), ch:FindFirstChild("Head")
-    if sh and mh then
-      local sf, mf = sh:FindFirstChildOfClass("Decal"), mh:FindFirstChildOfClass("Decal")
-      if sf and mf then mf.Texture = sf.Texture end
-      local sm, mm = sh:FindFirstChildOfClass("SpecialMesh"), mh:FindFirstChildOfClass("SpecialMesh")
-      if sm and mm then
-        pcall(function()
-          mm.Scale = sm.Scale
-          mm.MeshId = sm.MeshId
-          mm.TextureId = sm.TextureId
-        end)
-      end
-    end
-    if n == 0 then return false, "у источника нет вещей" end
-    return true
+    if items + parts == 0 then return false, "у источника нет вещей и частей" end
+    return true, nil, items, parts
   end
-  local function prep()
+  local function prep() -- убрать твой скин тулкита и прошлую копию, пушку пересобрать
     clearSkin()
     ST.ActiveSkin = ""
     save()
+    undoOverlay()
+    regun()
   end
-  -- общая цепочка: userId -> описание аватара -> модель внешнего вида
+  local function done(label, items, parts)
+    safe(refreshGrip)
+    local extra = items and (" (вещей " .. items .. ", частей " .. (parts or 0) .. ")") or ""
+    notify("👤 Аватар: " .. label .. extra, C.ac)
+  end
+  -- запасная цепочка по ID: описание аватара, затем модель внешнего вида
   local function copyByUserId(uid, label)
     local _, hum = getChar()
     if not hum then notify("Нет персонажа", C.dg) return end
@@ -2893,11 +3009,7 @@ do -- 🎭 СКИНЫ
     if ok1 and desc then
       prep()
       local ok2, e2 = pcall(function() hum:ApplyDescription(desc) end)
-      if ok2 then
-        safe(refreshGrip)
-        notify("👤 Аватар: " .. label, C.ac)
-        return
-      end
+      if ok2 then done(label) return end
       errs[#errs + 1] = "ApplyDescription: " .. shortErr(e2, 45)
     else
       errs[#errs + 1] = "Описание: " .. shortErr(desc, 45)
@@ -2905,13 +3017,9 @@ do -- 🎭 СКИНЫ
     local ok3, model = pcall(function() return Players:GetCharacterAppearanceAsync(uid) end)
     if ok3 and model then
       prep()
-      local ok4, e4 = copyFromModel(model)
+      local ok4, e4, items, parts = copyLook(model, false)
       model:Destroy()
-      if ok4 then
-        safe(refreshGrip)
-        notify("👤 Аватар: " .. label, C.ac)
-        return
-      end
+      if ok4 then done(label, items, parts) return end
       errs[#errs + 1] = "Модель: " .. shortErr(e4, 45)
     else
       errs[#errs + 1] = "Внешний вид: " .. shortErr(model, 45)
@@ -2936,18 +3044,14 @@ do -- 🎭 СКИНЫ
         end
       end
     end
-    -- 1) игрок на сервере: берём его живого персонажа (самый надёжный способ)
+    -- 1) игрок на сервере: копия его живого персонажа (части тела, одежда, аксессуары)
     if target and target.Character then
       prep()
-      local ok, e = copyFromModel(target.Character)
-      if ok then
-        safe(refreshGrip)
-        notify("👤 Скопирован: " .. target.DisplayName, C.ac)
-        return
-      end
+      local ok, e, items, parts = copyLook(target.Character, true)
+      if ok then done(target.DisplayName, items, parts) return end
       warn("[RickMorty] копия с персонажа не удалась: " .. tostring(e))
     end
-    -- 2) по ID пользователя
+    -- 2) по ID пользователя (игрок не на сервере или первый способ не сработал)
     local ok, uid = pcall(function()
       if target then return target.UserId end
       return Players:GetUserIdFromNameAsync(name)
@@ -2972,7 +3076,10 @@ do -- 🎭 СКИНЫ
   end, 40)
   newBtn(f, "↩ Вернуть мой аватар", C.bg2, function()
     notify("⏳ Возвращаю...", C.ac)
-    task.spawn(copyByUserId, LP.UserId, "твой")
+    task.spawn(function()
+      prep()
+      copyByUserId(LP.UserId, "твой")
+    end)
   end, 40)
   newSec(f, "ИГРОКИ НА СЕРВЕРЕ (нажми, чтобы скопировать)")
   local plBox = I("Frame", { Size = UDim2.new(1, -8, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 }, f)
