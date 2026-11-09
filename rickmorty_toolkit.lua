@@ -1,5 +1,5 @@
 -- ============================================================
---  Rick & Morty Toolkit v4.8 (standalone, один файл)
+--  Rick & Morty Toolkit v4.9 (standalone, один файл)
 --  v4.8: RM.removeSkin для копира аватара; при выборе скина копия аватара снимается
 --  Скины на Motor6D, мимика, движения, портальная пушка,
 --  большие порталы с мгновенным касанием, замораживатель времени,
@@ -9,7 +9,7 @@
 -- ============================================================
 local G = rawget(_G, "getgenv") and getgenv() or _G
 if G.RickMorty and G.RickMorty.unload then pcall(G.RickMorty.unload) end
-local RM = { _version = "4.8" }
+local RM = { _version = "4.9" }
 G.RickMorty = RM
 
 local Players = game:GetService("Players")
@@ -1325,9 +1325,9 @@ local function playerInput(hum, root)
     hold = HOLDING, ride = RIDING, emote = EMOTE, boarding = boarding,
   }
 end
--- v4.6: если пушка в руке, пересобрать её под выбранный скин
+-- Портальные пушки имеют собственные модели и не меняются при переключении скина.
 local function regun()
-  if heldDef and heldDef.id == "gun" then task.defer(giveItem, heldDef) end
+  -- Пересборка больше не нужна: выбранный скин не влияет на тип пушки.
 end
 
 local function fixCam() -- v4.7: камера всегда смотрит на твоего персонажа
@@ -1597,11 +1597,12 @@ local function teleportTo(hr, from, to)
   snd("teleport", .8, 1.2)
   dimFx(col, .8)
 end
-local function shootPortal()
-  local g = gunCfg()
+local function shootPortal(gunId)
+  -- Если выстрел сделан конкретной пушкой, её характеристики не зависят от выбранного скина.
+  local g = (gunId and GUN_CFG[gunId]) or gunCfg()
   local range = g and g.range or 500
   local pos, n = aimHit(range, g and g.range or 50)
-  local col = pcol()
+  local col = (g and g.col) or pcol()
   if not PA then
     PA = newPortal(pos, n, col)
     notify("🌀 Портал A", col)
@@ -2826,31 +2827,43 @@ end))
 --  ПРЕДМЕТЫ: список и выдача
 -- ============================================================
 local ITEMS = {
-  { id = "gun", ico = "🔫", name = "Портальная пушка", desc = "Два больших портала", build = buildGun, act = shootPortal, grip = V3(0, -.05, 0) },
+  { id = "gun_rick", ico = "🔫", name = "Портальная пушка Рика", desc = "Классическая пушка Рика", build = buildGunRick, act = function() shootPortal("rick") end, grip = V3(0, -.05, 0) },
+  { id = "gun_prime", ico = "🔫", name = "Портальная пушка Рика Прайма", desc = "Пушка Рика Прайма", build = buildGunPrime, act = function() shootPortal("rick_prime") end, grip = V3(0, -.05, 0) },
+  { id = "gun_evil", ico = "🔫", name = "Портальная пушка Злого Морти", desc = "Золотая пушка Злого Морти", build = buildGunEvil, act = function() shootPortal("evil_morty") end, grip = V3(0, -.05, 0) },
   { id = "freeze", ico = "❄", name = "Замораживатель времени", desc = "Пузырь и стоп-кадр на 4 с", build = buildFreezer, act = timeStop, grip = V3(0, -.1, 0) },
   { id = "meeseeks", ico = "🟦", name = "Ящик Мисиксов", desc = "Вызывает помощника", build = buildMeeseeksBox, act = spawnMeeseeks, grip = V3(0, -.55, -.15) },
   { id = "battery", ico = "🔋", name = "Батарея микровселенной", desc = "Зона энергии 15 с", build = buildBattery, act = useBattery, grip = V3(0, -.5, -.1) },
   { id = "ship", ico = "🚀", name = "Пульт крейсера", desc = "Вызвать, сесть, лететь", build = buildRemote, act = shipAction, grip = V3(0, -.05, 0) },
 }
+local createdTools = {}
 function giveItem(def)
-  detachHand()
-  if heldTool then pcall(function() heldTool:Destroy() end) end
-  heldTool, heldDef, ITEM_ACT, batLabel = nil, nil, nil, nil
   local _, hum = getChar()
   if not hum then notify("Нет персонажа", C.dg) return end
+
+  -- Предыдущие предметы остаются в Backpack; новый предмет добавляется отдельно.
   local tool, extra = def.build()
-  heldTool, heldDef = tool, def
-  if def.id == "battery" then batLabel = extra end
+  if not tool then notify("Не удалось создать предмет", C.dg) return end
+  tool.Name = def.name
+  createdTools[tool] = true
   tool.Parent = LP.Backpack
-  tool.Activated:Connect(function() safe(def.act) end)
+
+  tool.Activated:Connect(function()
+    if heldTool == tool then safe(def.act) end
+  end)
   tool.Equipped:Connect(function()
-    ITEM_ACT = def.act
-    task.defer(function() attachHand(tool, def.grip) end)
+    heldTool, heldDef, ITEM_ACT = tool, def, def.act
+    if def.id == "battery" then batLabel = extra else batLabel = nil end
+    task.defer(function()
+      if tool.Parent == LP.Character then attachHand(tool, def.grip) end
+    end)
   end)
   tool.Unequipped:Connect(function()
-    ITEM_ACT = nil
-    detachHand()
+    if heldTool == tool then
+      heldTool, heldDef, ITEM_ACT, batLabel = nil, nil, nil, nil
+      detachHand()
+    end
   end)
+
   hum:EquipTool(tool)
   notify(def.ico .. " " .. def.name, C.ac)
 end
@@ -2862,7 +2875,10 @@ end
 local function clearAll()
   if RM.clearDummies then RM.clearDummies() end
   detachHand()
-  if heldTool then pcall(function() heldTool:Destroy() end) end
+  for tool in pairs(createdTools) do
+    pcall(function() tool:Destroy() end)
+    createdTools[tool] = nil
+  end
   heldTool, heldDef, ITEM_ACT, batLabel = nil, nil, nil, nil
   for i = #helpers, 1, -1 do
     pcall(function() helpers[i].R.model:Destroy() end)
@@ -2978,13 +2994,15 @@ do -- 🧰 ПРЕДМЕТЫ
     clearAll()
     notify("🗑 Всё убрано", C.tx)
   end, 36)
-  newInfo(f, "\n  Нажми на предмет, затем ЛКМ или 🔥 на экране.\n  Ящик Мисиксов: помощник бежит к точке прицела.\n  Батарея: зона энергии, расход 25% заряда.\n  Крейсер: тап по нему сажает. 🔥 огонь, 🌌 прыжок.\n  Всё видишь только ты.", 100)
+  newInfo(f, "\n  Предметы сохраняются в рюкзаке; экипируй нужный и нажми ЛКМ или 🔥.\n  Ящик Мисиксов: помощник бежит к точке прицела.\n  Батарея: зона энергии, расход 25% заряда.\n  Крейсер: тап по нему сажает. 🔥 огонь, 🌌 прыжок.\n  Всё видишь только ты.", 100)
 end
 
 do -- 🌀 ПОРТАЛ
   local f = tabFrames.portal
-  newSec(f, "ПОРТАЛЫ")
-  newBtn(f, "🔫 Портальная пушка", C.ac, function() giveItem(ITEMS[1]) end, 40)
+  newSec(f, "ПОРТАЛЬНЫЕ ПУШКИ (НЕ ЗАВИСЯТ ОТ СКИНА)")
+  newBtn(f, "🔫 Портальная пушка Рика", C.ac, function() giveItem(ITEMS[1]) end, 40)
+  newBtn(f, "🔫 Портальная пушка Рика Прайма", C.bg2, function() giveItem(ITEMS[2]) end, 40)
+  newBtn(f, "🔫 Портальная пушка Злого Морти", C.bg2, function() giveItem(ITEMS[3]) end, 40)
   newBtn(f, "🔥 Создать портал", C.bg2, shootPortal, 40)
   newBtn(f, "🗑 Удалить оба портала", C.dg, function()
     killPortal(PA)
