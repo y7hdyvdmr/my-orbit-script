@@ -1,5 +1,6 @@
 -- ============================================================
---  Rick & Morty Toolkit v4.6 (standalone, один файл)
+--  Rick & Morty Toolkit v4.8 (standalone, один файл)
+--  v4.8: RM.removeSkin для копира аватара; при выборе скина копия аватара снимается
 --  Скины на Motor6D, мимика, движения, портальная пушка,
 --  большие порталы с мгновенным касанием, замораживатель времени,
 --  ящик Мисиксов, батарея микровселенной, космический крейсер,
@@ -8,7 +9,7 @@
 -- ============================================================
 local G = rawget(_G, "getgenv") and getgenv() or _G
 if G.RickMorty and G.RickMorty.unload then pcall(G.RickMorty.unload) end
-local RM = { _version = "4.6" }
+local RM = { _version = "4.8" }
 G.RickMorty = RM
 
 local Players = game:GetService("Players")
@@ -1329,6 +1330,15 @@ local function regun()
   if heldDef and heldDef.id == "gun" then task.defer(giveItem, heldDef) end
 end
 
+local function fixCam() -- v4.7: камера всегда смотрит на твоего персонажа
+  local cam = Workspace.CurrentCamera
+  local _, h = getChar()
+  if cam and h and cam.CameraSubject ~= h then
+    cam.CameraSubject = h
+    cam.CameraType = Enum.CameraType.Custom
+  end
+end
+
 -- v4.5: лёгкая аура-частицы у каждого скина
 local AURA = {
   rick = { col = RGB(140, 255, 140), rate = 3, spd = 2 },
@@ -1365,6 +1375,8 @@ local function applySkin(id)
   if not S then return end
   local ch, hum, root = getChar()
   if not root or not hum then notify("Нет персонажа", C.dg) return end
+  local cp = G.RM_AvatarCopier -- v4.8: снять копию аватара, чтобы скины не наложились
+  if cp and cp.restoreSync then pcall(cp.restoreSync) end
   clearSkin()
   for _, d in ipairs(ch:GetDescendants()) do
     if d:IsA("BasePart") and d ~= root and not d:FindFirstAncestorOfClass("Tool") then
@@ -1392,6 +1404,7 @@ local function applySkin(id)
   local tl = ch:FindFirstChildOfClass("Tool")
   if tl and tl == heldTool and heldDef then attachHand(tl, heldDef.grip) end
   regun()
+  safe(fixCam)
 end
 local function removeSkin()
   clearSkin()
@@ -1399,8 +1412,10 @@ local function removeSkin()
   save()
   refreshGrip()
   regun()
+  safe(fixCam)
   notify("🎭 Скин снят", C.tx)
 end
+RM.removeSkin = removeSkin -- v4.8: вызывает копир аватара
 local function setEmo(id)
   ST.Emotion = id
   save()
@@ -2886,222 +2901,7 @@ do -- 🎭 СКИНЫ
       TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 43,
     }, b)
   end
-  -- v4.6: копирование аватара: полная копия внешнего вида; твой старый вид и скин удаляются
-  newSec(f, "КОПИЯ АВАТАРА (по нику или из списка)")
-  local function shortErr(e, n)
-    e = tostring(e)
-    n = n or 70
-    return #e > n and (e:sub(1, n) .. "...") or e
-  end
-  local function isLook(d)
-    return d:IsA("Shirt") or d:IsA("Pants") or d:IsA("ShirtGraphic") or d:IsA("BodyColors") or d:IsA("CharacterMesh")
-  end
-  local copyOv = {} -- наложенные копии частей тела
-  local function undoOverlay()
-    for _, o in ipairs(copyOv) do
-      pcall(function() o.clone:Destroy() end)
-      if o.our and o.our.Parent then o.our.Transparency = o.tr end
-    end
-    copyOv = {}
-  end
-  local function addAccessories(src, hum)
-    local n = 0
-    for _, d in ipairs(src:GetChildren()) do
-      if d:IsA("Accessory") then
-        local c = d:Clone()
-        if c then
-          local hd = c:FindFirstChild("Handle")
-          if hd then
-            for _, w in ipairs(hd:GetChildren()) do
-              if w:IsA("Weld") or w:IsA("WeldConstraint") then w:Destroy() end
-            end
-          end
-          if pcall(function() hum:AddAccessory(c) end) then n = n + 1 else c:Destroy() end
-        end
-      end
-    end
-    return n
-  end
-  -- src: живой персонаж игрока (withBody = true) или модель внешнего вида (false)
-  local function copyLook(src, withBody)
-    local ch, hum = getChar()
-    if not hum then return false, "нет персонажа" end
-    undoOverlay()
-    pcall(function() hum:RemoveAccessories() end)
-    for _, d in ipairs(ch:GetChildren()) do
-      if isLook(d) then d:Destroy() end
-    end
-    local items, parts = 0, 0
-    for _, d in ipairs(src:GetChildren()) do
-      if isLook(d) then
-        local c = d:Clone()
-        if c then
-          c.Parent = ch
-          items = items + 1
-        end
-      end
-    end
-    items = items + addAccessories(src, hum)
-    if withBody then
-      for _, sp in ipairs(src:GetChildren()) do
-        if sp:IsA("BasePart") and sp.Name ~= "HumanoidRootPart" then
-          local our = ch:FindFirstChild(sp.Name)
-          local c = our and our:IsA("BasePart") and sp:Clone() or nil
-          if c then
-            for _, d in ipairs(c:GetDescendants()) do
-              if d:IsA("Motor6D") or d:IsA("Weld") or d:IsA("WeldConstraint") or d:IsA("LuaSourceContainer") or d:IsA("Sound") then
-                d:Destroy()
-              end
-            end
-            c.Name = "RMC_" .. sp.Name
-            c.Anchored = false
-            c.CanCollide = false
-            c.CanTouch = false
-            c.CanQuery = false
-            c.Massless = true
-            local w = Instance.new("Weld")
-            w.Part0 = our
-            w.Part1 = c
-            w.Parent = c
-            c.Parent = ch
-            copyOv[#copyOv + 1] = { clone = c, our = our, tr = our.Transparency }
-            our.Transparency = 1
-            parts = parts + 1
-          end
-        end
-      end
-    else
-      local sh, mh = src:FindFirstChild("Head"), ch:FindFirstChild("Head")
-      if sh and mh then
-        local sf, mf = sh:FindFirstChildOfClass("Decal"), mh:FindFirstChildOfClass("Decal")
-        if sf and mf then mf.Texture = sf.Texture end
-        local sm, mm = sh:FindFirstChildOfClass("SpecialMesh"), mh:FindFirstChildOfClass("SpecialMesh")
-        if sm and mm then
-          pcall(function()
-            mm.Scale = sm.Scale
-            mm.MeshId = sm.MeshId
-            mm.TextureId = sm.TextureId
-          end)
-        end
-      end
-    end
-    if items + parts == 0 then return false, "у источника нет вещей и частей" end
-    return true, nil, items, parts
-  end
-  local function prep() -- убрать твой скин тулкита и прошлую копию, пушку пересобрать
-    clearSkin()
-    ST.ActiveSkin = ""
-    save()
-    undoOverlay()
-    regun()
-  end
-  local function done(label, items, parts)
-    safe(refreshGrip)
-    local extra = items and (" (вещей " .. items .. ", частей " .. (parts or 0) .. ")") or ""
-    notify("👤 Аватар: " .. label .. extra, C.ac)
-  end
-  -- запасная цепочка по ID: описание аватара, затем модель внешнего вида
-  local function copyByUserId(uid, label)
-    local _, hum = getChar()
-    if not hum then notify("Нет персонажа", C.dg) return end
-    local errs = {}
-    local ok1, desc = pcall(function() return Players:GetHumanoidDescriptionFromUserId(uid) end)
-    if ok1 and desc then
-      prep()
-      local ok2, e2 = pcall(function() hum:ApplyDescription(desc) end)
-      if ok2 then done(label) return end
-      errs[#errs + 1] = "ApplyDescription: " .. shortErr(e2, 45)
-    else
-      errs[#errs + 1] = "Описание: " .. shortErr(desc, 45)
-    end
-    local ok3, model = pcall(function() return Players:GetCharacterAppearanceAsync(uid) end)
-    if ok3 and model then
-      prep()
-      local ok4, e4, items, parts = copyLook(model, false)
-      model:Destroy()
-      if ok4 then done(label, items, parts) return end
-      errs[#errs + 1] = "Модель: " .. shortErr(e4, 45)
-    else
-      errs[#errs + 1] = "Внешний вид: " .. shortErr(model, 45)
-    end
-    local all = table.concat(errs, " | ")
-    warn("[RickMorty] копирование не удалось: " .. all)
-    notify("Не удалось: " .. shortErr(all, 140), C.dg, 6)
-  end
-  local function copyByNick(raw)
-    local name = (raw or ""):match("^%s*@?(.-)%s*$") or ""
-    if name == "" then notify("Введи ник или выбери из списка", C.dg) return end
-    local low = name:lower()
-    local target
-    for _, p in ipairs(Players:GetPlayers()) do
-      if p ~= LP and (p.Name:lower() == low or p.DisplayName:lower() == low) then target = p break end
-    end
-    if not target then
-      for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LP and (p.Name:lower():find(low, 1, true) or p.DisplayName:lower():find(low, 1, true)) then
-          target = p
-          break
-        end
-      end
-    end
-    -- 1) игрок на сервере: копия его живого персонажа (части тела, одежда, аксессуары)
-    if target and target.Character then
-      prep()
-      local ok, e, items, parts = copyLook(target.Character, true)
-      if ok then done(target.DisplayName, items, parts) return end
-      warn("[RickMorty] копия с персонажа не удалась: " .. tostring(e))
-    end
-    -- 2) по ID пользователя (игрок не на сервере или первый способ не сработал)
-    local ok, uid = pcall(function()
-      if target then return target.UserId end
-      return Players:GetUserIdFromNameAsync(name)
-    end)
-    if not ok or not uid then
-      warn("[RickMorty] ник не найден: " .. tostring(uid))
-      notify("Ник не найден: " .. shortErr(uid, 60), C.dg, 5)
-      return
-    end
-    copyByUserId(uid, target and target.DisplayName or name)
-  end
-  local nickBox = I("TextBox", {
-    Size = UDim2.new(1, -8, 0, 36), BackgroundColor3 = C.bg2, BackgroundTransparency = .1,
-    TextColor3 = C.tx, PlaceholderColor3 = C.dim, PlaceholderText = "Ник игрока, например bapcuk",
-    Text = "", Font = Enum.Font.Gotham, TextSize = 12, ClearTextOnFocus = false, ZIndex = 42,
-  }, f)
-  cr(nickBox, 8)
-  newBtn(f, "📋 Скопировать аватар по нику", C.bg2, function()
-    local raw = nickBox.Text
-    notify("⏳ Копирую...", C.ac)
-    task.spawn(copyByNick, raw)
-  end, 40)
-  newBtn(f, "↩ Вернуть мой аватар", C.bg2, function()
-    notify("⏳ Возвращаю...", C.ac)
-    task.spawn(function()
-      prep()
-      copyByUserId(LP.UserId, "твой")
-    end)
-  end, 40)
-  newSec(f, "ИГРОКИ НА СЕРВЕРЕ (нажми, чтобы скопировать)")
-  local plBox = I("Frame", { Size = UDim2.new(1, -8, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 }, f)
-  I("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, plBox)
-  local function refreshPlayers()
-    for _, c in ipairs(plBox:GetChildren()) do
-      if not c:IsA("UIListLayout") then c:Destroy() end
-    end
-    local k = 0
-    for _, p in ipairs(Players:GetPlayers()) do
-      if p ~= LP and k < 12 then
-        k = k + 1
-        newBtn(plBox, "👤 " .. p.DisplayName .. " (@" .. p.Name .. ")", C.bg2, function()
-          notify("⏳ Копирую " .. p.DisplayName .. "...", C.ac)
-          task.spawn(copyByNick, p.Name)
-        end, 32)
-      end
-    end
-    if k == 0 then newInfo(plBox, "  Других игроков на сервере нет.", 28) end
-  end
-  refreshPlayers()
-  newBtn(f, "🔄 Обновить список игроков", C.bg2, refreshPlayers, 32)
+  newInfo(f, "  Копирование аватара игроков теперь отдельный скрипт (Avatar Copier).", 30)
   newSec(f, "ВЫРАЖЕНИЕ ЛИЦА")
   local gr = newGrid(f, 3)
   for _, e in ipairs(EM) do
