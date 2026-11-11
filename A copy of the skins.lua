@@ -227,17 +227,10 @@ end
 --  АНИМАЦИИ: походка, бег, прыжок и т.д. из описания аватара
 -- ============================================================
 local function restartAnimate(ch, hum)
-  local anim = ch:FindFirstChild("Animate")
-  if hum then
-    pcall(function()
-      for _, t in ipairs(hum:GetPlayingAnimationTracks()) do t:Stop(0) end
-    end)
-  end
-  if anim and anim:IsA("LocalScript") then
-    pcall(function() anim.Disabled = true end)
-    task.wait()
-    pcall(function() anim.Disabled = false end)
-  end
+  -- Не останавливаем AnimationTrack и не выключаем Animate:
+  -- это прерывало ходьбу/бег при каждом обновлении внешности.
+  -- Новые AnimationId будут использованы системой Animate при следующем запуске трека.
+  return
 end
 
 -- возвращает, сколько анимаций заменено
@@ -886,8 +879,36 @@ local function equipItem(info)
   if S.worn[id] then return true, 0 end
   local ch, hum, root = getChar()
   if not (ch and hum and root) then return false, "нет твоего персонажа" end
-  local okL, m = pcall(function() return InsertService:LoadAsset(id) end)
-  if not okL or not m then return false, "не загрузился: " .. shortErr(m, 50) end
+  -- Сначала пробуем загрузить модель ассета. Для классической одежды это часто
+  -- запрещено InsertService, поэтому есть резервный путь через AssetTypeId.
+  local okL, loaded = pcall(function() return InsertService:LoadAsset(id) end)
+  local loadErr = not okL and loaded or nil
+  local m = (okL and loaded) or nil
+  local function hasClothing(container)
+    return container and (container:FindFirstChildWhichIsA("Shirt", true)
+      or container:FindFirstChildWhichIsA("Pants", true)
+      or container:FindFirstChildWhichIsA("ShirtGraphic", true)) ~= nil
+  end
+  if not hasClothing(m) then
+    local okInfo, product = pcall(function() return MarketplaceService:GetProductInfo(id) end)
+    local assetType = okInfo and product and tonumber(product.AssetTypeId) or nil
+    local className = ({ [2] = "ShirtGraphic", [11] = "Shirt", [12] = "Pants" })[assetType]
+    if className then
+      if m then pcall(function() m:Destroy() end) end
+      m = Instance.new("Folder")
+      local clothing = Instance.new(className)
+      local texture = "rbxassetid://" .. tostring(id)
+      if className == "Shirt" then
+        clothing.ShirtTemplate = texture
+      elseif className == "Pants" then
+        clothing.PantsTemplate = texture
+      else
+        clothing.Graphic = texture
+      end
+      clothing.Parent = m
+    end
+  end
+  if not m then return false, "не загрузился: " .. shortErr(loadErr or "тип ассета не поддерживается или доступ запрещён", 50) end
   local rec = { id = id, name = info.name or ("ID " .. id), parts = {}, undo = {}, watch = {} }
   local n = 0
   -- 1) аксессуары: шапки, волосы, крылья, детали
