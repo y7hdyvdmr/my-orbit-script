@@ -10,7 +10,7 @@
         твои R15-части скрываются, и вместо них показываются R6-части скина, прикреплённые к твоему скелету.
         Хитбокс и анимации остаются R15.
   v1.7: форма тела подгоняется вручную по эталонной модели (если масштаб Humanoid не сработал),
-        копируются анимации (походка, бег, прыжок, падение, лазание, плавание, idle).
+        сохраняются штатные анимации игры (без подмены AnimationId, чтобы ходьба не ломалась после прыжка).
   Что было в v1.6:
    - ник ищется через Roblox, списка игроков сервера больше нет;
    - по нику собирается полная модель игрока (Players:CreateHumanoidModelFromDescription),
@@ -40,7 +40,7 @@ local S = {
   stash = {},    -- твои вещи, убранные на время копии
   scales = {},   -- твои исходные значения масштаба
   applied = false, myDesc = nil, char = nil, busy = false,
-  optScale = true, optAnim = true, visualR6 = false, lastId = nil, snap = nil,
+  optScale = true, optAnim = false, visualR6 = false, lastId = nil, snap = nil,
   worn = {}, lastNick = nil,
 }
 local LOOK = { Shirt = true, Pants = true, ShirtGraphic = true, BodyColors = true, CharacterMesh = true }
@@ -227,44 +227,15 @@ end
 --  АНИМАЦИИ: походка, бег, прыжок и т.д. из описания аватара
 -- ============================================================
 local function restartAnimate(ch, hum)
-  -- Не останавливаем AnimationTrack и не выключаем Animate:
-  -- это прерывало ходьбу/бег при каждом обновлении внешности.
-  -- Новые AnimationId будут использованы системой Animate при следующем запуске трека.
+  -- Намеренно ничего не перезапускаем: принудительный Stop/Disable Animate
+  -- ломает переход Jump -> Freefall -> Running в некоторых играх.
   return
 end
 
--- возвращает, сколько анимаций заменено
+-- Не подменяем AnimationId у работающего Animate: Roblox кэширует AnimationTrack,
+-- из-за чего после прыжка может не запуститься WalkAnim. Оставляем штатные анимации игры.
 local function applyAnimations(ch, hum, desc)
-  local anim = ch:FindFirstChild("Animate")
-  if not anim then return 0 end
-  local olds, n = {}, 0
-  for _, slot in ipairs(ANIM_SLOTS) do
-    local okV, id = pcall(function() return desc[slot[1]] end)
-    if okV and type(id) == "number" and id ~= 0 then
-      local folder = anim:FindFirstChild(slot[2])
-      if folder then
-        local hit = false
-        for _, nm in ipairs(slot[3]) do
-          local a = folder:FindFirstChild(nm)
-          if a and a:IsA("Animation") then
-            olds[#olds + 1] = { a, a.AnimationId }
-            a.AnimationId = "http://www.roblox.com/asset/?id=" .. id
-            hit = true
-          end
-        end
-        if hit then n = n + 1 end
-      end
-    end
-  end
-  if n > 0 then
-    S.undo[#S.undo + 1] = function()
-      for _, o in ipairs(olds) do pcall(function() o[1].AnimationId = o[2] end) end
-      local c, h = getChar()
-      if c then restartAnimate(c, h) end
-    end
-    restartAnimate(ch, hum)
-  end
-  return n
+  return 0
 end
 
 -- ============================================================
@@ -563,12 +534,30 @@ local function copyFromModel(src, desc, full)
   return true, nil, stat
 end
 
+local function loadAssetModel(id)
+  local errors = {}
+  local ok, model = pcall(function() return InsertService:LoadAsset(id) end)
+  if ok and model then return model end
+  errors[#errors + 1] = shortErr(model or "InsertService недоступен", 55)
+
+  -- В некоторых клиентских окружениях LoadAsset запрещён, но GetObjects доступен.
+  local ok2, objects = pcall(function()
+    return game:GetObjects("rbxassetid://" .. tostring(id))
+  end)
+  if ok2 and type(objects) == "table" and objects[1] then
+    return objects[1]
+  end
+  errors[#errors + 1] = shortErr(objects or "GetObjects недоступен", 55)
+  return nil, table.concat(errors, "; ")
+end
+
 local function loadAssetItem(id, className)
-  local ok, m = pcall(function() return InsertService:LoadAsset(id) end)
-  if not ok or not m then return nil, shortErr(m, 50) end
-  local it = m:FindFirstChildWhichIsA(className, true)
+  local model, err = loadAssetModel(id)
+  if not model then return nil, err end
+  local it = model:FindFirstChildWhichIsA(className, true)
   local c = it and it:Clone() or nil
-  m:Destroy()
+  model:Destroy()
+  if not c then return nil, "в ассете нет объекта " .. tostring(className) end
   return c
 end
 
@@ -881,9 +870,7 @@ local function equipItem(info)
   if not (ch and hum and root) then return false, "нет твоего персонажа" end
   -- Сначала пробуем загрузить модель ассета. Для классической одежды это часто
   -- запрещено InsertService, поэтому есть резервный путь через AssetTypeId.
-  local okL, loaded = pcall(function() return InsertService:LoadAsset(id) end)
-  local loadErr = not okL and loaded or nil
-  local m = (okL and loaded) or nil
+  local m, loadErr = loadAssetModel(id)
   local function hasClothing(container)
     return container and (container:FindFirstChildWhichIsA("Shirt", true)
       or container:FindFirstChildWhichIsA("Pants", true)
@@ -908,7 +895,7 @@ local function equipItem(info)
       clothing.Parent = m
     end
   end
-  if not m then return false, "не загрузился: " .. shortErr(loadErr or "тип ассета не поддерживается или доступ запрещён", 50) end
+  if not m then return false, "не удалось загрузить ассет: " .. shortErr(loadErr or "нет доступа", 90) end
   local rec = { id = id, name = info.name or ("ID " .. id), parts = {}, undo = {}, watch = {} }
   local n = 0
   -- 1) аксессуары: шапки, волосы, крылья, детали
@@ -1432,14 +1419,14 @@ track(bVis.Activated:Connect(function()
   S.onOptsChanged()
   setStatus(S.visualR6 and "Визуальный R6 включён: применится к следующему копированию R6-скина" or "Визуальный R6 выключен", false)
 end))
-track(bAnim.Activated:Connect(function() S.optAnim = not S.optAnim S.onOptsChanged() end))
+track(bAnim.Activated:Connect(function() S.optAnim = false S.onOptsChanged() setStatus("Используются штатные анимации игры — это предотвращает сбой ходьбы после прыжка", false) end))
 track(bScale.Activated:Connect(function() S.optScale = not S.optScale S.onOptsChanged() end))
 -- кнопки-переключатели синхронизируются при загрузке сохранения
 local function syncToggles()
   bScale.Text = "Размер тела: " .. (S.optScale and "вкл" or "выкл")
   bScale.BackgroundColor3 = S.optScale and GREEN or BG2
-  bAnim.Text = "Анимации: " .. (S.optAnim and "вкл" or "выкл")
-  bAnim.BackgroundColor3 = S.optAnim and GREEN or BG2
+  bAnim.Text = "Анимации: штатные"
+  bAnim.BackgroundColor3 = BG2
   bVis.Text = "Визуальный R6: " .. (S.visualR6 and "вкл" or "выкл")
   bVis.BackgroundColor3 = S.visualR6 and GREEN or BG2
 end
