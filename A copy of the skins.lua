@@ -78,6 +78,7 @@ local ANIM_SLOTS = {
 }
 
 local setStatus -- объявлена заранее (окно ниже)
+local restoreAllSkinItems -- возврат временно снятых элементов скопированного скина
 
 local function getChar()
   local ch = LP.Character
@@ -253,6 +254,7 @@ end
 --  ВОЗВРАТ ТВОЕГО ВИДА
 -- ============================================================
 local function restoreOwn()
+  if restoreAllSkinItems then pcall(restoreAllSkinItems) end
   local ch, hum = getChar()
   for _, a in ipairs(S.acc) do pcall(function() a:Destroy() end) end
   for i = #S.undo, 1, -1 do pcall(S.undo[i]) end
@@ -1357,7 +1359,7 @@ end
 
 local gui = mk("ScreenGui", { Name = "RM_AvatarCopier", ResetOnSpawn = false, DisplayOrder = 999, IgnoreGuiInset = true }, guiParent())
 local main = mk("Frame", {
-  Size = UDim2.fromOffset(300, 360), Position = UDim2.new(.5, -150, .5, -180), BackgroundColor3 = BG, BorderSizePixel = 0,
+  Size = UDim2.fromOffset(300, 420), Position = UDim2.new(.5, -150, .5, -210), BackgroundColor3 = BG, BorderSizePixel = 0,
 }, gui)
 corner(main, 12)
 mk("UIStroke", { Color = ST, Thickness = 1.5 }, main)
@@ -1535,6 +1537,94 @@ local itNext = button("▶", ST, 128, 186, 40, 28, pgItems)
 local itClear = button("Снять всё", DG, 174, 186, 116, 28, pgItems)
 local itId = textBox(pgItems, 10, 218, 200, 28, "ID предмета или ссылка")
 local itIdGo = button("По ID", GREEN, 216, 218, 74, 28, pgItems)
+
+-- Переключатели внешности уже скопированного аватара.
+local skinControls = {
+  {"hair", "Волосы", 10, 250}, {"hat", "Шапка", 104, 250}, {"top", "Верх", 198, 250},
+  {"pants", "Штаны", 10, 278}, {"accessories", "Аксессуары", 104, 278},
+}
+for _, item in ipairs(skinControls) do
+  local b = button(item[2], BG2, item[3], item[4], 88, 24, pgItems)
+  track(b.Activated:Connect(function()
+    local count, restored = toggleSkinCategory(item[1])
+    if count == 0 then
+      setStatus("В этой категории ничего не найдено на скопированном скине", true)
+    else
+      setStatus((restored and "Возвращено: " or "Снято: ") .. item[2] .. " (" .. count .. ")", false)
+    end
+    b.Text = (skinHidden[item[1]] and "Вернуть " or "Снять ") .. item[2]:lower()
+  end))
+end
+local bRestoreSkinItems = button("Вернуть всё", GREEN, 198, 278, 92, 24, pgItems)
+track(bRestoreSkinItems.Activated:Connect(function()
+  local count = restoreAllSkinItems()
+  setStatus("Возвращено элементов скина: " .. count, false)
+  for _, item in ipairs(skinControls) do
+    -- Обновляем подписи после полного возврата.
+    for _, obj in ipairs(pgItems:GetChildren()) do
+      if obj:IsA("TextButton") and obj.Text:find(item[2], 1, true) then obj.Text = item[2] end
+    end
+  end
+end))
+
+-- ---------- быстрое управление одеждой скопированного скина ----------
+-- Объекты временно убираются из персонажа, но не уничтожаются: их можно вернуть кнопкой.
+local skinHidden = {}
+local function accessoryTypeName(obj)
+  local ok, value = pcall(function() return obj.AccessoryType end)
+  return ok and tostring(value) or ""
+end
+local function skinItemCategory(obj)
+  if obj:IsA("Shirt") or obj:IsA("ShirtGraphic") then return "top" end
+  if obj:IsA("Pants") then return "pants" end
+  if obj:IsA("Accessory") or obj:IsA("Accoutrement") then
+    local typ = accessoryTypeName(obj)
+    if typ:find("Hair", 1, true) then return "hair" end
+    if typ:find("Hat", 1, true) then return "hat" end
+    if typ:find("Jacket", 1, true) or typ:find("Sweater", 1, true)
+      or typ:find("Shirt", 1, true) or typ:find("TShirt", 1, true)
+      or typ:find("DressSkirt", 1, true) then return "top" end
+    if typ:find("Pants", 1, true) or typ:find("Shorts", 1, true)
+      or typ:find("Shoe", 1, true) then return "pants" end
+    return "accessories"
+  end
+  return nil
+end
+local function restoreSkinCategory(key)
+  local saved = skinHidden[key]
+  if not saved then return 0 end
+  local n = 0
+  for _, rec in ipairs(saved) do
+    if rec.object and rec.object.Parent == nil and rec.parent then
+      pcall(function() rec.object.Parent = rec.parent end)
+      n = n + 1
+    end
+  end
+  skinHidden[key] = nil
+  return n
+end
+local function toggleSkinCategory(key)
+  if skinHidden[key] then
+    return restoreSkinCategory(key), true
+  end
+  local ch = getChar()
+  if not ch then return 0, false end
+  local saved = {}
+  for _, obj in ipairs(ch:GetChildren()) do
+    if skinItemCategory(obj) == key and not obj:GetAttribute("RM_Worn") then
+      saved[#saved + 1] = { object = obj, parent = obj.Parent }
+    end
+  end
+  if #saved == 0 then return 0, false end
+  skinHidden[key] = saved
+  for _, rec in ipairs(saved) do pcall(function() rec.object.Parent = nil end) end
+  return #saved, false
+end
+restoreAllSkinItems = function()
+  local n = 0
+  for key in pairs(skinHidden) do n = n + restoreSkinCategory(key) end
+  return n
+end
 
 local chipBtns, itRows = {}, {}
 local function selectChip(key)
