@@ -868,57 +868,88 @@ local function equipItem(info)
   if S.worn[id] then return true, 0 end
   local ch, hum, root = getChar()
   if not (ch and hum and root) then return false, "нет твоего персонажа" end
-  -- Сначала пробуем загрузить модель ассета. Для классической одежды это часто
-  -- запрещено InsertService, поэтому есть резервный путь через AssetTypeId.
+
   local m, loadErr = loadAssetModel(id)
-  local function hasClothing(container)
-    return container and (container:FindFirstChildWhichIsA("Shirt", true)
-      or container:FindFirstChildWhichIsA("Pants", true)
-      or container:FindFirstChildWhichIsA("ShirtGraphic", true)) ~= nil
+  local okInfo, product = pcall(function()
+    return MarketplaceService:GetProductInfo(id)
+  end)
+  local assetType = okInfo and product and tonumber(product.AssetTypeId) or nil
+
+  local function findIncludingRoot(container, className)
+    if not container then return nil end
+    if container:IsA(className) then return container end
+    return container:FindFirstChildWhichIsA(className, true)
   end
-  if not hasClothing(m) then
-    local okInfo, product = pcall(function() return MarketplaceService:GetProductInfo(id) end)
-    local assetType = okInfo and product and tonumber(product.AssetTypeId) or nil
-    local className = ({ [2] = "ShirtGraphic", [11] = "Shirt", [12] = "Pants" })[assetType]
-    if className then
-      if m then pcall(function() m:Destroy() end) end
-      m = Instance.new("Folder")
-      local clothing = Instance.new(className)
-      local texture = "rbxassetid://" .. tostring(id)
-      if className == "Shirt" then
-        clothing.ShirtTemplate = texture
-      elseif className == "Pants" then
-        clothing.PantsTemplate = texture
-      else
-        clothing.Graphic = texture
-      end
-      clothing.Parent = m
+
+  -- Для классической одежды можно создать объект по типу каталога,
+  -- даже если Roblox не разрешил загрузить модель самого ассета.
+  local className = ({ [2] = "ShirtGraphic", [11] = "Shirt", [12] = "Pants" })[assetType]
+  if className and not (findIncludingRoot(m, "Shirt") or findIncludingRoot(m, "Pants")
+      or findIncludingRoot(m, "ShirtGraphic")) then
+    if m then pcall(function() m:Destroy() end) end
+    m = Instance.new("Folder")
+    local clothing = Instance.new(className)
+    -- Для classic clothing используется URL шаблона каталога, а не id самого объекта как rbxassetid.
+    local texture = "http://www.roblox.com/asset/?id=" .. tostring(id)
+    if className == "Shirt" then
+      clothing.ShirtTemplate = texture
+    elseif className == "Pants" then
+      clothing.PantsTemplate = texture
+    else
+      clothing.Graphic = texture
     end
+    clothing.Parent = m
   end
-  if not m then return false, "не удалось загрузить ассет: " .. shortErr(loadErr or "нет доступа", 90) end
+
+  if not m then
+    return false, "Roblox не дал загрузить предмет: " .. shortErr(loadErr or "нет доступа", 90)
+  end
+
   local rec = { id = id, name = info.name or ("ID " .. id), parts = {}, undo = {}, watch = {} }
   local n = 0
-  -- 1) аксессуары: шапки, волосы, крылья, детали
+  local seenAccessories = {}
+
+  -- Ищем аксессуары, включая случай, когда сам корневой объект является Accessory.
+  local accessories = {}
+  if m:IsA("Accoutrement") then accessories[#accessories + 1] = m end
   for _, a in ipairs(m:GetDescendants()) do
-    if a:IsA("Accoutrement") then
-      local c = a:Clone()
-      if c then
+    if a:IsA("Accoutrement") and not seenAccessories[a] then
+      seenAccessories[a] = true
+      accessories[#accessories + 1] = a
+    end
+  end
+
+  for _, a in ipairs(accessories) do
+    local c = a:Clone()
+    if c then
+      -- Layered Clothing содержит WrapLayer. Его нельзя собирать вручную обычной сваркой:
+      -- Humanoid:AddAccessory сохраняет штатную систему крепления/обёртки Roblox.
+      local layered = c:FindFirstChildWhichIsA("WrapLayer", true) ~= nil
+        or c:FindFirstChildWhichIsA("WrapTarget", true) ~= nil
+      local okA = pcall(function()
         scrub(c)
-        local okA = attachAccessory(c, ch, root)
-        if okA then
-          lightParts(c)
-          c:SetAttribute("RM_Worn", true)
-          rec.parts[#rec.parts + 1] = c
-          n = n + 1
+        if layered then
+          c.Parent = nil
+          hum:AddAccessory(c)
         else
-          c:Destroy()
+          local attached = attachAccessory(c, ch, root)
+          if not attached then error("не удалось прикрепить аксессуар") end
         end
+      end)
+      if okA and c.Parent == ch then
+        lightParts(c)
+        c:SetAttribute("RM_Worn", true)
+        rec.parts[#rec.parts + 1] = c
+        n = n + 1
+      else
+        pcall(function() c:Destroy() end)
       end
     end
   end
-  -- 2) классическая одежда: футболка, рубашка, штаны
+
+  -- Классическая одежда: также учитываем случай, когда объект одежды является корнем модели.
   for cls, field in pairs(CLOTH_FIELD) do
-    local it = m:FindFirstChildWhichIsA(cls, true)
+    local it = findIncludingRoot(m, cls)
     if it then
       local existing
       for _, d in ipairs(ch:GetChildren()) do
@@ -927,10 +958,12 @@ local function equipItem(info)
           break
         end
       end
-      if existing then -- такая вещь уже на тебе: подменяем картинку, вернём при снятии
+      if existing then
         local old = existing[field]
         existing[field] = it[field]
-        rec.undo[#rec.undo + 1] = function() existing[field] = old end
+        rec.undo[#rec.undo + 1] = function()
+          if existing.Parent then existing[field] = old end
+        end
         rec.watch[#rec.watch + 1] = existing
       else
         local c = it:Clone()
@@ -941,25 +974,35 @@ local function equipItem(info)
       n = n + 1
     end
   end
-  -- 3) классическое лицо
+
+  -- Лицо: некоторые загруженные face-ассеты сами являются Decal.
   if n == 0 then
-    local face = m:FindFirstChildWhichIsA("Decal", true)
+    local face = findIncludingRoot(m, "Decal")
     local head = ch:FindFirstChild("Head")
     local hd = head and head:FindFirstChildWhichIsA("Decal")
     if face and hd then
       local old = hd.Texture
       hd.Texture = face.Texture
-      rec.undo[#rec.undo + 1] = function() hd.Texture = old end
+      rec.undo[#rec.undo + 1] = function()
+        if hd.Parent then hd.Texture = old end
+      end
       rec.watch[#rec.watch + 1] = hd
       n = n + 1
     end
   end
+
   pcall(function() m:Destroy() end)
-  if n == 0 then return false, "в предмете нечего надеть (тип не поддерживается)" end
+  if n == 0 then
+    local layeredTypes = { [64] = true, [65] = true, [66] = true, [67] = true,
+      [68] = true, [69] = true, [70] = true, [71] = true, [72] = true }
+    if layeredTypes[assetType] then
+      return false, "это 3D-одежда, но Roblox не вернул её модель. Нужен доступ к ассету"
+    end
+    return false, "ассет загружен, но в нём нет поддерживаемого Accessory, Shirt, Pants или Decal"
+  end
   S.worn[id] = rec
   return true, n
 end
-
 -- после копирования/возврата вида Roblox мог убрать наши предметы: надеваем заново
 local function refreshWorn()
   local ch = LP.Character
