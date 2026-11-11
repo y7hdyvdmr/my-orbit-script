@@ -1682,14 +1682,75 @@ toggleItem = function(it)
   end)
 end
 
+-- Индивидуальное скрытие/возврат предметов, уже присутствующих на скопированном аватаре.
+local skinItemHidden = {}
 local function showWorn()
   CAT.view = "worn"
   selectChip("worn")
-  local list = {}
-  for id, rec in pairs(S.worn) do list[#list + 1] = { id = id, name = rec.name } end
-  table.sort(list, function(a, b) return a.id < b.id end)
-  renderItems(list, "Из каталога ничего не надето")
-  itPageLbl.Text = "надето: " .. #list
+  clearRows(itList)
+  itRows = {}
+  local ch = LP.Character
+  local entries, seen = {}, {}
+  if ch then
+    for _, obj in ipairs(ch:GetChildren()) do
+      if skinItemCategory(obj) and not obj:GetAttribute("RM_Worn") then
+        entries[#entries + 1] = { object = obj, name = obj.Name, hidden = false }
+        seen[obj] = true
+      end
+    end
+  end
+  for obj, rec in pairs(skinItemHidden) do
+    if rec and rec.parent and not seen[obj] then
+      entries[#entries + 1] = { object = obj, name = obj.Name, hidden = true }
+    end
+  end
+  -- Также показываем предметы, которые пользователь дополнительно надел из каталога.
+  for id, rec in pairs(S.worn) do
+    entries[#entries + 1] = { id = id, name = rec.name, catalog = true }
+  end
+  table.sort(entries, function(a, b) return a.name:lower() < b.name:lower() end)
+  if #entries == 0 then
+    emptyRow(itList, "На скопированном скине предметов не найдено")
+  else
+    for i, it in ipairs(entries) do
+      local row = mk("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = BG, BorderSizePixel = 0, LayoutOrder = i }, itList)
+      corner(row, 6)
+      mk("TextLabel", {
+        Size = UDim2.new(1, -76, 1, 0), Position = UDim2.fromOffset(6, 0), BackgroundTransparency = 1,
+        Text = it.name, TextColor3 = TX, Font = Enum.Font.Gotham, TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+      }, row)
+      local b = mk("TextButton", {
+        Size = UDim2.fromOffset(64, 24), Position = UDim2.new(1, -68, 0, 3),
+        BackgroundColor3 = it.hidden and GREEN or DG,
+        Text = it.catalog and "Снять" or (it.hidden and "Вернуть" or "Снять"),
+        TextColor3 = TX, Font = Enum.Font.GothamBold, TextSize = 11, AutoButtonColor = true,
+      }, row)
+      corner(b, 6)
+      b.Activated:Connect(function()
+        if it.catalog then
+          toggleItem(it)
+          task.delay(0.15, showWorn)
+          return
+        end
+        local obj = it.object
+        if it.hidden then
+          local rec = skinItemHidden[obj]
+          if rec and obj.Parent == nil then pcall(function() obj.Parent = rec.parent end) end
+          skinItemHidden[obj] = nil
+          setStatus("Возвращено: " .. it.name, false)
+        else
+          if obj and obj.Parent then
+            skinItemHidden[obj] = { parent = obj.Parent }
+            pcall(function() obj.Parent = nil end)
+            setStatus("Снято: " .. it.name, false)
+          end
+        end
+        showWorn()
+      end)
+    end
+  end
+  itPageLbl.Text = "на скине: " .. #entries
 end
 
 local function runSearch(catIndex)
