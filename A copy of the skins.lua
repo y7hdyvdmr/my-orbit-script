@@ -1539,12 +1539,15 @@ local itId = textBox(pgItems, 10, 218, 200, 28, "ID предмета или сс
 local itIdGo = button("По ID", GREEN, 216, 218, 74, 28, pgItems)
 
 -- Переключатели внешности уже скопированного аватара.
+-- Имена объявлены заранее: обработчики кнопок ниже вызываются позже, чем объявлены local-переменные ниже по тексту.
+local skinHidden, skinItemHidden, toggleSkinCategory, skinBtns = {}, {}, nil, {}
 local skinControls = {
   {"hair", "Волосы", 10, 250}, {"hat", "Шапка", 104, 250}, {"top", "Верх", 198, 250},
   {"pants", "Штаны", 10, 278}, {"accessories", "Аксессуары", 104, 278},
 }
 for _, item in ipairs(skinControls) do
   local b = button(item[2], BG2, item[3], item[4], 88, 24, pgItems)
+  skinBtns[#skinBtns + 1] = { btn = b, label = item[2] }
   track(b.Activated:Connect(function()
     local count, restored = toggleSkinCategory(item[1])
     if count == 0 then
@@ -1559,17 +1562,13 @@ local bRestoreSkinItems = button("Вернуть всё", GREEN, 198, 278, 92, 2
 track(bRestoreSkinItems.Activated:Connect(function()
   local count = restoreAllSkinItems()
   setStatus("Возвращено элементов скина: " .. count, false)
-  for _, item in ipairs(skinControls) do
-    -- Обновляем подписи после полного возврата.
-    for _, obj in ipairs(pgItems:GetChildren()) do
-      if obj:IsA("TextButton") and obj.Text:find(item[2], 1, true) then obj.Text = item[2] end
-    end
-  end
+  for _, sb in ipairs(skinBtns) do sb.btn.Text = sb.label end
+  itemsChanged()
 end))
 
 -- ---------- быстрое управление одеждой скопированного скина ----------
 -- Объекты временно убираются из персонажа, но не уничтожаются: их можно вернуть кнопкой.
-local skinHidden = {}
+skinHidden = {}
 local function accessoryTypeName(obj)
   local ok, value = pcall(function() return obj.AccessoryType end)
   return ok and tostring(value) or ""
@@ -1603,7 +1602,7 @@ local function restoreSkinCategory(key)
   skinHidden[key] = nil
   return n
 end
-local function toggleSkinCategory(key)
+toggleSkinCategory = function(key)
   if skinHidden[key] then
     return restoreSkinCategory(key), true
   end
@@ -1623,6 +1622,13 @@ end
 restoreAllSkinItems = function()
   local n = 0
   for key in pairs(skinHidden) do n = n + restoreSkinCategory(key) end
+  for obj, rec in pairs(skinItemHidden) do
+    if rec and rec.parent and obj.Parent == nil then
+      local okP = pcall(function() obj.Parent = rec.parent end)
+      if okP and obj.Parent then n = n + 1 end
+    end
+  end
+  skinItemHidden = {}
   return n
 end
 
@@ -1683,7 +1689,7 @@ toggleItem = function(it)
 end
 
 -- Индивидуальное скрытие/возврат предметов, уже присутствующих на скопированном аватаре.
-local skinItemHidden = {}
+skinItemHidden = {}
 local function showWorn()
   CAT.view = "worn"
   selectChip("worn")
@@ -1937,7 +1943,7 @@ local minimized = false
 track(btnMin.Activated:Connect(function()
   minimized = not minimized
   body.Visible = not minimized
-  main.Size = minimized and UDim2.fromOffset(300, 36) or UDim2.fromOffset(300, 360)
+  main.Size = minimized and UDim2.fromOffset(300, 36) or UDim2.fromOffset(300, 420)
 end))
 local function destroy()
   for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
