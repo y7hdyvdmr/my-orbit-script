@@ -1,9 +1,9 @@
--- Rick & Morty Toolkit v5.0 — ЗАГРУЗЧИК
+-- Rick & Morty Ultimate v6 — ЗАГРУЗЧИК
 -- Сам ничего не умеет: по очереди скачивает части с GitHub, компилирует и запускает.
--- Часть 1 (ядро, интерфейс, порталы, предметы) → потом часть 2 (вкладки, главный цикл).
+-- Часть 1 (ядро, интерфейс, порталы, предметы, мир) → потом часть 2 (скины v5, пушки v5, меню v5, запуск).
 
 local BASE = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
-local PARTS = { "rickmorty_part1.lua", "rickmorty_part2.lua" }
+local PARTS = { "RickMorty_Part1.min.lua", "RickMorty_Part2.min.lua" }
 
 local function fetch(file)
     local ok, src = pcall(function()
