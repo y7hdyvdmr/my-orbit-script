@@ -1,3553 +1,3922 @@
--- ============================================================
---  Rick & Morty Toolkit v5.0 (standalone, один файл)
---  v5.0: новые порталы, 3 новые пушки с анимацией выстрела, новые предметы
---  (генератор Мисиксов, шлем Рика, энергощит), надёжная выгрузка, проверка настроек
---  Скины на Motor6D, мимика, движения, портальная пушка,
---  большие порталы с мгновенным касанием, замораживатель времени,
---  ящик Мисиксов, батарея микровселенной, космический крейсер,
---  эффект перехода между измерениями. Без 18+.
---  Всё создаётся локально: видишь только ты.
--- ============================================================
-local G = rawget(_G, "getgenv") and getgenv() or _G
-if G.RickMorty and G.RickMorty.unload then pcall(G.RickMorty.unload) end
-local RM = { _version = "5.0" }
-local TK = {} -- общее хранилище функций и состояния (все части скрипта работают через него)
-G.RickMorty = RM
-
-TK.Players = game:GetService("Players")
-TK.RunService = game:GetService("RunService")
-TK.TweenService = game:GetService("TweenService")
-TK.UIS = game:GetService("UserInputService")
-TK.HttpService = game:GetService("HttpService")
-TK.Workspace = game:GetService("Workspace")
-TK.SoundService = game:GetService("SoundService")
-TK.Lighting = game:GetService("Lighting")
-TK.LP = TK.Players.LocalPlayer
-TK.PlayerGui = TK.LP:WaitForChild("PlayerGui")
-TK.V3, TK.RGB = Vector3.new, Color3.fromRGB
-TK.WHITE, TK.BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
-
-TK.conns = {}
-function TK.track(c) TK.conns[#TK.conns + 1] = c return c end
-TK.X, TK.ITM, TK.DYING, TK.DEAD = {}, {}, {}, false -- X: мелкое состояние v5; ITM: новые предметы; DYING: закрывающиеся порталы
-TK.fxFolder = Instance.new("Folder") -- все временные эффекты лежат тут и чистятся при выгрузке
-TK.fxFolder.Name = "RM_Fx"
-TK.fxFolder.Parent = TK.Workspace
-
--- общее состояние
-TK.RIG, TK.HOLDING, TK.RIDING, TK.EMOTE = nil, false, false, nil
-TK.ITEM_ACT, TK.heldTool, TK.heldDef, TK.gripW, TK.gripC, TK.batLabel = nil, nil, nil, nil, nil, nil
-TK.PA, TK.PB, TK.tpCd = nil, nil, 0
-TK.ship, TK.helpers, TK.zones = nil, {}, {}
-TK.TIMESTOP_UNTIL, TK.TS_CD, TK.BAT, TK.inZone = 0, 0, 100, false
-TK.rideKeys = { up = false, down = false }
-TK.PORTAL_LIFE = 60
-TK.CB = {} -- боевой модуль (заполняется ниже)
-TK.SH = { fireCd = 0, hyperCd = 0, side = 1, held = false } -- функции и состояние крейсера
-TK.PORTAL_R = 6 -- радиус портала в стадах (диаметр 12)
-TK.detachHand, TK.attachHand, TK.refreshGrip, TK.board, TK.dismount, TK.giveItem = nil, nil, nil, nil, nil, nil  -- объявлены заранее
-
-function TK.copy(t)
-  local n = {}
-  for k, v in pairs(t) do n[k] = v end
-  return n
-end
-function TK.getChar()
-  local ch = TK.LP.Character
-  return ch, ch and ch:FindFirstChildOfClass("Humanoid"), ch and ch:FindFirstChild("HumanoidRootPart")
-end
-
--- ============================================================
---  НАСТРОЙКИ (сохраняются в файл, если executor умеет writefile)
--- ============================================================
-TK.HAS_FS = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
-TK.FILE = "rickmorty_v40.json"
-TK.ST = {
-  SoundEnabled = true, NotificationsEnabled = true, NotifDuration = 2, MenuKey = "RightShift",
-  PortalColor = { R = 50, G = 255, B = 50 }, ActiveSkin = "", AimSize = 64, Emotion = "normal", DimFx = true,
-  ShipSpeed = 150, AttackPlayers = true,
+-- Rick & Morty Ultimate v6 — ЧАСТЬ 1 (ядро, меню, гаджеты). Загружается первой.
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
+local HttpService = game:GetService("HttpService")
+local CAS = game:GetService("ContextActionService")
+local Stats = game:GetService("Stats")
+local ScriptContext = game:GetService("ScriptContext")
+local GuiService = game:GetService("GuiService")
+local LP = Players.LocalPlayer
+local V3, CF, RGB = Vector3.new, CFrame.new, Color3.fromRGB
+local ANG = CFrame.Angles
+local pi, rad, sin, cos, abs, floor, max, min, sqrt = math.pi, math.rad, math.sin, math.cos, math.abs, math.floor, math.max, math.min, math.sqrt
+if _G.RM_V6 and _G.RM_V6.unload then pcall(_G.RM_V6.unload) end
+local RM = { ver = "6.0.0", ticks = {}, rticks = {}, cleanups = {}, conns = {}, ents = {}, health = {}, errors = {}, charHooks = {}, dead = false }
+_G.RM_V6 = RM
+local CFG = {
+energy = { max = 100, regen = 3, low = 25, crit = 10 },
+cost = { portal = 8, coord = 12, time = 10, shield = 6, hyper = 25, scan = 3, echo = 10, holo = 6, npc = 4,
+robot = 6, meeseeks = 8, drone = 5, zone = 10, dome = 18, shrink = 4, fire = 1.5, freeze = 12, gen = 0 },
+drain = { jet = 7, ship = 3, drone = 3, shield = 2.2, dome = 2, robot = .25, holo = .6, zone = .8, grav = 1.5, arm = 1.5, helmet = .4 },
+limit = { robots = 6, meeseeks = 4, drones = 1, echo = 4, holo = 4, npcs = 10, dummies = 6, zones = 3, domes = 1,
+gens = 2, slots = 5, coords = 30, routes = 10, builds = 10, props = 18, log = 100 },
+portal = { r = 6, life = 60, range = 400, cd = .8 },
+ship = { vmin = 50, vmax = 1000, hyper = 300, hyperCd = 8, fireCd = .22 },
+jet = { fuel = 100, burn = 28, regen = 18, speed = 70, fly = 55 },
+drone = { range = 160, time = 90, speed = 60 },
+shield = { time = 8, cd = 12, hp = 120 },
+dome = { time = 30, hp = 300, r = 24 },
+holo = { time = 120 },
+scan = { r = 90, cd = 1.5 },
+gravity = { maxMass = 400, hold = 2 },
+freeze = { time = 4, r = 70 },
+battery = { zone = 15, cost = 25 },
 }
-RM.SETTINGS = TK.ST
-function TK.save()
-  if TK.HAS_FS then pcall(writefile, TK.FILE, TK.HttpService:JSONEncode(TK.ST)) end
-end
-TK.DEFAULTS = TK.copy(TK.ST)
-TK.DEFAULTS.PortalColor = TK.copy(TK.ST.PortalColor)
-function TK.validSetting(k, v) -- nil = значение не подходит, оставляем по умолчанию
-  local dv = TK.DEFAULTS[k]
-  if dv == nil or type(v) ~= type(dv) then return nil end
-  if type(v) == "number" then
-    if v ~= v or v == math.huge or v == -math.huge then return nil end
-    if k == "AimSize" then return math.clamp(v, 24, 200) end
-    if k == "NotifDuration" then return math.clamp(v, .5, 10) end
-    if k == "ShipSpeed" then return math.clamp(v, 50, 1000) end
-    return v
-  elseif type(v) == "table" then
-    if k ~= "PortalColor" then return nil end
-    local r, g, b = tonumber(v.R), tonumber(v.G), tonumber(v.B)
-    if not (r and g and b) then return nil end
-    return { R = math.clamp(math.floor(r), 0, 255), G = math.clamp(math.floor(g), 0, 255), B = math.clamp(math.floor(b), 0, 255) }
-  elseif type(v) == "string" then
-    if #v > 40 then return nil end
-  end
-  return v
-end
-function TK.resetSettings()
-  for k, v in pairs(TK.DEFAULTS) do
-    TK.ST[k] = type(v) == "table" and TK.copy(v) or v
-  end
-end
-if TK.HAS_FS then
-  pcall(function()
-    if isfile(TK.FILE) then
-      local d = TK.HttpService:JSONDecode(readfile(TK.FILE))
-      if type(d) == "table" then
-        for k, v in pairs(d) do
-          local ok = TK.validSetting(k, v)
-          if ok ~= nil then TK.ST[k] = ok end
-        end
-      end
-    end
-  end)
-end
-
--- ============================================================
---  ЗВУКИ
--- ============================================================
-TK.sfx = Instance.new("Folder")
-TK.sfx.Name = "RM_Sfx"
-TK.sfx.Parent = TK.SoundService
-TK.SFX = {
-  shoot = "rbxassetid://12221967", click = "rbxasset://sounds/button.wav",
-  notify = "rbxasset://sounds/electronicpingshort.wav", teleport = "rbxassetid://3314038600",
+local DEF = {
+sound = true, master = .8, sfx = .8, ui = .6, notif = true, notifTime = 2.5, menuKey = "RightShift",
+portalColor = 1, aim = 64, dimfx = true, shipSpeed = 150, quality = "MEDIUM", uiScale = 1, mobScale = 1,
+sens = 1, skin = "", emotion = "normal", dim = "C137", gravDist = 18, gravForce = 1, armLen = 26, radarR = 120,
+hudShip = true, hostile = true,
 }
-TK.SFX_ALIAS = { -- новые звуки = существующие с другим тоном
-  open = { "teleport", 1.25 }, close = { "teleport", .75 }, pop = { "click", 1.7 }, vanish = { "teleport", 1.6 },
-  equip = { "click", .85 },
+local RANGE = {
+master = { 0, 1 }, sfx = { 0, 1 }, ui = { 0, 1 }, notifTime = { .5, 10 }, aim = { 24, 200 }, shipSpeed = { 50, 1000 },
+uiScale = { .6, 1.6 }, mobScale = { .7, 1.6 }, sens = { .3, 2.5 }, gravDist = { 6, 60 }, gravForce = { .2, 3 },
+armLen = { 10, 60 }, radarR = { 40, 300 }, portalColor = { 1, 8 },
 }
-function TK.snd(name, vol, pitch)
-  if not TK.ST.SoundEnabled or TK.DEAD then return end
-  local id = TK.SFX[name]
-  if not id and TK.SFX_ALIAS[name] then
-    id = TK.SFX[TK.SFX_ALIAS[name][1]]
-    pitch = (pitch or 1) * TK.SFX_ALIAS[name][2]
-  end
-  if not id then return end
-  pcall(function()
-    local s = Instance.new("Sound")
-    s.SoundId = id
-    s.Volume = vol or .5
-    s.PlaybackSpeed = pitch or 1
-    s.Parent = TK.sfx
-    s:Play()
-    task.delay(4, function() s:Destroy() end)
-  end)
+local function copy(t)
+if type(t) ~= "table" then return t end
+local o = {}
+for k, v in pairs(t) do o[k] = copy(v) end
+return o
 end
-
--- ============================================================
---  UI: ХЕЛПЕРЫ И ЦВЕТА
--- ============================================================
-TK.C = {
-  bg = TK.RGB(18, 14, 28), bg2 = TK.RGB(28, 22, 42), ac = TK.RGB(100, 255, 140), ac2 = TK.RGB(150, 90, 255),
-  ac3 = TK.RGB(120, 220, 255), tx = TK.RGB(240, 235, 255), dim = TK.RGB(150, 140, 180),
-  dg = TK.RGB(255, 100, 120), ok = TK.RGB(120, 255, 160), st = TK.RGB(120, 90, 220),
+local SAVE = {
+v = 1, set = copy(DEF), animIds = {}, mobPos = {}, coords = {}, slots = {}, routes = {}, builds = {},
+comps = {}, exp = {}, log = {}, unl = {},
 }
-function TK.I(class, props, parent)
-  local o = Instance.new(class)
-  for k, v in pairs(props) do o[k] = v end
-  o.Parent = parent
-  return o
+local ST = SAVE.set
+local function isnum(x) return type(x) == "number" and x == x and x ~= math.huge and x ~= -math.huge end
+local function clamp(x, a, b) return max(a, min(b, x)) end
+local function lerp(a, b, t) return a + (b - a) * t end
+local function cleanSetting(k, v)
+local d = DEF[k]
+if d == nil or type(v) ~= type(d) then return nil end
+if type(v) == "number" then
+if not isnum(v) then return nil end
+local r = RANGE[k]
+if r then v = clamp(v, r[1], r[2]) end
+if k == "portalColor" then v = floor(v) end
+elseif type(v) == "string" then
+if #v > 40 then return nil end
+if k == "quality" and v ~= "LOW" and v ~= "MEDIUM" and v ~= "HIGH" then return nil end
 end
-function TK.cr(o, r) return TK.I("UICorner", { CornerRadius = UDim.new(0, r) }, o) end
-function TK.sk(o, col, th, tr) return TK.I("UIStroke", { Color = col, Thickness = th, Transparency = tr }, o) end
-
-function TK.safeParent()
-  local f = rawget(G, "gethui")
-  if type(f) == "function" then
-    local ok, h = pcall(f)
-    if ok and h then return h end
-  end
-  local ok, cg = pcall(function() return game:GetService("CoreGui") end)
-  if ok and cg then return cg end
-  return TK.PlayerGui
+return v
 end
-
-TK.gui = TK.I("ScreenGui", {
-  Name = "_RM_" .. math.random(100000, 999999), ResetOnSpawn = false, IgnoreGuiInset = true,
-  DisplayOrder = 65, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-})
+local function str(s, n) return (tostring(s or ""):gsub("[%c]", " "):sub(1, n or 40)) end
+local function cleanList(src, maxN, fn)
+local out = {}
+if type(src) ~= "table" then return out end
+for _, e in ipairs(src) do
+if #out >= maxN then break end
+local c = type(e) == "table" and fn(e) or nil
+if c then out[#out + 1] = c end
+end
+return out
+end
+local function v3t(t) -- {x,y,z}
+if type(t) ~= "table" or not (isnum(t.x) and isnum(t.y) and isnum(t.z)) then return nil end
+return { x = clamp(t.x, -1e5, 1e5), y = clamp(t.y, -1e5, 1e5), z = clamp(t.z, -1e5, 1e5) }
+end
+function RM.sanitize(d)
+if type(d) ~= "table" then return nil end
+local n = { v = 1, set = copy(DEF), animIds = {}, mobPos = {}, comps = {}, exp = {}, unl = {} }
+if type(d.set) == "table" then
+for k, v in pairs(d.set) do
+local c = cleanSetting(k, v)
+if c ~= nil then n.set[k] = c end
+end
+end
+if type(d.animIds) == "table" then
+for k, v in pairs(d.animIds) do
+if type(k) == "string" and #k < 30 and type(v) == "string" and v:match("^%d+$") and #v < 20 then n.animIds[k] = v end
+end
+end
+if type(d.mobPos) == "table" then
+for k, v in pairs(d.mobPos) do
+if type(k) == "string" and #k < 30 and type(v) == "table" and isnum(v[1]) and isnum(v[2]) then
+n.mobPos[k] = { clamp(v[1], 0, 1), clamp(v[2], 0, 1) }
+end
+end
+end
+n.coords = cleanList(d.coords, CFG.limit.coords, function(e)
+local p = v3t(e.p)
+if not (p and type(e.name) == "string") then return nil end
+return { name = str(e.name), p = p, ry = isnum(e.ry) and e.ry or 0, fav = e.fav == true }
+end)
+n.slots = cleanList(d.slots, CFG.limit.slots, function(e)
+local p = v3t(e.p)
+if not (p and type(e.name) == "string") then return nil end
+return { name = str(e.name), p = p, ry = isnum(e.ry) and e.ry or 0, mode = str(e.mode, 12), size = isnum(e.size) and clamp(e.size, .1, 1) or 1 }
+end)
+n.routes = cleanList(d.routes, CFG.limit.routes, function(e)
+if type(e.name) ~= "string" or type(e.pts) ~= "table" then return nil end
+local pts = {}
+for _, p in ipairs(e.pts) do
+local c = v3t(p)
+if c and #pts < 300 then pts[#pts + 1] = c end
+end
+if #pts < 2 then return nil end
+return { name = str(e.name), pts = pts }
+end)
+n.builds = cleanList(d.builds, CFG.limit.builds, function(e)
+if type(e.name) ~= "string" or type(e.comps) ~= "table" then return nil end
+local cs = {}
+for _, c in ipairs(e.comps) do
+if type(c) == "string" and #c < 20 and #cs < 8 then cs[#cs + 1] = c end
+end
+return { name = str(e.name), comps = cs, kind = str(e.kind, 12) }
+end)
+if type(d.comps) == "table" then
+for k, v in pairs(d.comps) do
+if type(k) == "string" and #k < 20 and isnum(v) then n.comps[k] = clamp(floor(v), 0, 99) end
+end
+end
+if type(d.exp) == "table" then
+for k, v in pairs(d.exp) do
+if type(k) == "string" and #k < 30 and type(v) == "table" then
+n.exp[k] = { p = isnum(v.p) and clamp(v.p, 0, 1e7) or 0, done = v.done == true }
+end
+end
+end
+if type(d.unl) == "table" then
+for k, v in pairs(d.unl) do
+if type(k) == "string" and #k < 30 and v == true then n.unl[k] = true end
+end
+end
+n.log = cleanList(d.log, CFG.limit.log, function(e)
+if type(e.id) ~= "string" or #e.id > 30 then return nil end
+return { id = e.id, name = str(e.name), t = isnum(e.t) and e.t or 0 }
+end)
+return n
+end
+function RM.export()
+return HttpService:JSONEncode(SAVE)
+end
+function RM.import(text)
+if type(text) ~= "string" or #text < 2 or #text > 200000 then return false, "пустой или слишком длинный код" end
+local ok, d = pcall(function() return HttpService:JSONDecode(text) end)
+if not ok then return false, "это не код сохранения" end
+local n = RM.sanitize(d)
+if not n then return false, "неверный формат" end
+for k in pairs(SAVE) do SAVE[k] = nil end
+for k, v in pairs(n) do SAVE[k] = v end
+ST = SAVE.set
+if RM.onImport then pcall(RM.onImport) end
+return true
+end
+function RM.resetSettings()
+for k in pairs(ST) do ST[k] = nil end
+for k, v in pairs(DEF) do ST[k] = v end
+SAVE.animIds, SAVE.mobPos = {}, {}
+end
+local function I(class: string, props: { [string]: any }?, parent: Instance?): any
+local o: any = Instance.new(class :: any)
+if props then
+for k, v in pairs(props) do o[k] = v end
+end
+if parent then o.Parent = parent end
+return o
+end
+local function tw(o, t, goal, style, dir)
+local tween = TweenService:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), goal)
+tween:Play()
+return tween
+end
+local function conn(c)
+RM.conns[#RM.conns + 1] = c
+return c
+end
+local function later(t, f)
+task.delay(t, function()
+if not RM.dead then f() end
+end)
+end
+local function safe(name, f, ...)
+local ok, e = pcall(f, ...)
+if not ok then
+RM.errors[#RM.errors + 1] = os.date("%H:%M:%S") .. " " .. tostring(name) .. ": " .. str(e, 160)
+if #RM.errors > 40 then table.remove(RM.errors, 1) end
+warn("[RM6] " .. tostring(name) .. ": " .. tostring(e))
+end
+return ok
+end
+local function getChar(): (any, any, any)
+local c = LP.Character
+local h = c and c:FindFirstChildOfClass("Humanoid")
+local r = c and (c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart)
+return c, h, r
+end
+local function cam(): any return Workspace.CurrentCamera end
+local function notify(text, color, dur)
+if RM.toast then RM.toast(text, color, dur) else print("[RM6] " .. tostring(text)) end
+end
+local WORLD = I("Folder", { Name = "RM_Local" }, Workspace)
+local function folder(name) return I("Folder", { Name = name }, WORLD) end
+local FX = folder("Fx")
+RM.cleanups[#RM.cleanups + 1] = function() WORLD:Destroy() end
+local SFX = {
+shoot = "rbxassetid://12221967", click = "rbxasset://sounds/button.wav",
+notify = "rbxasset://sounds/electronicpingshort.wav", teleport = "rbxassetid://3314038600",
+}
+local SFXCAT = {
+portal = { "teleport", 1.3, .5 }, tp = { "teleport", 1, .6 }, ship = { "shoot", .6, .5 }, engine = { "shoot", .4, .3 },
+robot = { "click", .7, .6 }, gadget = { "click", .9, .6 }, energy = { "notify", .7, .5 }, shield = { "teleport", 1.7, .4 },
+holo = { "notify", 1.4, .5 }, comp = { "notify", 1.1, .5 }, ui = { "click", 1.2, .4 }, notif = { "notify", 1, .5 },
+exp = { "teleport", .8, .5 }, shoot = { "shoot", 1, .6 },
+}
+local GRP = I("SoundGroup", { Name = "RM_Master" }, SoundService)
+local GSFX = I("SoundGroup", { Name = "RM_Sfx" }, GRP)
+local GUI_ = I("SoundGroup", { Name = "RM_Ui" }, GRP)
+RM.cleanups[#RM.cleanups + 1] = function() GRP:Destroy() end
+function RM.applyVolume()
+GRP.Volume = ST.sound and ST.master or 0
+GSFX.Volume = ST.sfx
+GUI_.Volume = ST.ui
+end
+RM.applyVolume()
+local function snd(cat, vol, pitch)
+if RM.dead or not ST.sound then return end
+local c = SFXCAT[cat] or SFXCAT.ui
+local id = SFX[c[1]]
+if not id then return end
+pcall(function()
+local s = I("Sound", { SoundId = id, Volume = (vol or 1) * c[3], PlaybackSpeed = (pitch or 1) * c[2] })
+s.SoundGroup = (cat == "ui" or cat == "notif") and GUI_ or GSFX
+s.Parent = FX
+s:Play()
+task.delay(4, function() s:Destroy() end)
+end)
+end
+local QP = {
+LOW = { pr = .25, lights = false, rings = 8, fxdur = .5, hl = 6, hz = .2, trail = false, fx = false },
+MEDIUM = { pr = .6, lights = true, rings = 14, fxdur = 1, hl = 14, hz = .1, trail = true, fx = true },
+HIGH = { pr = 1, lights = true, rings = 20, fxdur = 1.4, hl = 30, hz = .05, trail = true, fx = true },
+}
+local function Q() return QP[ST.quality] or QP.MEDIUM end
+RM.onQuality = {}
+function RM.setQuality(name)
+if not QP[name] then return end
+ST.quality = name
+for _, f in ipairs(RM.onQuality) do pcall(f, QP[name]) end
+end
+local MODE = { cur = "normal", who = nil }
+local function enterMode(mode, who)
+if MODE.cur ~= "normal" then return false, "сначала выйди из режима: " .. MODE.cur end
+MODE.cur, MODE.who = mode, who
+return true
+end
+local function leaveMode(who)
+if MODE.who == who then MODE.cur, MODE.who = "normal", nil end
+end
+local EN = { v = CFG.energy.max, max = CFG.energy.max, drains = {}, bonus = {}, lowAt = 0, critAt = 0, shown = 0 }
+function EN.use(cost, why)
+cost = cost or 0
+if EN.v >= cost then
+EN.v = EN.v - cost
+return true
+end
+notify("⚡ Не хватает энергии" .. (why and (": " .. why) or "") .. " (" .. floor(EN.v) .. "/" .. floor(cost) .. ")", RGB(255, 190, 70), 2)
+return false
+end
+function EN.add(a) EN.v = clamp(EN.v + a, 0, EN.max) end
+function EN.drain(key, rate, onEmpty) EN.drains[key] = { rate = rate, fn = onEmpty } end
+function EN.stop(key) EN.drains[key] = nil end
+function EN.total()
+local d = 0
+for _, e in pairs(EN.drains) do d = d + e.rate end
+return d
+end
+function EN.regen()
+local r = CFG.energy.regen
+for _, b in pairs(EN.bonus) do r = r + b end
+return r
+end
+function EN.tick(dt)
+local net = EN.regen() - EN.total()
+EN.v = clamp(EN.v + net * dt, 0, EN.max)
+if EN.v <= 0 then
+for k, e in pairs(EN.drains) do
+EN.drains[k] = nil
+if e.fn then safe("энергия:" .. k, e.fn) end
+end
+if os.clock() - EN.critAt > 12 then
+EN.critAt = os.clock()
+notify("🪫 Энергия закончилась: устройства отключены", RGB(255, 90, 90), 3)
+snd("energy", 1, .6)
+end
+elseif EN.v < CFG.energy.crit and os.clock() - EN.critAt > 15 then
+EN.critAt = os.clock()
+notify("🔴 Критически низкий заряд", RGB(255, 90, 90), 2.5)
+elseif EN.v < CFG.energy.low and os.clock() - EN.lowAt > 20 then
+EN.lowAt = os.clock()
+notify("🟡 Низкий заряд энергии", RGB(255, 210, 80), 2.5)
+end
+end
+local function entList(kind)
+local l = RM.ents[kind]
+if not l then
+l = {}
+RM.ents[kind] = l
+end
+return l
+end
+local function entCount(kind) return #entList(kind) end
+local function entAdd(kind, e)
+local l = entList(kind)
+l[#l + 1] = e
+return e
+end
+local function entDel(kind, e)
+local l = entList(kind)
+for i = #l, 1, -1 do
+if l[i] == e then table.remove(l, i) end
+end
+end
+local function entClear(kind)
+local l = entList(kind)
+for i = #l, 1, -1 do
+local e = l[i]
+table.remove(l, i)
+if e.destroy then safe("clear:" .. kind, e.destroy, e) end
+end
+end
+local function canAdd(kind, limit)
+if entCount(kind) >= limit then
+notify("Лимит: не больше " .. limit .. " (" .. kind .. ")", RGB(255, 190, 70), 2)
+return false
+end
+return true
+end
+local function dismiss(o: any) if o and o.Parent then o:Destroy() end end
+local function ignoreList()
+local l = { WORLD }
+if LP.Character then l[#l + 1] = LP.Character end
+return l
+end
+local function ray(origin, dir, ign, water)
+local p = RaycastParams.new()
+p.FilterType = Enum.RaycastFilterType.Exclude
+p.FilterDescendantsInstances = ign or ignoreList()
+p.IgnoreWater = not water
+return Workspace:Raycast(origin, dir, p)
+end
+local function groundAt(pos, up)
+local r = ray(pos + V3(0, up or 6, 0), V3(0, -(up or 6) - 400, 0))
+return r and r.Position or nil
+end
+local function spaceFree(cf, size)
+local p = OverlapParams.new()
+p.FilterType = Enum.RaycastFilterType.Exclude
+p.FilterDescendantsInstances = ignoreList()
+for _, part in ipairs(Workspace:GetPartBoundsInBox(cf, size or V3(3, 5, 3), p)) do
+if part.CanCollide and part.Transparency < 1 then return false end
+end
+return true
+end
+local function safeSpot(pos)
+local floorHit = groundAt(pos, 8)
+if not floorHit then return nil, "под точкой нет земли (пустота)" end
+for _, off in ipairs({ V3(0, 3.5, 0), V3(0, 6, 0), V3(3, 3.5, 0), V3(-3, 3.5, 0), V3(0, 3.5, 3), V3(0, 3.5, -3), V3(0, 10, 0) }) do
+local p = pos + off
+if spaceFree(CF(p), V3(3, 5, 3)) then return p end
+end
+return nil, "точка внутри объекта или стены"
+end
+local function setPivot(cf)
+local c, _, r = getChar()
+if not (c and r) then return false end
+pcall(function() c:PivotTo(cf) end)
+if r then
+r.AssemblyLinearVelocity = V3()
+r.AssemblyAngularVelocity = V3()
+end
+return true
+end
+local function parts(model: any): any
+local out = {}
+for _, d in ipairs(model:GetDescendants()) do
+if d:IsA("BasePart") then out[#out + 1] = d end
+end
+return out
+end
+local function weld(a, b, parent)
+return I("WeldConstraint", { Part0 = a, Part1 = b }, parent or a)
+end
+local function formatTime(s)
+s = floor(s)
+return string.format("%d:%02d", floor(s / 60), s % 60)
+end
+local CC = I("ColorCorrectionEffect", { Name = "RM_CC", Enabled = false }, Lighting)
+local BLOOM = I("BloomEffect", { Name = "RM_Bloom", Enabled = false, Intensity = 0, Size = 24, Threshold = 1 }, Lighting)
+RM.cleanups[#RM.cleanups + 1] = function()
+CC:Destroy()
+BLOOM:Destroy()
+end
+local PCOL = {
+{ "🟢 Зелёный", RGB(50, 255, 50) }, { "🔵 Синий", RGB(50, 150, 255) }, { "🟣 Фиолет", RGB(180, 50, 255) },
+{ "🟡 Жёлтый", RGB(255, 220, 50) }, { "🔴 Красный", RGB(255, 60, 60) }, { "🟠 Оранж", RGB(255, 140, 40) },
+{ "🩵 Бирюза", RGB(40, 240, 220) }, { "🩷 Розовый", RGB(255, 100, 200) },
+}
+local function pcol() return PCOL[clamp(floor(ST.portalColor), 1, #PCOL)][2] end
+RM.H = {
+I = I, tw = tw, conn = conn, later = later, safe = safe, getChar = getChar, cam = cam, notify = notify, snd = snd,
+EN = EN, MODE = MODE, ST = ST, SAVE = SAVE, CFG = CFG, Q = Q, QP = QP, entAdd = entAdd, entDel = entDel, entCount = entCount,
+entList = entList, entClear = entClear, canAdd = canAdd, ray = ray, groundAt = groundAt, spaceFree = spaceFree, safeSpot = safeSpot,
+setPivot = setPivot, parts = parts, weld = weld, enterMode = enterMode, leaveMode = leaveMode, clamp = clamp, lerp = lerp,
+str = str, WORLD = WORLD, FX = FX, folder = folder, Players = Players, RunService = RunService, TweenService = TweenService,
+UIS = UIS, Workspace = Workspace, Lighting = Lighting, SoundService = SoundService, HttpService = HttpService, LP = LP,
+ANG = ANG, copy = copy, GUI_ = GUI_, CC = CC, BLOOM = BLOOM, PCOL = PCOL, pcol = pcol,
+}
 do
-  local sy = rawget(G, "syn")
-  if type(sy) == "table" and type(sy.protect_gui) == "function" then
-    pcall(sy.protect_gui, TK.gui)
-  elseif type(rawget(G, "protect_gui")) == "function" then
-    pcall(G.protect_gui, TK.gui)
-  end
+local C = {
+bg = RGB(16, 18, 27), bg2 = RGB(32, 35, 50), bg3 = RGB(44, 48, 68), st = RGB(70, 78, 112), tx = RGB(235, 238, 246),
+dim = RGB(150, 158, 180), ac = RGB(80, 230, 140), ac2 = RGB(150, 90, 255), dg = RGB(255, 90, 90),
+warn = RGB(255, 200, 80), ok = RGB(90, 225, 140),
+}
+RM.C = C
+local PG = LP:WaitForChild("PlayerGui")
+local GUI = I("ScreenGui", { Name = "RM_Gui", ResetOnSpawn = false, DisplayOrder = 500, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, PG)
+RM.cleanups[#RM.cleanups + 1] = function() GUI:Destroy() end
+RM.gui = GUI
+local U = { index = {}, cur = nil }
+RM.U = U
+local TOUCH = UIS.TouchEnabled
+RM.touch = TOUCH
+local function corner(o, r) return I("UICorner", { CornerRadius = UDim.new(0, r or 8) }, o) end
+local function stroke(o, col, th, tr) return I("UIStroke", { Color = col or C.st, Thickness = th or 1, Transparency = tr or 0 }, o) end
+local function label(parent, text, props: { [string]: any }?): any
+local p: { [string]: any } = { BackgroundTransparency = 1, Text = text, TextColor3 = C.tx, Font = Enum.Font.Gotham, TextSize = 12,
+TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true }
+if props then for k, v in pairs(props) do p[k] = v end end
+return I("TextLabel", p, parent)
 end
-if not pcall(function() TK.gui.Parent = TK.safeParent() end) or not TK.gui.Parent then TK.gui.Parent = TK.PlayerGui end
-
--- перетаскивание (мышь и палец)
-function TK.drag(frame, area)
-  area = area or frame
-  local dragging, dStart, sPos, dInput = false, nil, nil, nil
-  area.InputBegan:Connect(function(i)
-    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-      dragging = true
-      dStart = i.Position
-      sPos = frame.Position
-      i.Changed:Connect(function()
-        if i.UserInputState == Enum.UserInputState.End then dragging = false end
-      end)
-    end
-  end)
-  area.InputChanged:Connect(function(i)
-    if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then
-      dInput = i
-    end
-  end)
-  TK.track(TK.UIS.InputChanged:Connect(function(i)
-    if i == dInput and dragging then
-      local d = i.Position - dStart
-      frame.Position = UDim2.new(sPos.X.Scale, sPos.X.Offset + d.X, sPos.Y.Scale, sPos.Y.Offset + d.Y)
-    end
-  end))
+U.corner, U.stroke, U.label = corner, stroke, label
+local function scrollOf(o: any): any
+while o do
+if o:IsA("ScrollingFrame") then return o end
+o = o.Parent
 end
-
--- уведомления
-TK.nh = TK.I("Frame", {
-  Size = UDim2.fromOffset(260, 300), Position = UDim2.new(1, -280, 1, -320),
-  BackgroundTransparency = 1, ZIndex = 60,
-}, TK.gui)
-TK.I("UIListLayout", {
-  VerticalAlignment = Enum.VerticalAlignment.Bottom, HorizontalAlignment = Enum.HorizontalAlignment.Right,
-  Padding = UDim.new(0, 4),
-}, TK.nh)
-function TK.notify(text, col, dur)
-  if not TK.ST.NotificationsEnabled then return end
-  col = col or TK.C.ok
-  dur = dur or TK.ST.NotifDuration
-  local ch = TK.nh:GetChildren()
-  if #ch > 9 then ch[2]:Destroy() end
-  local f = TK.I("Frame", {
-    Size = UDim2.fromOffset(250, 32), BackgroundColor3 = TK.C.bg, BackgroundTransparency = .1, ZIndex = 61,
-  }, TK.nh)
-  TK.cr(f, 8)
-  TK.sk(f, col, 1.5, .2)
-  TK.I("TextLabel", {
-    Size = UDim2.new(1, -16, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1,
-    Text = tostring(text), TextColor3 = TK.C.tx, Font = Enum.Font.GothamBold, TextSize = 11,
-    TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 62,
-  }, f)
-  TK.snd("notify", .4)
-  task.delay(dur, function() if f.Parent then f:Destroy() end end)
+return nil
 end
-RM.notify = TK.notify
-
--- запуск с показом ошибок (раньше ошибки молча глотались)
-function TK.safe(fn, ...)
-  local ok, err = pcall(fn, ...)
-  if not ok then
-    warn("[RickMorty] " .. tostring(err))
-    TK.notify("⚠ " .. tostring(err):sub(1, 70), TK.C.dg, 4)
-  end
-  return ok
+local function reg(label_, btn)
+if U.cur then U.index[#U.index + 1] = { sec = U.cur, label = label_, btn = btn } end
 end
-
--- ============================================================
---  ОКНО, ВКЛАДКИ
--- ============================================================
-TK.mainBtn = TK.I("TextButton", {
-  Size = UDim2.fromOffset(60, 60), Position = UDim2.fromOffset(20, 120), BackgroundColor3 = TK.C.bg,
-  BackgroundTransparency = .05, TextColor3 = TK.C.ac, Font = Enum.Font.GothamBold, TextSize = 30,
-  Text = "🌀", AutoButtonColor = false, ZIndex = 50,
-}, TK.gui)
-TK.cr(TK.mainBtn, 16)
-TK.drag(TK.mainBtn)
+function U.sec(parent, text)
+local l = label(parent, text, { Size = UDim2.new(1, 0, 0, 22), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C.ac, TextWrapped = false })
+I("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingLeft = UDim.new(0, 2) }, l)
+return l
+end
+function U.info(parent, text, col)
+local l = label(parent, text, { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextColor3 = col or C.dim, TextSize = 11 })
+I("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4), PaddingBottom = UDim.new(0, 2) }, l)
+return l
+end
+function U.btn(parent, text, color, cb, h)
+local b = I("TextButton", {
+Size = UDim2.new(1, 0, 0, h or (TOUCH and 40 or 34)), BackgroundColor3 = color or C.bg2, Text = text, TextColor3 = C.tx,
+Font = Enum.Font.GothamBold, TextSize = 12, TextWrapped = true, AutoButtonColor = true,
+}, parent)
+corner(b, 8)
+if cb then
+conn(b.Activated:Connect(function()
+snd("ui", 1)
+safe("кнопка " .. tostring(text), cb, b)
+end))
+end
+reg(text, b)
+return b
+end
+function U.grid(parent, cols, h)
+local g = I("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 }, parent)
+I("UIGridLayout", {
+CellSize = UDim2.new(1 / cols, -4, 0, h or (TOUCH and 40 or 34)), CellPadding = UDim2.fromOffset(4, 4), SortOrder = Enum.SortOrder.LayoutOrder,
+}, g)
+return g
+end
+function U.card(parent, title, desc, cb, color)
+local b = I("TextButton", { Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = color or C.bg2, Text = "", AutoButtonColor = true }, parent)
+corner(b, 8)
+label(b, title, { Size = UDim2.new(1, -16, 0, 16), Position = UDim2.fromOffset(10, 5), Font = Enum.Font.GothamBold, TextSize = 12, TextWrapped = false })
+label(b, desc or "", { Size = UDim2.new(1, -16, 0, 14), Position = UDim2.fromOffset(10, 24), TextColor3 = C.dim, TextSize = 10, TextWrapped = false })
+if cb then
+conn(b.Activated:Connect(function()
+snd("ui", 1)
+safe("карточка " .. title, cb, b)
+end))
+end
+reg(title .. " " .. (desc or ""), b)
+return b
+end
+function U.toggle(parent, text, get, set)
+local b
+local function upd()
+local on = get()
+b.Text = text .. ": " .. (on and "ВКЛ" or "ВЫКЛ")
+b.BackgroundColor3 = on and RGB(32, 110, 72) or C.bg2
+end
+b = U.btn(parent, text, C.bg2, function()
+set(not get())
+upd()
+end)
+upd()
+return b, upd
+end
+function U.cycle(parent, text, opts, get, set)
+local b
+local function upd() b.Text = text .. ": " .. tostring(get()) end
+b = U.btn(parent, text, C.bg2, function()
+local cur, idx = get(), 1
+for i, o in ipairs(opts) do if o == cur then idx = i end end
+set(opts[idx % #opts + 1])
+upd()
+end)
+upd()
+return b, upd
+end
+function U.input(parent, placeholder, default, h)
+local t = I("TextBox", {
+Size = UDim2.new(1, 0, 0, h or 34), BackgroundColor3 = C.bg2, TextColor3 = C.tx, PlaceholderColor3 = C.dim, PlaceholderText = placeholder,
+Text = default or "", Font = Enum.Font.Gotham, TextSize = 12, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
+TextWrapped = false, ClipsDescendants = true,
+}, parent)
+corner(t, 8)
+I("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, t)
+return t
+end
+function U.bar(parent, text, color)
+local f = I("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = C.bg2 }, parent)
+corner(f, 8)
+local fill = I("Frame", { Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = color or C.ac, BorderSizePixel = 0 }, f)
+corner(fill, 8)
+local l = label(f, text, { Size = UDim2.new(1, -12, 1, 0), Position = UDim2.fromOffset(8, 0), Font = Enum.Font.GothamBold, TextWrapped = false })
+return {
+frame = f,
+set = function(frac, t, col)
+fill.Size = UDim2.new(clamp(frac, 0, 1), 0, 1, 0)
+if t then l.Text = t end
+if col then fill.BackgroundColor3 = col end
+end,
+}
+end
+function U.slider(parent, text, lo, hi, get, set, fmt, step)
+fmt = fmt or "%.2f"
+local f = I("Frame", { Size = UDim2.new(1, 0, 0, 46), BackgroundColor3 = C.bg2 }, parent)
+corner(f, 8)
+local l = label(f, "", { Size = UDim2.new(1, -16, 0, 18), Position = UDim2.fromOffset(10, 4), Font = Enum.Font.GothamBold, TextWrapped = false })
+local bar = I("Frame", { Size = UDim2.new(1, -24, 0, 8), Position = UDim2.fromOffset(12, 30), BackgroundColor3 = C.bg }, f)
+corner(bar, 4)
+local fill = I("Frame", { Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = C.ac, BorderSizePixel = 0 }, bar)
+corner(fill, 4)
+local knob = I("Frame", { Size = UDim2.fromOffset(18, 18), AnchorPoint = Vector2.new(.5, .5), Position = UDim2.new(0, 0, .5, 0), BackgroundColor3 = C.tx }, bar)
+corner(knob, 9)
+local function show()
+local v = get()
+local a = clamp((v - lo) / (hi - lo), 0, 1)
+fill.Size = UDim2.new(a, 0, 1, 0)
+knob.Position = UDim2.new(a, 0, .5, 0)
+l.Text = text .. ": " .. string.format(fmt, v)
+end
+local dragging = false
+local sf = scrollOf(parent)
+local function setFrom(x)
+local a = clamp((x - bar.AbsolutePosition.X) / max(bar.AbsoluteSize.X, 1), 0, 1)
+local v = lo + (hi - lo) * a
+if step then v = floor(v / step + .5) * step end
+set(clamp(v, lo, hi))
+show()
+end
+local hit = I("TextButton", { Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 16), BackgroundTransparency = 1, Text = "" }, f)
+conn(hit.InputBegan:Connect(function(i)
+if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+dragging = true
+if sf then sf.ScrollingEnabled = false end
+setFrom(i.Position.X)
+end
+end))
+conn(UIS.InputChanged:Connect(function(i)
+if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then setFrom(i.Position.X) end
+end))
+conn(UIS.InputEnded:Connect(function(i)
+if dragging and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+dragging = false
+if sf then sf.ScrollingEnabled = true end
+end
+end))
+show()
+reg(text, f)
+return f, show
+end
+function U.list(parent, h)
+local f = I("ScrollingFrame", {
+Size = UDim2.new(1, 0, 0, h or 160), BackgroundColor3 = C.bg, BorderSizePixel = 0, ScrollBarThickness = 3,
+CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+}, parent)
+corner(f, 8)
+I("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, f)
+I("UIPadding", { PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 5), PaddingTop = UDim.new(0, 3), PaddingBottom = UDim.new(0, 3) }, f)
+local function clear()
+for _, c in ipairs(f:GetChildren()) do
+if c:IsA("GuiObject") then c:Destroy() end
+end
+end
+return f, clear
+end
+function U.row(list, title, sub, buttons, order)
+local row = I("Frame", { Size = UDim2.new(1, 0, 0, sub and 42 or 34), BackgroundColor3 = C.bg2, LayoutOrder = order or 0 }, list)
+corner(row, 6)
+local bw = (#buttons) * 38 + 4
+label(row, title, { Size = UDim2.new(1, -bw - 10, 0, 18), Position = UDim2.fromOffset(8, sub and 4 or 8), Font = Enum.Font.GothamBold, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd })
+if sub then label(row, sub, { Size = UDim2.new(1, -bw - 10, 0, 14), Position = UDim2.fromOffset(8, 23), TextColor3 = C.dim, TextSize = 10, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd }) end
+for i, bdef in ipairs(buttons) do
+local b = I("TextButton", {
+Size = UDim2.fromOffset(34, 28), Position = UDim2.new(1, -(#buttons - i + 1) * 38 + 2, .5, -14), BackgroundColor3 = bdef[2] or C.st,
+Text = bdef[1], TextColor3 = C.tx, Font = Enum.Font.GothamBold, TextSize = 13, AutoButtonColor = true,
+}, row)
+corner(b, 6)
+conn(b.Activated:Connect(function()
+snd("ui", 1)
+safe("строка " .. title, bdef[3], b)
+end))
+end
+return row
+end
+local toastBox = I("Frame", { Size = UDim2.new(0, 280, 1, -80), Position = UDim2.new(1, -290, 0, 50), BackgroundTransparency = 1, ZIndex = 100 }, GUI)
+I("UIListLayout", { VerticalAlignment = Enum.VerticalAlignment.Top, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, toastBox)
+local toastN = 0
+function RM.toast(text, color, dur)
+if RM.dead or not ST.notif then return end
+toastN = toastN + 1
+local f = I("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.bg, BackgroundTransparency = .1, LayoutOrder = toastN, ZIndex = 100 }, toastBox)
+corner(f, 8)
+stroke(f, color or C.ac, 1.5, .2)
+local l = label(f, tostring(text), { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextColor3 = color or C.tx, ZIndex = 101, TextSize = 12 })
+I("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6) }, l)
+snd("notif", .7)
+later(dur or ST.notifTime, function()
+tw(f, .25, { BackgroundTransparency = 1 })
+tw(l, .25, { TextTransparency = 1 })
+later(.3, function() f:Destroy() end)
+end)
+local kids = {}
+for _, c in ipairs(toastBox:GetChildren()) do if c:IsA("Frame") then kids[#kids + 1] = c end end
+if #kids > 5 then kids[1]:Destroy() end
+end
+local vp = cam() and cam().ViewportSize or Vector2.new(800, 600)
+local WW, WH = min(400, vp.X - 12), min(560, vp.Y - 24)
+local mainBtn = I("TextButton", {
+Size = UDim2.fromOffset(58, 58), Position = UDim2.fromOffset(14, 110), BackgroundColor3 = C.bg, Text = "🌀", TextSize = 30,
+TextColor3 = C.ac, Font = Enum.Font.GothamBold, AutoButtonColor = false, ZIndex = 60,
+}, GUI)
+corner(mainBtn, 16)
+stroke(mainBtn, C.ac, 2, .1)
+I("UIGradient", { Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, C.bg), ColorSequenceKeypoint.new(1, C.bg3) }), Rotation = 45 }, mainBtn)
+local win = I("CanvasGroup", { Size = UDim2.fromOffset(WW, WH), Position = UDim2.new(.5, -WW / 2, 0, 12), BackgroundColor3 = C.bg, Visible = false, ZIndex = 50, GroupTransparency = 1 }, GUI)
+corner(win, 14)
+stroke(win, C.st, 1.5, .1)
+local winScale = I("UIScale", { Scale = 1 }, win)
+RM.win, RM.mainBtn = win, mainBtn
+local function drag(target: any, handle: any, tapCb: any)
+local dragging, start, startPos, moved = false, nil, nil, 0
+conn(handle.InputBegan:Connect(function(i)
+if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+dragging, start, startPos, moved = true, i.Position, target.Position, 0
+conn(i.Changed:Connect(function()
+if i.UserInputState == Enum.UserInputState.End then
+dragging = false
+if tapCb and moved < 8 then tapCb() end
+end
+end))
+end
+end))
+conn(UIS.InputChanged:Connect(function(i)
+if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+local d = i.Position - start
+moved = max(moved, d.Magnitude)
+if moved >= 8 or not tapCb then
+target.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+end
+end
+end))
+end
+U.drag = drag
+local header = I("Frame", { Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = C.bg2, BorderSizePixel = 0, ZIndex = 51 }, win)
+I("UIGradient", { Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, C.bg3), ColorSequenceKeypoint.new(1, C.bg2) }) }, header)
+label(header, "🌀 RICK & MORTY ULTIMATE MULTIVERSE", { Size = UDim2.new(1, -90, 0, 20), Position = UDim2.fromOffset(12, 3), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C.ac, TextWrapped = false, ZIndex = 52 })
+local search = I("TextBox", {
+Size = UDim2.new(1, -96, 0, 18), Position = UDim2.fromOffset(12, 23), BackgroundColor3 = C.bg, TextColor3 = C.tx, PlaceholderColor3 = C.dim,
+PlaceholderText = "🔍 поиск функций...", Text = "", Font = Enum.Font.Gotham, TextSize = 11, ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 52,
+}, header)
+corner(search, 6)
+I("UIPadding", { PaddingLeft = UDim.new(0, 6) }, search)
+local function hbtn(txt, x, col)
+local b = I("TextButton", { Size = UDim2.fromOffset(32, 30), Position = UDim2.new(1, x, 0, 7), BackgroundColor3 = col, Text = txt, TextColor3 = C.tx, Font = Enum.Font.GothamBold, TextSize = 14, ZIndex = 52 }, header)
+corner(b, 8)
+return b
+end
+local bMin, bClose = hbtn("—", -72, C.st), hbtn("✕", -38, C.dg)
+local eBar = I("Frame", { Size = UDim2.new(1, 0, 0, 3), Position = UDim2.new(0, 0, 0, 44), BackgroundColor3 = C.bg, BorderSizePixel = 0, ZIndex = 51 }, win)
+local eFill = I("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.ac, BorderSizePixel = 0, ZIndex = 52 }, eBar)
+local tabs = I("ScrollingFrame", {
+Size = UDim2.new(1, -8, 0, 34), Position = UDim2.fromOffset(4, 50), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0,
+CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.X, ScrollingDirection = Enum.ScrollingDirection.X, ZIndex = 51,
+}, win)
+I("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, tabs)
+local bodyF = I("Frame", { Size = UDim2.new(1, -8, 1, -108), Position = UDim2.fromOffset(4, 88), BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 51 }, win)
+local footer = label(win, "", { Size = UDim2.new(1, -16, 0, 16), Position = UDim2.new(0, 8, 1, -18), TextColor3 = C.dim, TextSize = 10, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 52 })
+RM.setFooter = function(t) footer.Text = tostring(t) end
+drag(win, header)
+drag(mainBtn, mainBtn, function() RM.setWin(not win.Visible or win.GroupTransparency > .5) end)
+RM.secList, RM.secPage, RM.secTab = {}, {}, {}
+RM.curSec = nil
+local resultsPage
+local function newPage(): any
+local p = I("ScrollingFrame", {
+Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4, Visible = false,
+CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 51,
+}, bodyF)
+I("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, p)
+I("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 10) }, p)
+return p
+end
+function RM.showSection(key, instant)
+for k, p in pairs(RM.secPage) do
+local on = k == key
+if on and not p.Visible then
+p.Visible = true
+if not instant then
+p.Position = UDim2.fromOffset(14, 0)
+tw(p, .22, { Position = UDim2.fromOffset(0, 0) })
+end
+elseif not on then
+p.Visible = false
+end
+end
+if resultsPage then resultsPage.Visible = false end
+for k, t in pairs(RM.secTab) do
+t.BackgroundColor3 = (k == key) and RGB(32, 110, 72) or C.bg2
+end
+RM.curSec = key
+local pg = RM.secPage[key]
+if pg and RM.onShow and RM.onShow[key] then safe("onShow " .. key, RM.onShow[key]) end
+end
+RM.onShow = {}
+function RM.addSection(key, title, kw, build)
+RM.secList[#RM.secList + 1] = { key = key, title = title, kw = kw or "", build = build }
+end
+function RM.buildMenu()
+for i, s in ipairs(RM.secList) do
+local page = newPage()
+RM.secPage[s.key] = page
+U.cur = s.key
+U.index[#U.index + 1] = { sec = s.key, label = s.title .. " " .. s.kw, btn = nil }
+local ok, e = pcall(s.build, page)
+if not ok then
+RM.errors[#RM.errors + 1] = "UI " .. s.key .. ": " .. str(e, 160)
+RM.health[s.key] = "ошибка: " .. str(e, 80)
+U.info(page, "⚠ Раздел не собрался: " .. str(e, 120), C.dg)
+warn("[RM6] раздел " .. s.key .. ": " .. tostring(e))
+else
+RM.health[s.key] = "ok"
+end
+local tb = I("TextButton", {
+Size = UDim2.fromOffset(max(60, utf8.len(s.title) * 7 + 12), 30), BackgroundColor3 = C.bg2, Text = s.title, TextColor3 = C.tx,
+Font = Enum.Font.GothamBold, TextSize = 11, LayoutOrder = i, ZIndex = 52, AutoButtonColor = true,
+}, tabs)
+corner(tb, 8)
+RM.secTab[s.key] = tb
+conn(tb.Activated:Connect(function()
+snd("ui", 1)
+RM.showSection(s.key)
+end))
+end
+U.cur = nil
+resultsPage = newPage()
+local function runSearch()
+local q = search.Text:lower():gsub("^%s+", ""):gsub("%s+$", "")
+if q == "" then
+RM.showSection(RM.curSec or "home", true)
+return
+end
+for _, c in ipairs(resultsPage:GetChildren()) do
+if c:IsA("GuiObject") then c:Destroy() end
+end
+for _, p in pairs(RM.secPage) do p.Visible = false end
+resultsPage.Visible = true
+local n = 0
+for _, e in ipairs(U.index) do
+if e.label:lower():find(q, 1, true) and n < 40 then
+n = n + 1
+local sec = RM.secTab[e.sec] and RM.secTab[e.sec].Text or e.sec
+local b = U.btn(resultsPage, sec .. " › " .. e.label:gsub("\n", " "):sub(1, 60), C.bg2, function()
+search.Text = ""
+RM.showSection(e.sec)
+if e.btn and e.btn.Parent then
+local old = e.btn.BackgroundColor3
+for _ = 1, 3 do
+e.btn.BackgroundColor3 = C.warn
+task.wait(.18)
+e.btn.BackgroundColor3 = old
+task.wait(.14)
+end
+end
+end)
+b.LayoutOrder = n
+end
+end
+if n == 0 then U.info(resultsPage, "Ничего не найдено по запросу «" .. q .. "»") end
+end
+U.cur = "_search"
+conn(search:GetPropertyChangedSignal("Text"):Connect(runSearch))
+U.cur = nil
+RM.showSection("home", true)
+end
+local minimized = false
+local function applySize()
+local vv = cam() and cam().ViewportSize or vp
+winScale.Scale = ST.uiScale
+local w, h = min(400, vv.X - 12), min(560, vv.Y - 24)
+win.Size = minimized and UDim2.fromOffset(w, 46) or UDim2.fromOffset(w, h)
+tabs.Visible, bodyF.Visible, footer.Visible, eBar.Visible = not minimized, not minimized, not minimized, true
+end
+RM.applySize = applySize
+function RM.setWin(v)
+if v then
+win.Visible = true
+applySize()
+winScale.Scale = ST.uiScale * .92
+tw(win, .22, { GroupTransparency = 0 })
+tw(winScale, .22, { Scale = ST.uiScale }, Enum.EasingStyle.Back)
+snd("ui", 1, 1.1)
+else
+tw(win, .18, { GroupTransparency = 1 })
+tw(winScale, .18, { Scale = ST.uiScale * .94 })
+later(.2, function()
+if win.GroupTransparency >= .9 then win.Visible = false end
+end)
+end
+end
+conn(bMin.Activated:Connect(function()
+minimized = not minimized
+applySize()
+end))
+conn(bClose.Activated:Connect(function() RM.setWin(false) end))
+conn(UIS.InputBegan:Connect(function(i, gp)
+if gp or UIS:GetFocusedTextBox() then return end
+if i.KeyCode.Name == ST.menuKey then RM.setWin(not win.Visible or win.GroupTransparency > .5) end
+end))
+function RM.openSection(key)
+RM.setWin(true)
+RM.showSection(key)
+end
+local hud = I("Frame", { Size = UDim2.fromOffset(120, 36), Position = UDim2.fromOffset(14, 172), BackgroundColor3 = C.bg, BackgroundTransparency = .15, ZIndex = 60 }, GUI)
+corner(hud, 8)
+stroke(hud, C.st, 1, .3)
+local hudE = label(hud, "⚡ 100%", { Size = UDim2.new(1, -8, 0, 16), Position = UDim2.fromOffset(6, 2), Font = Enum.Font.GothamBold, TextSize = 11, ZIndex = 61, TextWrapped = false })
+local hudM = label(hud, "режим: обычный", { Size = UDim2.new(1, -8, 0, 14), Position = UDim2.fromOffset(6, 19), TextColor3 = C.dim, TextSize = 10, ZIndex = 61, TextWrapped = false })
+RM.hud = hud
+local MODENAME = { normal = "обычный", ship = "корабль", jet = "ранец", drone = "дрон", tp = "переход" }
+RM.ticks.ui = function(dt, now)
+RM.uiT = (RM.uiT or 0) + dt
+if RM.uiT < .2 then return end
+RM.uiT = 0
+local f = EN.v / EN.max
+eFill.Size = UDim2.new(clamp(f, 0, 1), 0, 1, 0)
+eFill.BackgroundColor3 = f < .15 and C.dg or (f < .4 and C.warn or C.ac)
+hudE.Text = "⚡ " .. floor(EN.v) .. "%  " .. (EN.total() > 0 and ("−" .. string.format("%.1f", EN.total() - EN.regen()) .. "/с") or "")
+hudE.TextColor3 = f < .15 and C.dg or (f < .4 and C.warn or C.tx)
+hudM.Text = "режим: " .. (MODENAME[MODE.cur] or MODE.cur)
+end
+end
 do
-  local s = TK.sk(TK.mainBtn, TK.C.ac, 2, .2)
-  TK.I("UIGradient", {
-    Color = ColorSequence.new({
-      ColorSequenceKeypoint.new(0, TK.C.ac), ColorSequenceKeypoint.new(.5, TK.C.ac3), ColorSequenceKeypoint.new(1, TK.C.ac2),
-    }), Rotation = 45,
-  }, s)
+local C, U = RM.C, RM.U
+local corner, stroke, label = U.corner, U.stroke, U.label
+local GUI = RM.gui
+local TOUCH = RM.touch
+local aimF = I("Frame", {
+Size = UDim2.fromOffset(ST.aim, ST.aim), AnchorPoint = Vector2.new(.5, .5), Position = UDim2.new(.5, 0, .5, 0),
+BackgroundTransparency = 1, Visible = false, ZIndex = 20,
+}, GUI)
+I("UICorner", { CornerRadius = UDim.new(1, 0) }, aimF)
+stroke(aimF, C.ac, 2, .25)
+I("Frame", { Size = UDim2.fromOffset(4, 4), AnchorPoint = Vector2.new(.5, .5), Position = UDim2.new(.5, 0, .5, 0), BackgroundColor3 = C.ac, ZIndex = 21 }, aimF)
+RM.aimF = aimF
+function RM.aimRay()
+local c = cam()
+if not c then return V3(), V3(0, 0, -1) end
+local x, y
+if TOUCH or UIS.MouseBehavior == Enum.MouseBehavior.LockCenter then
+local s = c.ViewportSize
+x, y = s.X / 2, s.Y / 2
+else
+local m = UIS:GetMouseLocation()
+x, y = m.X, m.Y
 end
-
-TK.vp = TK.Workspace.CurrentCamera.ViewportSize
-TK.WW, TK.WH = math.min(380, TK.vp.X - 20), math.min(520, TK.vp.Y - 30)
-TK.win = TK.I("Frame", {
-  Size = UDim2.fromOffset(TK.WW, TK.WH), Position = UDim2.fromOffset((TK.vp.X - TK.WW) / 2, 15), BackgroundColor3 = TK.C.bg,
-  BackgroundTransparency = .02, Visible = false, ZIndex = 40,
-}, TK.gui)
-TK.cr(TK.win, 16)
-TK.sk(TK.win, TK.C.st, 1.5, .25)
-TK.I("UIGradient", { Color = ColorSequence.new(TK.C.bg2, TK.C.bg), Rotation = 90 }, TK.win)
-
-TK.header = TK.I("Frame", { Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, ZIndex = 41 }, TK.win)
-TK.drag(TK.win, TK.header)
-TK.I("TextLabel", {
-  Size = UDim2.new(1, -80, 1, 0), Position = UDim2.fromOffset(14, 0), BackgroundTransparency = 1,
-  Text = "🌀 RICK & MORTY v" .. RM._version, TextColor3 = TK.C.ac, Font = Enum.Font.GothamBold, TextSize = 14,
-  TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 42,
-}, TK.header)
-TK.closeBtn = TK.I("TextButton", {
-  Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -38, 0, 7), BackgroundColor3 = TK.C.dg,
-  BackgroundTransparency = .5, TextColor3 = TK.C.tx, Font = Enum.Font.GothamBold, TextSize = 14, Text = "✕", ZIndex = 42,
-}, TK.header)
-TK.cr(TK.closeBtn, 8)
-TK.winScale = TK.I("UIScale", { Scale = 1 }, TK.win)
-TK.winWant, TK.winTick = false, 0
-function TK.setWin(v)
-  TK.winWant = v
-  TK.winTick = TK.winTick + 1
-  local id = TK.winTick
-  if v then
-    TK.win.Visible = true
-    TK.winScale.Scale = .92
-    TK.TweenService:Create(TK.winScale, TweenInfo.new(.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-  else
-    TK.TweenService:Create(TK.winScale, TweenInfo.new(.15, Enum.EasingStyle.Quad), { Scale = .92 }):Play()
-    task.delay(.16, function() if id == TK.winTick then TK.win.Visible = false end end)
-  end
+local r = c:ViewportPointToRay(x, y)
+return r.Origin, r.Direction.Unit
 end
-TK.closeBtn.MouseButton1Click:Connect(function() TK.setWin(false) end)
-TK.mainBtn.MouseButton1Click:Connect(function() TK.setWin(not TK.winWant) end)
-
--- панель вкладок с горизонтальной прокруткой
-TK.tabsBar = TK.I("ScrollingFrame", {
-  Size = UDim2.new(1, -16, 0, 38), Position = UDim2.fromOffset(8, 48), BackgroundTransparency = 1,
-  ScrollBarThickness = 0, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.X,
-  ScrollingDirection = Enum.ScrollingDirection.X, ZIndex = 41,
-}, TK.win)
-TK.I("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 4) }, TK.tabsBar)
-TK.content = TK.I("ScrollingFrame", {
-  Size = UDim2.new(1, -16, 1, -120), Position = UDim2.fromOffset(8, 90), BackgroundTransparency = 1,
-  ScrollBarThickness = 3, ScrollBarImageColor3 = TK.C.ac, CanvasSize = UDim2.new(),
-  AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 41,
-}, TK.win)
-TK.I("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, TK.content)
-TK.I("TextLabel", {
-  Size = UDim2.new(1, -20, 0, 16), Position = UDim2.new(0, 10, 1, -22), BackgroundTransparency = 1,
-  Text = "v" .. RM._version .. " | скины | предметы | порталы", TextColor3 = TK.C.dim, Font = Enum.Font.Code,
-  TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
-}, TK.win)
-
-function TK.newBtn(parent, text, col, fn, h)
-  local b = TK.I("TextButton", {
-    Size = UDim2.new(1, -8, 0, h or 36), BackgroundColor3 = col or TK.C.bg2, BackgroundTransparency = .1,
-    TextColor3 = TK.C.tx, Font = Enum.Font.GothamBold, TextSize = 12, Text = text, TextWrapped = true, ZIndex = 42,
-  }, parent)
-  TK.cr(b, 8)
-  TK.sk(b, TK.C.st, 1, .7)
-  if fn then
-    b.MouseButton1Click:Connect(function()
-      TK.snd("click", .3)
-      TK.safe(fn)
-    end)
-  end
-  return b
+function RM.aimHit(dist)
+local o, d = RM.aimRay()
+local r = ray(o, d * (dist or 500))
+if r then return r.Position, r.Normal, r.Instance, o, d end
+return nil, nil, nil, o, d
 end
-function TK.newSec(parent, text)
-  return TK.I("TextLabel", {
-    Size = UDim2.new(1, -8, 0, 22), BackgroundTransparency = 1, Text = "▸ " .. text, TextColor3 = TK.C.ac3,
-    Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 42,
-  }, parent)
-end
-function TK.newInfo(parent, text, h)
-  local l = TK.I("TextLabel", {
-    Size = UDim2.new(1, -8, 0, h), BackgroundColor3 = TK.C.bg2, BackgroundTransparency = .2, Text = text,
-    TextColor3 = TK.C.dim, Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
-    TextWrapped = true, ZIndex = 42,
-  }, parent)
-  TK.cr(l, 8)
-  return l
-end
-function TK.newGrid(parent, cols)
-  local g = TK.I("Frame", {
-    Size = UDim2.new(1, -8, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, ZIndex = 41,
-  }, parent)
-  TK.I("UIGridLayout", {
-    CellSize = UDim2.new(1 / cols, -4, 0, 34), CellPadding = UDim2.fromOffset(4, 4), SortOrder = Enum.SortOrder.LayoutOrder,
-  }, g)
-  return g
-end
-
--- ползунок со значениями + кнопки - и +
-function TK.newSlider(parent, label, minV, maxV, value, onChange, onDone)
-  local row = TK.I("Frame", {
-    Size = UDim2.new(1, -8, 0, 62), BackgroundColor3 = TK.C.bg2, BackgroundTransparency = .1, ZIndex = 42,
-  }, parent)
-  TK.cr(row, 8)
-  local lbl = TK.I("TextLabel", {
-    Size = UDim2.new(1, -16, 0, 18), Position = UDim2.fromOffset(8, 4), BackgroundTransparency = 1, Text = "",
-    TextColor3 = TK.C.tx, Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 43,
-  }, row)
-  local bar = TK.I("Frame", {
-    Size = UDim2.new(1, -90, 0, 12), Position = UDim2.fromOffset(45, 38), BackgroundColor3 = TK.C.bg, ZIndex = 43,
-  }, row)
-  TK.cr(bar, 6)
-  local fill = TK.I("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = TK.C.ac, BorderSizePixel = 0, ZIndex = 44 }, bar)
-  TK.cr(fill, 6)
-  local knob = TK.I("Frame", {
-    Size = UDim2.fromOffset(22, 22), AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(0, .5),
-    BackgroundColor3 = TK.WHITE, ZIndex = 45,
-  }, bar)
-  TK.cr(knob, 11)
-  local function apply(v)
-    local cur = math.clamp(math.floor(v / 10 + .5) * 10, minV, maxV)
-    local a = (cur - minV) / (maxV - minV)
-    fill.Size = UDim2.fromScale(a, 1)
-    knob.Position = UDim2.fromScale(a, .5)
-    lbl.Text = label .. ": " .. cur
-    onChange(cur)
-    return cur
-  end
-  local cur = apply(value)
-  local function fromX(x)
-    local a = math.clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1)
-    cur = apply(minV + (maxV - minV) * a)
-  end
-  local hit = TK.I("TextButton", {
-    Size = UDim2.new(1, -90, 0, 34), Position = UDim2.fromOffset(45, 27), BackgroundTransparency = 1, Text = "", ZIndex = 46,
-  }, row)
-  local dragging = false
-  hit.InputBegan:Connect(function(i)
-    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-      dragging = true
-      fromX(i.Position.X)
-    end
-  end)
-  TK.track(TK.UIS.InputChanged:Connect(function(i)
-    if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-      fromX(i.Position.X)
-    end
-  end))
-  TK.track(TK.UIS.InputEnded:Connect(function(i)
-    if dragging and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
-      dragging = false
-      if onDone then onDone() end
-    end
-  end))
-  local function stepBtn(txt, pos, d)
-    local b = TK.I("TextButton", {
-      Size = UDim2.fromOffset(34, 28), Position = pos, BackgroundColor3 = TK.C.bg, TextColor3 = TK.C.tx,
-      Font = Enum.Font.GothamBold, TextSize = 18, Text = txt, ZIndex = 43,
-    }, row)
-    TK.cr(b, 8)
-    b.MouseButton1Click:Connect(function()
-      TK.snd("click", .3)
-      cur = apply(cur + d)
-      if onDone then onDone() end
-    end)
-  end
-  stepBtn("−", UDim2.fromOffset(6, 30), -50)
-  stepBtn("+", UDim2.new(1, -40, 0, 30), 50)
-  return row
-end
-
-TK.TABS = {
-  { "skins", "🎭 СКИНЫ", 84 }, { "moves", "🕺 ДВИЖЕНИЯ", 100 }, { "items", "🧰 ПРЕДМЕТЫ", 100 },
-  { "portal", "🌀 ПОРТАЛ", 84 }, { "settings", "⚙️", 40 },
-}
-TK.tabBtns, TK.tabFrames = {}, {}
-function TK.switchTab(id)
-  for k, f in pairs(TK.tabFrames) do f.Visible = (k == id) end
-  for k, b in pairs(TK.tabBtns) do
-    local on = (k == id)
-    b.BackgroundColor3 = on and TK.C.ac or TK.C.bg2
-    b.TextColor3 = on and TK.C.bg or TK.C.tx
-    b.BackgroundTransparency = on and 0 or .2
-  end
-  TK.content.CanvasPosition = Vector2.zero
-end
-for _, t in ipairs(TK.TABS) do
-  local b = TK.I("TextButton", {
-    Size = UDim2.fromOffset(t[3], 32), BackgroundColor3 = TK.C.bg2, BackgroundTransparency = .2, TextColor3 = TK.C.tx,
-    Font = Enum.Font.GothamBold, TextSize = 10, Text = t[2], ZIndex = 42,
-  }, TK.tabsBar)
-  TK.cr(b, 8)
-  TK.tabBtns[t[1]] = b
-  b.MouseButton1Click:Connect(function() TK.snd("click", .3) TK.switchTab(t[1]) end)
-  local f = TK.I("Frame", {
-    Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
-    Visible = false, ZIndex = 41,
-  }, TK.content)
-  TK.I("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, f)
-  TK.tabFrames[t[1]] = f
-end
-TK.track(TK.UIS.InputBegan:Connect(function(i, gpe)
-  if not gpe and i.KeyCode.Name == TK.ST.MenuKey then TK.setWin(not TK.winWant) end
+RM.keybinds = {}
+function RM.bindKey(name, fn) RM.keybinds[name] = fn end
+conn(UIS.InputBegan:Connect(function(i, gp)
+if gp or UIS:GetFocusedTextBox() then return end
+local f = RM.keybinds[i.KeyCode.Name]
+if f then safe("клавиша " .. i.KeyCode.Name, f) end
 end))
-
--- ============================================================
---  ПРИЦЕЛ (кнопка 🔥 на телефоне стреляет текущим предметом)
--- ============================================================
-TK.mob = TK.UIS.TouchEnabled and not TK.UIS.MouseEnabled
-TK.aimF, TK.aimL, TK.aimE, TK.cross = nil, nil, nil, nil
-function TK.screenPoint()
-  if TK.mob then return TK.cross or TK.Workspace.CurrentCamera.ViewportSize / 2 end
-  return TK.UIS:GetMouseLocation()
+local function down(k) return UIS:IsKeyDown(k) end
+RM.mb = {}           -- name -> { btn, vis = function, held = bool }
+RM.mobEdit = false
+RM.forceMob = false
+local mobF = I("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ZIndex = 30 }, GUI)
+local MS = I("UIScale", { Scale = ST.mobScale }, mobF)
+function RM.mobCreate(name, text, fx, fy, size, onDown, onUp, vis)
+local b = I("TextButton", {
+Size = UDim2.fromOffset(size, size), AnchorPoint = Vector2.new(.5, .5), BackgroundColor3 = C.bg, BackgroundTransparency = .25,
+Text = text, TextSize = size > 60 and 26 or 20, TextColor3 = C.tx, Font = Enum.Font.GothamBold, AutoButtonColor = false, ZIndex = 31, Visible = false,
+}, mobF)
+corner(b, size / 2)
+stroke(b, C.ac, 2, .2)
+local def = { fx, fy }
+local function place()
+local p = SAVE.mobPos[name] or def
+b.Position = UDim2.fromScale(p[1], p[2])
 end
-function RM.getAimDirection()
-  local p = TK.screenPoint()
-  local r = TK.Workspace.CurrentCamera:ViewportPointToRay(p.X, p.Y)
-  return r.Direction, r.Origin
+place()
+local m = { btn = b, vis = vis, held = false, place = place, def = def, onDown = onDown, onUp = onUp }
+RM.mb[name] = m
+local dragging = false
+conn(b.InputBegan:Connect(function(i)
+if i.UserInputType ~= Enum.UserInputType.Touch and i.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+if RM.mobEdit then
+dragging = true
+return
 end
-function TK.mkAim()
-  local z, col = TK.ST.AimSize, TK.C.ac
-  TK.aimF = TK.I("Frame", {
-    Name = "RM_Aim", Size = UDim2.fromOffset(z, z), AnchorPoint = Vector2.new(.5, .5),
-    Position = UDim2.fromScale(.5, .5), BackgroundTransparency = 1, Active = TK.mob, ZIndex = 55,
-  }, TK.gui)
-  local ring = TK.I("Frame", {
-    Size = UDim2.fromScale(.8, .8), Position = UDim2.fromScale(.5, .5), AnchorPoint = Vector2.new(.5, .5),
-    BackgroundTransparency = 1, ZIndex = 55,
-  }, TK.aimF)
-  TK.cr(ring, 999)
-  TK.aimE = { TK.sk(ring, col, 1.5, .5) }
-  local function box(size, pos)
-    local f = TK.I("Frame", {
-      Size = size, Position = pos, AnchorPoint = Vector2.new(.5, .5), BackgroundColor3 = col,
-      BorderSizePixel = 0, ZIndex = 56,
-    }, TK.aimF)
-    TK.aimE[#TK.aimE + 1] = f
-    return f
-  end
-  TK.cr(box(UDim2.fromOffset(4, 4), UDim2.fromScale(.5, .5)), 99)
-  box(UDim2.new(0, 2, .19, 0), UDim2.fromScale(.5, .28))
-  box(UDim2.new(0, 2, .19, 0), UDim2.fromScale(.5, .72))
-  box(UDim2.new(.19, 0, 0, 2), UDim2.fromScale(.28, .5))
-  box(UDim2.new(.19, 0, 0, 2), UDim2.fromScale(.72, .5))
-  TK.aimL = TK.I("TextLabel", {
-    Size = UDim2.fromOffset(150, 20), Position = UDim2.fromScale(.5, 1.25), AnchorPoint = Vector2.new(.5, 0),
-    BackgroundTransparency = 1, TextColor3 = col, Font = Enum.Font.Code, TextSize = 12, Text = "0 st", ZIndex = 57,
-  }, TK.aimF)
-  local dg = false
-  TK.aimF.InputBegan:Connect(function(i)
-    if TK.mob and i.UserInputType == Enum.UserInputType.Touch then dg = true end
-  end)
-  TK.track(TK.UIS.InputChanged:Connect(function(i)
-    if dg and i.UserInputType == Enum.UserInputType.Touch then TK.cross = i.Position end
-  end))
-  TK.track(TK.UIS.InputEnded:Connect(function(i)
-    if i.UserInputType == Enum.UserInputType.Touch then dg = false end
-  end))
-  if TK.mob then
-    local fb = TK.I("TextButton", {
-      Name = "RM_Fire", Size = UDim2.fromOffset(70, 70), Position = UDim2.new(1, -90, 1, -130),
-      BackgroundColor3 = TK.RGB(255, 60, 80), BackgroundTransparency = .2, Text = "🔥", TextColor3 = TK.WHITE,
-      Font = Enum.Font.GothamBold, TextSize = 35, ZIndex = 55,
-    }, TK.gui)
-    TK.cr(fb, 99)
-    TK.sk(fb, col, 2, .3)
-    TK.drag(fb)
-    fb.MouseButton1Click:Connect(function()
-      if RM.fireFromAim then TK.safe(RM.fireFromAim) end
-      fb.Size = UDim2.fromOffset(60, 60)
-      task.delay(.1, function() fb.Size = UDim2.fromOffset(70, 70) end)
-    end)
-  end
+m.held = true
+b.BackgroundColor3 = C.ac2
+if onDown then safe("кнопка " .. name, onDown) end
+end))
+conn(UIS.InputChanged:Connect(function(i)
+if dragging and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
+local s = GUI.AbsoluteSize
+local fxp, fyp = clamp(i.Position.X / s.X, .04, .96), clamp(i.Position.Y / s.Y, .06, .94)
+b.Position = UDim2.fromScale(fxp, fyp)
+SAVE.mobPos[name] = { fxp, fyp }
 end
-TK.mkAim()
+end))
+conn(UIS.InputEnded:Connect(function(i)
+if i.UserInputType ~= Enum.UserInputType.Touch and i.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+dragging = false
+if m.held then
+m.held = false
+b.BackgroundColor3 = C.bg
+if onUp then safe("кнопка " .. name, onUp) end
+end
+end))
+return m
+end
+function RM.mobReset()
+SAVE.mobPos = {}
+for _, m in pairs(RM.mb) do m.place() end
+end
+function RM.mobHeld(name) return RM.mb[name] and RM.mb[name].held or false end
+local joyBase = I("Frame", { Size = UDim2.fromOffset(120, 120), AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.14, .72), BackgroundColor3 = C.bg, BackgroundTransparency = .45, Visible = false, ZIndex = 31 }, mobF)
+corner(joyBase, 60)
+stroke(joyBase, C.st, 2, .2)
+local joyKnob = I("Frame", { Size = UDim2.fromOffset(48, 48), AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), BackgroundColor3 = C.ac, BackgroundTransparency = .2, ZIndex = 32 }, joyBase)
+corner(joyKnob, 24)
+RM.joy = Vector2.new()
+local joyActive, joyInput = false, nil
+conn(joyBase.InputBegan:Connect(function(i)
+if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+joyActive, joyInput = true, i
+end
+end))
+conn(UIS.InputChanged:Connect(function(i)
+if joyActive and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
+local c = joyBase.AbsolutePosition + joyBase.AbsoluteSize / 2
+local d = (Vector2.new(i.Position.X, i.Position.Y) - c) / (joyBase.AbsoluteSize.X / 2)
+if d.Magnitude > 1 then d = d.Unit end
+RM.joy = Vector2.new(d.X, -d.Y)
+joyKnob.Position = UDim2.new(.5 + d.X * .35, 0, .5 + d.Y * .35, 0)
+end
+end))
+conn(UIS.InputEnded:Connect(function(i)
+if joyActive and (i == joyInput or i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1) then
+joyActive, RM.joy = false, Vector2.new()
+joyKnob.Position = UDim2.fromScale(.5, .5)
+end
+end))
+RM.customCtl = false
+local savedWalk
+local function controlsObj()
+local ok, m = pcall(function()
+local ps = LP:FindFirstChild("PlayerScripts")
+local pm = ps and ps:FindFirstChild("PlayerModule")
+return pm and (require :: any)(pm):GetControls() or nil
+end)
+return ok and m or nil
+end
+function RM.setCustomControls(on)
+if on == RM.customCtl then return end
+RM.customCtl = on
+local _, h = getChar()
+local cobj = controlsObj()
+if on then
+if cobj then pcall(function() cobj:Disable() end) end
+if h then
+savedWalk = { h.WalkSpeed, h.JumpPower, h.UseJumpPower }
+h.WalkSpeed = 0
+h.JumpPower = 0
+h.UseJumpPower = true
+end
+else
+if cobj then pcall(function() cobj:Enable() end) end
+if h and savedWalk then
+h.WalkSpeed, h.JumpPower, h.UseJumpPower = savedWalk[1], savedWalk[2], savedWalk[3]
+savedWalk = nil
+end
+end
+joyBase.Visible = on and (TOUCH or RM.forceMob)
+end
+function RM.moveDir()
+local _, h = getChar()
+if not RM.customCtl then return h and h.MoveDirection or V3() end
+local x, z = 0, 0
+if down(Enum.KeyCode.W) or down(Enum.KeyCode.Up) then z = z + 1 end
+if down(Enum.KeyCode.S) or down(Enum.KeyCode.Down) then z = z - 1 end
+if down(Enum.KeyCode.D) then x = x + 1 end
+if down(Enum.KeyCode.A) then x = x - 1 end
+x, z = x + RM.joy.X, z + RM.joy.Y
+local c = cam()
+if not c then return V3() end
+local lv = V3(c.CFrame.LookVector.X, 0, c.CFrame.LookVector.Z)
+if lv.Magnitude < .01 then return V3() end
+lv = lv.Unit
+local rv = V3(-lv.Z, 0, lv.X)
+local v = lv * z + rv * x
+if v.Magnitude > 1 then v = v.Unit end
+return v
+end
+function RM.vertical()
+local v = 0
+if down(Enum.KeyCode.Space) or down(Enum.KeyCode.E) or RM.mobHeld("up") then v = v + 1 end
+if down(Enum.KeyCode.LeftControl) or down(Enum.KeyCode.Q) or RM.mobHeld("down") then v = v - 1 end
+return v
+end
+function RM.turn()
+local t = 0
+if down(Enum.KeyCode.Left) or down(Enum.KeyCode.Z) then t = t + 1 end
+if down(Enum.KeyCode.Right) or down(Enum.KeyCode.C) then t = t - 1 end
+return t
+end
+RM.ticks.mob = function(dt, now)
+RM.mobT = (RM.mobT or 0) + dt
+if RM.mobT < .15 then return end
+RM.mobT = 0
+MS.Scale = ST.mobScale
+aimF.Size = UDim2.fromOffset(ST.aim, ST.aim)
+local show = TOUCH or RM.forceMob
+aimF.Visible = show and RM.heldTool() ~= nil
+for _, m in pairs(RM.mb) do
+local v = RM.mobEdit or (show and (not m.vis or m.vis()))
+m.btn.Visible = v and true or false
+end
+end
+function RM.heldTool()
+local c = LP.Character
+if not c then return nil end
+for _, t in ipairs(c:GetChildren()) do
+if t:IsA("Tool") and t:GetAttribute("RM_G") then return t end
+end
+return nil
+end
+RM.mobCreate("fire", "🔥", .86, .62, 74, function()
+local t = RM.heldTool()
+if t then t:Activate() end
+end, nil, function() return RM.heldTool() ~= nil and MODE.cur ~= "ship" end)
+RM.mobCreate("up", "▲", .86, .40, 60, nil, nil, function() return MODE.cur == "ship" or MODE.cur == "drone" or MODE.cur == "jet" end)
+RM.mobCreate("down", "▼", .86, .52, 60, nil, nil, function() return MODE.cur == "ship" or MODE.cur == "drone" or MODE.cur == "jet" end)
+RM.mobCreate("exit", "🚪", .93, .30, 54, function()
+if RM.exitMode then RM.exitMode() end
+end, nil, function() return MODE.cur == "ship" or MODE.cur == "drone" end)
+end
 do
-  local acc = 0
-  TK.track(TK.RunService.RenderStepped:Connect(function(dt)
-    if not TK.aimF then return end
-    local p = TK.screenPoint()
-    TK.aimF.Position = UDim2.fromOffset(p.X, p.Y)
-    acc = acc + dt
-    if acc < .1 then return end
-    acc = 0
-    local ch, _, hr = TK.getChar()
-    if not hr then return end
-    local r = TK.Workspace.CurrentCamera:ViewportPointToRay(p.X, p.Y)
-    local rp = RaycastParams.new()
-    rp.FilterType = Enum.RaycastFilterType.Exclude
-    rp.FilterDescendantsInstances = { ch }
-    local res = TK.Workspace:Raycast(r.Origin, r.Direction * 1000, rp)
-    local tp = res and res.Position or r.Origin + r.Direction * 1000
-    TK.aimL.Text = math.floor((tp - hr.Position).Magnitude) .. " st"
-    local m = res and res.Instance:FindFirstAncestorOfClass("Model")
-    local hit = m and TK.Players:GetPlayerFromCharacter(m)
-    local col = hit and TK.RGB(255, 80, 80) or TK.C.ac
-    TK.aimL.TextColor3 = col
-    for _, e in ipairs(TK.aimE) do
-      if e:IsA("UIStroke") then e.Color = col else e.BackgroundColor3 = col end
-    end
-  end))
+local C, U = RM.C, RM.U
+local GUI = RM.gui
+local FXS = {}
+RM.fx = FXS
+local emitters = setmetatable({}, { __mode = "k" })
+local hlCount = 0
+function FXS.emitter(parent, props, rate)
+local e = I("ParticleEmitter", props or {}, parent)
+e:SetAttribute("RM_Rate", rate or 0)
+e.Rate = (rate or 0) * Q().pr
+emitters[e] = true
+return e
 end
-
--- ============================================================
---  ЭФФЕКТЫ: искры, ПЕРЕХОД МЕЖДУ ИЗМЕРЕНИЯМИ, пузыри речи
--- ============================================================
--- Пушка по скинам (v4.2): дальность и цвет порталов, пока скин активен
-TK.GUN_CFG = {
-  rick = { range = 1000, col = TK.RGB(50, 255, 50) },
-  rick_prime = { range = 10000, col = TK.RGB(50, 255, 50) },
-  evil_morty = { range = 700, col = TK.RGB(255, 220, 50) },
-}
-function TK.gunCfg()
-  return TK.GUN_CFG[TK.ST.ActiveSkin]
+RM.onQuality[#RM.onQuality + 1] = function(q)
+for e in pairs(emitters) do
+if e.Parent then e.Rate = (e:GetAttribute("RM_Rate") or 0) * q.pr end
 end
-function TK.pcol()
-  local g = TK.gunCfg()
-  if g and g.col then return g.col end
-  local c = TK.ST.PortalColor
-  return TK.RGB(c.R, c.G, c.B)
+for _, d in ipairs(WORLD:GetDescendants()) do
+if d:IsA("PointLight") or d:IsA("SpotLight") then d.Enabled = q.lights end
 end
-function TK.burst(pos, col, count)
-  local p = TK.I("Part", {
-    Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false, Transparency = 1,
-    Size = TK.V3(.2, .2, .2), Position = pos,
-  }, TK.fxFolder)
-  local e = TK.I("ParticleEmitter", {
-    Texture = "rbxasset://textures/particles/sparkles_main.dds", Rate = 0, Lifetime = NumberRange.new(.3, .7),
-    Speed = NumberRange.new(8, 20), SpreadAngle = Vector2.new(180, 180), Size = NumberSequence.new(1.2, 0),
-    LightEmission = 1, Color = ColorSequence.new(col),
-  }, p)
-  e:Emit(count or 24)
-  task.delay(1.2, function() p:Destroy() end)
 end
-
-TK.ccFx, TK.fovBusy = nil, false
-function TK.flicker(R) -- мерцание скина при переходе
-  if not R then return end
-  task.spawn(function()
-    for i = 1, 6 do
-      local on = (i % 2 == 0)
-      for _, p in ipairs(R.all) do
-        if p.Parent then p.LocalTransparencyModifier = on and 0 or .85 end
-      end
-      task.wait(.05)
-    end
-    for _, p in ipairs(R.all) do
-      if p.Parent then p.LocalTransparencyModifier = 0 end
-    end
-  end)
+function FXS.light(parent, color, range, bright)
+local l = I("PointLight", { Color = color, Range = range or 12, Brightness = bright or 2, Enabled = Q().lights, Shadows = false }, parent)
+return l
 end
--- вспышка, расходящиеся кольца, цветокоррекция, рывок FOV, мерцание тела
-function TK.dimFx(col, power)
-  if not TK.ST.DimFx then return end
-  power = power or 1
-  col = col or TK.pcol()
-  if not TK.ccFx or not TK.ccFx.Parent then TK.ccFx = TK.I("ColorCorrectionEffect", { Name = "RM_DimFx" }, TK.Lighting) end
-  TK.TweenService:Create(TK.ccFx, TweenInfo.new(.15), {
-    TintColor = col:Lerp(TK.WHITE, .35), Saturation = 1.2 * power, Contrast = .35 * power, Brightness = .12 * power,
-  }):Play()
-  task.delay(.18, function()
-    if TK.ccFx and TK.ccFx.Parent then
-      TK.TweenService:Create(TK.ccFx, TweenInfo.new(.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        TintColor = TK.WHITE, Saturation = 0, Contrast = 0, Brightness = 0,
-      }):Play()
-    end
-  end)
-  local fl = TK.I("Frame", {
-    Size = UDim2.fromScale(1, 1), BackgroundColor3 = col:Lerp(TK.WHITE, .6), BackgroundTransparency = .35,
-    BorderSizePixel = 0, ZIndex = 90,
-  }, TK.gui)
-  TK.TweenService:Create(fl, TweenInfo.new(.6), { BackgroundTransparency = 1 }):Play()
-  task.delay(.7, function() fl:Destroy() end)
-  for i = 1, 3 do
-    task.delay((i - 1) * .09, function()
-      local r = TK.I("Frame", {
-        AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromOffset(40, 40),
-        BackgroundTransparency = 1, ZIndex = 91,
-      }, TK.gui)
-      TK.cr(r, 999)
-      local s = TK.sk(r, col:Lerp(TK.WHITE, i * .15), 4, 0)
-      TK.TweenService:Create(r, TweenInfo.new(.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Size = UDim2.fromOffset(1800, 1800),
-      }):Play()
-      TK.TweenService:Create(s, TweenInfo.new(.7), { Transparency = 1 }):Play()
-      task.delay(.8, function() r:Destroy() end)
-    end)
-  end
-  local camObj = TK.Workspace.CurrentCamera
-  if camObj and not TK.fovBusy then
-    TK.fovBusy = true
-    local base = camObj.FieldOfView
-    TK.TweenService:Create(camObj, TweenInfo.new(.12), { FieldOfView = base + 18 }):Play()
-    task.delay(.14, function()
-      TK.TweenService:Create(camObj, TweenInfo.new(.55, Enum.EasingStyle.Quad), { FieldOfView = base }):Play()
-    end)
-    task.delay(.8, function() TK.fovBusy = false end)
-  end
-  TK.flicker(TK.RIG)
+function FXS.anchor(pos, life)
+local p = I("Part", { Anchored = true, CanCollide = false, CanTouch = false, CanQuery = false, Transparency = 1, Size = V3(.2, .2, .2), CFrame = CF(pos) }, FX)
+task.delay(life or 3, function() p:Destroy() end)
+return p
 end
-RM.dimFx = TK.dimFx
-
-function TK.bubble(adornee, text, secs) -- пузырь с репликой над головой
-  if not adornee or not adornee.Parent then return end
-  local old = adornee:FindFirstChild("RM_Bubble")
-  if old then old:Destroy() end
-  local bb = TK.I("BillboardGui", {
-    Name = "RM_Bubble", Size = UDim2.fromOffset(190, 44), StudsOffset = TK.V3(0, 2.6, 0), AlwaysOnTop = true,
-    LightInfluence = 0, MaxDistance = 90,
-  }, adornee)
-  local f = TK.I("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = TK.RGB(250, 250, 255), BackgroundTransparency = .05 }, bb)
-  TK.cr(f, 10)
-  TK.sk(f, TK.RGB(30, 30, 40), 2, 0)
-  TK.I("TextLabel", {
-    Size = UDim2.new(1, -10, 1, -6), Position = UDim2.fromOffset(5, 3), BackgroundTransparency = 1, Text = text,
-    TextColor3 = TK.RGB(25, 25, 35), Font = Enum.Font.GothamBold, TextSize = 12, TextWrapped = true,
-  }, f)
-  task.delay(secs or 3, function() if bb.Parent then bb:Destroy() end end)
+function FXS.spark(pos, color, n)
+local a = FXS.anchor(pos, 2)
+local e = I("ParticleEmitter", {
+Color = ColorSequence.new(color or C.ac), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, .5), NumberSequenceKeypoint.new(1, 0) }),
+Lifetime = NumberRange.new(.4, .9), Speed = NumberRange.new(8, 22), SpreadAngle = Vector2.new(180, 180), Rate = 0,
+LightEmission = 1, Drag = 3, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }),
+}, a)
+e:Emit(max(2, floor((n or 24) * Q().pr)))
 end
-
--- ============================================================
---  ДЕТАЛИ, СУСТАВЫ
--- ============================================================
-function TK.mkp(name, size, color, material, shape)
-  local p = Instance.new("Part")
-  if shape then p.Shape = shape end
-  p.Name = name
-  p.Size = size
-  p.Color = color
-  p.Material = material or Enum.Material.SmoothPlastic
-  p.CanCollide = false
-  p.CanQuery = false
-  p.CanTouch = false
-  p.CastShadow = false
-  p.Massless = true
-  p.TopSurface = Enum.SurfaceType.Smooth
-  p.BottomSurface = Enum.SurfaceType.Smooth
-  return p
+function FXS.ring(pos, color, size, normal)
+local cf = normal and CFrame.lookAt(pos, pos + normal) * ANG(0, pi / 2, 0) or CF(pos) * ANG(0, 0, pi / 2)
+local p = I("Part", {
+Shape = Enum.PartType.Cylinder, Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false, Material = Enum.Material.Neon,
+Color = color or C.ac, Transparency = .2, Size = V3(.2, 1, 1), CFrame = cf,
+}, FX)
+local d = (size or 14)
+tw(p, .5 * Q().fxdur, { Size = V3(.2, d, d), Transparency = 1 })
+task.delay(.7, function() p:Destroy() end)
 end
-function TK.motor(a, b, c0, c1)
-  c1 = c1 or CFrame.identity
-  local m = Instance.new("Motor6D")
-  m.Part0 = a
-  m.Part1 = b
-  m.C0 = c0
-  m.C1 = c1
-  b.CFrame = a.CFrame * c0 * c1:Inverse()
-  m.Parent = b
-  return m
+function FXS.bolt(a, b, color, th, life)
+local len = (b - a).Magnitude
+if len < .1 then return end
+local p = I("Part", {
+Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false, Material = Enum.Material.Neon, Color = color or C.ac,
+Size = V3(th or .25, th or .25, len), CFrame = CFrame.lookAt(a, b) * CF(0, 0, -len / 2),
+}, FX)
+tw(p, life or .25, { Transparency = 1, Size = V3(.02, .02, len) })
+task.delay((life or .25) + .05, function() p:Destroy() end)
 end
-
--- ============================================================
---  СКИНЫ: данные персонажей
--- ============================================================
-TK.SK = {
-  rick = {
-    name = "Рик Санчес", ico = "🧪", desc = "Халат со складками, шипы, зубы, пальцы",
-    skin = TK.RGB(190, 180, 180), hair = TK.RGB(165, 205, 240), shirt = TK.RGB(150, 215, 205), coat = TK.RGB(245, 245, 248),
-    fold = TK.RGB(208, 210, 222), up = TK.RGB(245, 245, 248), fo = TK.RGB(245, 245, 248), cuff = TK.RGB(150, 215, 205),
-    pants = TK.RGB(108, 96, 50), shoe = TK.RGB(78, 83, 92), sock = TK.RGB(245, 245, 245), belt = TK.RGB(60, 45, 30),
-    buckle = TK.RGB(235, 190, 40), hs = TK.V3(1.4, 1.5, 1.25), ey = .15, ex = .3, er = .52, pr = .1, nl = .4, ny = -.05,
-    open = true, brow = .3, hstyle = "spikes", pin = TK.RGB(255, 90, 90),
-  },
-  morty = {
-    name = "Морти Смит", ico = "😰", desc = "Жёлтая футболка, большие глаза",
-    skin = TK.RGB(238, 196, 156), hair = TK.RGB(125, 85, 52), shirt = TK.RGB(236, 226, 98), up = TK.RGB(236, 226, 98),
-    fo = TK.RGB(238, 196, 156), pants = TK.RGB(48, 66, 112), shoe = TK.RGB(240, 240, 240), hs = TK.V3(1.6, 1.65, 1.4),
-    ey = .05, ex = .33, er = .64, pr = .13, nl = .18, ny = -.2, hstyle = "morty", pack = TK.RGB(70, 100, 78),
-  },
-  rick_prime = {
-    name = "Рик Прайм", ico = "💀", desc = "Куртка, полоски, ботинки, кобура",
-    skin = TK.RGB(205, 195, 200), hair = TK.RGB(165, 205, 240), shirt = TK.RGB(112, 102, 148), jacket = true,
-    pad = TK.RGB(160, 170, 200), stripe = TK.RGB(225, 50, 95), up = TK.RGB(48, 48, 78), fo = TK.RGB(48, 48, 78),
-    cuff = TK.RGB(112, 102, 148), pants = TK.RGB(34, 34, 56), shoe = TK.RGB(82, 88, 118), belt = TK.RGB(70, 72, 100),
-    holster = true, boot = true, hs = TK.V3(1.4, 1.5, 1.25), ey = .15, ex = .3, er = .55, pr = .11, nl = .35,
-    ny = -.05, open = true, brow = .1, hstyle = "spikes",
-  },
-  jerry = {
-    name = "Джерри Смит", ico = "🙂", desc = "Голубая рубашка, добрые глаза",
-    skin = TK.RGB(238, 200, 170), hair = TK.RGB(110, 80, 55), shirt = TK.RGB(120, 170, 215), up = TK.RGB(120, 170, 215),
-    fo = TK.RGB(120, 170, 215), pants = TK.RGB(135, 120, 90), shoe = TK.RGB(70, 60, 50), hs = TK.V3(1.5, 1.6, 1.35),
-    ey = .08, ex = .32, er = .5, pr = .1, nl = .32, ny = -.15, hstyle = "morty", brow = .05,
-  },
-  summer = {
-    name = "Саммер Смит", ico = "🧡", desc = "Рыжие длинные волосы, светлый топ",
-    skin = TK.RGB(240, 200, 170), hair = TK.RGB(215, 105, 55), shirt = TK.RGB(245, 225, 235), up = TK.RGB(245, 225, 235),
-    fo = TK.RGB(240, 200, 170), pants = TK.RGB(60, 90, 150), shoe = TK.RGB(240, 240, 240), hs = TK.V3(1.5, 1.6, 1.35),
-    ey = .08, ex = .32, er = .56, pr = .11, nl = .16, ny = -.2, hstyle = "morty", longhair = true,
-  },
-  meeseeks = {
-    name = "Мистер Мисикс", ico = "🟦", desc = "Голубой, лысый, огромная улыбка",
-    skin = TK.RGB(120, 190, 235), hair = TK.RGB(90, 150, 200), shirt = TK.RGB(120, 190, 235), up = TK.RGB(120, 190, 235),
-    fo = TK.RGB(120, 190, 235), pants = TK.RGB(60, 120, 180), shoe = TK.RGB(100, 170, 220), hs = TK.V3(1.5, 1.6, 1.3),
-    ey = .2, ex = .32, er = .62, pr = .12, nl = .14, ny = -.15, open = true, hstyle = "none", brow = .05,
-  },
-  pickle = {
-    name = "Огурчик Рик", ico = "🥒", desc = "Зелёный Рик с бородавками",
-    skin = TK.RGB(120, 165, 60), hair = TK.RGB(80, 125, 45), shirt = TK.RGB(105, 150, 52), up = TK.RGB(105, 150, 52),
-    fo = TK.RGB(105, 150, 52), pants = TK.RGB(95, 140, 48), shoe = TK.RGB(80, 120, 40), hs = TK.V3(1.4, 1.5, 1.25),
-    ey = .15, ex = .3, er = .52, pr = .1, nl = .4, ny = -.05, open = true, brow = .45, hstyle = "none",
-    warts = true, wart = TK.RGB(70, 105, 35),
-  },
-}
-TK.SK.evil_morty = TK.copy(TK.SK.morty)
-TK.SK.evil_morty.name = "Злой Морти"
-TK.SK.evil_morty.ico = "🖤"
-TK.SK.evil_morty.desc = "Повязка, руки в боки"
-TK.SK.evil_morty.patch = true
-TK.SK.evil_morty.hips = true
-TK.SK.evil_morty.brow = .2
-for id, S in pairs(TK.SK) do S.id = id end
-TK.SKIN_ORDER = { "rick", "morty", "evil_morty", "rick_prime", "jerry", "summer", "meeseeks", "pickle" }
-
--- выражения лица (переопределяют значения по умолчанию)
-TK.EM = {
-  { "normal", "😐 Обычный", {} },
-  { "happy", "😄 Весёлый", { eh = .85, by = .05, br = -.12, mw = 1.35, mo = .3, cr = .6, cy = .08, te = 1, tg = 0, hx = -.05 } },
-  { "sad", "😢 Грустный", { eh = .85, by = .04, br = -.55, mw = .75, mo = .02, cr = -.55, cy = -.07, te = 0, tg = 0, py = -.05, tr = 1, hx = .18, hz = .06 } },
-  { "angry", "😡 Злой", { eh = .65, by = -.09, br = .75, mw = 1.1, mo = .16, cr = -.35, cy = -.04, te = 1, tg = 0, hx = .1 } },
-  { "surprised", "😲 Удивлён", { eh = 1.35, pr = .6, by = .2, br = 0, mw = .6, mo = .5, cr = 0, te = 0, tg = 0, hx = -.08 } },
-  { "scared", "😱 Испуган", { eh = 1.3, pr = .55, by = .16, br = -.45, mw = 1, mo = .22, cr = -.2, te = 1, tg = 0, sh = 1 } },
-  { "crazy", "🤪 Псих", { eh = 1.4, pr = .5, by = .1, br = .3, bq = .12, mw = 1.4, mo = .4, cr = .5, cy = .05, te = 1, tg = 1, px = .1, hz = .12 } },
-  { "sleepy", "😴 Сонный", { eh = .22, by = -.05, br = -.1, mw = .6, mo = .08, cr = -.05, te = 0, tg = 0, hx = .25, hz = .1 } },
-  { "smirk", "😏 Хитрый", { eh = .85, br = .25, bq = .1, mw = .9, mo = .02, cr = .45, cs = .09, te = 0, tg = 0, hz = -.08 } },
-  { "derp", "🥴 Пьяный", { eh = .6, pr = .8, by = -.02, br = -.15, bq = .1, mw = 1.1, mo = .18, cr = .1, cs = -.07, te = 0, tg = 1, px = .05, py = .03, hz = .15 } },
-  { "wink", "😉 Подмигнуть", { mw = 1.1, mo = .02, cr = .5, cy = .04, te = 0, tg = 0, wk = 1, hz = -.05 } },
-  { "grimace", "😬 Оскал", { eh = 1.1, br = .1, mw = 1.5, mo = .14, cr = -.05, te = 1, tg = 0 } },
-}
-function TK.dflt(S)
-  return {
-    eh = 1, pr = 1, by = 0, br = S.brow or 0, mw = 1, mo = S.open and .3 or .02, cr = S.open and .15 or 0,
-    cy = 0, cs = 0, bq = 0, te = S.open and 1 or 0, tg = S.open and 1 or 0, tr = 0, px = 0, py = 0,
-    sh = 0, wk = 0, hx = 0, hz = 0, w = S.open and .62 or .34,
-  }
+function FXS.highlight(model, color, dur)
+if hlCount >= Q().hl then return nil end
+hlCount = hlCount + 1
+local h = I("Highlight", { FillColor = color or C.ac, OutlineColor = color or C.ac, FillTransparency = .6, OutlineTransparency = 0, DepthMode = Enum.HighlightDepthMode.AlwaysOnTop }, model)
+local function kill()
+if h.Parent then
+h:Destroy()
+hlCount = max(0, hlCount - 1)
 end
-function TK.ftar(S, id)
-  local t = TK.dflt(S)
-  for _, e in ipairs(TK.EM) do
-    if e[1] == id then
-      for k, v in pairs(e[3]) do t[k] = v end
-    end
-  end
-  return t
 end
-
--- ============================================================
---  РИГ: сборка скелета на Motor6D (работает и для тебя, и для Мисиксов)
--- ============================================================
-function TK.newRig(root, S, K)
-  local R = {
-    S = S, K = K, root = root, mot = {}, base = {}, fp = {}, all = {}, st = {}, lz = {}, parts = {},
-    t = 0, ph = 0, nextBlink = 2, blinkEnd = 0,
-  }
-  local model = Instance.new("Model")
-  model.Name = "RM_Rig"
-  R.model = model
-  local mot, base = R.mot, R.base
-  local function kcf(o) -- смещение в стадах -> масштабированный CFrame
-    if typeof(o) == "Vector3" then return CFrame.new(o * K) end
-    return CFrame.new(o.Position * K) * o.Rotation
-  end
-  local function part(n, sz, col, mat, shape)
-    local p = TK.mkp(n, sz * K, col, mat, shape)
-    p.Parent = model
-    R.all[#R.all + 1] = p
-    return p
-  end
-  local function fixed(par, n, sz, col, o, mat, shape) -- неподвижная деталь
-    local p = part(n, sz, col, mat, shape)
-    TK.motor(par, p, kcf(o))
-    return p
-  end
-  local function face(n, par, sz, col, o, mat, shape) -- подвижная деталь лица
-    local p = part(n, sz, col, mat, shape)
-    local m = TK.motor(par, p, kcf(o))
-    mot[n] = m
-    base[n] = m.C0
-    R.fp[n] = p
-    return p
-  end
-  local function limb(par, n, sz, col, o, mat, zo) -- сустав: деталь свисает вниз
-    local p = part(n, sz, col, mat)
-    local m = TK.motor(par, p, kcf(o), CFrame.new(0, sz.Y / 2 * K, (zo or 0) * K))
-    mot[n] = m
-    base[n] = m.C0
-    return p
-  end
-
-  local sc, hs = S.skin, S.hs
-  local T = part("Torso", TK.V3(1.8, 2, .9), S.shirt)
-  mot.Torso = TK.motor(root, T, kcf(TK.V3(0, -.6, 0)), CFrame.new(0, -K, 0))
-  base.Torso = mot.Torso.C0
-  R.parts.Torso = T
-  if S.belt then
-    fixed(T, "Belt", TK.V3(1.86, .22, .96), S.belt, TK.V3(0, -.88, 0))
-    fixed(T, "Buckle", TK.V3(.3, .2, .05), S.buckle or S.belt, TK.V3(0, -.88, -.5))
-  end
-  fixed(T, "Neck", TK.V3(.5, .3, .5), sc, TK.V3(0, 1.05, 0))
-  if S.pin then -- значок на груди
-    fixed(T, "Pin", TK.V3(.2, .2, .08), S.pin, TK.V3(-.55, .6, -.5), Enum.Material.Neon, Enum.PartType.Ball)
-  end
-  if S.pack then -- рюкзак за спиной + лямки
-    fixed(T, "Pack", TK.V3(1.2, 1.5, .36), S.pack, TK.V3(0, .1, .66))
-    for _, sx in ipairs({ -1, 1 }) do
-      fixed(T, "Strap", TK.V3(.16, 1.7, .06), S.pack:Lerp(TK.BLACK, .5), TK.V3(sx * .6, .1, -.47))
-    end
-  end
-  if S.warts then
-    for i = 1, 6 do
-      local a = i * 2.1
-      fixed(T, "Wart", TK.V3(.2, .2, .14), S.wart or sc, TK.V3(math.sin(a) * .7, math.cos(a * 1.7) * .8, -.46))
-    end
-  end
-
-  -- голова и лицо
-  local H = part("Head", hs, sc)
-  mot.Head = TK.motor(T, H, kcf(TK.V3(0, 1, 0)), CFrame.new(0, -hs.Y / 2 * K, 0))
-  base.Head = mot.Head.C0
-  R.parts.Head = H
-  local fz = -hs.Z / 2
-  for _, s in ipairs({ -1, 1 }) do
-    local n = s < 0 and "L" or "R"
-    face("fE" .. n, H, TK.V3(.08, S.er, S.er), TK.RGB(255, 255, 255),
-      CFrame.new(s * S.ex, S.ey, fz - .02) * CFrame.Angles(0, math.rad(90), 0), nil, Enum.PartType.Cylinder)
-    face("fP" .. n, H, TK.V3(1, 1, 1) * S.pr, TK.RGB(0, 0, 0), TK.V3(s * S.ex - s * .05, S.ey, fz - .08), nil, Enum.PartType.Ball)
-    face("fB" .. n, H, TK.V3(S.ex * 1.4, .1, .1), S.hair, TK.V3(s * S.ex, S.ey + S.er / 2 + .12, fz - .03))
-    face("fT" .. n, H, TK.V3(.09, .13, .06), TK.RGB(130, 205, 255), TK.V3(s * S.ex, S.ey - S.er / 2, fz - .06), nil,
-      Enum.PartType.Ball).Transparency = 1
-    fixed(H, "Ear", TK.V3(.14, .42, .28), sc, TK.V3(s * (hs.X / 2 + .04), -.05, .05))
-  end
-  fixed(H, "Nose", TK.V3(.16, S.nl, .2), sc, TK.V3(0, S.ny, fz - .08))
-  local my = S.open and -.42 or -.45
-  local mcol = S.open and TK.RGB(90, 20, 25) or TK.RGB(110, 50, 50)
-  face("fMC", H, TK.V3(.3, .1, .05), mcol, TK.V3(0, my, fz - .02))
-  face("fML", H, TK.V3(.2, .09, .05), mcol, TK.V3(-.15, my, fz - .025))
-  face("fMR", H, TK.V3(.2, .09, .05), mcol, TK.V3(.15, my, fz - .025))
-  face("fTe", H, TK.V3(.4, .08, .05), S.open and TK.RGB(215, 200, 120) or TK.RGB(240, 240, 235), TK.V3(0, my, fz - .05))
-  face("fTg", H, TK.V3(.22, .1, .05), TK.RGB(220, 70, 90), TK.V3(.08, my, fz - .05))
-
-  -- причёска
-  local hst = S.hstyle or "morty"
-  if hst == "spikes" then
-    for i = 0, 12 do
-      local a = math.rad(-120 + i * 20)
-      local big = (i % 2 == 0)
-      local d = TK.V3(math.sin(a), 0, math.cos(a))
-      local p = d * TK.V3(hs.X * .42, 0, hs.Z * .42) + TK.V3(0, hs.Y * (big and .36 or .1), 0)
-      local u = (d * (big and .5 or 1.1) + TK.V3(0, big and 1 or .45, 0)).Unit
-      local L = (big and 1 or .8) + .2 * math.sin(i * 2.3)
-      fixed(H, "Hair", TK.V3(.3, .3, L), S.hair, CFrame.lookAt(p, p + u) * CFrame.new(0, 0, -L / 2))
-    end
-    for _, x in ipairs({ -.35, 0, .35 }) do
-      local p = TK.V3(x, hs.Y * .45, .15)
-      local u = TK.V3(x * 1.4, 1, .1).Unit
-      fixed(H, "Hair", TK.V3(.3, .3, .8), S.hair, CFrame.lookAt(p, p + u) * CFrame.new(0, 0, -.4))
-    end
-  elseif hst == "morty" then
-    local back = S.longhair and 1.7 or .9
-    local sideL = S.longhair and 1.3 or .5
-    fixed(H, "Hair", TK.V3(hs.X + .1, .42, hs.Z + .1), S.hair, TK.V3(0, hs.Y / 2 - .12, .04))
-    fixed(H, "Fringe", TK.V3(hs.X + .1, .22, .3), S.hair, TK.V3(0, hs.Y / 2 - .2, fz + .1))
-    fixed(H, "HairB", TK.V3(hs.X + .1, back, .25), S.hair, TK.V3(0, hs.Y / 2 - back / 2 - .1, hs.Z / 2))
-    for _, s in ipairs({ -1, 1 }) do
-      fixed(H, "Sideburn", TK.V3(.12, sideL, .45), S.hair, TK.V3(s * (hs.X / 2 + .03), hs.Y / 2 - sideL / 2 - .1, .15))
-    end
-  end
-  if S.patch then -- повязка Злого Морти
-    local dk = TK.RGB(12, 12, 12)
-    fixed(H, "Patch", TK.V3(.1, .7, .7), dk, CFrame.new(S.ex, S.ey, fz - .07) * CFrame.Angles(0, math.rad(90), 0), nil, Enum.PartType.Cylinder)
-    fixed(H, "StrapF", TK.V3(hs.X + .08, .09, .07), dk, CFrame.new(0, S.ey + .1, fz - .03) * CFrame.Angles(0, 0, -.3))
-    fixed(H, "StrapB", TK.V3(hs.X + .08, .09, .07), dk, TK.V3(0, S.ey + .1, hs.Z / 2 + .03))
-    for _, s in ipairs({ -1, 1 }) do
-      fixed(H, "StrapS", TK.V3(.07, .09, hs.Z + .06), dk, TK.V3(s * (hs.X / 2 + .04), S.ey + .1, 0))
-    end
-  end
-
-  -- халат (полы качаются при ходьбе)
-  if S.coat then
-    local c = S.coat
-    for _, s in ipairs({ -1, 1 }) do
-      fixed(T, "CoatS", TK.V3(.14, 2, 1.05), c, TK.V3(s * .95, 0, .02))
-      fixed(T, "Lapel", TK.V3(.38, 1.5, .08), c, CFrame.new(s * .5, .2, -.5) * CFrame.Angles(0, 0, s * .1))
-      limb(T, s < 0 and "TL" or "TR", TK.V3(.14, 1.35, 1), c, TK.V3(s * .95, -.95, .02))
-    end
-    fixed(T, "CoatB", TK.V3(1.95, 2, .14), c, TK.V3(0, 0, .5))
-    fixed(T, "Collar", TK.V3(1.9, .26, .3), c, TK.V3(0, .95, .35))
-    limb(T, "TB", TK.V3(1.95, 1.35, .14), c, TK.V3(0, -.95, .5))
-    for _, x in ipairs({ -.45, .1, .55 }) do
-      fixed(T, "Fold", TK.V3(.05, 1.7, .04), S.fold, TK.V3(x, 0, .58))
-    end
-  end
-  if S.jacket then -- куртка Рика Прайма
-    fixed(T, "Hood", TK.V3(1.5, .4, .55), S.pad, TK.V3(0, .98, .2))
-    fixed(T, "Zip", TK.V3(.06, 1.8, .04), TK.RGB(200, 195, 225), TK.V3(0, 0, -.46))
-    for _, s in ipairs({ -1, 1 }) do
-      fixed(T, "Stripe", TK.V3(.5, .14, .05), S.stripe, CFrame.new(s * .5, .55, -.46) * CFrame.Angles(0, 0, s * .25))
-      fixed(T, "Pocket", TK.V3(.5, .7, .05), S.pad, TK.V3(s * .55, -.45, -.46))
-    end
-  end
-
-  -- руки (плечо, локоть, кисть, пальцы) и ноги (бедро, колено, стопа)
-  for _, s in ipairs({ -1, 1 }) do
-    local n = s < 0 and "L" or "R"
-    local au = limb(T, "A" .. n, TK.V3(.5, 1, .5), S.up, TK.V3(s * 1.15, .82, 0))
-    local fa = limb(au, "E" .. n, TK.V3(.45, .95, .45), S.fo, TK.V3(0, -.5, 0))
-    if S.cuff then fixed(fa, "Cuff", TK.V3(.5, .16, .5), S.cuff, TK.V3(0, -.4, 0)) end
-    if S.fold then
-      fixed(au, "Fold", TK.V3(.52, .05, .52), S.fold, TK.V3(0, -.15, 0))
-      fixed(fa, "Fold", TK.V3(.47, .05, .47), S.fold, TK.V3(0, .2, 0))
-    end
-    if S.pad then fixed(au, "Pad", TK.V3(.66, .2, .66), S.pad, TK.V3(0, .5, 0)) end
-    local pm = limb(fa, "W" .. n, TK.V3(.5, .34, .32), sc, TK.V3(0, -.475, 0))
-    for i = 0, 3 do
-      fixed(pm, "Finger", TK.V3(.1, .3, .12), sc, CFrame.new(-.18 + i * .12, -.3, -.03) * CFrame.Angles(.4, 0, 0))
-    end
-    fixed(pm, "Thumb", TK.V3(.12, .26, .12), sc, CFrame.new(-s * .29, -.05, -.1) * CFrame.Angles(.5, 0, -s * .3))
-    if s > 0 then R.hand = pm end
-    local th = limb(root, "H" .. n, TK.V3(.62, 1.25, .62), S.pants, TK.V3(s * .45, -.6, 0))
-    if S.holster and s > 0 then fixed(th, "Holster", TK.V3(.2, .6, .42), TK.RGB(70, 75, 95), TK.V3(.38, -.1, 0)) end
-    local sh = limb(th, "K" .. n, TK.V3(.56, .85, .56), S.pants, TK.V3(0, -.625, 0))
-    if S.sock then fixed(sh, "Sock", TK.V3(.5, .22, .5), S.sock, TK.V3(0, -.3, 0)) end
-    if S.boot then
-      fixed(sh, "Boot", TK.V3(.64, .6, .64), S.shoe, TK.V3(0, -.12, 0))
-      fixed(sh, "BStripe", TK.V3(.66, .09, .66), S.stripe, TK.V3(0, .05, 0))
-    end
-    local ft = limb(sh, "F" .. n, TK.V3(.7, .3, 1.15), S.shoe, TK.V3(0, -.425, 0), nil, .25)
-    fixed(ft, "Toe", TK.V3(.7, .22, .45), S.shoe, TK.V3(0, .04, -.45))
-  end
-  R.FT = TK.ftar(S, "normal")
-  R.FC = TK.copy(R.FT)
-  return R
+if dur then later(dur, kill) end
+return h, kill
 end
-
--- ============================================================
---  АНИМАТОР: idle, ходьба, бег, прыжок, хват предмета, посадка, эмоции тела, мимика
--- ============================================================
-function TK.smooth(st, key, v, a)
-  local c = st[key] or v
-  c = c + (v - c) * a
-  st[key] = c
-  return c
+function FXS.pulse(part: any, secs, color)
+if not (part and part.Parent) then return end
+local oc = part.Color
+part.Color = color or RGB(255, 255, 255)
+tw(part, secs or .4, { Color = oc })
 end
-
--- v4.5: случайные жесты в покое: { имя, длительность }
-TK.ACT = {
-  rick = { { "burp", 1.3 }, { "sip", 2.2 } },
-  pickle = { { "burp", 1.3 } },
-  morty = { { "stutter", 1.8 } },
-  evil_morty = { { "glance", 2.2 }, { "patch", 1.6 } },
-  rick_prime = { { "gunchk", 1.6 } },
-  jerry = { { "shrug", 1.3 } },
-  summer = { { "flick", 1.4 } },
-  meeseeks = { { "wave", 1.6 } },
-}
-TK.ACT_TXT = {
-  burp = "*ррр-ыгх!*", stutter = "А-а-ай... г-геез!", gunchk = "Хм.", shrug = "Э-э... ну ладно!",
-  flick = "Ну-у, типа...", wave = "Смотрите на меня!",
-}
-function TK.stepRig(R, dt, inp)
-  local mot, base, fp, K, S, st = R.mot, R.base, R.fp, R.K, R.S, R.st
-  local tm = mot.Torso
-  if not tm or not tm.Parent then return end
-  local F, FT = R.FC, R.FT
-  R.t = R.t + dt
-  local t = R.t
-  local v, air = inp.speed, inp.air
-  local a = math.min(1, dt * 12)
-  local w = (air or v < .4) and 0 or math.clamp(v / math.max(inp.walkSpeed, 1), 0, 1.4)
-  w = TK.smooth(st, "w", w, a)
-  local ag = TK.smooth(st, "a", air and 1 or 0, a)
-  R.ph = R.ph + dt * math.min(v, 40) * .55
-  local ph = R.ph
-  local s, c = math.sin(ph), math.cos(ph)
-  local idle = 1 - math.min(1, w * 3)
-  local br = math.sin(t * 1.9)
-  local hips = (S.hips and 1 or 0) * idle * (1 - ag)
-
-  local J = {} -- углы суставов
-  local function set(n, x, y, z) J[n] = { x or 0, y or 0, z or 0 } end
-
-  -- торс
-  local bob = br * .03 * idle + math.abs(c) * .07 * w
-  local trx, try, trz = -.1 * w + br * .02 * idle, -s * .12 * w, 0
-  -- голова
-  set("Head", .08 * w - br * .02 * idle + ag * .15 + F.hx,
-    math.sin(t * .7) * .1 * idle + math.sin(t * 40) * .05 * F.sh,
-    math.sin(t * .5) * .03 * idle + F.hz)
-  -- ноги
-  local swg = .75 * w
-  local lh = s * swg * (1 - ag) + .45 * ag
-  local rh = -s * swg * (1 - ag) - .15 * ag
-  local lk = -math.max(0, c) * .9 * w * (1 - ag) - .7 * ag
-  local rk = -math.max(0, -c) * .9 * w * (1 - ag) - .3 * ag
-  set("HL", lh, 0, -.03)
-  set("HR", rh, 0, .03)
-  set("KL", lk)
-  set("KR", rk)
-  set("FL", -(lh + lk) * .6)
-  set("FR", -(rh + rk) * .6)
-  -- руки
-  local sa = .7 * w * (1 - ag)
-  local ar, al = s * sa, -s * sa
-  local z = .07 + br * .03 * idle + .9 * ag + .5 * hips
-  local eb = .15 + br * .03 * idle
-  set("AR", ar, 0, z)
-  set("AL", al, 0, -z)
-  set("ER", eb + math.max(0, ar) * .6, 0, -1.3 * hips)
-  set("EL", eb + math.max(0, al) * .6, 0, 1.3 * hips)
-  -- полы халата
-  local tl = -(.06 + .3 * w * (.5 + .5 * math.sin(ph * 2))) + ag * .1
-  set("TB", tl)
-  set("TL", tl, 0, -.04 - .1 * w)
-  set("TR", tl, 0, .04 + .1 * w)
-
-  -- v4.5: характер скина (idle-позы), случайные жесты, приземление
-  local pid = S.id
-  local pw = idle * (1 - ag) * (inp.ride and 0 or 1) * (inp.emote and 0 or 1)
-  local awR = pw * (inp.hold and 0 or 1) -- правая рука занята предметом
-  local xmo = 0
-  local function add(n, x, y, zz)
-    local j = J[n]
-    if j then
-      j[1] = j[1] + (x or 0)
-      j[2] = j[2] + (y or 0)
-      j[3] = j[3] + (zz or 0)
-    end
-  end
-  local function jb(n, x, y, zz, k)
-    local j = J[n]
-    if j and k > 0 then
-      j[1] = j[1] + ((x or 0) - j[1]) * k
-      j[2] = j[2] + ((y or 0) - j[2]) * k
-      j[3] = j[3] + ((zz or 0) - j[3]) * k
-    end
-  end
-  if pw > .01 then
-    if pid == "rick" or pid == "pickle" then
-      trx = trx + .07 * pw
-      try = try + math.sin(t * .4) * .05 * pw
-      add("Head", 0, 0, math.sin(t * .6) * .06 * pw)
-      add("HL", 0, 0, -.05 * pw)
-      add("HR", 0, 0, .05 * pw)
-      add("AL", math.sin(t * .8) * .08 * pw, 0, 0)
-      if pid == "pickle" then
-        trz = trz + math.sin(t * 7) * .06 * pw
-        add("Head", 0, 0, math.sin(t * 7 + 1) * .1 * pw)
-      end
-    elseif pid == "morty" then
-      local tw = math.max(0, math.sin(t * .7)) ^ 6
-      add("Head", 0, math.sin(t * 25) * .05 * tw * pw, 0)
-      add("AL", .45 * pw, 0, 0)
-      add("EL", (.6 + math.sin(t * 8) * .1) * pw, 0, 0)
-      add("AR", .45 * awR, 0, -.1 * awR)
-      add("ER", (.6 + math.sin(t * 8 + 1) * .1) * awR, 0, 0)
-    elseif pid == "evil_morty" then
-      add("Head", -.06 * pw, math.sin(t * .35) * .3 * pw, 0)
-      trx = trx - .03 * pw
-    elseif pid == "rick_prime" then
-      add("AR", 0, 0, .5 * awR)
-      add("ER", 0, 0, -1.3 * awR)
-      add("Head", -.07 * pw, 0, 0)
-      try = try + math.sin(t * .3) * .04 * pw
-      add("HL", 0, 0, -.07 * pw)
-      add("HR", 0, 0, .07 * pw)
-    elseif pid == "jerry" then
-      local sh = math.max(0, math.sin(t * .5))
-      add("AR", 0, 0, .12 * sh * awR)
-      add("AL", 0, 0, -.12 * sh * pw)
-      add("Head", 0, 0, .05 * math.sin(t * .5) * pw)
-    elseif pid == "summer" then
-      trz = trz + math.sin(t * .8) * .05 * pw
-      add("Head", 0, 0, .08 * pw)
-      add("AL", 0, 0, -.5 * pw)
-      add("EL", 0, 0, 1.3 * pw)
-    elseif pid == "meeseeks" then
-      bob = bob + math.abs(math.sin(t * 5)) * .06 * pw
-      add("AR", 0, 0, (.5 + math.sin(t * 6) * .15) * awR)
-      add("AL", 0, 0, -(.5 + math.sin(t * 6 + 1) * .15) * pw)
-    end
-  end
-  -- случайный жест раз в 8-16 секунд (только у твоего скина)
-  local act = R.act
-  if act and pw < .3 then
-    R.act = nil
-    act = nil
-  end
-  if not act and R.isMain and pw > .9 and t > (R.nextAct or 5) then
-    local pool = TK.ACT[pid]
-    if pool then
-      local pick = pool[math.random(#pool)]
-      act = { n = pick[1], d = pick[2], t0 = t }
-      R.act = act
-    end
-    R.nextAct = t + 8 + math.random() * 8
-  end
-  if act then
-    local u = (t - act.t0) / act.d
-    if u >= 1 then
-      R.act = nil
-    else
-      local k = math.min(1, math.sin(math.pi * u) * 1.6) * pw
-      local kr = k * (inp.hold and 0 or 1)
-      local an = act.n
-      if not act.fx and u > .35 then
-        act.fx = true
-        local txt = TK.ACT_TXT[an]
-        if txt then TK.bubble(R.root, txt, 1.8) end
-        if an == "burp" then
-          local hp = mot.Head and mot.Head.Part1
-          if hp then TK.burst(hp.Position + hp.CFrame.LookVector * .8, TK.RGB(150, 255, 120), 14) end
-        end
-      end
-      if an == "burp" then
-        trx = trx - .16 * k
-        jb("Head", -.5, 0, 0, k)
-        xmo = .55 * k
-      elseif an == "sip" then
-        jb("AR", 2.4, 0, .1, kr)
-        jb("ER", 2.2, 0, 0, kr)
-        jb("Head", -.2, 0, 0, k)
-      elseif an == "stutter" then
-        add("Head", 0, math.sin(t * 28) * .1 * k, 0)
-        jb("AL", .8, 0, 0, k)
-        jb("EL", 1.3, 0, 0, k)
-        jb("AR", .8, 0, 0, kr)
-        jb("ER", 1.3, 0, 0, kr)
-      elseif an == "glance" then
-        jb("Head", 0, .9, 0, k)
-      elseif an == "patch" then
-        jb("AR", 2.5, 0, .15, kr)
-        jb("ER", 1.8, 0, 0, kr)
-      elseif an == "gunchk" then
-        jb("AR", 0, 0, .9, kr)
-        jb("ER", 0, 0, -1.4, kr)
-      elseif an == "shrug" then
-        jb("AR", 0, 0, .55, kr)
-        jb("AL", 0, 0, -.55, k)
-        jb("Head", 0, 0, .15, k)
-      elseif an == "flick" then
-        jb("AR", 2.6, 0, .3, kr)
-        jb("ER", 1.5, 0, 0, kr)
-        jb("Head", 0, 0, .2, k)
-      elseif an == "wave" then
-        jb("AR", 0, 0, 2.8, kr)
-        jb("ER", 0, 0, .3 + math.sin(t * 10) * .5, kr)
-      end
-    end
-  end
-  -- приземление: короткий присед
-  if st.wasAir and not air and not inp.ride then R.landT = t end
-  st.wasAir = air and true or false
-  local lw = math.max(0, 1 - (t - (R.landT or -9)) / .3) * (1 - math.min(w, 1) * .7)
-  if lw > 0 then
-    trx = trx + .16 * lw
-    bob = bob - .15 * lw
-    jb("KL", -.8, 0, 0, lw)
-    jb("KR", -.8, 0, 0, lw)
-    jb("HL", .5, 0, -.03, lw)
-    jb("HR", .5, 0, .03, lw)
-  end
-
-  -- посадка (крейсер)
-  if inp.ride then
-    trx, try = -.05, 0
-    set("HL", 1.45, 0, -.08)
-    set("HR", 1.45, 0, .08)
-    set("KL", -1.45)
-    set("KR", -1.45)
-    set("FL", .2)
-    set("FR", .2)
-    set("AR", .9, 0, .12)
-    set("AL", .9, 0, -.12)
-    set("ER", .5)
-    set("EL", .5)
-  end
-  -- посадка/высадка: прыжок с поднятыми руками и поджатыми ногами
-  if inp.boarding then
-    local bw = inp.boarding
-    local function bm(n, x, y, zz)
-      local j = J[n] or { 0, 0, 0 }
-      J[n] = { j[1] + ((x or 0) - j[1]) * bw, j[2] + ((y or 0) - j[2]) * bw, j[3] + ((zz or 0) - j[3]) * bw }
-    end
-    trx = trx + (-.2 - trx) * bw
-    bm("HL", 1.1, 0, -.1)
-    bm("HR", .6, 0, .1)
-    bm("KL", -1.3)
-    bm("KR", -.8)
-    bm("AR", 2.3, 0, .5)
-    bm("AL", 2.3, 0, -.5)
-    bm("ER", .3)
-    bm("EL", .3)
-    bm("Head", -.2)
-  end
-  -- хват предмета: правая рука вперёд (вперёд = положительный угол)
-  if inp.hold then
-    set("AR", 1.35, 0, .05)
-    set("ER", .25)
-  end
-
-  -- эмоции тела
-  if inp.emote then R.curEm = inp.emote end
-  local want = (inp.emote ~= nil) and idle > .5 and not air and not inp.ride
-  local ew = TK.smooth(st, "em", want and 1 or 0, math.min(1, dt * 8))
-  if ew > .01 and R.curEm then
-    local e = R.curEm
-    local function bl(n, x, y, zz)
-      local j = J[n] or { 0, 0, 0 }
-      J[n] = { j[1] + ((x or 0) - j[1]) * ew, j[2] + ((y or 0) - j[2]) * ew, j[3] + ((zz or 0) - j[3]) * ew }
-    end
-    local function tor(x, y, zz, b)
-      trx = trx + (x - trx) * ew
-      try = try + (y - try) * ew
-      trz = trz + (zz - trz) * ew
-      bob = bob + (b - bob) * ew
-    end
-    if e == "wave" then
-      bl("AR", 0, 0, 2.7)
-      bl("ER", 0, 0, .4 + math.sin(t * 10) * .55)
-      bl("Head", 0, .2, -.08)
-    elseif e == "dance" then
-      local d = math.sin(t * 4)
-      tor(0, d * .3, d * .12, math.abs(d) * .14)
-      bl("AR", math.sin(t * 2) * .5, 0, 1.2 + d * .8)
-      bl("AL", math.sin(t * 2 + 1) * .5, 0, -(1.2 - d * .8))
-      bl("ER", .6)
-      bl("EL", .6)
-      bl("HL", d * .35, 0, -.05)
-      bl("HR", -d * .35, 0, .05)
-      bl("KL", -math.max(0, d) * .7)
-      bl("KR", -math.max(0, -d) * .7)
-      bl("Head", 0, math.sin(t * 2) * .3, d * .1)
-    elseif e == "drunk" then
-      tor(.1 + math.sin(t * .9) * .12, 0, math.sin(t * 1.3) * .15, 0)
-      bl("Head", .2, math.sin(t * .8) * .25, math.sin(t * 1.1) * .25)
-      bl("AR", math.sin(t * 1.3) * .4, 0, .35 + math.sin(t * 1.7) * .3)
-      bl("AL", math.sin(t * 1.3 + 2) * .4, 0, -(.35 + math.sin(t * 1.5) * .3))
-      bl("HL", math.sin(t * 1.3) * .15, 0, -.1)
-      bl("HR", -math.sin(t * 1.3) * .15, 0, .1)
-    elseif e == "think" then
-      bl("AR", 1.0, 0, -.2)
-      bl("ER", 1.9)
-      bl("AL", .7, 0, -.1)
-      bl("EL", 1.0)
-      bl("Head", .12, .15, .05)
-    elseif e == "victory" then
-      tor(-.1, 0, 0, math.abs(math.sin(t * 6)) * .1)
-      bl("AR", 0, 0, 2.8)
-      bl("AL", 0, 0, -2.8)
-      bl("ER", 0, 0, -.15)
-      bl("EL", 0, 0, .15)
-      bl("Head", -.25)
-    elseif e == "facepalm" then
-      tor(.12, 0, 0, 0)
-      bl("AR", 1.0)
-      bl("ER", 2.4)
-      bl("AL", 0, 0, -.15)
-      bl("Head", .3)
-    end
-  end
-
-  tm.C0 = CFrame.new(0, bob * K, 0) * base.Torso * CFrame.Angles(trx, try, trz)
-  for n, j in pairs(J) do
-    local m = mot[n]
-    if m then m.C0 = base[n] * CFrame.Angles(j[1], j[2], j[3]) end
-  end
-
-  -- мимика: плавный переход к целевому выражению + моргание
-  local fa = math.min(1, dt * 9)
-  for k, vv in pairs(FT) do F[k] = F[k] + (vv - F[k]) * fa end
-  if t > R.nextBlink then
-    R.blinkEnd = t + .13
-    R.nextBlink = t + 2.5 + math.random() * 3
-  end
-  local blink = t < R.blinkEnd and .12 or 1
-  local mo, mw = F.mo + xmo, F.w * F.mw
-  local mh = .09 + mo
-  local lz = R.lz
-  local function sz(p, x, y, zz)
-    local l = lz[p]
-    if not l or math.abs(l.X - x) + math.abs(l.Y - y) + math.abs(l.Z - zz) > .003 then
-      l = TK.V3(x, y, zz)
-      lz[p] = l
-      p.Size = l
-    end
-  end
-  for _, n in ipairs({ "L", "R" }) do
-    local r = (n == "R")
-    local h = F.eh * blink * ((r and F.wk > .5) and .1 or 1)
-    sz(fp["fE" .. n], .08 * K, S.er * h * K, S.er * K)
-    local ps = S.pr * F.pr * K
-    sz(fp["fP" .. n], ps, ps * math.min(1, math.max(.05, h * 1.5)), ps)
-    mot["fP" .. n].C0 = base["fP" .. n] * CFrame.new((r and -1 or 1) * F.px * K, F.py * K, 0)
-    mot["fB" .. n].C0 = base["fB" .. n] * CFrame.new(0, (F.by + (r and F.bq or 0)) * K, 0) * CFrame.Angles(0, 0, (r and 1 or -1) * F.br)
-    fp["fT" .. n].Transparency = 1 - F.tr * .85
-    mot["fT" .. n].C0 = base["fT" .. n] * CFrame.new(0, -((t * .9 + (r and .5 or 0)) % 1) * .45 * K, 0)
-    mot["fM" .. n].C0 = base["fM" .. n] * CFrame.new((r and 1 or -1) * (mw / 2 - .15) * K, (F.cy + (r and F.cs or -F.cs)) * K, 0)
-      * CFrame.Angles(0, 0, (r and 1 or -1) * F.cr)
-  end
-  sz(fp.fMC, mw * K, mh * K, .05 * K)
-  local tw = math.min(1, mo * 8)
-  sz(fp.fTe, mw * .85 * K, .08 * K, .05 * K)
-  mot.fTe.C0 = base.fTe * CFrame.new(0, (mh / 2 - .05) * K, 0)
-  fp.fTe.Transparency = 1 - F.te * tw
-  mot.fTg.C0 = base.fTg * CFrame.new(0, (-mh / 2 + .06) * K, 0)
-  fp.fTg.Transparency = 1 - F.tg * tw
+function FXS.bubble(adornee, text, dur)
+if not (adornee and adornee.Parent) then return end
+for _, c in ipairs(adornee:GetChildren()) do
+if c.Name == "RM_Bubble" then c:Destroy() end
 end
-
--- ============================================================
---  ПРИМЕНЕНИЕ И СНЯТИЕ СКИНА
--- ============================================================
-TK.animC, TK.hidden = nil, {}
-function TK.playerInput(hum, root)
-  local vl = root.AssemblyLinearVelocity
-  local sp = TK.V3(vl.X, 0, vl.Z).Magnitude
-  if TK.EMOTE and sp > 1.5 then TK.EMOTE = nil end
-  local boarding = TK.ship and TK.ship.board and TK.ship.boardW or nil
-  return {
-    speed = sp, walkSpeed = hum.WalkSpeed,
-    air = (not TK.RIDING) and (not boarding) and (not TK.SH.onDeck) and hum.FloorMaterial == Enum.Material.Air,
-    hold = TK.HOLDING, ride = TK.RIDING, emote = TK.EMOTE, boarding = boarding,
-  }
+text = tostring(text):sub(1, 80)
+local w = clamp(#text * 8 + 24, 80, 260)
+local g = I("BillboardGui", { Name = "RM_Bubble", Size = UDim2.fromOffset(w, 36), StudsOffset = V3(0, 3.2, 0), AlwaysOnTop = true, Adornee = adornee, MaxDistance = 120 }, adornee)
+local f = I("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = RGB(255, 255, 255), BackgroundTransparency = .05 }, g)
+I("UICorner", { CornerRadius = UDim.new(0, 12) }, f)
+I("TextLabel", {
+Size = UDim2.new(1, -10, 1, -4), Position = UDim2.fromOffset(5, 2), BackgroundTransparency = 1, Text = text, TextColor3 = RGB(20, 20, 30),
+Font = Enum.Font.GothamBold, TextSize = 13, TextWrapped = true,
+}, f)
+task.delay(dur or 3, function() if g.Parent then g:Destroy() end end)
 end
--- Портальные пушки имеют собственные модели и не меняются при переключении скина.
-function TK.regun()
-  -- Пересборка больше не нужна: выбранный скин не влияет на тип пушки.
+local dimBusy = 0
+function FXS.dim(color, strength)
+if not ST.dimfx or RM.dead then return end
+color = color or pcol()
+strength = strength or 1
+dimBusy = dimBusy + 1
+local my = dimBusy
+local q = Q()
+local ov = I("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = color, BackgroundTransparency = .35, ZIndex = 200, BorderSizePixel = 0 }, GUI)
+I("UIGradient", {
+Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, .85), NumberSequenceKeypoint.new(.5, 0), NumberSequenceKeypoint.new(1, .85) }), Rotation = 90,
+}, ov)
+tw(ov, .7 * q.fxdur, { BackgroundTransparency = 1 })
+task.delay(.8 * q.fxdur, function() ov:Destroy() end)
+if q.fx then
+CC.Enabled, BLOOM.Enabled = true, true
+CC.TintColor = color:Lerp(RGB(255, 255, 255), .55)
+CC.Saturation, CC.Contrast, CC.Brightness = 0, 0, 0
+tw(CC, .18, { Saturation = 1.2 * strength, Contrast = .3 * strength, Brightness = .15 * strength })
+tw(BLOOM, .18, { Intensity = 1.6 * strength })
+local c = cam()
+local base = c and c.FieldOfView or 70
+if c then tw(c, .15, { FieldOfView = base + 22 * strength }) end
+later(.2, function()
+tw(CC, .8 * q.fxdur, { Saturation = 0, Contrast = 0, Brightness = 0 })
+tw(BLOOM, .8 * q.fxdur, { Intensity = 0 })
+if c then tw(c, .6, { FieldOfView = base }) end
+end)
+later(1.2 * q.fxdur, function()
+if my == dimBusy then
+CC.Enabled, BLOOM.Enabled = false, false
+CC.TintColor = RGB(255, 255, 255)
 end
-
-function TK.fixCam() -- v4.7: камера всегда смотрит на твоего персонажа
-  local cam = TK.Workspace.CurrentCamera
-  local _, h = TK.getChar()
-  if cam and h and cam.CameraSubject ~= h then
-    cam.CameraSubject = h
-    cam.CameraType = Enum.CameraType.Custom
-  end
+end)
 end
-
--- v4.5: лёгкая аура-частицы у каждого скина
-TK.AURA = {
-  rick = { col = TK.RGB(140, 255, 140), rate = 3, spd = 2 },
-  pickle = { col = TK.RGB(150, 230, 90), rate = 5, spd = 2 },
-  rick_prime = { col = TK.RGB(225, 50, 95), rate = 5, spd = 3, light = TK.RGB(225, 50, 95) },
-  evil_morty = { col = TK.RGB(120, 80, 170), rate = 6, spd = 2, light = TK.RGB(120, 60, 160) },
-  meeseeks = { col = TK.RGB(150, 220, 255), rate = 8, spd = 3 },
-  summer = { col = TK.RGB(255, 170, 190), rate = 3, spd = 1.5 },
-}
-function TK.skinAura(R)
-  local cfg = TK.AURA[R.S.id]
-  local tm = R.mot.Torso and R.mot.Torso.Part1
-  if not cfg or not tm then return end
-  R.aura = TK.I("ParticleEmitter", {
-    Texture = "rbxasset://textures/particles/sparkles_main.dds", Rate = cfg.rate, Lifetime = NumberRange.new(1, 1.8),
-    Speed = NumberRange.new(cfg.spd * .5, cfg.spd), SpreadAngle = Vector2.new(180, 180),
-    Size = NumberSequence.new(.5, 0), Transparency = NumberSequence.new(.3, 1), LightEmission = .8,
-    Color = ColorSequence.new(cfg.col), Acceleration = TK.V3(0, 1.5, 0),
-  }, tm)
-  if cfg.light then TK.I("PointLight", { Color = cfg.light, Range = 10, Brightness = .8, Shadows = false }, tm) end
+snd("tp", .8, 1)
 end
-function TK.clearSkin()
-  if TK.animC then TK.animC:Disconnect() TK.animC = nil end
-  if TK.RIG and TK.RIG.model then pcall(function() TK.RIG.model:Destroy() end) end
-  TK.RIG = nil
-  TK.detachHand()
-  for p, tr in pairs(TK.hidden) do
-    if p.Parent then p.Transparency = tr end
-  end
-  TK.hidden = {}
+function FXS.tint(on, color)
+if on then
+CC.Enabled = true
+CC.TintColor = color or RGB(180, 200, 255)
+tw(CC, .3, { Saturation = -.7, Contrast = .15 })
+else
+tw(CC, .4, { Saturation = 0, Contrast = 0 })
+later(.45, function()
+if CC.Saturation > -.05 then
+CC.Enabled = false
+CC.TintColor = RGB(255, 255, 255)
 end
-function TK.applySkin(id)
-  local S = TK.SK[id]
-  if not S then return end
-  local ch, hum, root = TK.getChar()
-  if not root or not hum then TK.notify("Нет персонажа", TK.C.dg) return end
-  local cp = G.RM_AvatarCopier -- v4.8: снять копию аватара, чтобы скины не наложились
-  if cp and cp.restoreSync then pcall(cp.restoreSync) end
-  TK.clearSkin()
-  for _, d in ipairs(ch:GetDescendants()) do
-    if d:IsA("BasePart") and d ~= root and not d:FindFirstAncestorOfClass("Tool") then
-      TK.hidden[d] = d.Transparency
-      d.Transparency = 1
-    end
-  end
-  local gy = hum.RigType == Enum.HumanoidRigType.R15 and (hum.HipHeight + root.Size.Y / 2) or 3
-  local R = TK.newRig(root, S, math.clamp(gy / 3, .5, 3))
-  R.model.Name = "RM_Skin_" .. id
-  R.model.Parent = ch
-  R.FT = TK.ftar(S, TK.ST.Emotion)
-  R.FC = TK.copy(R.FT)
-  TK.RIG = R
-  R.isMain = true
-  TK.safe(TK.skinAura, R)
-  TK.animC = TK.RunService.RenderStepped:Connect(function(dt)
-    if not TK.RIG or not root.Parent or not hum.Parent then return end
-    TK.stepRig(TK.RIG, dt, TK.playerInput(hum, root))
-  end)
-  TK.ST.ActiveSkin = id
-  TK.save()
-  TK.notify("🎭 Скин: " .. S.name, TK.C.ac)
-  TK.dimFx(nil, .8)
-  local tl = ch:FindFirstChildOfClass("Tool")
-  if tl and tl == TK.heldTool and TK.heldDef then TK.attachHand(tl, TK.heldDef.grip) end
-  TK.regun()
-  TK.safe(TK.fixCam)
+end)
 end
-function TK.removeSkin()
-  TK.clearSkin()
-  TK.ST.ActiveSkin = ""
-  TK.save()
-  TK.refreshGrip()
-  TK.regun()
-  TK.safe(TK.fixCam)
-  TK.notify("🎭 Скин снят", TK.C.tx)
 end
-RM.removeSkin = TK.removeSkin -- v4.8: вызывает копир аватара
-function TK.setEmo(id)
-  TK.ST.Emotion = id
-  TK.save()
-  if TK.RIG then TK.RIG.FT = TK.ftar(TK.RIG.S, id) else TK.notify("Сначала надень скин", TK.C.dg, 2) end
-  for _, e in ipairs(TK.EM) do
-    if e[1] == id then TK.notify("Лицо: " .. e[2], TK.C.ac, 1.5) end
-  end
 end
-function TK.say(text)
-  local head = TK.RIG and TK.RIG.parts.Head
-  if not head then
-    local ch = TK.LP.Character
-    head = ch and ch:FindFirstChild("Head")
-  end
-  TK.bubble(head, text, 3.5)
-end
-TK.track(TK.LP.CharacterAdded:Connect(function()
-  TK.RIDING = false
-  TK.EMOTE = nil
-  TK.rideKeys.up, TK.rideKeys.down = false, false
-  if TK.ship then TK.ship.board = nil end
-  task.wait(1)
-  if TK.ST.ActiveSkin ~= "" then TK.safe(TK.applySkin, TK.ST.ActiveSkin) end
-end))
-
--- ============================================================
---  МИР: луч прицела, земля
--- ============================================================
-function TK.aimHit(maxDist, farDist)
-  local d, o = RM.getAimDirection()
-  local rp = RaycastParams.new()
-  rp.FilterType = Enum.RaycastFilterType.Exclude
-  rp.FilterDescendantsInstances = { TK.LP.Character, TK.ship and TK.ship.model }
-  local r = TK.Workspace:Raycast(o, d * maxDist, rp)
-  if r then return r.Position, r.Normal end
-  return o + d * math.min(maxDist, farDist or 50), -d
-end
-function TK.groundAt(pos)
-  local rp = RaycastParams.new()
-  rp.FilterType = Enum.RaycastFilterType.Exclude
-  rp.FilterDescendantsInstances = { TK.LP.Character, TK.ship and TK.ship.model }
-  local r = TK.Workspace:Raycast(pos + TK.V3(0, 6, 0), TK.V3(0, -80, 0), rp)
-  return r and r.Position.Y or nil
-end
-
--- ============================================================
---  ПОРТАЛЫ: большие, мгновенное касание
--- ============================================================
-function TK.pl(par, x, y, w, h, rot, col) -- скруглённая «таблетка» в SurfaceGui
-  local f = TK.I("Frame", {
-    AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(x, y), Size = UDim2.fromScale(w, h),
-    Rotation = rot or 0, BackgroundColor3 = col, BorderSizePixel = 0,
-  }, par)
-  TK.I("UICorner", { CornerRadius = UDim.new(.5, 0) }, f)
-  return f
-end
-function TK.killPortal(P, instant) -- закрытие: сжатие + вращение; instant = сразу убрать
-  if not P or P.dead then return end
-  P.dead = true
-  if instant or not (P.d and P.d.Parent) then
-    pcall(function() P.mo:Destroy() end)
-    return
-  end
-  P.dying, P.dt0 = true, os.clock()
-  P.s0 = P.d.Size.X
-  if P.em then pcall(function() P.em.Enabled = false end) end
-  TK.DYING[#TK.DYING + 1] = P
-  TK.snd("close", .45)
-end
-function TK.portalRings(at, n, col) -- ударные кольца и вспышка при открытии портала
-  local up = math.abs(n.Y) > .9 and Vector3.xAxis or Vector3.yAxis
-  for i = 1, 2 do
-    task.delay((i - 1) * .18, function()
-      if TK.DEAD then return end
-      local r = TK.I("Part", {
-        Shape = Enum.PartType.Cylinder, Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
-        CastShadow = false, Material = Enum.Material.Neon, Color = col, Transparency = .2,
-        Size = TK.V3(.15, TK.PORTAL_R * .6, TK.PORTAL_R * .6),
-        CFrame = CFrame.lookAt(at, at + n, up) * CFrame.Angles(0, math.rad(90), 0),
-      }, TK.fxFolder)
-      TK.TweenService:Create(r, TweenInfo.new(.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Size = TK.V3(.15, TK.PORTAL_R * 2.8, TK.PORTAL_R * 2.8), Transparency = 1,
-      }):Play()
-      task.delay(.8, function() r:Destroy() end)
-    end)
-  end
-  local fl = TK.I("Part", {
-    Shape = Enum.PartType.Ball, Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
-    CastShadow = false, Material = Enum.Material.Neon, Color = col:Lerp(TK.WHITE, .6), Transparency = .3,
-    Size = TK.V3(1, 1, 1), Position = at + n * .5,
-  }, TK.fxFolder)
-  TK.TweenService:Create(fl, TweenInfo.new(.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-    Size = TK.V3(TK.PORTAL_R * 1.8, TK.PORTAL_R * 1.8, TK.PORTAL_R * 1.8), Transparency = 1,
-  }):Play()
-  task.delay(.4, function() fl:Destroy() end)
-  TK.burst(at + n, col, 36)
-end
-function TK.outBack(x) -- «перелёт» при открытии
-  x = math.clamp(x, 0, 1)
-  return 1 + 2.3 * (x - 1) ^ 3 + 1.3 * (x - 1) ^ 2
-end
-function TK.newPortal(pos, n, col)
-  local up = math.abs(n.Y) > .9 and Vector3.xAxis or Vector3.yAxis
-  local at = pos + n * .12
-  local P = { pos = at, n = n, R = TK.PORTAL_R, L = {}, t0 = os.clock(), locked = false, mo = TK.I("Model", { Name = "RM_Portal" }, TK.Workspace) }
-  local base = CFrame.lookAt(at, at + n, up)
-  P.base = base
-  local d = TK.mkp("Disc", TK.V3(.1, .1, .2), col)
-  d.Anchored = true
-  d.Transparency = 1
-  d.CFrame = base
-  d.Parent = P.mo
-  P.d = d
-  local dk, md, lt, wh = col:Lerp(TK.BLACK, .7), col:Lerp(TK.BLACK, .35), col:Lerp(TK.WHITE, .45), col:Lerp(TK.WHITE, .88)
-  -- светящийся обод и мягкое гало (цилиндры осью вдоль нормали, за плоскостью воронки)
-  local function ringPart(name, thick, mult, transp, c)
-    local r = TK.I("Part", {
-      Name = name, Shape = Enum.PartType.Cylinder, Anchored = true, CanCollide = false, CanQuery = false,
-      CanTouch = false, CastShadow = false, Material = Enum.Material.Neon, Color = c, Transparency = transp,
-      Size = TK.V3(thick, .1, .1),
-    }, P.mo)
-    r.CFrame = CFrame.lookAt(at + n * .02, at + n * 1.02, up) * CFrame.Angles(0, math.rad(90), 0)
-    return r
-  end
-  P.rim = ringPart("Rim", .22, 1, .05, col:Lerp(TK.WHITE, .25))
-  P.halo = ringPart("Halo", .08, 1.3, .82, col)
-  local g = TK.I("SurfaceGui", {
-    Face = Enum.NormalId.Front, CanvasSize = Vector2.new(256, 256), LightInfluence = 0, Brightness = 1.3,
-    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-  }, d)
-  local function lay(spd) -- вращающийся слой
-    local f = TK.I("Frame", {
-      AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), Size = UDim2.fromScale(1, 1),
-      BackgroundTransparency = 1,
-    }, g)
-    P.L[#P.L + 1] = { f, spd }
-    return f
-  end
-  for i, s in ipairs({ .88, .72, .56, .4, .24 }) do -- градиент от светлого края к тёмному центру (глубина)
-    TK.pl(g, .5, .5, s, s, 0, md:Lerp(dk, (i - 1) * .22))
-  end
-  TK.pl(g, .5, .5, .1, .1, 0, TK.BLACK) -- тёмная «дыра» в центре
-  for k, cfg in ipairs({ { 14, -14 }, { 11, 19 } }) do -- два слоя «рваных» кругов по краю
-    local f = lay(cfg[2])
-    for i = 1, cfg[1] do
-      local a = i / cfg[1] * 6.283 + k
-      local s = .17 * (.75 + .25 * (i % 3))
-      TK.pl(f, .5 + .385 * math.cos(a), .5 + .385 * math.sin(a), s, s, 0, k == 1 and md or md:Lerp(lt, .4))
-    end
-  end
-  local f = lay(38) -- 5 спиральных рукавов
-  for arm = 0, 4 do
-    for j = 0, 4 do
-      local r, an = .41 - j * .07, arm * 1.2566 + j * .6
-      TK.pl(f, .5 + r * math.cos(an), .5 + r * math.sin(an), .2 - j * .025, .045, math.deg(an) + 108, j % 2 == 0 and lt or md:Lerp(lt, .5))
-    end
-  end
-  f = lay(52) -- белые мазки
-  for i = 0, 15 do
-    local r, an = .26 + .14 * ((i * 3) % 5) / 4, i * 2.4
-    TK.pl(f, .5 + r * math.cos(an), .5 + r * math.sin(an), .12 + .08 * ((i * 5) % 3) / 2, .035, math.deg(an) + 102, wh)
-  end
-  f = lay(95) -- быстрый внутренний слой
-  for i = 0, 5 do
-    local r, an = .1 + i * .03, i * 1.1
-    TK.pl(f, .5 + r * math.cos(an), .5 + r * math.sin(an), .13, .04, math.deg(an) + 105, lt)
-  end
-  local g2 = g:Clone() -- обратная сторона (статичная копия)
-  g2.Face = Enum.NormalId.Back
-  g2.Parent = d
-  P.light = TK.I("PointLight", { Color = col, Range = 24, Brightness = 2, Shadows = false }, d)
-  local e = TK.I("ParticleEmitter", {
-    Texture = "rbxasset://textures/particles/sparkles_main.dds", Rate = 16, Lifetime = NumberRange.new(.7, 1),
-    Speed = NumberRange.new(4, 5), SpreadAngle = Vector2.new(10, 10), Size = NumberSequence.new(.6, 0),
-    Transparency = NumberSequence.new(.1, 1), LightEmission = 1, Color = ColorSequence.new(lt),
-    EmissionDirection = Enum.NormalId.Front,
-  }, d)
-  pcall(function()
-    e.Shape = Enum.ParticleEmitterShape.Disc
-    e.ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward
-    e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
-  end)
-  P.em = e
-  task.spawn(TK.portalRings, at, n, col)
-  TK.snd("open", .5)
-  return P
-end
-function TK.sizeRings(P, s, rimT, haloT) -- размеры обода и гало вслед за порталом
-  if P.rim and P.rim.Parent then
-    P.rim.Size = TK.V3(.22, s * 1.02, s * 1.02)
-    P.rim.Transparency = rimT
-  end
-  if P.halo and P.halo.Parent then
-    P.halo.Size = TK.V3(.08, s * 1.3, s * 1.3)
-    P.halo.Transparency = haloT
-  end
-end
-function TK.updPortal(P, t)
-  if P.dying then return end
-  local s = 2 * P.R
-  if not P.done then
-    local x = math.min(1, t / .5)
-    s = 2 * P.R * math.max(TK.outBack(x), .03)
-    P.d.Size = TK.V3(s, s, .2)
-    P.done = x >= 1
-  end
-  local life = TK.PORTAL_LIFE - t
-  local pulse = math.sin(t * 5)
-  local blink = life < 4 and (math.floor(t * 8) % 2 == 0) -- в последние секунды мигает
-  TK.sizeRings(P, s * (1 + pulse * .015), blink and .5 or .05, math.clamp(.82 + pulse * .08, 0, 1))
-  for _, l in ipairs(P.L) do l[1].Rotation = t * l[2] end
-  if P.light then P.light.Brightness = (blink and 1 or 2) + pulse * .8 end
-end
-function TK.stepDying(now) -- анимация закрытия порталов
-  for i = #TK.DYING, 1, -1 do
-    local P = TK.DYING[i]
-    local k = (now - P.dt0) / .5
-    if k >= 1 or not (P.d and P.d.Parent) then
-      pcall(function() P.mo:Destroy() end)
-      table.remove(TK.DYING, i)
-    else
-      local s = math.max(P.s0 * (1 - k * k), .05)
-      P.d.Size = TK.V3(s, s, .2)
-      TK.sizeRings(P, s, .05 + k * .9, .82 + k * .18)
-      local t = now - P.t0
-      for _, l in ipairs(P.L) do l[1].Rotation = t * l[2] * (1 + k * 6) end
-      if P.light then P.light.Brightness = 2 * (1 - k) end
-    end
-  end
-end
--- зона касания: почти весь диск портала, глубина ~5 стадов; проверяем корпус и ступни
-function TK.inPortal(P, pos)
-  local off = pos - P.pos
-  local dep = off:Dot(P.n)
-  local lat = (off - P.n * dep).Magnitude
-  return math.abs(dep) < P.R * .8 and lat < P.R * 1.05
-end
-function TK.playerInPortal(P, hr)
-  return TK.inPortal(P, hr.Position) or TK.inPortal(P, hr.Position - TK.V3(0, 2.6, 0))
-end
-function TK.teleportTo(hr, from, to)
-  TK.tpCd = os.clock() + .3
-  to.locked = true -- пока не выйдешь из зоны выходного портала, он не сработает
-  local col = TK.pcol()
-  TK.burst(hr.Position, col, 30)
-  local ex = to.pos + to.n * 4
-  local lk = TK.V3(to.n.X, 0, to.n.Z)
-  if lk.Magnitude < .1 then lk = hr.CFrame.LookVector else lk = lk.Unit end
-  hr.CFrame = CFrame.lookAt(ex, ex + TK.V3(lk.X, 0, lk.Z))
-  hr.AssemblyLinearVelocity = to.n * 24
-  TK.burst(ex, col, 30)
-  TK.snd("teleport", .8, 1.2)
-  TK.dimFx(col, .8)
-end
--- ============================================================
---  ВЫСТРЕЛ: у каждой пушки своя анимация
--- ============================================================
-TK.FXO = setmetatable({}, { __mode = "k" }) -- исходные цвет/прозрачность деталей пушки
-function TK.pulsePart(p, dur, col)
-  if not p or not p.Parent then return end
-  local o = TK.FXO[p]
-  if not o then o = { p.Color, p.Transparency } TK.FXO[p] = o end
-  p.Color = col or TK.WHITE
-  p.Transparency = 0
-  TK.TweenService:Create(p, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = o[1], Transparency = o[2] }):Play()
-end
-function TK.pulseByName(tool, names, dur, col, step)
-  local i = 0
-  for _, d in ipairs(tool:GetDescendants()) do
-    if names[d.Name] then
-      i = i + 1
-      local p = d
-      if step and step > 0 then
-        task.delay((i - 1) * step, function() TK.pulsePart(p, dur, col) end)
-      else
-        TK.pulsePart(p, dur, col)
-      end
-    end
-  end
-end
-function TK.lightSpike(tool, peak)
-  for _, d in ipairs(tool:GetDescendants()) do
-    if d:IsA("PointLight") then
-      local o = TK.FXO[d] or d.Brightness
-      TK.FXO[d] = o
-      d.Brightness = peak
-      TK.TweenService:Create(d, TweenInfo.new(.3), { Brightness = o }):Play()
-    end
-  end
-end
-function TK.recoil(k, a, dur) -- отдача: сдвигаем предмет в руке и возвращаем
-  local w = TK.gripW
-  if not w or not w.Parent or not TK.X.gripC1 then return end
-  local base = TK.X.gripC1
-  TK.X.rec = (TK.X.rec or 0) + 1
-  local id = TK.X.rec
-  task.spawn(function()
-    local t0 = os.clock()
-    while id == TK.X.rec and not TK.DEAD and w.Parent do
-      local x = (os.clock() - t0) / dur
-      if x >= 1 then break end
-      local env = (x < .2) and (x / .2) or (1 - (x - .2) / .8) ^ 2
-      w.C1 = (CFrame.new(0, 0, k * env) * CFrame.Angles(a * env, 0, 0)):Inverse() * base
-      task.wait()
-    end
-    if id == TK.X.rec and w.Parent then w.C1 = base end
-  end)
-end
-TK.GUNFX = {}
-function TK.GUNFX.rick(tool, mz)
-  TK.recoil(.35, .12, .22)
-  TK.pulseByName(tool, { Core = 1, CoreTop = 1 }, .35, TK.RGB(220, 255, 220))
-  TK.pulseByName(tool, { Bubble1 = 1, Bubble2 = 1, Bubble3 = 1 }, .5, TK.WHITE, .05)
-  TK.lightSpike(tool, 6)
-  if mz then TK.burst(mz.Position, TK.RGB(60, 255, 90), 12) end
-end
-function TK.GUNFX.rick_prime(tool, mz)
-  TK.recoil(.2, .05, .3)
-  local dots = {}
-  for r = 0, 2 do
-    for c = 0, 2 do dots["Dot_" .. r .. "_" .. c] = true end
-  end
-  TK.pulseByName(tool, dots, .4, TK.WHITE, .035) -- волна по панели точек
-  TK.pulseByName(tool, { PinkLine = 1, Corner = 1, FlangeGlow = 1, EmitGlow = 1, RingGlow = 1 }, .45, TK.RGB(255, 120, 180))
-  TK.lightSpike(tool, 5)
-  if mz then TK.burst(mz.Position, TK.RGB(255, 80, 150), 10) TK.burst(mz.Position, TK.RGB(60, 255, 90), 10) end
-end
-function TK.GUNFX.evil_morty(tool, mz)
-  TK.recoil(.55, .2, .4)
-  TK.pulseByName(tool, { Orb = 1, Core = 1 }, .5, TK.WHITE)
-  TK.pulseByName(tool, { LensCore = 1 }, .6, TK.RGB(200, 235, 255))
-  TK.lightSpike(tool, 6)
-  if mz then TK.burst(mz.Position, TK.RGB(255, 225, 80), 16) end
-end
-function TK.gunFx(id)
-  local tool = TK.heldTool
-  if not tool or not tool.Parent then return end
-  local f = TK.GUNFX[id]
-  if f then pcall(f, tool, tool:FindFirstChild("Muzzle")) end
-end
-function TK.shootPortal(gunId)
-  local now = os.clock()
-  if now - (TK.X.lastShot or 0) < .25 then return end -- защита от спама
-  TK.X.lastShot = now
-  -- Если выстрел сделан конкретной пушкой, её характеристики не зависят от выбранного скина.
-  local g = (gunId and TK.GUN_CFG[gunId]) or TK.gunCfg()
-  local range = g and g.range or 500
-  local pos, n = TK.aimHit(range, g and g.range or 50)
-  local col = (g and g.col) or TK.pcol()
-  if not TK.PA then
-    TK.PA = TK.newPortal(pos, n, col)
-    TK.notify("🌀 Портал A", col)
-  elseif not TK.PB then
-    TK.PB = TK.newPortal(pos, n, col)
-    TK.notify("🌀 Портал B", col)
-  elseif TK.PA.t0 <= TK.PB.t0 then
-    TK.killPortal(TK.PA)
-    TK.PA = TK.newPortal(pos, n, col)
-    TK.notify("🌀 Портал A пересоздан", col)
-  else
-    TK.killPortal(TK.PB)
-    TK.PB = TK.newPortal(pos, n, col)
-    TK.notify("🌀 Портал B пересоздан", col)
-  end
-  local mz = TK.heldTool and TK.heldTool:FindFirstChild("Muzzle", true)
-  if mz then
-    local a = mz.Position
-    local dist = (pos - a).Magnitude
-    if dist > 1 then
-      local b = TK.mkp("Beam", TK.V3(.25, .25, dist), col, Enum.Material.Neon)
-      b.Anchored = true
-      b.CFrame = CFrame.lookAt(a, pos) * CFrame.new(0, 0, -dist / 2)
-      b.Parent = TK.fxFolder
-      TK.TweenService:Create(b, TweenInfo.new(.25), { Transparency = 1 }):Play()
-      task.delay(.3, function() b:Destroy() end)
-    end
-  end
-  TK.gunFx(gunId)
-  TK.snd("shoot", .6)
-end
-RM.shootPortal = TK.shootPortal
-
--- ============================================================
---  ПРЕДМЕТЫ: сборка моделей и хват рукой скина
--- ============================================================
-function TK.toolPart(tool, handle, name, size, color, offset, material, shape)
-  local p = TK.mkp(name, size, color, material, shape)
-  p.Parent = tool
-  local w = Instance.new("Weld")
-  w.Part0 = handle
-  w.Part1 = p
-  w.C0 = offset
-  p.CFrame = handle.CFrame * offset
-  w.Parent = p
-  return p
-end
-TK.R90 = CFrame.Angles(0, 0, math.rad(90)) -- ось цилиндра: X -> вертикаль
-TK.RZ = CFrame.Angles(0, math.rad(90), 0)  -- ось цилиндра: X -> вдоль Z
-
--- портальная пушка по фото
--- пушки по фото (v4.6): Рик (мультяшная), Рик Прайм (диск с ручкой, панель точек), Злой Морти (золотая)
-function TK.gunBase()
-  local tool = TK.I("Tool", { Name = "Портальная пушка", RequiresHandle = true, CanBeDropped = false, ToolTip = "Открыть портал" })
-  local h = TK.mkp("Handle", TK.V3(.45, 1.3, .6), TK.RGB(214, 217, 222))
-  h.Transparency = 1
-  h.Parent = tool
-  return tool, function(...) return TK.toolPart(tool, h, ...) end
-end
-function TK.buildGunRick()
-  local tool, P = TK.gunBase()
-  local H = math.rad
-  P("HandleBar", TK.V3(.55, .42, 1.7), TK.RGB(190, 192, 196), CFrame.new(0, 0, .4))
-  P("HandleCap", TK.V3(.55, .42, .55), TK.RGB(190, 192, 196), CFrame.new(0, 0, 1.25), nil, Enum.PartType.Ball)
-  P("GripRidge", TK.V3(.57, .05, .1), TK.RGB(120, 122, 128), CFrame.new(0, .215, -.05))
-  P("GripRidge", TK.V3(.57, .05, .1), TK.RGB(120, 122, 128), CFrame.new(0, .215, .3))
-  P("GripRidge", TK.V3(.57, .05, .1), TK.RGB(120, 122, 128), CFrame.new(0, .215, .65))
-  P("GripRidge", TK.V3(.57, .05, .1), TK.RGB(120, 122, 128), CFrame.new(0, .215, 1))
-  P("Body", TK.V3(1.35, .5, 2.3), TK.RGB(205, 207, 210), CFrame.new(0, .02, -1.45))
-  P("BodyTop", TK.V3(1.2, .05, 2), TK.RGB(222, 224, 227), CFrame.new(0, .285, -1.45))
-  P("Under", TK.V3(1.25, .12, 2.1), TK.RGB(150, 152, 158), CFrame.new(0, -.22, -1.45))
-  P("SideL", TK.V3(.04, .3, 1.9), TK.RGB(170, 172, 178), CFrame.new(-.69, .02, -1.45))
-  P("SideR", TK.V3(.04, .3, 1.9), TK.RGB(170, 172, 178), CFrame.new(.69, .02, -1.45))
-  P("Rivet", TK.V3(.1, .1, .1), TK.RGB(130, 132, 138), CFrame.new(-.56, .31, -.6), nil, Enum.PartType.Ball)
-  P("Rivet", TK.V3(.1, .1, .1), TK.RGB(130, 132, 138), CFrame.new(-.56, .31, -1.45), nil, Enum.PartType.Ball)
-  P("Rivet", TK.V3(.1, .1, .1), TK.RGB(130, 132, 138), CFrame.new(-.56, .31, -2.3), nil, Enum.PartType.Ball)
-  P("Rivet", TK.V3(.1, .1, .1), TK.RGB(130, 132, 138), CFrame.new(.56, .31, -.6), nil, Enum.PartType.Ball)
-  P("Rivet", TK.V3(.1, .1, .1), TK.RGB(130, 132, 138), CFrame.new(.56, .31, -1.45), nil, Enum.PartType.Ball)
-  P("Rivet", TK.V3(.1, .1, .1), TK.RGB(130, 132, 138), CFrame.new(.56, .31, -2.3), nil, Enum.PartType.Ball)
-  P("Vent", TK.V3(.55, .03, .06), TK.RGB(45, 46, 52), CFrame.new(0, .3, -.5))
-  P("Vent", TK.V3(.55, .03, .06), TK.RGB(45, 46, 52), CFrame.new(0, .3, -.62))
-  P("Vent", TK.V3(.55, .03, .06), TK.RGB(45, 46, 52), CFrame.new(0, .3, -.74))
-  P("Emitter", TK.V3(.5, .2, .05), TK.RGB(30, 30, 34), CFrame.new(0, .02, -2.62))
-  P("EmitRing", TK.V3(.07, .6, .6), TK.RGB(80, 84, 90), CFrame.new(0, .02, -2.63) * CFrame.Angles(H(0), H(90), H(0)), Enum.Material.Metal, Enum.PartType.Cylinder)
-  do
-    local q = P("EmitGlow", TK.V3(.08, .4, .4), TK.RGB(60, 230, 90), CFrame.new(0, .02, -2.65) * CFrame.Angles(H(0), H(90), H(0)), Enum.Material.Neon, Enum.PartType.Cylinder)
-    q.Transparency = .35
-  end
-  P("ButtonFrame", TK.V3(.72, .06, .52), TK.RGB(45, 46, 52), CFrame.new(0, .27, -.95))
-  do
-    local q = P("Button", TK.V3(.6, .09, .42), TK.RGB(215, 30, 40), CFrame.new(0, .31, -.95), Enum.Material.Neon)
-    q.Transparency = .1
-  end
-  P("Led", TK.V3(.1, .1, .1), TK.RGB(110, 255, 110), CFrame.new(.5, .31, -.4), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Knob", TK.V3(.22, .5, .5), TK.RGB(35, 35, 38), CFrame.new(0, .36, -.35) * CFrame.Angles(H(0), H(0), H(90)), nil, Enum.PartType.Cylinder)
-  P("KnobCap", TK.V3(.05, .36, .36), TK.RGB(70, 72, 78), CFrame.new(0, .63, -.35) * CFrame.Angles(H(0), H(0), H(90)), nil, Enum.PartType.Cylinder)
-  P("Ring", TK.V3(.1, .9, .9), TK.RGB(170, 172, 176), CFrame.new(0, .3, -1.9) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Metal, Enum.PartType.Cylinder)
-  do
-    local q = P("RingGlow", TK.V3(.04, .96, .96), TK.RGB(60, 255, 90), CFrame.new(0, .33, -1.9) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Neon, Enum.PartType.Cylinder)
-    q.Transparency = .5
-  end
-  do
-    local q = P("Dome", TK.V3(.8, .7, .7), TK.RGB(60, 255, 90), CFrame.new(0, .75, -1.9) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Glass, Enum.PartType.Cylinder)
-    q.Transparency = .25
-  end
-  do
-    local q = P("DomeTop", TK.V3(.7, .7, .7), TK.RGB(60, 255, 90), CFrame.new(0, 1.15, -1.9), Enum.Material.Glass, Enum.PartType.Ball)
-    q.Transparency = .25
-  end
-  do
-    local q = P("Core", TK.V3(.75, .44, .44), TK.RGB(110, 255, 110), CFrame.new(0, .75, -1.9) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Neon, Enum.PartType.Cylinder)
-    q.Transparency = .2
-    TK.I("PointLight", { Color = TK.RGB(60, 255, 90), Range = 9, Brightness = 2, Shadows = false }, q)
-  end
-  do
-    local q = P("CoreTop", TK.V3(.44, .44, .44), TK.RGB(110, 255, 110), CFrame.new(0, 1.13, -1.9), Enum.Material.Neon, Enum.PartType.Ball)
-    q.Transparency = .2
-  end
-  do
-    local q = P("Bubble1", TK.V3(.17, .17, .17), TK.RGB(190, 255, 190), CFrame.new(.12, .6, -1.82), Enum.Material.Neon, Enum.PartType.Ball)
-    q.Transparency = .15
-  end
-  do
-    local q = P("Bubble2", TK.V3(.13, .13, .13), TK.RGB(190, 255, 190), CFrame.new(-.1, .9, -1.95), Enum.Material.Neon, Enum.PartType.Ball)
-    q.Transparency = .15
-  end
-  do
-    local q = P("Bubble3", TK.V3(.1, .1, .1), TK.RGB(190, 255, 190), CFrame.new(.05, 1.05, -1.88), Enum.Material.Neon, Enum.PartType.Ball)
-    q.Transparency = .15
-  end
-  do
-    local q = P("Muzzle", TK.V3(.1, .1, .1), TK.RGB(255, 255, 255), CFrame.new(0, .02, -2.8), Enum.Material.Neon, Enum.PartType.Ball)
-    q.Transparency = 1
-  end
-  return tool
-end
-function TK.buildGunPrime()
-  local tool, P = TK.gunBase()
-  local H = math.rad
-  P("Grip", TK.V3(.62, 1.55, .78), TK.RGB(205, 208, 213), CFrame.new(0, 0, .2) * CFrame.Angles(H(-14), H(0), H(0)))
-  P("GripDark", TK.V3(.5, 1, .2), TK.RGB(82, 85, 92), CFrame.new(0, -.42, -.2) * CFrame.Angles(H(-14), H(0), H(0)))
-  P("GripRib", TK.V3(.5, .06, .22), TK.RGB(60, 62, 68), CFrame.new(0, -.15, -.2) * CFrame.Angles(H(-14), H(0), H(0)))
-  P("GripRib", TK.V3(.5, .06, .22), TK.RGB(60, 62, 68), CFrame.new(0, -.37, -.2) * CFrame.Angles(H(-14), H(0), H(0)))
-  P("GripRib", TK.V3(.5, .06, .22), TK.RGB(60, 62, 68), CFrame.new(0, -.59, -.2) * CFrame.Angles(H(-14), H(0), H(0)))
-  P("GripRib", TK.V3(.5, .06, .22), TK.RGB(60, 62, 68), CFrame.new(0, -.81, -.2) * CFrame.Angles(H(-14), H(0), H(0)))
-  P("Body", TK.V3(.95, .85, 1.95), TK.RGB(225, 228, 232), CFrame.new(0, 1.05, -.8))
-  P("Slope", TK.V3(.66, .5, .95), TK.RGB(225, 228, 232), CFrame.new(0, 1.2, .38) * CFrame.Angles(H(14), H(0), H(0)))
-  P("Strut", TK.V3(.55, .2, 1.75), TK.RGB(200, 203, 208), CFrame.new(0, 0, -.3) * CFrame.Angles(H(45), H(0), H(0)))
-  P("Trigger", TK.V3(.14, .42, .2), TK.RGB(45, 45, 50), CFrame.new(0, .42, -.3) * CFrame.Angles(H(20), H(0), H(0)))
-  do
-    local q = P("Switch", TK.V3(.28, .16, .32), TK.RGB(225, 35, 35), CFrame.new(0, 1.45, .65), Enum.Material.Neon)
-    q.Transparency = .1
-  end
-  do
-    local q = P("PinkLine", TK.V3(.03, .05, 1.75), TK.RGB(255, 60, 130), CFrame.new(-.49, 1.36, -.8), Enum.Material.Neon)
-    q.Transparency = .15
-  end
-  do
-    local q = P("PinkLine", TK.V3(.03, .05, 1.75), TK.RGB(255, 60, 130), CFrame.new(.49, 1.36, -.8), Enum.Material.Neon)
-    q.Transparency = .15
-  end
-  P("Screw", TK.V3(.09, .09, .09), TK.RGB(150, 154, 160), CFrame.new(-.3, 1.49, -1.5), nil, Enum.PartType.Ball)
-  P("Screw", TK.V3(.09, .09, .09), TK.RGB(150, 154, 160), CFrame.new(-.3, 1.49, -.2), nil, Enum.PartType.Ball)
-  P("Screw", TK.V3(.09, .09, .09), TK.RGB(150, 154, 160), CFrame.new(.3, 1.49, -1.5), nil, Enum.PartType.Ball)
-  P("Screw", TK.V3(.09, .09, .09), TK.RGB(150, 154, 160), CFrame.new(.3, 1.49, -.2), nil, Enum.PartType.Ball)
-  P("Panel", TK.V3(.86, .8, .03), TK.RGB(28, 28, 30), CFrame.new(0, 1.05, -1.79))
-  P("BezelT", TK.V3(1, .07, .06), TK.RGB(95, 98, 105), CFrame.new(0, 1.47, -1.8), Enum.Material.Metal)
-  P("BezelB", TK.V3(1, .07, .06), TK.RGB(95, 98, 105), CFrame.new(0, .63, -1.8), Enum.Material.Metal)
-  P("BezelL", TK.V3(.07, .9, .06), TK.RGB(95, 98, 105), CFrame.new(-.46, 1.05, -1.8), Enum.Material.Metal)
-  P("BezelR", TK.V3(.07, .9, .06), TK.RGB(95, 98, 105), CFrame.new(.46, 1.05, -1.8), Enum.Material.Metal)
-  P("Corner", TK.V3(.1, .1, .1), TK.RGB(255, 60, 130), CFrame.new(-.5, .61, -1.84), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Corner", TK.V3(.1, .1, .1), TK.RGB(255, 60, 130), CFrame.new(-.5, 1.49, -1.84), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Corner", TK.V3(.1, .1, .1), TK.RGB(255, 60, 130), CFrame.new(.5, .61, -1.84), Enum.Material.Neon, Enum.PartType.Ball)
-  do
-    local q = P("Corner", TK.V3(.1, .1, .1), TK.RGB(255, 60, 130), CFrame.new(.5, 1.49, -1.84), Enum.Material.Neon, Enum.PartType.Ball)
-    TK.I("PointLight", { Color = TK.RGB(255, 60, 130), Range = 9, Brightness = 2, Shadows = false }, q)
-  end
-  P("Dot_0_0", TK.V3(.22, .22, .22), TK.RGB(110, 255, 110), CFrame.new(-.27, .79, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Dot_0_1", TK.V3(.22, .22, .22), TK.RGB(110, 255, 110), CFrame.new(0, .79, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Dot_0_2", TK.V3(.22, .22, .22), TK.RGB(110, 255, 110), CFrame.new(.27, .79, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Dot_1_0", TK.V3(.22, .22, .22), TK.RGB(110, 255, 110), CFrame.new(-.27, 1.05, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Dot_1_1", TK.V3(.22, .22, .22), TK.RGB(110, 255, 110), CFrame.new(0, 1.05, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Dot_1_2", TK.V3(.22, .22, .22), TK.RGB(110, 255, 110), CFrame.new(.27, 1.05, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Dot_2_0", TK.V3(.22, .22, .22), TK.RGB(110, 255, 110), CFrame.new(-.27, 1.31, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Dot_2_1", TK.V3(.22, .22, .22), TK.RGB(110, 255, 110), CFrame.new(0, 1.31, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Dot_2_2", TK.V3(.22, .22, .22), TK.RGB(110, 255, 110), CFrame.new(.27, 1.31, -1.83), Enum.Material.Neon, Enum.PartType.Ball)
-  P("Flange", TK.V3(.1, .85, .85), TK.RGB(200, 204, 210), CFrame.new(0, 1.52, -.95) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Metal, Enum.PartType.Cylinder)
-  do
-    local q = P("FlangeGlow", TK.V3(.04, .92, .92), TK.RGB(255, 60, 130), CFrame.new(0, 1.57, -.95) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Neon, Enum.PartType.Cylinder)
-    q.Transparency = .35
-  end
-  do
-    local q = P("Dome", TK.V3(.75, .72, .72), TK.RGB(60, 255, 90), CFrame.new(0, 1.95, -.95) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Glass, Enum.PartType.Cylinder)
-    q.Transparency = .25
-  end
-  do
-    local q = P("DomeTop", TK.V3(.72, .72, .72), TK.RGB(60, 255, 90), CFrame.new(0, 2.32, -.95), Enum.Material.Glass, Enum.PartType.Ball)
-    q.Transparency = .25
-  end
-  do
-    local q = P("Core", TK.V3(.7, .46, .46), TK.RGB(110, 255, 110), CFrame.new(0, 1.95, -.95) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Neon, Enum.PartType.Cylinder)
-    q.Transparency = .2
-    TK.I("PointLight", { Color = TK.RGB(60, 255, 90), Range = 9, Brightness = 2, Shadows = false }, q)
-  end
-  do
-    local q = P("CoreTop", TK.V3(.46, .46, .46), TK.RGB(110, 255, 110), CFrame.new(0, 2.3, -.95), Enum.Material.Neon, Enum.PartType.Ball)
-    q.Transparency = .2
-  end
-  P("DialRing", TK.V3(.07, .62, .62), TK.RGB(210, 213, 218), CFrame.new(.5, 1, -.55), Enum.Material.Metal, Enum.PartType.Cylinder)
-  do
-    local q = P("DialTick", TK.V3(.09, .66, .66), TK.RGB(120, 124, 130), CFrame.new(.5, 1, -.55), nil, Enum.PartType.Cylinder)
-    q.Transparency = 0
-  end
-  P("Dial", TK.V3(.09, .5, .5), TK.RGB(190, 194, 200), CFrame.new(.53, 1, -.55), nil, Enum.PartType.Cylinder)
-  P("DialPtr", TK.V3(.07, .09, .4), TK.RGB(232, 235, 240), CFrame.new(.58, 1, -.55) * CFrame.Angles(H(35), H(0), H(0)))
-  P("Hole1", TK.V3(.03, .1, .1), TK.RGB(20, 20, 22), CFrame.new(.49, 1.05, -1.25), nil, Enum.PartType.Cylinder)
-  P("Hole2", TK.V3(.03, .1, .1), TK.RGB(20, 20, 22), CFrame.new(.49, .82, -1.25), nil, Enum.PartType.Cylinder)
-  P("Toggle", TK.V3(.12, .05, .05), TK.RGB(190, 194, 200), CFrame.new(.52, 1.28, -1.25))
-  do
-    local q = P("Muzzle", TK.V3(.1, .1, .1), TK.RGB(255, 255, 255), CFrame.new(0, 1.05, -1.95), Enum.Material.Neon, Enum.PartType.Ball)
-    q.Transparency = 1
-  end
-  return tool
-end
-function TK.buildGunEvil()
-  local tool, P = TK.gunBase()
-  local H = math.rad
-  P("Grip", TK.V3(.5, 1.4, .6), TK.RGB(120, 115, 120), CFrame.new(0, 0, .1) * CFrame.Angles(H(-10), H(0), H(0)))
-  P("GripWrap", TK.V3(.52, .16, .62), TK.RGB(80, 60, 40), CFrame.new(0, -.25, .1) * CFrame.Angles(H(-10), H(0), H(0)))
-  P("GripWrap", TK.V3(.52, .16, .62), TK.RGB(80, 60, 40), CFrame.new(0, .1, .08) * CFrame.Angles(H(-10), H(0), H(0)))
-  P("Trigger", TK.V3(.14, .45, .18), TK.RGB(30, 30, 34), CFrame.new(0, .45, -.3) * CFrame.Angles(H(15), H(0), H(0)))
-  P("Slab", TK.V3(.75, .7, 2.6), TK.RGB(175, 150, 45), CFrame.new(0, .95, -.9))
-  P("SlabEdge", TK.V3(.77, .06, 2.6), TK.RGB(215, 190, 75), CFrame.new(0, 1.3, -.9))
-  P("SlabPlate", TK.V3(.55, .03, 1.9), TK.RGB(140, 118, 38), CFrame.new(0, 1.33, -.9))
-  do
-    local q = P("SlabLine", TK.V3(.03, .04, 2.4), TK.RGB(255, 225, 110), CFrame.new(-.39, 1.1, -.9), Enum.Material.Neon)
-    q.Transparency = .35
-  end
-  do
-    local q = P("SlabLine", TK.V3(.03, .04, 2.4), TK.RGB(255, 225, 110), CFrame.new(.39, 1.1, -.9), Enum.Material.Neon)
-    q.Transparency = .35
-  end
-  P("Block", TK.V3(1.05, 1.1, 1.1), TK.RGB(150, 125, 35), CFrame.new(0, .95, -2.35))
-  P("BlockEdge", TK.V3(1.07, .06, 1.1), TK.RGB(215, 190, 75), CFrame.new(0, 1.5, -2.35))
-  P("VentSlot", TK.V3(.8, .03, .08), TK.RGB(40, 32, 12), CFrame.new(0, 1.52, -2.1))
-  P("VentSlot", TK.V3(.8, .03, .08), TK.RGB(40, 32, 12), CFrame.new(0, 1.52, -2.3))
-  P("VentSlot", TK.V3(.8, .03, .08), TK.RGB(40, 32, 12), CFrame.new(0, 1.52, -2.5))
-  P("LensRing", TK.V3(.06, .78, .78), TK.RGB(35, 40, 35), CFrame.new(-.55, .95, -2.35), nil, Enum.PartType.Cylinder)
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(-.56, 1.37, -2.35))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(-.56, 1.247, -2.053) * CFrame.Angles(H(45), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(-.56, .95, -1.93) * CFrame.Angles(H(90), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(-.56, .653, -2.053) * CFrame.Angles(H(135), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(-.56, .53, -2.35) * CFrame.Angles(H(180), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(-.56, .653, -2.647) * CFrame.Angles(H(225), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(-.56, .95, -2.77) * CFrame.Angles(H(270), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(-.56, 1.247, -2.647) * CFrame.Angles(H(315), H(0), H(0)))
-  P("Lens", TK.V3(.08, .62, .62), TK.RGB(85, 100, 85), CFrame.new(-.57, .95, -2.35), nil, Enum.PartType.Cylinder)
-  P("LensCore", TK.V3(.1, .28, .28), TK.RGB(60, 170, 255), CFrame.new(-.6, .95, -2.35), Enum.Material.Neon, Enum.PartType.Cylinder)
-  P("LensRing", TK.V3(.06, .78, .78), TK.RGB(35, 40, 35), CFrame.new(.55, .95, -2.35), nil, Enum.PartType.Cylinder)
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(.56, 1.37, -2.35))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(.56, 1.247, -2.053) * CFrame.Angles(H(45), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(.56, .95, -1.93) * CFrame.Angles(H(90), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(.56, .653, -2.053) * CFrame.Angles(H(135), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(.56, .53, -2.35) * CFrame.Angles(H(180), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(.56, .653, -2.647) * CFrame.Angles(H(225), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(.56, .95, -2.77) * CFrame.Angles(H(270), H(0), H(0)))
-  P("Tooth", TK.V3(.09, .11, .11), TK.RGB(110, 92, 28), CFrame.new(.56, 1.247, -2.647) * CFrame.Angles(H(315), H(0), H(0)))
-  P("Lens", TK.V3(.08, .62, .62), TK.RGB(85, 100, 85), CFrame.new(.57, .95, -2.35), nil, Enum.PartType.Cylinder)
-  P("LensCore", TK.V3(.1, .28, .28), TK.RGB(60, 170, 255), CFrame.new(.6, .95, -2.35), Enum.Material.Neon, Enum.PartType.Cylinder)
-  do
-    local q = P("Orb", TK.V3(.55, .55, .55), TK.RGB(255, 240, 140), CFrame.new(0, .95, -3), Enum.Material.Neon, Enum.PartType.Ball)
-    q.Transparency = .15
-    TK.I("PointLight", { Color = TK.RGB(255, 220, 50), Range = 9, Brightness = 2, Shadows = false }, q)
-  end
-  P("OrbCup", TK.V3(.12, .62, .62), TK.RGB(120, 100, 30), CFrame.new(0, .95, -2.92) * CFrame.Angles(H(0), H(90), H(0)), nil, Enum.PartType.Cylinder)
-  do
-    local q = P("Jar", TK.V3(.95, .5, .5), TK.RGB(255, 225, 80), CFrame.new(0, 1.75, -1.55) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Glass, Enum.PartType.Cylinder)
-    q.Transparency = .4
-  end
-  do
-    local q = P("DomeTop", TK.V3(.5, .5, .5), TK.RGB(255, 225, 80), CFrame.new(0, 2.25, -1.55), Enum.Material.Glass, Enum.PartType.Ball)
-    q.Transparency = .4
-  end
-  do
-    local q = P("Core", TK.V3(.8, .25, .25), TK.RGB(255, 240, 140), CFrame.new(0, 1.75, -1.55) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Neon, Enum.PartType.Cylinder)
-    q.Transparency = .3
-    TK.I("PointLight", { Color = TK.RGB(255, 220, 50), Range = 9, Brightness = 2, Shadows = false }, q)
-  end
-  P("JarBase", TK.V3(.1, .56, .56), TK.RGB(120, 100, 30), CFrame.new(0, 1.35, -1.55) * CFrame.Angles(H(0), H(0), H(90)), Enum.Material.Metal, Enum.PartType.Cylinder)
-  P("GreyA", TK.V3(.45, .5, .5), TK.RGB(110, 118, 115), CFrame.new(0, 1.5, -.65))
-  P("GreyB", TK.V3(.3, .35, .3), TK.RGB(130, 135, 130), CFrame.new(0, 1.45, -.25))
-  P("VialTeal", TK.V3(.4, .22, .22), TK.RGB(60, 140, 125), CFrame.new(.2, 1.55, -.95) * CFrame.Angles(H(0), H(0), H(90)), nil, Enum.PartType.Cylinder)
-  P("VialRust", TK.V3(.45, .2, .2), TK.RGB(150, 85, 50), CFrame.new(-.2, 1.55, -.3) * CFrame.Angles(H(0), H(0), H(90)), nil, Enum.PartType.Cylinder)
-  P("Canister", TK.V3(1, .4, .4), TK.RGB(110, 78, 50), CFrame.new(0, 1.75, .25) * CFrame.Angles(H(0), H(0), H(90)), nil, Enum.PartType.Cylinder)
-  P("Strap", TK.V3(.1, .44, .44), TK.RGB(70, 50, 35), CFrame.new(0, 1.9, .25) * CFrame.Angles(H(0), H(0), H(90)), nil, Enum.PartType.Cylinder)
-  P("Cable", TK.V3(.05, .05, .9), TK.RGB(30, 30, 34), CFrame.new(.22, 1.45, -1.3) * CFrame.Angles(H(0), H(20), H(0)))
-  do
-    local q = P("Muzzle", TK.V3(.1, .1, .1), TK.RGB(255, 255, 255), CFrame.new(0, .95, -3.2), Enum.Material.Neon, Enum.PartType.Ball)
-    q.Transparency = 1
-  end
-  return tool
-end
-
--- замораживатель времени (дизайн мой: картинки не было)
-function TK.buildFreezer()
-  local tool = TK.I("Tool", { Name = "Замораживатель времени", RequiresHandle = true, CanBeDropped = false, ToolTip = "Остановить время" })
-  local h = TK.mkp("Handle", TK.V3(.5, 1.2, .5), TK.RGB(60, 64, 74))
-  h.Parent = tool
-  local function P(...) return TK.toolPart(tool, h, ...) end
-  local BL = TK.RGB(90, 200, 255)
-  P("Body", TK.V3(.9, .75, 1.3), TK.RGB(225, 230, 235), CFrame.new(0, .75, -.45))
-  P("LensRing", TK.V3(.12, 1.15, 1.15), TK.RGB(50, 54, 62), CFrame.new(0, .75, -1.12) * TK.RZ, nil, Enum.PartType.Cylinder)
-  P("Lens", TK.V3(.4, .9, .9), BL, CFrame.new(0, .75, -1.2) * TK.RZ, Enum.Material.Glass, Enum.PartType.Cylinder).Transparency = .3
-  local core = P("Core", TK.V3(.5, .5, .5), TK.RGB(200, 245, 255), CFrame.new(0, .75, -1.15) * TK.RZ, Enum.Material.Neon, Enum.PartType.Cylinder)
-  core.Transparency = .2
-  TK.I("PointLight", { Color = BL, Range = 9, Brightness = 2, Shadows = false }, core)
-  local btn = P("Button", TK.V3(.12, .5, .5), TK.RGB(50, 120, 200), CFrame.new(0, 1.18, -.3) * TK.R90, Enum.Material.Neon, Enum.PartType.Cylinder)
-  TK.I("PointLight", { Color = BL, Range = 5, Brightness = 1, Shadows = false }, btn)
-  for _, s in ipairs({ -1, 1 }) do
-    P("Fin", TK.V3(.1, .5, .8), TK.RGB(150, 160, 170), CFrame.new(s * .5, .75, -.4))
-  end
-  return tool
-end
-
--- ящик Мисиксов по фото: тёмно-бирюзовый куб, зелёные окна, синяя кнопка сверху
-function TK.buildMeeseeksBox()
-  local tool = TK.I("Tool", { Name = "Ящик Мисиксов", RequiresHandle = true, CanBeDropped = false, ToolTip = "Нажми кнопку — помощник" })
-  local h = TK.mkp("Handle", TK.V3(1.5, 1.5, 1.5), TK.RGB(30, 66, 64), Enum.Material.Metal)
-  h.Parent = tool
-  local function P(...) return TK.toolPart(tool, h, ...) end
-  local GREEN, DKG = TK.RGB(120, 250, 180), TK.RGB(40, 190, 130)
-  P("Top", TK.V3(1.3, .12, 1.3), TK.RGB(84, 130, 130), CFrame.new(0, .78, 0), Enum.Material.Metal)
-  for _, sx in ipairs({ -1, 1 }) do
-    for _, sz in ipairs({ -1, 1 }) do
-      P("Post", TK.V3(.14, 1.56, .14), TK.RGB(62, 112, 110), CFrame.new(sx * .72, 0, sz * .72), Enum.Material.Metal)
-    end
-  end
-  P("ButtonBase", TK.V3(.1, .66, .66), TK.RGB(8, 24, 24), CFrame.new(0, .86, 0) * TK.R90, nil, Enum.PartType.Cylinder)
-  local btn = P("Button", TK.V3(.24, .5, .5), TK.RGB(70, 170, 240), CFrame.new(0, .97, 0) * TK.R90, Enum.Material.Neon, Enum.PartType.Cylinder)
-  TK.I("PointLight", { Color = TK.RGB(70, 170, 240), Range = 8, Brightness = 1.5, Shadows = false }, btn)
-  for i = 0, 3 do -- «восьмиугольные» окна на 4 гранях
-    local side = CFrame.Angles(0, math.rad(i * 90), 0) * CFrame.new(0, -.02, -.755)
-    P("WinA", TK.V3(.86, .5, .05), GREEN, side, Enum.Material.Neon)
-    P("WinB", TK.V3(.5, .86, .05), GREEN, side, Enum.Material.Neon)
-    P("WinC", TK.V3(.62, .62, .05), GREEN, side * CFrame.Angles(0, 0, math.rad(45)), Enum.Material.Neon)
-    P("Line", TK.V3(.03, .7, .06), DKG, side * CFrame.new(-.12, 0, -.02))
-    P("Line", TK.V3(.03, .7, .06), DKG, side * CFrame.new(.12, 0, -.02))
-  end
-  return tool
-end
-
--- батарея микровселенной по фото: фиолетовое желе в чёрной раме, три глаза, экран заряда
-function TK.buildBattery()
-  local tool = TK.I("Tool", { Name = "Батарея микровселенной", RequiresHandle = true, CanBeDropped = false, ToolTip = "Зона энергии" })
-  local h = TK.mkp("Handle", TK.V3(1.2, .8, .8), TK.RGB(170, 60, 230), Enum.Material.Neon)
-  h.Transparency = .15
-  h.Parent = tool
-  local function P(...) return TK.toolPart(tool, h, ...) end
-  local dk = TK.RGB(22, 22, 26)
-  P("Glass", TK.V3(1.4, 1, 1), TK.RGB(215, 140, 255), CFrame.new(), Enum.Material.Glass).Transparency = .6
-  for _, sy in ipairs({ -1, 1 }) do
-    for _, sz in ipairs({ -1, 1 }) do
-      P("BarX", TK.V3(1.5, .1, .1), dk, CFrame.new(0, sy * .5, sz * .5), Enum.Material.Metal)
-    end
-  end
-  for _, sx in ipairs({ -1, 1 }) do
-    for _, sz in ipairs({ -1, 1 }) do
-      P("BarY", TK.V3(.1, 1.1, .1), dk, CFrame.new(sx * .7, 0, sz * .5), Enum.Material.Metal)
-    end
-    for _, sy in ipairs({ -1, 1 }) do
-      P("BarZ", TK.V3(.1, .1, 1.1), dk, CFrame.new(sx * .7, sy * .5, 0), Enum.Material.Metal)
-    end
-  end
-  P("Panel", TK.V3(.6, .7, .06), dk, CFrame.new(-.35, 0, -.53), Enum.Material.Metal)
-  for i = 0, 2 do -- три глаза
-    local ex = -.5 + i * .15
-    local ey = (i == 1) and .22 or .15
-    P("Eye", TK.V3(.16, .16, .16), TK.RGB(240, 240, 240), CFrame.new(ex, ey, -.58), nil, Enum.PartType.Ball)
-    P("Pupil", TK.V3(.08, .08, .08), TK.RGB(0, 0, 0), CFrame.new(ex, ey, -.63), nil, Enum.PartType.Ball)
-  end
-  P("Door", TK.V3(.18, .28, .04), TK.RGB(70, 74, 82), CFrame.new(-.35, -.2, -.57))
-  P("Blob", TK.V3(.2, .2, .2), TK.RGB(255, 150, 255), CFrame.new(.15, .15, -.1), Enum.Material.Neon, Enum.PartType.Ball).Transparency = .2
-  P("Blob", TK.V3(.12, .12, .12), TK.RGB(255, 200, 255), CFrame.new(-.1, .05, .15), Enum.Material.Neon, Enum.PartType.Ball).Transparency = .2
-  local scr = P("Screen", TK.V3(.5, .18, .05), TK.RGB(10, 14, 10), CFrame.new(.3, -.2, -.53))
-  local sg = TK.I("SurfaceGui", { Face = Enum.NormalId.Front, CanvasSize = Vector2.new(120, 40), LightInfluence = 0, Brightness = 2 }, scr)
-  local lbl = TK.I("TextLabel", {
-    Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "100%", TextColor3 = TK.RGB(120, 255, 140),
-    Font = Enum.Font.Code, TextScaled = true,
-  }, sg)
-  TK.I("PointLight", { Color = TK.RGB(190, 80, 255), Range = 9, Brightness = 2, Shadows = false }, h)
-  return tool, lbl
-end
-
--- пульт вызова крейсера
-function TK.buildRemote()
-  local tool = TK.I("Tool", { Name = "Пульт крейсера", RequiresHandle = true, CanBeDropped = false, ToolTip = "Вызвать / сесть / слезть" })
-  local h = TK.mkp("Handle", TK.V3(.5, 1, .3), TK.RGB(55, 60, 68), Enum.Material.Metal)
-  h.Parent = tool
-  local function P(...) return TK.toolPart(tool, h, ...) end
-  local scr = P("Screen", TK.V3(.38, .3, .04), TK.RGB(10, 20, 14), CFrame.new(0, .22, -.17), Enum.Material.Neon)
-  scr.Color = TK.RGB(60, 255, 120)
-  local sg = TK.I("SurfaceGui", { Face = Enum.NormalId.Front, CanvasSize = Vector2.new(120, 90), LightInfluence = 0, Brightness = 2 }, scr)
-  TK.I("TextLabel", {
-    Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "SHIP", TextColor3 = TK.RGB(5, 40, 15),
-    Font = Enum.Font.Code, TextScaled = true,
-  }, sg)
-  P("Button", TK.V3(.14, .22, .22), TK.RGB(255, 140, 40), CFrame.new(0, -.2, -.17) * TK.RZ, Enum.Material.Neon, Enum.PartType.Cylinder)
-  P("Antenna", TK.V3(.7, .05, .05), TK.RGB(30, 30, 34), CFrame.new(.15, .85, 0) * TK.R90, nil, Enum.PartType.Cylinder)
-  P("Tip", TK.V3(.1, .1, .1), TK.RGB(255, 80, 80), CFrame.new(.15, 1.2, 0), Enum.Material.Neon, Enum.PartType.Ball)
-  return tool
-end
-
--- хват: убираем стандартный RightGrip и привариваем предмет к ладони скина
-function TK.detachHand()
-  TK.HOLDING = false
-  TK.X.rec = (TK.X.rec or 0) + 1
-  TK.X.gripC1 = nil
-  if TK.gripW then pcall(function() TK.gripW:Destroy() end) TK.gripW = nil end
-  if TK.gripC then TK.gripC:Disconnect() TK.gripC = nil end
-end
-function TK.attachHand(tool, off)
-  TK.detachHand()
-  if not TK.RIG or not TK.RIG.hand then return end -- без скина работает стандартный хват Roblox
-  local handle = tool:FindFirstChild("Handle")
-  local ch = TK.LP.Character
-  if not handle or not ch then return end
-  for _, o in ipairs(ch:GetDescendants()) do
-    if o.Name == "RightGrip" then o:Destroy() end
-  end
-  TK.gripC = ch.DescendantAdded:Connect(function(o)
-    if o.Name == "RightGrip" then task.defer(function() pcall(function() o:Destroy() end) end) end
-  end)
-  TK.gripW = Instance.new("Weld")
-  TK.gripW.Name = "RM_Grip"
-  TK.gripW.Part0 = TK.RIG.hand
-  TK.gripW.Part1 = handle
-  -- рука вытянута вперёд: «вниз» кисти смотрит вперёд, «вперёд» кисти смотрит вверх
-  TK.gripW.C0 = CFrame.new(off or TK.V3()) * CFrame.Angles(-math.pi / 2, 0, 0)
-  TK.gripW.Parent = TK.RIG.hand
-  TK.X.gripC1 = TK.gripW.C1
-  TK.HOLDING = true
-end
-function TK.refreshGrip() -- вернуть стандартный хват после снятия скина
-  TK.detachHand()
-  local ch, hum = TK.getChar()
-  if hum and TK.heldTool and TK.heldTool.Parent == ch then
-    task.defer(function()
-      hum:UnequipTools()
-      hum:EquipTool(TK.heldTool)
-    end)
-  end
-end
-
--- ============================================================
---  ПРЕДМЕТЫ: действия
--- ============================================================
--- ❄ замораживатель времени: пузырь, экран в серых тонах, помощники замирают на 4 с
-TK.ccStop = nil
-function TK.timeStop()
-  local now = os.clock()
-  if now < TK.TS_CD then TK.notify("❄ Перезарядка " .. math.ceil(TK.TS_CD - now) .. " с", TK.C.dg, 1) return end
-  local _, _, hr = TK.getChar()
-  if not hr then return end
-  TK.TS_CD = now + 10
-  TK.TIMESTOP_UNTIL = now + 4
-  local bub = TK.I("Part", {
-    Shape = Enum.PartType.Ball, Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
-    CastShadow = false, Material = Enum.Material.ForceField, Color = TK.RGB(120, 200, 255), Transparency = .25,
-    Size = TK.V3(2, 2, 2), CFrame = hr.CFrame,
-  }, TK.fxFolder)
-  TK.TweenService:Create(bub, TweenInfo.new(.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = TK.V3(44, 44, 44) }):Play()
-  task.delay(3.5, function()
-    TK.TweenService:Create(bub, TweenInfo.new(.5), { Transparency = 1 }):Play()
-    task.delay(.55, function() bub:Destroy() end)
-  end)
-  if not TK.ccStop or not TK.ccStop.Parent then TK.ccStop = TK.I("ColorCorrectionEffect", { Name = "RM_TimeStop" }, TK.Lighting) end
-  TK.TweenService:Create(TK.ccStop, TweenInfo.new(.3), { Saturation = -.85, Contrast = .2, TintColor = TK.RGB(185, 225, 255) }):Play()
-  task.delay(4, function()
-    if TK.ccStop and TK.ccStop.Parent then
-      TK.TweenService:Create(TK.ccStop, TweenInfo.new(.6), { Saturation = 0, Contrast = 0, TintColor = TK.WHITE }):Play()
-    end
-  end)
-  for _, hp in ipairs(TK.helpers) do
-    local hl = TK.I("Highlight", {
-      FillColor = TK.RGB(150, 220, 255), FillTransparency = .5, OutlineColor = TK.WHITE, Adornee = hp.R.model,
-    }, hp.R.model)
-    task.delay(4, function() if hl.Parent then hl:Destroy() end end)
-  end
-  TK.snd("teleport", .7, .6)
-  TK.notify("⏱ Время остановлено на 4 с", TK.RGB(150, 230, 255), 2)
-end
-
--- 🟦 ящик Мисиксов: помощник бежит к точке прицела, «выполняет задание» и исчезает
-TK.helperFolder = TK.I("Folder", { Name = "RM_Helpers" }, TK.Workspace)
-TK.MEE_CATCH = {
-  "Я Мистер Мисикс, посмотри на меня!", "Ооо, да, можно!", "Существование — это боль!",
-  "Я выполню задание!", "Дай мне исчезнуть!",
-}
-function TK.spawnMeeseeks()
-  if #TK.helpers >= 3 then TK.notify("Максимум 3 Мисикса сразу", TK.C.dg, 1.5) return end
-  local _, _, hr = TK.getChar()
-  if not hr then return end
-  local target = TK.aimHit(120)
-  local far = target and (target - hr.Position).Magnitude > 8
-  local lv = TK.V3(hr.CFrame.LookVector.X, 0, hr.CFrame.LookVector.Z)
-  lv = lv.Magnitude > .01 and lv.Unit or TK.V3(0, 0, -1)
-  local ahead = hr.Position + lv * 5
-  local gy = TK.groundAt(ahead) or (hr.Position.Y - 3)
-  local pos = TK.V3(ahead.X, gy + 3, ahead.Z)
-  local root = TK.mkp("MRoot", TK.V3(2, 2, 1), TK.WHITE)
-  root.Transparency = 1
-  root.Anchored = true
-  root.CFrame = CFrame.lookAt(pos, pos + lv)
-  local R = TK.newRig(root, TK.SK.meeseeks, 1)
-  R.FT = TK.ftar(TK.SK.meeseeks, "happy")
-  R.FC = TK.copy(R.FT)
-  root.Parent = R.model
-  R.model.Parent = TK.helperFolder
-  TK.burst(pos, TK.RGB(90, 170, 255), 30)
-  TK.helpers[#TK.helpers + 1] = {
-    R = R, root = root, born = os.clock(), face = lv, state = far and "go" or "follow",
-    target = target, life = far and 22 or 14,
-  }
-  TK.bubble(R.parts.Head, TK.MEE_CATCH[math.random(#TK.MEE_CATCH)], 2.8)
-  TK.snd("teleport", .5, 1.6)
-end
-function TK.stepHelper(h, dt) -- false = удалить помощника
-  local R, root = h.R, h.root
-  if not root.Parent then return false end
-  local _, _, hr = TK.getChar()
-  if not hr then return true end
-  local now = os.clock()
-  if now < TK.TIMESTOP_UNTIL then
-    h.born = h.born + dt
-    return true
-  end
-  local pos = root.Position
-  local goal, stopD, speed = nil, 5, 18
-  if h.state == "go" then
-    goal, stopD = h.target, 2.5
-  elseif h.state == "follow" or h.state == "back" then
-    goal = hr.Position
-  end
-  local moving = false
-  if goal then
-    local flat = TK.V3(goal.X - pos.X, 0, goal.Z - pos.Z)
-    local dist = flat.Magnitude
-    if dist > stopD then
-      local dirv = flat.Unit
-      pos = pos + dirv * math.min(dist - stopD, speed * dt)
-      h.face = dirv
-      moving = true
-    elseif h.state == "go" then
-      h.state = "work"
-      h.workEnd = now + 2.4
-      TK.bubble(R.parts.Head, "Готово! Можно мне исчезнуть?", 2.4)
-    end
-  end
-  if h.state == "work" and now > h.workEnd then h.state = "back" end
-  local gy = TK.groundAt(pos)
-  local jump = (h.state == "work") and math.abs(math.sin(now * 7)) * 1.4 or 0
-  local ty = (gy and gy + 3 or pos.Y) + jump
-  pos = TK.V3(pos.X, pos.Y + (ty - pos.Y) * math.min(1, dt * 14), pos.Z)
-  root.CFrame = CFrame.lookAt(pos, pos + TK.V3(h.face.X, 0, h.face.Z))
-  TK.stepRig(R, dt, {
-    speed = moving and speed or 0, walkSpeed = 16, air = false, emote = (h.state == "work") and "dance" or nil,
-  })
-  if now - h.born > h.life then
-    TK.burst(pos, TK.RGB(90, 170, 255), 30)
-    return false
-  end
-  return true
-end
-
--- ============================================================
---  БОЙ: приказы Мисиксам, мишени, урон (всё визуально, ничего настоящего не меняется)
--- ============================================================
 do
-  local hpOf, deadUntil, dummies = {}, {}, {}
-  local FIGHT_CATCH = { "Получай!", "За Рика!", "Ооо, дерёмся!", "Я тебя уничтожу!" }
-  local ORDER_TEXT = {
-    guard = "Я тебя защищу!", attack = "Я его побью!", move = "Иду туда!",
-    follow = "Иду за тобой!", stay = "Стою на месте!", vanish = "Наконец-то!",
-  }
-  local ORDER_NAMES = {
-    guard = "🛡 Мисиксы защищают", attack = "⚔ Мисиксы атакуют", move = "📍 Мисиксы идут на точку",
-    follow = "🚶 Мисиксы идут за тобой", stay = "🛑 Мисиксы стоят", vanish = "💨 Мисиксы исчезают",
-  }
-
-  -- цель жива? (у NPC и игроков смотрим Health, у мишени свой счётчик)
-  local function alive(tg)
-    if not tg or not tg.model or not tg.model.Parent or not tg.root or not tg.root.Parent then return false end
-    local du = deadUntil[tg.model]
-    if du then
-      if os.clock() < du then return false end
-      deadUntil[tg.model], hpOf[tg.model] = nil, nil
-    end
-    if tg.kind ~= "dummy" then
-      local hum = tg.model:FindFirstChildOfClass("Humanoid")
-      if not hum or hum.Health <= 0 then return false end
-    end
-    return true
-  end
-
-  -- поиск целей: мишени, NPC и (если разрешено) игроки; себя не трогаем
-  local op = OverlapParams.new()
-  op.FilterType = Enum.RaycastFilterType.Exclude
-  local function scan(center, radius, withPlayers)
-    local list = {}
-    for _, d in ipairs(dummies) do
-      if alive(d) and (d.root.Position - center).Magnitude <= radius then list[#list + 1] = d end
-    end
-    op.FilterDescendantsInstances = { TK.LP.Character, TK.helperFolder }
-    local ok, parts = pcall(function() return TK.Workspace:GetPartBoundsInRadius(center, radius, op) end)
-    if ok then
-      local seen = {}
-      for _, p in ipairs(parts) do
-        local m = p:FindFirstAncestorOfClass("Model")
-        if m and not seen[m] and m ~= TK.LP.Character then
-          seen[m] = true
-          local hum = m:FindFirstChildOfClass("Humanoid")
-          local root = m:FindFirstChild("HumanoidRootPart")
-          if hum and root then
-            local isPlayer = TK.Players:GetPlayerFromCharacter(m) ~= nil
-            if withPlayers or not isPlayer then
-              local tg = { model = m, root = root, kind = isPlayer and "player" or "npc" }
-              if alive(tg) then list[#list + 1] = tg end
-            end
-          end
-        end
-      end
-    end
-    return list
-  end
-  local function nearest(list, pos)
-    local best, bd = nil, 1e9
-    for _, tg in ipairs(list) do
-      local d = (tg.root.Position - pos).Magnitude
-      if d < bd then best, bd = tg, d end
-    end
-    return best
-  end
-
-  -- эффекты удара: цифра урона, красная подсветка, искры (видишь только ты)
-  local function dmgText(adornee, amount)
-    local bb = TK.I("BillboardGui", {
-      Size = UDim2.fromOffset(60, 24), StudsOffset = TK.V3((math.random() - .5) * 1.5, 2.5, 0),
-      AlwaysOnTop = true, LightInfluence = 0,
-    }, adornee)
-    local l = TK.I("TextLabel", {
-      Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "-" .. amount,
-      TextColor3 = TK.RGB(255, 80, 80), TextStrokeTransparency = 0, Font = Enum.Font.GothamBold, TextSize = 18,
-    }, bb)
-    TK.TweenService:Create(bb, TweenInfo.new(.6), { StudsOffset = bb.StudsOffset + TK.V3(0, 2.5, 0) }):Play()
-    TK.TweenService:Create(l, TweenInfo.new(.6), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-    task.delay(.65, function() bb:Destroy() end)
-  end
-  local function koDummy(d) -- мишень падает и через 5 с встаёт
-    d.ko = true
-    d.model:PivotTo(d.cf * CFrame.new(0, -2.9, 0) * CFrame.Angles(-1.45, 0, 0))
-    task.delay(5, function()
-      d.ko = false
-      if d.model.Parent then d.model:PivotTo(d.cf) end
-    end)
-  end
-  local function hitFx(tg, lo, hi) -- true, если цель добита (на экране)
-    local dmg = math.random(lo or 8, hi or 15)
-    hpOf[tg.model] = (hpOf[tg.model] or 100) - dmg
-    dmgText(tg.root, dmg)
-    TK.burst(tg.root.Position, TK.RGB(255, 200, 80), 8)
-    local hl = TK.I("Highlight", {
-      FillColor = TK.RGB(255, 70, 70), FillTransparency = .4, OutlineTransparency = 1, Adornee = tg.model,
-    }, tg.model)
-    task.delay(.12, function() if hl.Parent then hl:Destroy() end end)
-    if tg.kind == "dummy" and not tg.ko then
-      tg.model:PivotTo(tg.cf * CFrame.new((math.random() - .5) * .4, 0, (math.random() - .5) * .4))
-      task.delay(.08, function() if tg.model.Parent and not tg.ko then tg.model:PivotTo(tg.cf) end end)
-    end
-    TK.snd("click", .4, 1.4)
-    return hpOf[tg.model] <= 0
-  end
-  local function damage(tg, lo, hi) -- удар + обработка «победы»
-    if not hitFx(tg, lo, hi) then return false end
-    deadUntil[tg.model] = os.clock() + (tg.kind == "dummy" and 5 or 12)
-    TK.burst(tg.root.Position, TK.RGB(255, 200, 80), 24)
-    if tg.kind == "dummy" then koDummy(tg) end
-    return true
-  end
-  TK.CB.scan, TK.CB.nearest, TK.CB.damage = scan, nearest, damage
-
-  -- мишень для тренировки (стоит там, куда смотришь)
-  local function spawnDummy()
-    if #dummies >= 3 then TK.notify("Максимум 3 мишени", TK.C.dg, 1.5) return end
-    local pos = TK.aimHit(60)
-    local g = TK.groundAt(pos)
-    pos = TK.V3(pos.X, g or pos.Y, pos.Z)
-    local mo = TK.I("Model", { Name = "RM_Dummy" }, TK.helperFolder)
-    local function add(n, sz, col, rel, mat, shape)
-      local p = TK.mkp(n, sz, col, mat, shape)
-      p.Anchored = true
-      p.CFrame = CFrame.new(pos) * rel
-      p.Parent = mo
-      return p
-    end
-    add("Base", TK.V3(.4, 2.4, 2.4), TK.RGB(90, 70, 50), CFrame.new(0, .2, 0) * TK.R90, nil, Enum.PartType.Cylinder)
-    add("Post", TK.V3(.5, 3.2, .5), TK.RGB(150, 110, 70), CFrame.new(0, 1.8, 0), Enum.Material.Wood)
-    local body = add("Body", TK.V3(1.8, 2, .9), TK.RGB(205, 170, 90), CFrame.new(0, 3.6, 0), Enum.Material.Fabric)
-    add("Arms", TK.V3(3.2, .4, .4), TK.RGB(150, 110, 70), CFrame.new(0, 4.1, 0), Enum.Material.Wood)
-    add("Head", TK.V3(1.1, 1.1, 1.1), TK.RGB(220, 190, 120), CFrame.new(0, 5.1, 0), Enum.Material.Fabric, Enum.PartType.Ball)
-    add("Ring1", TK.V3(.1, 1.2, 1.2), TK.RGB(220, 40, 40), CFrame.new(0, 3.6, -.46) * TK.RZ, Enum.Material.Neon, Enum.PartType.Cylinder)
-    add("Ring2", TK.V3(.1, .8, .8), TK.WHITE, CFrame.new(0, 3.6, -.5) * TK.RZ, nil, Enum.PartType.Cylinder)
-    add("Ring3", TK.V3(.1, .35, .35), TK.RGB(220, 40, 40), CFrame.new(0, 3.6, -.53) * TK.RZ, Enum.Material.Neon, Enum.PartType.Cylinder)
-    mo.PrimaryPart = body
-    dummies[#dummies + 1] = { model = mo, root = body, kind = "dummy", cf = mo:GetPivot() }
-    TK.burst(pos + TK.V3(0, 2, 0), TK.RGB(255, 200, 80), 20)
-    TK.notify("🎯 Мишень поставлена", TK.C.ac, 1.5)
-  end
-  RM.spawnDummy = function() TK.safe(spawnDummy) end
-  RM.clearDummies = function()
-    for i = #dummies, 1, -1 do
-      pcall(function() dummies[i].model:Destroy() end)
-      table.remove(dummies, i)
-    end
-  end
-
-  -- ящик вызывает Мисикса-охранника
-  TK.spawnMeeseeks = function()
-    if #TK.helpers >= 3 then TK.notify("Максимум 3 Мисикса сразу", TK.C.dg, 1.5) return end
-    local _, _, hr = TK.getChar()
-    if not hr then return end
-    local lv = TK.V3(hr.CFrame.LookVector.X, 0, hr.CFrame.LookVector.Z)
-    lv = lv.Magnitude > .01 and lv.Unit or TK.V3(0, 0, -1)
-    local ahead = hr.Position + lv * 5
-    local gy = TK.groundAt(ahead) or (hr.Position.Y - 3)
-    local pos = TK.V3(ahead.X, gy + 3, ahead.Z)
-    local root = TK.mkp("MRoot", TK.V3(2, 2, 1), TK.WHITE)
-    root.Transparency = 1
-    root.Anchored = true
-    root.CFrame = CFrame.lookAt(pos, pos + lv)
-    local R = TK.newRig(root, TK.SK.meeseeks, 1)
-    R.FT = TK.ftar(TK.SK.meeseeks, "happy")
-    R.FC = TK.copy(R.FT)
-    root.Parent = R.model
-    R.model.Parent = TK.helperFolder
-    TK.burst(pos, TK.RGB(90, 170, 255), 30)
-    TK.helpers[#TK.helpers + 1] = {
-      R = R, root = root, born = os.clock(), face = lv, order = "guard", life = 90,
-      slot = #TK.helpers, nextScan = 0, nextHit = 0,
-    }
-    TK.bubble(R.parts.Head, "Я Мистер Мисикс! Я тебя защищу!", 2.8)
-    TK.snd("pop", .6)
-    TK.ITM.spawnFx(pos)
-  end
-
-  -- поведение помощника: приказы, поиск врагов, бой
-  local function step(h, dt)
-    local R, root = h.R, h.root
-    if not root.Parent then return false end
-    local _, _, hr = TK.getChar()
-    if not hr then return true end
-    local now = os.clock()
-    if now < TK.TIMESTOP_UNTIL then
-      h.born = h.born + dt
-      return true
-    end
-    local pos, P = root.Position, hr.Position
-    local order = h.order
-    -- поиск цели (охрана бьёт только NPC и мишени; игроков — только по приказу «Атакуй»)
-    if (order == "guard" or order == "attack") and not alive(h.target) then
-      h.target = nil
-      if now >= h.nextScan then
-        h.nextScan = now + .6
-        local center, radius = P, 32
-        if order == "attack" then center, radius = h.orderPos or P, 26 end
-        h.target = nearest(scan(center, radius, order == "attack" and TK.ST.AttackPlayers), pos)
-        if h.target then TK.bubble(R.parts.Head, FIGHT_CATCH[math.random(#FIGHT_CATCH)], 1.8) end
-      end
-    end
-    local tg = h.target
-    -- слишком далеко от хозяина: возвращаем к нему
-    if (order == "guard" or order == "follow") and (pos - P).Magnitude > 80 then
-      local a = h.slot * 2.094
-      pos = P + TK.V3(math.cos(a), 0, math.sin(a)) * 6
-      TK.burst(pos, TK.RGB(90, 170, 255), 20)
-      h.target, tg = nil, nil
-    end
-    -- куда идти
-    local goal, stopD, speed = nil, 1.5, 20
-    if tg then
-      goal, stopD, speed = tg.root.Position, 3.2, 24
-    elseif order == "guard" then
-      local a = h.slot * 2.094
-      goal = P + TK.V3(math.cos(a), 0, math.sin(a)) * 6
-    elseif order == "follow" then
-      goal, stopD = P, 5
-    elseif order == "attack" or order == "move" then
-      goal, stopD = h.orderPos or P, 2.5
-    end
-    local moving, inRange = false, false
-    if goal then
-      local flat = TK.V3(goal.X - pos.X, 0, goal.Z - pos.Z)
-      local dist = flat.Magnitude
-      if dist > stopD then
-        local dirv = flat.Unit
-        pos = pos + dirv * math.min(dist - stopD, speed * dt)
-        h.face = dirv
-        moving = true
-      else
-        inRange = true
-        if tg and dist > .05 then h.face = flat.Unit end
-      end
-    end
-    -- пришёл на место
-    if inRange and not tg then
-      if order == "move" then
-        h.order = "stay"
-        TK.bubble(R.parts.Head, "Я на месте!", 2)
-      elseif order == "attack" then
-        h.order = "guard"
-        TK.bubble(R.parts.Head, h.fought and "Победа! Возвращаюсь!" or "Тут никого нет...", 2.2)
-        h.fought = false
-      end
-    end
-    -- удар
-    local fighting = tg ~= nil and inRange
-    if fighting and now >= h.nextHit then
-      h.nextHit = now + .45
-      if damage(tg, 8, 15) then
-        TK.bubble(R.parts.Head, "Победа!", 1.6)
-        h.target = nil
-        h.fought = true
-      end
-    end
-    -- земля, поворот, анимация
-    local gy = TK.groundAt(pos)
-    local ty = gy and gy + 3 or pos.Y
-    pos = TK.V3(pos.X, pos.Y + (ty - pos.Y) * math.min(1, dt * 14), pos.Z)
-    root.CFrame = CFrame.lookAt(pos, pos + TK.V3(h.face.X, 0, h.face.Z))
-    TK.stepRig(R, dt, { speed = moving and speed or 0, walkSpeed = 16, air = false })
-    if fighting then -- кулаки: руки бьют по очереди
-      local ph = now * 7 + h.slot
-      local p1, p2 = math.max(0, math.sin(ph)), math.max(0, math.sin(ph + math.pi))
-      local mt, bs = R.mot, R.base
-      mt.AR.C0 = bs.AR * CFrame.Angles(.2 + 1.4 * p1, 0, .1)
-      mt.ER.C0 = bs.ER * CFrame.Angles(.3 - .3 * p1, 0, 0)
-      mt.AL.C0 = bs.AL * CFrame.Angles(.2 + 1.4 * p2, 0, -.1)
-      mt.EL.C0 = bs.EL * CFrame.Angles(.3 - .3 * p2, 0, 0)
-      mt.Torso.C0 = mt.Torso.C0 * CFrame.Angles(0, (p2 - p1) * .35, 0)
-    end
-    if now - h.born > h.life then
-      TK.burst(pos, TK.RGB(90, 170, 255), 30)
-      return false
-    end
-    return true
-  end
-  TK.stepHelper = function(h, dt)
-    local ok, res = pcall(step, h, dt)
-    if not ok then
-      warn("[RickMorty] Мисикс: " .. tostring(res))
-      return false
-    end
-    return res
-  end
-
-  -- приказ всем Мисиксам (цель = точка прицела)
-  RM.helperOrder = function(order)
-    if #TK.helpers == 0 then TK.notify("Сначала вызови Мисикса ящиком", TK.C.dg, 2) return end
-    local pos = TK.aimHit(120)
-    local now = os.clock()
-    local target = nil
-    if order == "attack" then
-      target = nearest(scan(pos, 26, TK.ST.AttackPlayers), pos)
-      if not target then TK.notify("Рядом с точкой прицела целей нет", TK.C.dg, 2) end
-    end
-    for _, h in ipairs(TK.helpers) do
-      h.born, h.life = now, 90
-      h.order, h.orderPos, h.target, h.fought, h.nextScan = order, pos, target, false, 0
-      if order == "vanish" then
-        h.born = now - 1000
-      else
-        TK.bubble(h.R.parts.Head, ORDER_TEXT[order], 2)
-      end
-    end
-    TK.notify(ORDER_NAMES[order], TK.C.ac, 1.5)
-  end
+local C = RM.C
+local M = {}
+RM.M = M
+local MAT = Enum.Material
+local WHITE = RGB(255, 255, 255)
+local TEX = { lab = "", ship = "", fabric = "", portal = "" }
+RM.TEX = TEX
+local VARIANT = { lab = "RM_LabMetal", ship = "RM_ShipPanel", fabric = "RM_ScientistFabric" }
+function M.part(parent, name, size, cf, color, mat, o)
+local p = I("Part", {
+Name = name, Size = size, CFrame = cf, Color = color or C.dim, Material = mat or MAT.SmoothPlastic, Anchored = false, CanCollide = false,
+CanTouch = false, CanQuery = false, Massless = true, TopSurface = Enum.SurfaceType.Smooth, BottomSurface = Enum.SurfaceType.Smooth,
+}, parent)
+if o then for k, v in pairs(o) do p[k] = v end end
+return p
 end
-
--- 🔋 батарея: зона энергии 15 секунд, заряд 100%, расход 25% за использование
-function TK.useBattery()
-  if TK.BAT < 25 then TK.notify("🔋 Мало заряда (" .. math.floor(TK.BAT) .. "%)", TK.C.dg, 1.5) return end
-  local _, _, hr = TK.getChar()
-  if not hr then return end
-  TK.BAT = TK.BAT - 25
-  local pos = TK.aimHit(70)
-  if (pos - hr.Position).Magnitude > 60 then pos = hr.Position + (pos - hr.Position).Unit * 60 end
-  local g = TK.groundAt(pos)
-  pos = TK.V3(pos.X, g or pos.Y, pos.Z)
-  local col = TK.RGB(190, 80, 255)
-  local mo = TK.I("Model", { Name = "RM_Zone" }, TK.Workspace)
-  local disc = TK.mkp("Zone", TK.V3(.3, 20, 20), col, Enum.Material.Neon, Enum.PartType.Cylinder)
-  disc.Anchored = true
-  disc.Transparency = .65
-  disc.CFrame = CFrame.new(pos + TK.V3(0, .2, 0)) * TK.R90
-  disc.Parent = mo
-  local ring = TK.mkp("ZoneRing", TK.V3(.4, 20.6, 20.6), col:Lerp(TK.WHITE, .4), Enum.Material.Neon, Enum.PartType.Cylinder)
-  ring.Anchored = true
-  ring.Transparency = .4
-  ring.CFrame = disc.CFrame
-  ring.Parent = mo
-  local em = TK.mkp("Emitter", TK.V3(18, .2, 18), col)
-  em.Anchored = true
-  em.Transparency = 1
-  em.CFrame = CFrame.new(pos + TK.V3(0, .4, 0))
-  em.Parent = mo
-  TK.I("ParticleEmitter", {
-    Texture = "rbxasset://textures/particles/sparkles_main.dds", Rate = 18, Lifetime = NumberRange.new(1.5, 2),
-    Speed = NumberRange.new(4, 6), SpreadAngle = Vector2.new(10, 10), Size = NumberSequence.new(.5, 0),
-    Transparency = NumberSequence.new(.1, 1), LightEmission = 1, Color = ColorSequence.new(col),
-    EmissionDirection = Enum.NormalId.Top,
-  }, em)
-  TK.I("PointLight", { Color = col, Range = 22, Brightness = 2, Shadows = false }, disc)
-  TK.TweenService:Create(disc, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = .82 }):Play()
-  TK.zones[#TK.zones + 1] = { mo = mo, disc = disc, radius = 10, untilT = os.clock() + 15 }
-  TK.burst(pos + TK.V3(0, 1, 0), col, 30)
-  TK.snd("teleport", .6, .8)
-  TK.notify("🔋 Зона энергии на 15 с (заряд " .. math.floor(TK.BAT) .. "%)", col, 2)
+function M.cyl(parent, name, r, h, cf, color, mat, o)
+local p = M.part(parent, name, V3(h, r * 2, r * 2), cf * ANG(0, 0, pi / 2), color, mat, o)
+p.Shape = Enum.PartType.Cylinder
+return p
 end
-function TK.updateZones(hr, now)
-  local inside = false
-  for i = #TK.zones, 1, -1 do
-    local zn = TK.zones[i]
-    if now > zn.untilT then
-      table.remove(TK.zones, i)
-      TK.TweenService:Create(zn.disc, TweenInfo.new(.5), { Transparency = 1 }):Play()
-      task.delay(.6, function() pcall(function() zn.mo:Destroy() end) end)
-    elseif hr then
-      local off = hr.Position - zn.disc.Position
-      if TK.V3(off.X, 0, off.Z).Magnitude < zn.radius and math.abs(off.Y) < 10 then inside = true end
-    end
-  end
-  if inside ~= TK.inZone then
-    TK.inZone = inside
-    local aura = hr and hr:FindFirstChild("RM_Aura")
-    if inside and hr then
-      if not aura then
-        TK.I("PointLight", { Name = "RM_Aura", Color = TK.RGB(200, 90, 255), Range = 14, Brightness = 3, Shadows = false }, hr)
-      end
-      TK.notify("⚡ Ты в зоне энергии", TK.RGB(200, 120, 255), 1.5)
-    elseif aura then
-      aura:Destroy()
-    end
-  end
+function M.ball(parent, name, d, cf, color, mat, o)
+local p = M.part(parent, name, V3(d, d, d), cf, color, mat, o)
+p.Shape = Enum.PartType.Ball
+return p
 end
-
--- 🚀 космический крейсер по фото (серая тарелка, купол, жёлтые полосы, двигатель, ножки)
-TK.SHIP_H = 3.7 -- высота центра корпуса над землёй (скорость берётся из ST.ShipSpeed)
-TK.SEAT = CFrame.new(0, 1.75, .5)
-function TK.ell(model, name, size, col, rel, mat) -- эллипсоид через SpecialMesh
-  local p = TK.mkp(name, size, col, mat)
-  p.Anchored = true
-  p.CFrame = rel
-  TK.I("SpecialMesh", { MeshType = Enum.MeshType.Sphere }, p)
-  p.Parent = model
-  return p
+function M.skin(p: any, kind)
+local v = VARIANT[kind]
+local ok, mv = pcall(function() return game:GetService("MaterialService"):FindFirstChild(v) end)
+if ok and mv then pcall(function() p.MaterialVariant = v end) end
+if TEX[kind] ~= "" then
+for _, f in ipairs({ Enum.NormalId.Front, Enum.NormalId.Top }) do
+I("Texture", { Texture = TEX[kind], Face = f, StudsPerTileU = 4, StudsPerTileV = 4, Transparency = .1 }, p)
 end
-function TK.buildShip()
-  local model = TK.I("Model", { Name = "RM_Cruiser" }, TK.Workspace)
-  local function add(name, size, col, rel, mat, shape)
-    local p = TK.mkp(name, size, col, mat, shape)
-    p.Anchored = true
-    p.CFrame = rel
-    p.Parent = model
-    return p
-  end
-  local GRAY, LIGHT, DARK, YEL = TK.RGB(88, 96, 104), TK.RGB(185, 192, 200), TK.RGB(40, 44, 50), TK.RGB(235, 190, 40)
-  local hull = TK.ell(model, "Hull", TK.V3(11, 3.2, 11), GRAY, CFrame.new(0, -.2, 0), Enum.Material.Metal)
-  model.PrimaryPart = hull
-  add("Rim", TK.V3(.9, 12, 12), LIGHT, CFrame.new(0, .3, 0) * TK.R90, Enum.Material.Metal, Enum.PartType.Cylinder)
-  TK.ell(model, "Deck", TK.V3(9.5, 1.8, 9.5), TK.RGB(170, 176, 184), CFrame.new(0, .9, 0), Enum.Material.Metal)
-  for _, s in ipairs({ -1, 1 }) do
-    add("Stripe", TK.V3(1.2, .1, 3.6), YEL, CFrame.new(s * 3.2, 1.3, -2.4) * CFrame.Angles(0, math.rad(-30 * s), 0))
-    TK.ell(model, "Vent", TK.V3(1.4, .7, 1.1), TK.RGB(200, 185, 140), CFrame.new(s * 2.6, 1.15, -3.6))
-    add("Light", TK.V3(.6, .2, .2), TK.RGB(255, 240, 150), CFrame.new(s * 1.2, .5, -5.3), Enum.Material.Neon)
-  end
-  add("StripeBack", TK.V3(3, .1, .9), YEL, CFrame.new(0, 1.15, 4.4))
-  local dome = TK.ell(model, "Dome", TK.V3(5.2, 3.6, 6.4), TK.RGB(190, 230, 255), CFrame.new(0, 2.4, -.6), Enum.Material.Glass)
-  dome.Transparency = .5
-  add("Seat", TK.V3(1.5, .3, 1.5), TK.RGB(70, 58, 52), CFrame.new(0, 1.15, .5))
-  add("SeatBack", TK.V3(1.5, 1.6, .3), TK.RGB(70, 58, 52), CFrame.new(0, 2, 1.3))
-  add("Console", TK.V3(2.2, .5, .8), DARK, CFrame.new(0, 1.5, -1.7))
-  for _, s in ipairs({ -1, 1 }) do
-    add("Screen", TK.V3(.5, .3, .05), TK.RGB(90, 240, 220), CFrame.new(s * .6, 1.85, -2.05), Enum.Material.Neon)
-    add("Lever", TK.V3(.08, .7, .08), DARK, CFrame.new(s * .95, 1.9, -1.4))
-  end
-  add("Engine", TK.V3(2.6, 2.4, 2.4), TK.RGB(120, 126, 132), CFrame.new(0, 1, 5.7) * TK.RZ, Enum.Material.Metal, Enum.PartType.Cylinder)
-  add("EngineIn", TK.V3(.2, 1.8, 1.8), TK.RGB(10, 10, 12), CFrame.new(0, 1, 7) * TK.RZ, nil, Enum.PartType.Cylinder)
-  local glow = add("EngineGlow", TK.V3(.1, 1.2, 1.2), TK.RGB(120, 200, 255), CFrame.new(0, 1, 7.05) * TK.RZ, Enum.Material.Neon, Enum.PartType.Cylinder)
-  TK.I("ParticleEmitter", {
-    Texture = "rbxasset://textures/particles/sparkles_main.dds", Rate = 15, Lifetime = NumberRange.new(.4, .7),
-    Speed = NumberRange.new(6, 9), Size = NumberSequence.new(.9, 0), LightEmission = 1, Color = ColorSequence.new(TK.RGB(120, 200, 255)),
-    EmissionDirection = Enum.NormalId.Back,
-  }, glow)
-  add("Wing", TK.V3(7, .25, 1.8), GRAY, CFrame.new(0, 3, 5.2))
-  add("WingPanel", TK.V3(2.2, .06, 1.2), TK.RGB(240, 150, 40), CFrame.new(-2, 3.15, 5.2))
-  for _, s in ipairs({ -1, 1 }) do
-    add("Support", TK.V3(.3, 1.6, .3), DARK, CFrame.new(s * 2.5, 2.2, 5.2))
-  end
-  for i = 0, 3 do -- четыре ножки с опорами
-    local a = math.rad(45 + i * 90)
-    local x, z = math.sin(a) * 3.8, math.cos(a) * 3.8
-    add("Leg", TK.V3(.35, 2.6, .35), DARK, CFrame.new(x, -1.9, z) * CFrame.Angles(math.sin(a) * .0, 0, 0))
-    add("Foot", TK.V3(.9, .4, 1.1), TK.RGB(30, 32, 38), CFrame.new(x * 1.12, -3.25, z * 1.12) * CFrame.Angles(0, a, 0))
-  end
-  TK.I("PointLight", { Color = TK.RGB(180, 220, 255), Range = 18, Brightness = 1.5, Shadows = false }, hull)
-  -- большие пушки по бокам (дула смотрят вперёд)
-  for _, s in ipairs({ -1, 1 }) do
-    add("CannonBase", TK.V3(1.8, .9, 1.8), DARK, CFrame.new(s * 3.2, .35, -3.6), Enum.Material.Metal)
-    add("Cannon", TK.V3(4.2, 1.3, 1.3), TK.RGB(70, 76, 86), CFrame.new(s * 3.2, .7, -4.8) * TK.RZ, Enum.Material.Metal, Enum.PartType.Cylinder)
-    add("CannonRing", TK.V3(.5, 1.8, 1.8), YEL, CFrame.new(s * 3.2, .7, -6.7) * TK.RZ, Enum.Material.Metal, Enum.PartType.Cylinder)
-    add("CannonGlow", TK.V3(.2, 1, 1), TK.RGB(255, 90, 60), CFrame.new(s * 3.2, .7, -6.95) * TK.RZ, Enum.Material.Neon, Enum.PartType.Cylinder)
-  end
-  -- твёрдые части (на них можно стоять) и кликабельность всего корабля
-  local solids = {}
-  for _, p in ipairs(model:GetChildren()) do
-    p.CanQuery = true
-    local nm = p.Name
-    if nm == "Hull" or nm == "Rim" or nm == "Deck" or nm == "Wing" or nm == "Engine" or nm == "Foot" then
-      solids[#solids + 1] = p
-    end
-  end
-  return model, dome, solids
 end
-function TK.summonShip()
-  local _, _, hr = TK.getChar()
-  if not hr then return end
-  if TK.RIDING or (TK.ship and TK.ship.board) then TK.dismount(true) end
-  if TK.ship then pcall(function() TK.ship.model:Destroy() end) TK.ship = nil end
-  local lv = TK.V3(hr.CFrame.LookVector.X, 0, hr.CFrame.LookVector.Z)
-  lv = lv.Magnitude > .01 and lv.Unit or TK.V3(0, 0, -1)
-  local ahead = hr.Position + lv * 18
-  local gy = TK.groundAt(ahead) or (hr.Position.Y - 3)
-  local land = TK.V3(ahead.X, gy + TK.SHIP_H, ahead.Z)
-  local model, dome, solids = TK.buildShip()
-  TK.ship = {
-    model = model, dome = dome, solids = solids, land = land, pos = land + TK.V3(0, 60, 0),
-    yaw = math.atan2(-lv.X, -lv.Z), vel = TK.V3(), state = "landing", t = 0, cf = CFrame.new(land),
-  }
-  model:PivotTo(CFrame.new(TK.ship.pos) * CFrame.Angles(0, TK.ship.yaw, 0))
-  TK.dimFx(TK.RGB(255, 170, 70), .6)
-  TK.notify("🚀 Крейсер прибывает...", TK.C.ac, 2)
 end
--- твёрдость: пока корабль стоит, на него можно залезть и стоять на палубе
-function TK.SH.solid(on) end -- физическая твёрдость отключена: корабль не толкает игроков
--- купол открывается на шарнире сзади (open: 0..1)
-function TK.SH.dome(open)
-  if not TK.ship or not TK.ship.dome or not TK.ship.dome.Parent then return end
-  TK.ship.dome.CFrame = TK.ship.cf * CFrame.new(0, 2.4, -.6) * CFrame.new(0, 0, 3.2)
-    * CFrame.Angles(open * .9, 0, 0) * CFrame.new(0, 0, -3.2)
+function M.weldAll(model, root)
+for _, d in ipairs(model:GetDescendants()) do
+if d:IsA("BasePart") and d ~= root then weld(root, d, d) end
 end
--- пушки крейсера: красные болты в точку прицела, урон по цели рядом (визуально)
-function TK.SH.fireOld()
-  if not TK.RIDING or not TK.ship or TK.ship.board then return end
-  local now = os.clock()
-  if now < TK.SH.fireCd then return end
-  TK.SH.fireCd = now + .22
-  local pos = TK.aimHit(800)
-  TK.SH.side = -TK.SH.side
-  local muzzle = (TK.ship.cf * CFrame.new(TK.SH.side * 3.2, .2, -4.4)).Position
-  local delta = pos - muzzle
-  local dist = delta.Magnitude
-  if dist < 2 then return end
-  local dir = delta.Unit
-  local len = math.min(dist, 7)
-  local bolt = TK.mkp("Bolt", TK.V3(.4, .4, len), TK.RGB(255, 70, 70), Enum.Material.Neon)
-  bolt.Anchored = true
-  bolt.CFrame = CFrame.lookAt(muzzle, muzzle + dir) * CFrame.new(0, 0, -len / 2)
-  bolt.Parent = TK.Workspace
-  local fly = math.clamp(dist / 500, .05, .5)
-  TK.TweenService:Create(bolt, TweenInfo.new(fly, Enum.EasingStyle.Linear), {
-    CFrame = CFrame.lookAt(pos, pos + dir) * CFrame.new(0, 0, len / 2),
-  }):Play()
-  TK.snd("shoot", .5, 1.3)
-  task.delay(fly, function()
-    bolt:Destroy()
-    TK.burst(pos, TK.RGB(255, 120, 60), 16)
-    local tg = TK.CB.nearest(TK.CB.scan(pos, 7, TK.ST.AttackPlayers), pos)
-    if tg then TK.CB.damage(tg, 20, 35) end
-  end)
 end
--- виртуальный пол палубы: ставит тебя на крышу корабля, не толкает ни тебя, ни других
-TK.SH.onDeck = false
-function TK.SH.deck(hr, hum)
-  TK.SH.onDeck = false
-  if not TK.ship or TK.ship.state ~= "idle" or TK.RIDING or TK.ship.board or not hr or not hum then return end
-  local off = hr.Position - TK.ship.pos
-  if TK.V3(off.X, 0, off.Z).Magnitude > 4.6 then return end
-  local half = hum.RigType == Enum.HumanoidRigType.R15 and (hum.HipHeight + hr.Size.Y / 2) or 3
-  local feet = hr.Position.Y - half
-  local top = TK.ship.pos.Y + 1.8
-  local vel = hr.AssemblyLinearVelocity
-  if vel.Y <= 1 and feet >= top - .7 and feet <= top + .5 then
-    hr.CFrame = hr.CFrame + TK.V3(0, top - feet, 0)
-    if hum.Jump then
-      local jv = hum.UseJumpPower and hum.JumpPower or math.sqrt(2 * TK.Workspace.Gravity * hum.JumpHeight)
-      hr.AssemblyLinearVelocity = TK.V3(vel.X, jv, vel.Z)
-    else
-      hr.AssemblyLinearVelocity = TK.V3(vel.X, 0, vel.Z)
-    end
-    TK.SH.onDeck = true
-  end
+function M.anchorAll(model, v)
+for _, d in ipairs(model:GetDescendants()) do
+if d:IsA("BasePart") then d.Anchored = v end
 end
--- большие пушки: крупные болты, дальность x5, взрыв со сферой
-function TK.SH.fire()
-  if not TK.RIDING or not TK.ship or TK.ship.board then return end
-  local now = os.clock()
-  if now < TK.SH.fireCd then return end
-  TK.SH.fireCd = now + .28
-  local pos = TK.aimHit(4000, 250)
-  TK.SH.side = -TK.SH.side
-  local muzzle = (TK.ship.cf * CFrame.new(TK.SH.side * 3.2, .7, -7.2)).Position
-  local delta = pos - muzzle
-  local dist = delta.Magnitude
-  if dist < 2 then return end
-  local dir = delta.Unit
-  local len = math.min(dist, 16)
-  local bolt = TK.mkp("Bolt", TK.V3(1.3, 1.3, len), TK.RGB(255, 70, 70), Enum.Material.Neon)
-  bolt.Anchored = true
-  TK.I("PointLight", { Color = TK.RGB(255, 80, 60), Range = 22, Brightness = 4, Shadows = false }, bolt)
-  bolt.CFrame = CFrame.lookAt(muzzle, muzzle + dir) * CFrame.new(0, 0, -len / 2)
-  bolt.Parent = TK.Workspace
-  local fly = math.clamp(dist / 900, .05, 1.2)
-  TK.TweenService:Create(bolt, TweenInfo.new(fly, Enum.EasingStyle.Linear), {
-    CFrame = CFrame.lookAt(pos, pos + dir) * CFrame.new(0, 0, len / 2),
-  }):Play()
-  TK.burst(muzzle, TK.RGB(255, 200, 80), 14)
-  TK.snd("shoot", .7, .9)
-  task.delay(fly, function()
-    bolt:Destroy()
-    TK.burst(pos, TK.RGB(255, 120, 60), 40)
-    local ex = TK.mkp("Blast", TK.V3(2, 2, 2), TK.RGB(255, 140, 60), Enum.Material.Neon, Enum.PartType.Ball)
-    ex.Anchored = true
-    ex.Transparency = .3
-    ex.Position = pos
-    ex.Parent = TK.Workspace
-    TK.TweenService:Create(ex, TweenInfo.new(.4), { Size = TK.V3(16, 16, 16), Transparency = 1 }):Play()
-    task.delay(.45, function() ex:Destroy() end)
-    local tg = TK.CB.nearest(TK.CB.scan(pos, 14, TK.ST.AttackPlayers), pos)
-    if tg then TK.CB.damage(tg, 40, 70) end
-  end)
 end
--- гипер-прыжок: рывок вперёд с эффектом перехода между измерениями
-function TK.SH.hyper()
-  if not TK.RIDING or not TK.ship or TK.ship.board then return end
-  local now = os.clock()
-  if now < TK.SH.hyperCd then TK.notify("🌌 Гипер-прыжок через " .. math.ceil(TK.SH.hyperCd - now) .. " с", TK.C.dg, 1) return end
-  TK.SH.hyperCd = now + 6
-  local fwd = CFrame.Angles(0, TK.ship.yaw, 0).LookVector
-  local dist = math.clamp(TK.ST.ShipSpeed * .8, 120, 600)
-  local col = TK.RGB(160, 120, 255)
-  TK.dimFx(col, 1.2)
-  for i = 1, 6 do TK.burst(TK.ship.pos + fwd * (dist * i / 6), col, 10) end
-  TK.ship.pos = TK.ship.pos + fwd * dist
-  TK.ship.vel = fwd * math.max(TK.ship.vel.Magnitude, TK.ST.ShipSpeed * .5)
-  TK.notify("🌌 Гипер-прыжок!", col, 1.5)
+function M.gadget(style, c, a, tool)
+local h
+if style == "pistol" then
+h = M.part(tool, "Handle", V3(.5, 1.1, .7), CF(), RGB(40, 42, 50))
+h.CanCollide = false
+M.part(tool, "Body", V3(.6, .7, 2.2), CF(0, .8, -.8), c, MAT.Metal)
+M.cyl(tool, "Nozzle", .38, .9, CF(0, .8, -2.1) * ANG(pi / 2, 0, 0), a, MAT.Neon)
+M.part(tool, "Tube", V3(.18, .18, 1.6), CF(0, 1.25, -.8), a, MAT.Neon)
+M.part(tool, "Cell", V3(.4, .5, .5), CF(0, 1, .55), a, MAT.Neon, { Transparency = .2 })
+M.ball(tool, "Orb", .5, CF(0, 1.35, .1), a, MAT.Neon)
+elseif style == "box" then
+h = M.part(tool, "Handle", V3(1.3, 1.7, .5), CF(), c, MAT.Metal)
+M.part(tool, "Screen", V3(1, .9, .06), CF(0, .3, -.28), a, MAT.Neon)
+M.part(tool, "Bar", V3(1, .15, .08), CF(0, -.55, -.28), a, MAT.Neon, { Transparency = .3 })
+M.cyl(tool, "Ant", .06, .9, CF(.45, 1.2, 0), RGB(200, 200, 210), MAT.Metal)
+M.ball(tool, "Tip", .2, CF(.45, 1.7, 0), a, MAT.Neon)
+elseif style == "wand" then
+h = M.cyl(tool, "Handle", .16, 2.4, CF() * ANG(pi / 2, 0, 0), c, MAT.Metal)
+M.ball(tool, "Tip", .8, CF(0, 0, -1.4), a, MAT.Neon, { Transparency = .15 })
+M.cyl(tool, "Ring", .45, .12, CF(0, 0, -1.1) * ANG(pi / 2, 0, 0), a, MAT.Neon)
+M.cyl(tool, "Pommel", .22, .3, CF(0, 0, 1.2) * ANG(pi / 2, 0, 0), a, MAT.Neon)
+elseif style == "can" then
+h = M.cyl(tool, "Handle", .5, 1.4, CF(), c, MAT.Metal)
+M.cyl(tool, "Band", .52, .3, CF(0, .1, 0), a, MAT.Neon)
+M.cyl(tool, "Cap", .3, .25, CF(0, .8, 0), RGB(210, 210, 220), MAT.Metal)
+M.cyl(tool, "Glass", .42, .5, CF(0, -.4, 0), a, MAT.Glass, { Transparency = .45 })
+else -- pack
+h = M.part(tool, "Handle", V3(1.5, 1.9, .8), CF(), c, MAT.Metal)
+M.cyl(tool, "T1", .32, 1.2, CF(-.45, -1.2, 0), RGB(200, 200, 210), MAT.Metal)
+M.cyl(tool, "T2", .32, 1.2, CF(.45, -1.2, 0), RGB(200, 200, 210), MAT.Metal)
+M.cyl(tool, "F1", .26, .2, CF(-.45, -1.85, 0), a, MAT.Neon)
+M.cyl(tool, "F2", .26, .2, CF(.45, -1.85, 0), a, MAT.Neon)
+M.part(tool, "Gauge", V3(.9, .2, .06), CF(0, .5, -.42), a, MAT.Neon)
 end
-
--- посадка: тап по кораблю или кнопка; персонаж прыгает в кабину, купол открывается
-function TK.board()
-  local _, hum, hr = TK.getChar()
-  if not TK.ship or TK.RIDING or TK.ship.board or not hum or not hr then return end
-  if TK.ship.state ~= "idle" then TK.notify("Крейсер ещё садится", TK.C.dg, 1.5) return end
-  local dist = (hr.Position - TK.ship.pos).Magnitude
-  if dist > 90 then TK.notify("Крейсер далеко: вызови его", TK.C.dg, 2) return end
-  TK.EMOTE = nil
-  hum.PlatformStand = true
-  TK.SH.solid(false)
-  TK.ship.vel = TK.V3()
-  TK.ship.board = { kind = "in", t = 0, dur = .95, from = hr.CFrame, arc = 3 + dist * .04 }
-  TK.snd("teleport", .5, 1.5)
-  TK.notify("🚀 Полёт: джойстик/WASD, ▲▼, 🔥 — огонь, 🌌 — прыжок", TK.C.ac, 3)
+for _, d in ipairs(tool:GetChildren()) do
+if d:IsA("BasePart") and d ~= h then weld(h, d, d) end
 end
--- высадка с прыжком; instant = мгновенно (смерть, пересоздание корабля)
-function TK.dismount(instant)
-  local _, hum, hr = TK.getChar()
-  if not TK.ship then
-    TK.RIDING = false
-    if hum then hum.PlatformStand = false end
-    return
-  end
-  if instant then
-    TK.RIDING = false
-    TK.ship.board = nil
-    TK.rideKeys.up, TK.rideKeys.down = false, false
-    if hum then hum.PlatformStand = false end
-    if hr then
-      hr.CFrame = CFrame.new(TK.ship.pos) * CFrame.Angles(0, TK.ship.yaw, 0) * CFrame.new(7, 2.2, 0)
-      hr.AssemblyLinearVelocity = TK.V3()
-    end
-    TK.SH.solid(true)
-    return
-  end
-  if not TK.RIDING or TK.ship.board or not hr then return end
-  TK.RIDING = false
-  TK.rideKeys.up, TK.rideKeys.down = false, false
-  TK.ship.vel = TK.V3()
-  TK.ship.board = {
-    kind = "out", t = 0, dur = .85, from = hr.CFrame, arc = 3.5,
-    to = CFrame.new(TK.ship.pos) * CFrame.Angles(0, TK.ship.yaw, 0) * CFrame.new(7, 2.2, 0),
-  }
+M.skin(h, "lab")
+return h
 end
-function TK.shipAction()
-  local _, _, hr = TK.getChar()
-  if not hr then return end
-  if TK.RIDING then TK.dismount() return end
-  if not TK.ship then TK.summonShip() return end
-  if TK.ship.state == "idle" and (hr.Position - TK.ship.pos).Magnitude < 90 then TK.board() else TK.summonShip() end
+function M.rig(spec)
+local s = spec.scale or 1
+local m = I("Model", { Name = spec.name or "RMRig" })
+local function bp(name, size, col, mat)
+return I("Part", { Name = name, Size = size * s, Color = col, Material = mat or MAT.SmoothPlastic, TopSurface = Enum.SurfaceType.Smooth, BottomSurface = Enum.SurfaceType.Smooth, CanCollide = false }, m)
 end
-function TK.stepShip(dt)
-  if not TK.ship or not TK.ship.model.Parent then TK.SH.onDeck = false return end
-  local _, hum, hr = TK.getChar()
-  if (TK.RIDING or TK.ship.board) and (not hum or hum.Health <= 0 or not hr) then TK.dismount(true) end
-  if TK.SH.held and TK.RIDING and not TK.ship.board then TK.SH.fire() end
-  local now = os.clock()
-  local pitch, roll = 0, 0
-  if TK.ship.state == "landing" then
-    TK.ship.t = TK.ship.t + dt
-    local a = math.min(1, TK.ship.t / 1.5)
-    a = 1 - (1 - a) ^ 3
-    TK.ship.pos = TK.V3(TK.ship.land.X, TK.ship.land.Y + (1 - a) * 60, TK.ship.land.Z)
-    if TK.ship.t >= 1.5 then
-      TK.ship.state = "idle"
-      TK.SH.solid(true)
-    end
-  elseif TK.RIDING and not TK.ship.board and hum then
-    local speed = TK.ST.ShipSpeed
-    local md = hum.MoveDirection
-    local vy = (TK.rideKeys.up and 1 or 0) - (TK.rideKeys.down and 1 or 0)
-    local want = TK.V3(md.X * speed, vy * math.max(40, speed * .6), md.Z * speed)
-    TK.ship.vel = TK.ship.vel:Lerp(want, math.min(1, dt * 2.5))
-    TK.ship.pos = TK.ship.pos + TK.ship.vel * dt
-    local gy = TK.groundAt(TK.ship.pos)
-    if gy and TK.ship.pos.Y < gy + TK.SHIP_H then
-      TK.ship.pos = TK.V3(TK.ship.pos.X, gy + TK.SHIP_H, TK.ship.pos.Z)
-      if TK.ship.vel.Y < 0 then TK.ship.vel = TK.V3(TK.ship.vel.X, 0, TK.ship.vel.Z) end
-    end
-    if md.Magnitude > .15 then
-      local ty = math.atan2(-md.X, -md.Z)
-      local diff = (ty - TK.ship.yaw + math.pi) % (2 * math.pi) - math.pi
-      TK.ship.yaw = TK.ship.yaw + diff * math.min(1, dt * 4)
-    end
-    local lv = CFrame.Angles(0, TK.ship.yaw, 0):VectorToObjectSpace(TK.ship.vel)
-    pitch = lv.Z / speed * .25
-    roll = -lv.X / speed * .3
-  end
-  local bobY = TK.RIDING and math.sin(now * 2) * .12 or 0
-  TK.ship.cf = CFrame.new(TK.ship.pos + TK.V3(0, bobY, 0)) * CFrame.Angles(0, TK.ship.yaw, 0) * CFrame.Angles(pitch, 0, roll)
-  TK.ship.model:PivotTo(TK.ship.cf)
-  TK.SH.deck(hr, hum)
-  local open = 0
-  local b = TK.ship.board
-  if b and hr then
-    -- анимация посадки/высадки: дуга прыжка, купол открывается и закрывается
-    b.t = b.t + dt
-    local u = math.min(1, b.t / b.dur)
-    local e = u * u * (3 - 2 * u)
-    local target = (b.kind == "in") and (TK.ship.cf * TK.SEAT) or b.to
-    hr.CFrame = b.from:Lerp(target, e) + TK.V3(0, math.sin(math.pi * e) * b.arc, 0)
-    hr.AssemblyLinearVelocity = TK.V3()
-    open = (u < .2) and (u / .2) or ((u < .75) and 1 or (1 - u) / .25)
-    TK.ship.boardW = math.sin(math.pi * u)
-    if u >= 1 then
-      TK.ship.board, TK.ship.boardW = nil, nil
-      if b.kind == "in" then
-        TK.RIDING = true
-      else
-        if hum then hum.PlatformStand = false end
-        TK.SH.solid(true)
-      end
-    end
-  elseif TK.RIDING and hr then
-    hr.CFrame = TK.ship.cf * TK.SEAT
-    hr.AssemblyLinearVelocity = TK.V3()
-    hr.AssemblyAngularVelocity = TK.V3()
-  end
-  TK.SH.dome(open)
+local hrp = bp("HumanoidRootPart", V3(2, 2, 1), RGB(255, 255, 255))
+hrp.Transparency = 1
+hrp.CanCollide = true
+local torso = bp("Torso", V3(2, 2, 1), spec.shirt or C.dim, spec.fabric and MAT.Fabric or MAT.SmoothPlastic)
+local head = bp("Head", V3(2, 1, 1), spec.skin or RGB(240, 200, 160))
+if spec.head == "ball" then
+head.Shape = Enum.PartType.Ball
+head.Size = V3(1.6, 1.6, 1.6) * s
+elseif spec.head == "human" or spec.head == nil then
+I("SpecialMesh", { MeshType = Enum.MeshType.Head, Scale = V3(1.25, 1.25, 1.25) }, head)
 end
-TK.track(TK.RunService.RenderStepped:Connect(function(dt)
-  local ok, e = pcall(TK.stepShip, dt)
-  if not ok then
-    TK.SH.errs = (TK.SH.errs or 0) + 1
-    if TK.SH.errs <= 3 then warn("[RickMorty] ошибка крейсера: " .. tostring(e)) end
-  end
-end))
-
--- панель управления полётом: ▲ ▼ 🌌 и кнопка слезть
-TK.ridePanel = TK.I("Frame", {
-  Size = UDim2.fromOffset(70, 212), Position = UDim2.new(1, -90, 1, -350), BackgroundTransparency = 1,
-  Visible = false, ZIndex = 58,
-}, TK.gui)
-function TK.rideBtn(txt, y, key, fn)
-  local b = TK.I("TextButton", {
-    Size = UDim2.fromOffset(64, 64), Position = UDim2.fromOffset(0, y), BackgroundColor3 = TK.C.bg, BackgroundTransparency = .15,
-    TextColor3 = TK.C.tx, Font = Enum.Font.GothamBold, TextSize = 26, Text = txt, ZIndex = 59,
-  }, TK.ridePanel)
-  TK.cr(b, 16)
-  TK.sk(b, TK.C.ac, 1.5, .3)
-  if key then
-    b.MouseButton1Down:Connect(function() TK.rideKeys[key] = true end)
-    b.MouseButton1Up:Connect(function() TK.rideKeys[key] = false end)
-    b.MouseLeave:Connect(function() TK.rideKeys[key] = false end)
-  end
-  if fn then b.MouseButton1Click:Connect(fn) end
+local la = bp("Left Arm", V3(1, 2, 1), spec.sleeve or spec.skin or RGB(240, 200, 160))
+local ra = bp("Right Arm", V3(1, 2, 1), spec.sleeve or spec.skin or RGB(240, 200, 160))
+local ll = bp("Left Leg", V3(1, 2, 1), spec.pants or RGB(60, 70, 110))
+local rl = bp("Right Leg", V3(1, 2, 1), spec.pants or RGB(60, 70, 110))
+hrp.CFrame = CF(0, 0, 0)
+local rig = { model = m, hrp = hrp, torso = torso, head = head, joints = {}, base = {}, s = s, ph = math.random() * 6 }
+local function joint(name, p0, p1, c0, c1)
+local j = I("Motor6D", { Name = name, Part0 = p0, Part1 = p1, C0 = c0, C1 = c1 }, p0)
+rig.joints[name] = j
+rig.base[name] = c0
+return j
 end
-TK.rideBtn("▲", 0, "up")
-TK.rideBtn("▼", 72, "down")
-TK.rideBtn("🌌", 144, nil, function() TK.SH.hyper() end)
-TK.dismountBtn = TK.I("TextButton", {
-  Size = UDim2.fromOffset(120, 40), Position = UDim2.new(.5, -60, 0, 12), BackgroundColor3 = TK.C.bg, BackgroundTransparency = .15,
-  TextColor3 = TK.C.tx, Font = Enum.Font.GothamBold, TextSize = 13, Text = "🚪 Слезть", Visible = false, ZIndex = 59,
-}, TK.gui)
-TK.cr(TK.dismountBtn, 10)
-TK.sk(TK.dismountBtn, TK.C.ac, 1.5, .3)
-TK.dismountBtn.MouseButton1Click:Connect(function() TK.dismount() end)
--- клавиши: Space/Shift — вверх/вниз, H — гипер-прыжок, зажатая ЛКМ — огонь
-TK.track(TK.UIS.InputBegan:Connect(function(i, gpe)
-  if gpe then return end
-  if i.KeyCode == Enum.KeyCode.Space then TK.rideKeys.up = true end
-  if i.KeyCode == Enum.KeyCode.LeftShift then TK.rideKeys.down = true end
-  if i.KeyCode == Enum.KeyCode.H then TK.SH.hyper() end
-  if i.UserInputType == Enum.UserInputType.MouseButton1 and TK.RIDING then TK.SH.held = true end
-end))
-TK.track(TK.UIS.InputEnded:Connect(function(i)
-  if i.KeyCode == Enum.KeyCode.Space then TK.rideKeys.up = false end
-  if i.KeyCode == Enum.KeyCode.LeftShift then TK.rideKeys.down = false end
-  if i.UserInputType == Enum.UserInputType.MouseButton1 then TK.SH.held = false end
-end))
--- тап/клик по кораблю: сразу садимся
-TK.track(TK.UIS.InputBegan:Connect(function(i, gpe)
-  if gpe or not TK.ship or TK.RIDING or TK.ship.board or TK.ship.state ~= "idle" then return end
-  if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
-  local r = TK.Workspace.CurrentCamera:ViewportPointToRay(i.Position.X, i.Position.Y)
-  local rp = RaycastParams.new()
-  rp.FilterType = Enum.RaycastFilterType.Exclude
-  rp.FilterDescendantsInstances = { TK.LP.Character }
-  local res = TK.Workspace:Raycast(r.Origin, r.Direction * 300, rp)
-  if res and res.Instance:IsDescendantOf(TK.ship.model) then TK.board() end
-end))
-
--- ============================================================
---  ПРЕДМЕТЫ: список и выдача
--- ============================================================
--- ============================================================
---  НОВЫЕ ПРЕДМЕТЫ v5.0: генератор Мисиксов, шлем Рика, энергощит
--- ============================================================
-function TK.miniTool(name, tip, hsize, hcol)
-  local tool = TK.I("Tool", { Name = name, RequiresHandle = true, CanBeDropped = false, ToolTip = tip })
-  local h = TK.mkp("Handle", hsize, hcol, Enum.Material.Metal)
-  h.Parent = tool
-  return tool, h, function(...) return TK.toolPart(tool, h, ...) end
+local function o(x, y, z) return CF(x * s, y * s, z * s) end
+joint("RootJoint", hrp, torso, CF(), CF())
+joint("Neck", torso, head, o(0, 1, 0), o(0, -.5, 0))
+joint("RS", torso, ra, o(1.5, .5, 0), o(0, .5, 0))
+joint("LS", torso, la, o(-1.5, .5, 0), o(0, .5, 0))
+joint("RH", torso, rl, o(.5, -1, 0), o(0, 1, 0))
+joint("LH", torso, ll, o(-.5, -1, 0), o(0, 1, 0))
+local hum = I("Humanoid", { RigType = Enum.HumanoidRigType.R6, MaxHealth = spec.hp or 100, Health = spec.hp or 100, WalkSpeed = spec.speed or 14, DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None, HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff }, m)
+hum.AutomaticScalingEnabled = false
+rig.hum = hum
+m.PrimaryPart = hrp
+rig.parts = { torso = torso, head = head, la = la, ra = ra, ll = ll, rl = rl }
+if spec.extras then spec.extras(rig, rig.parts) end
+return rig
 end
-
--- 🟦 генератор Мисиксов: ручной излучатель с голубым ядром
-function TK.ITM.buildGen()
-  local tool, _, P = TK.miniTool("Генератор Мисиксов", "Создать помощника", TK.V3(.5, 1.1, .5), TK.RGB(40, 70, 72))
-  local BL = TK.RGB(90, 180, 255)
-  P("Body", TK.V3(.9, .8, 1.3), TK.RGB(60, 110, 108), CFrame.new(0, .7, -.45), Enum.Material.Metal)
-  P("Ring", TK.V3(.14, 1.1, 1.1), TK.RGB(30, 40, 44), CFrame.new(0, .7, -1.15) * TK.RZ, Enum.Material.Metal, Enum.PartType.Cylinder)
-  local core = P("Core", TK.V3(.3, .75, .75), BL, CFrame.new(0, .7, -1.2) * TK.RZ, Enum.Material.Neon, Enum.PartType.Cylinder)
-  core.Transparency = .15
-  TK.I("PointLight", { Color = BL, Range = 9, Brightness = 2, Shadows = false }, core)
-  P("Btn", TK.V3(.12, .4, .4), TK.RGB(120, 250, 180), CFrame.new(0, 1.15, -.3) * TK.R90, Enum.Material.Neon, Enum.PartType.Cylinder)
-  for _, s in ipairs({ -1, 1 }) do
-    P("Coil", TK.V3(.1, .6, .1), TK.RGB(150, 220, 255), CFrame.new(s * .5, .75, -.9), Enum.Material.Neon)
-  end
-  return tool
-end
-function TK.ITM.genFx(tool)
-  if not tool then return end
-  local c = tool:FindFirstChild("Core", true)
-  if c then TK.pulsePart(c, .6, TK.WHITE) end
-  TK.lightSpike(tool, 6)
-end
-
--- 🪖 шлем Рика: надевается на голову скина (или персонажа), снимается второй активацией
-function TK.headPart()
-  if TK.RIG and TK.RIG.parts and TK.RIG.parts.Head and TK.RIG.parts.Head.Parent then return TK.RIG.parts.Head end
-  local ch = TK.LP.Character
-  return ch and ch:FindFirstChild("Head")
-end
-function TK.ITM.buildHelmetTool()
-  local tool, h, P = TK.miniTool("Шлем Рика", "Надеть / снять шлем", TK.V3(.8, .8, .8), TK.RGB(170, 175, 185))
-  h.Shape = Enum.PartType.Ball
-  P("Glass", TK.V3(1.05, 1.05, 1.05), TK.RGB(150, 220, 255), CFrame.new(0, .05, 0), Enum.Material.Glass, Enum.PartType.Ball).Transparency = .6
-  P("Collar", TK.V3(.12, 1, 1), TK.RGB(120, 125, 135), CFrame.new(0, -.45, 0) * TK.R90, Enum.Material.Metal, Enum.PartType.Cylinder)
-  return tool
-end
-function TK.helmetModel(head)
-  local m = TK.I("Model", { Name = "RM_Helmet" }, TK.Workspace)
-  local root = TK.mkp("HRoot", TK.V3(.2, .2, .2), TK.WHITE)
-  root.Transparency = 1
-  root.Massless = true
-  root.Parent = m
-  local w = Instance.new("Weld")
-  w.Part0, w.Part1, w.C0 = head, root, CFrame.new(0, .1, 0)
-  w.Parent = root
-  local function add(name, size, col, mat, shape, cf, tr)
-    local p = TK.mkp(name, size, col, mat, shape)
-    p.Massless = true
-    if tr then p.Transparency = tr end
-    p.CFrame = root.CFrame * cf
-    local ww = Instance.new("Weld")
-    ww.Part0, ww.Part1, ww.C0 = root, p, cf
-    ww.Parent = p
-    p.Parent = m
-    return p
-  end
-  local hs = head.Size
-  local r = math.max(hs.X, hs.Y, hs.Z) * 1.25
-  add("Dome", TK.V3(r, r, r), TK.RGB(150, 220, 255), Enum.Material.Glass, Enum.PartType.Ball, CFrame.new(), .65)
-  add("Collar", TK.V3(.25, r * .82, r * .82), TK.RGB(120, 125, 135), Enum.Material.Metal, Enum.PartType.Cylinder,
-    CFrame.new(0, -r * .42, 0) * TK.R90)
-  add("Light", TK.V3(.18, .18, .18), TK.RGB(255, 240, 150), Enum.Material.Neon, Enum.PartType.Ball, CFrame.new(r * .46, r * .1, -r * .18))
-  add("Light", TK.V3(.18, .18, .18), TK.RGB(255, 240, 150), Enum.Material.Neon, Enum.PartType.Ball, CFrame.new(-r * .46, r * .1, -r * .18))
-  TK.I("PointLight", { Color = TK.RGB(180, 230, 255), Range = 8, Brightness = 1, Shadows = false }, root)
-  return m, root
-end
-function TK.ITM.removeHelmet(fast)
-  local m = TK.X.helmet
-  TK.X.helmet, TK.X.helmetHead = nil, nil
-  if m and m.Parent then
-    if fast then
-      pcall(function() m:Destroy() end)
-    else
-      for _, d in ipairs(m:GetDescendants()) do
-        if d:IsA("BasePart") and d.Name ~= "HRoot" then
-          pcall(function() TK.TweenService:Create(d, TweenInfo.new(.25), { Transparency = 1 }):Play() end)
-        end
-      end
-      task.delay(.3, function() pcall(function() m:Destroy() end) end)
-    end
-  end
-end
-function TK.ITM.wearHelmet()
-  local head = TK.headPart()
-  if not head then return false end
-  TK.ITM.removeHelmet(true)
-  TK.X.helmet = TK.helmetModel(head)
-  TK.X.helmetHead = head
-  return true
-end
-function TK.ITM.toggleHelmet()
-  if TK.X.helmet and TK.X.helmet.Parent then
-    TK.ITM.removeHelmet()
-    TK.snd("equip", .4, .8)
-    TK.notify("🪖 Шлем снят", TK.C.tx, 1.2)
-  else
-    if TK.ITM.wearHelmet() then
-      local h = TK.headPart()
-      if h then TK.burst(h.Position, TK.RGB(150, 220, 255), 14) end
-      TK.snd("equip", .5, 1.1)
-      TK.notify("🪖 Шлем надет", TK.C.ac, 1.2)
-    else
-      TK.notify("Нет головы для шлема", TK.C.dg, 1.5)
-    end
-  end
-end
-function TK.ITM.stepHelmet()
-  if not TK.X.helmet then return end
-  local head = TK.headPart()
-  if not TK.X.helmet.Parent or not head then TK.ITM.removeHelmet(true) return end
-  if head ~= TK.X.helmetHead then -- скин сменился: перевешиваем шлем на новую голову
-    TK.ITM.wearHelmet()
-  end
-  local cam = TK.Workspace.CurrentCamera
-  if cam and TK.X.helmet then -- от первого лица стекло не мешает
-    local near = (cam.CFrame.Position - head.Position).Magnitude < 1.6
-    for _, d in ipairs(TK.X.helmet:GetDescendants()) do
-      if d:IsA("BasePart") then d.LocalTransparencyModifier = near and 1 or 0 end
-    end
-  end
-end
-
--- 🛡 энергощит: прозрачный купол вокруг тебя на 8 с, перезарядка 12 с
-function TK.ITM.buildShieldTool()
-  local tool, _, P = TK.miniTool("Энергощит", "Включить щит на 8 с", TK.V3(.5, 1, .5), TK.RGB(45, 55, 80))
-  local BL = TK.RGB(110, 190, 255)
-  P("Body", TK.V3(.8, .7, .8), TK.RGB(80, 95, 130), CFrame.new(0, .6, -.2), Enum.Material.Metal)
-  local o = P("Orb", TK.V3(.7, .7, .7), BL, CFrame.new(0, 1.15, -.2), Enum.Material.Neon, Enum.PartType.Ball)
-  o.Transparency = .25
-  TK.I("PointLight", { Color = BL, Range = 9, Brightness = 2, Shadows = false }, o)
-  P("Ring", TK.V3(.1, 1, 1), TK.RGB(150, 220, 255), CFrame.new(0, .95, -.2) * TK.R90, Enum.Material.Neon, Enum.PartType.Cylinder)
-  return tool
-end
-function TK.ITM.dropShield()
-  local s = TK.X.shield
-  TK.X.shield, TK.X.shieldUntil = nil, 0
-  if s and s.Parent then
-    TK.TweenService:Create(s, TweenInfo.new(.3), { Size = TK.V3(2, 2, 2), Transparency = 1 }):Play()
-    task.delay(.35, function() pcall(function() s:Destroy() end) end)
-  end
-end
-function TK.ITM.toggleShield()
-  local now = os.clock()
-  if TK.X.shield then TK.ITM.dropShield() TK.snd("close", .4) return end
-  if now < (TK.X.shieldCd or 0) then TK.notify("🛡 Перезарядка " .. math.ceil(TK.X.shieldCd - now) .. " с", TK.C.dg, 1) return end
-  local _, _, hr = TK.getChar()
-  if not hr then return end
-  TK.X.shieldCd = now + 12
-  TK.X.shieldUntil = now + 8
-  local s = TK.I("Part", {
-    Name = "RM_Shield", Shape = Enum.PartType.Ball, Anchored = true, CanCollide = false, CanQuery = false,
-    CanTouch = false, CastShadow = false, Material = Enum.Material.ForceField, Color = TK.RGB(110, 190, 255),
-    Transparency = .45, Size = TK.V3(2, 2, 2), CFrame = hr.CFrame,
-  }, TK.Workspace)
-  TK.X.shield = s
-  TK.TweenService:Create(s, TweenInfo.new(.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = TK.V3(9, 9, 9) }):Play()
-  TK.burst(hr.Position, TK.RGB(110, 190, 255), 16)
-  TK.snd("open", .5, 1.3)
-  TK.notify("🛡 Щит включён (8 с)", TK.RGB(150, 210, 255), 1.5)
-end
-function TK.ITM.stepShield(now, hr)
-  local s = TK.X.shield
-  if not s then return end
-  if not s.Parent or not hr or now > TK.X.shieldUntil then TK.ITM.dropShield() return end
-  s.CFrame = hr.CFrame
-  if TK.X.shieldUntil - now < 1.5 then s.Transparency = .45 + (math.floor(now * 10) % 2) * .3 end
-end
-
--- эффекты появления / исчезновения Мисикса
-function TK.ITM.spawnFx(pos, col)
-  col = col or TK.RGB(90, 170, 255)
-  local beam = TK.I("Part", {
-    Shape = Enum.PartType.Cylinder, Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
-    CastShadow = false, Material = Enum.Material.Neon, Color = col, Transparency = .3, Size = TK.V3(9, 4, 4),
-    CFrame = CFrame.new(pos) * TK.R90,
-  }, TK.fxFolder)
-  TK.TweenService:Create(beam, TweenInfo.new(.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-    Size = TK.V3(9, .2, .2), Transparency = 1,
-  }):Play()
-  task.delay(.7, function() beam:Destroy() end)
-  local ring = TK.I("Part", {
-    Shape = Enum.PartType.Cylinder, Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
-    CastShadow = false, Material = Enum.Material.Neon, Color = col, Transparency = .2, Size = TK.V3(.15, 2, 2),
-    CFrame = CFrame.new(pos - TK.V3(0, 2.5, 0)) * TK.R90,
-  }, TK.fxFolder)
-  TK.TweenService:Create(ring, TweenInfo.new(.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-    Size = TK.V3(.15, 12, 12), Transparency = 1,
-  }):Play()
-  task.delay(.8, function() ring:Destroy() end)
-  TK.burst(pos, col, 30)
-end
-function TK.ITM.vanishFx(h)
-  local ok, p = pcall(function() return h.root.Position end)
-  if ok and p then
-    TK.burst(p, TK.RGB(90, 170, 255), 28)
-    TK.ITM.spawnFx(p)
-    TK.snd("vanish", .4)
-  end
-end
-
-TK.ITEMS = {
-  { id = "gun_rick", ico = "🔫", name = "Портальная пушка Рика", desc = "Классическая пушка Рика", build = TK.buildGunRick, act = function() TK.shootPortal("rick") end, grip = TK.V3(0, -.05, 0) },
-  { id = "gun_prime", ico = "🔫", name = "Портальная пушка Рика Прайма", desc = "Пушка Рика Прайма", build = TK.buildGunPrime, act = function() TK.shootPortal("rick_prime") end, grip = TK.V3(0, -.05, 0) },
-  { id = "gun_evil", ico = "🔫", name = "Портальная пушка Злого Морти", desc = "Золотая пушка Злого Морти", build = TK.buildGunEvil, act = function() TK.shootPortal("evil_morty") end, grip = TK.V3(0, -.05, 0) },
-  { id = "freeze", ico = "❄", name = "Замораживатель времени", desc = "Пузырь и стоп-кадр на 4 с", build = TK.buildFreezer, act = TK.timeStop, fx = function(t) TK.pulsePart(t:FindFirstChild("Core", true), .6, TK.WHITE) TK.lightSpike(t, 6) end, grip = TK.V3(0, -.1, 0) },
-  { id = "meeseeks", ico = "🟦", name = "Ящик Мисиксов", desc = "Вызывает помощника", build = TK.buildMeeseeksBox, act = TK.spawnMeeseeks, grip = TK.V3(0, -.55, -.15) },
-  { id = "battery", ico = "🔋", name = "Батарея микровселенной", desc = "Зона энергии 15 с", build = TK.buildBattery, act = TK.useBattery, fx = function(t) TK.lightSpike(t, 7) end, grip = TK.V3(0, -.5, -.1) },
-  { id = "ship", ico = "🚀", name = "Пульт крейсера", desc = "Вызвать, сесть, лететь", build = TK.buildRemote, act = TK.shipAction, grip = TK.V3(0, -.05, 0) },
-  { id = "mee_gen", ico = "🧪", name = "Генератор Мисиксов", desc = "Помощник с эффектом появления", build = TK.ITM.buildGen, act = TK.spawnMeeseeks, fx = TK.ITM.genFx, grip = TK.V3(0, -.1, 0) },
-  { id = "helmet", ico = "🪖", name = "Шлем Рика", desc = "Надеть / снять (активация)", build = TK.ITM.buildHelmetTool, act = TK.ITM.toggleHelmet, grip = TK.V3(0, -.1, 0) },
-  { id = "shield", ico = "🛡", name = "Энергощит", desc = "Купол на 8 с, откат 12 с", build = TK.ITM.buildShieldTool, act = TK.ITM.toggleShield, grip = TK.V3(0, -.1, 0) },
+local POSE = {
+happy = { ra = -2.6, la = -2.6 }, angry = { ra = -1.3, la = -1.3 }, sad = { head = .4 }, scared = { ra = -2.2, la = -2.2, head = -.2 },
+crazy = { ra = -2.8, la = 2.8 }, thinking = { ra = -1.7, head = .15 }, surprised = { ra = -2.0, la = -2.0 },
 }
-TK.createdTools, TK.toolByDef = {}, {}
-function TK.dropTool(tool)
-  local cs = TK.createdTools[tool]
-  if cs then
-    for _, c in ipairs(cs) do pcall(function() c:Disconnect() end) end
-    TK.createdTools[tool] = nil
-  end
-  for id, t in pairs(TK.toolByDef) do
-    if t == tool then TK.toolByDef[id] = nil end
-  end
-  if TK.heldTool == tool then
-    TK.heldTool, TK.heldDef, TK.ITEM_ACT, TK.batLabel = nil, nil, nil, nil
-    TK.detachHand()
-  end
+function M.anim(rig, dt, speed, pose)
+if not (rig.model and rig.model.Parent) then return end
+rig.ph = rig.ph + dt * (3 + speed * .5)
+local j, b = rig.joints, rig.base
+local sw = min(speed / 14, 1.4)
+local a = sin(rig.ph * 2.2) * sw
+local P = pose and POSE[pose.e] or nil
+local atk = pose and pose.atk or 0
+local ras = P and P.ra or 0
+local las = P and P.la or 0
+local function set(name, rx, rz)
+local jj = j[name]
+if jj then jj.C0 = b[name] * ANG(rx, 0, rz or 0) end
 end
-function TK.ITM.purge() -- забыть предметы, которые пропали (смерть, респавн, Destroy)
-  for tool in pairs(TK.createdTools) do
-    local par = tool.Parent
-    if not par or (par ~= TK.LP.Backpack and par ~= TK.LP.Character) then
-      TK.dropTool(tool)
-    end
-  end
-  if TK.heldTool and not TK.heldTool.Parent then TK.dropTool(TK.heldTool) end
+set("RS", (P and P.ra) and ras or (-a * 1.1 - atk * 1.8), 0)
+set("LS", (P and P.la) and las or (a * 1.1), 0)
+set("RH", a * 1.0, 0)
+set("LH", -a * 1.0, 0)
+set("Neck", P and P.head or 0, sin(rig.ph * .8) * .05)
+local jr = j.RootJoint
+if jr then jr.C0 = CF(0, abs(a) * .15 * rig.s, 0) * ANG(speed > 2 and -.08 or 0, 0, 0) end
 end
-function TK.giveItem(def)
-  local _, hum = TK.getChar()
-  if not hum or hum.Health <= 0 then TK.notify("Нет персонажа", TK.C.dg) return end
-  local old = TK.toolByDef[def.id]
-  if old and old.Parent then -- предмет уже есть: просто берём в руку, дубли не создаём
-    hum:EquipTool(old)
-    TK.notify(def.ico .. " " .. def.name .. " (уже есть)", TK.C.tx, 1.2)
-    return
-  end
-  local ok, tool, extra = pcall(def.build)
-  if not ok or not tool then TK.notify("Не удалось создать предмет", TK.C.dg) return end
-  tool.Name = def.name
-  local cs = {}
-  TK.createdTools[tool] = cs
-  TK.toolByDef[def.id] = tool
-  tool.Parent = TK.LP.Backpack
-  cs[#cs + 1] = tool.Activated:Connect(function()
-    if TK.heldTool == tool then
-      TK.safe(def.act)
-      if def.fx then TK.safe(def.fx, tool) end
-    end
-  end)
-  cs[#cs + 1] = tool.Equipped:Connect(function()
-    TK.heldTool, TK.heldDef, TK.ITEM_ACT = tool, def, def.act
-    if def.id == "battery" then TK.batLabel = extra else TK.batLabel = nil end
-    TK.snd("equip", .25)
-    task.defer(function()
-      if tool.Parent == TK.LP.Character then TK.attachHand(tool, def.grip) end
-    end)
-  end)
-  cs[#cs + 1] = tool.Unequipped:Connect(function()
-    if TK.heldTool == tool then
-      TK.heldTool, TK.heldDef, TK.ITEM_ACT, TK.batLabel = nil, nil, nil, nil
-      TK.detachHand()
-    end
-  end)
-  hum:EquipTool(tool)
-  TK.notify(def.ico .. " " .. def.name, TK.C.ac)
+function M.walkTo(rig, pos)
+if rig.hum and rig.hum.Parent then rig.hum:MoveTo(pos) end
 end
--- кнопка 🔥 на телефоне стреляет предметом в руке
-RM.fireFromAim = function()
-  if TK.RIDING then TK.SH.fire() return end
-  if TK.ITEM_ACT then TK.ITEM_ACT() else TK.shootPortal() end
 end
-function TK.clearAll()
-  if RM.clearDummies then pcall(RM.clearDummies) end
-  TK.detachHand()
-  for tool in pairs(TK.createdTools) do
-    pcall(function() tool:Destroy() end)
-    TK.dropTool(tool)
-  end
-  TK.toolByDef = {}
-  TK.heldTool, TK.heldDef, TK.ITEM_ACT, TK.batLabel = nil, nil, nil, nil
-  TK.ITM.removeHelmet(true)
-  TK.ITM.dropShield()
-  for i = #TK.helpers, 1, -1 do
-    pcall(function() TK.helpers[i].R.model:Destroy() end)
-    table.remove(TK.helpers, i)
-  end
-  for i = #TK.zones, 1, -1 do
-    pcall(function() TK.zones[i].mo:Destroy() end)
-    table.remove(TK.zones, i)
-  end
-  if TK.RIDING or (TK.ship and TK.ship.board) then pcall(TK.dismount, true) end
-  if TK.ship then pcall(function() TK.ship.model:Destroy() end) TK.ship = nil end
-  pcall(function()
-    TK.ridePanel.Visible = false
-    TK.dismountBtn.Visible = false
-  end)
-  TK.killPortal(TK.PA, true)
-  TK.killPortal(TK.PB, true)
-  TK.PA, TK.PB = nil, nil
-  for i = #TK.DYING, 1, -1 do
-    pcall(function() TK.DYING[i].mo:Destroy() end)
-    table.remove(TK.DYING, i)
-  end
-  pcall(function() TK.fxFolder:ClearAllChildren() end)
+do
+local C, M, fx = RM.C, RM.M, RM.fx
+local G, UN = {}, {}
+RM.G, RM.gOrder, RM.units = G, {}, UN
+local cds = {}
+local propsF = folder("Props")
+RM.propsF = propsF
+function RM.hurt(inst, amt, pos)
+local o = inst
+while o and o ~= WORLD do
+local u = UN[o]
+if u then
+u.hurt(amt, pos)
+return true
 end
-
--- ============================================================
---  ВЫГРУЗКА
--- ============================================================
+o = o.Parent
+end
+return false
+end
+function RM.unitsNear(pos, r, pred)
+local out = {}
+for m, u in pairs(UN) do
+local p = u.root and u.root.Parent and u.root.Position
+if p and (p - pos).Magnitude <= r and (not pred or pred(u)) then out[#out + 1] = u end
+end
+return out
+end
+function RM.boom(pos, r, dmg, color)
+color = color or RGB(255, 150, 60)
+fx.spark(pos, color, 40)
+fx.ring(pos, color, r * 2)
+snd("exp", 1, 1)
+for _, u in ipairs(RM.unitsNear(pos, r)) do u.hurt(dmg * (1 - (u.root.Position - pos).Magnitude / (r * 1.4)), pos) end
+end
+function RM.regGadget(d)
+if not G[d.id] then RM.gOrder[#RM.gOrder + 1] = d.id end
+G[d.id] = d
+end
+local function findTool(id)
+for _, c in ipairs({ LP.Character, LP:FindFirstChildOfClass("Backpack") }) do
+if c then
+for _, t in ipairs(c:GetChildren()) do
+if t:IsA("Tool") and t:GetAttribute("RM_G") == id then return t end
+end
+end
+end
+end
+RM.findTool = findTool
+function RM.fireGadget(id)
+local d = G[id]
+if not d or RM.dead then return end
+local now = os.clock()
+if cds[id] and now < cds[id] then return end
+if d.cost and d.cost > 0 and not EN.use(d.cost, d.name) then return end
+cds[id] = now + (d.cd or .3)
+local c, h, r = getChar()
+if not (c and r) then return end
+local pos, nrm, inst, o, dir = RM.aimHit(d.range or 300)
+local ok = safe("гаджет " .. id, d.use, { pos = pos, nrm = nrm, inst = inst, o = o, d = dir, root = r, hum = h, char = c })
+if not ok then EN.add(d.cost or 0) end
+end
+function RM.giveGadget(id, noEquip)
+local d = G[id]
+local _, h = getChar()
+local bp = LP:FindFirstChildOfClass("Backpack")
+if not (d and h and bp) then return end
+local t = findTool(id)
+if not t then
+t = I("Tool", { Name = d.name, RequiresHandle = true, CanBeDropped = false, ToolTip = d.desc or "" })
+t:SetAttribute("RM_G", id)
+M.gadget(d.style or "pistol", d.col or RGB(70, 80, 100), d.acc or C.ac, t)
+conn(t.Activated:Connect(function() RM.fireGadget(id) end))
+if d.onUnequip then conn(t.Unequipped:Connect(function() safe("снят " .. id, d.onUnequip) end)) end
+t.Parent = bp
+RM.gToast = true
+end
+if not noEquip then h:EquipTool(t) end
+return t
+end
+function RM.removeGadget(id)
+local t = findTool(id)
+if t then t:Destroy() end
+end
+RM.cleanups[#RM.cleanups + 1] = function()
+for _, c in ipairs({ LP.Character, LP:FindFirstChildOfClass("Backpack") }) do
+if c then
+for _, t in ipairs(c:GetChildren()) do
+if t:IsA("Tool") and t:GetAttribute("RM_G") then t:Destroy() end
+end
+end
+end
+end
+local function shot(x, color, dmg, th)
+local from = x.root.Position + V3(0, 1, 0)
+local c = RM.heldTool()
+local hd = c and c:FindFirstChild("Handle")
+if hd then from = hd.Position + hd.CFrame.LookVector * 1.5 end
+local to = x.pos or (x.o + x.d * 300)
+fx.bolt(from, to, color, th or .25, .22)
+snd("shoot", 1, 1 + math.random() * .2)
+if x.pos then
+fx.spark(to, color, 10)
+if x.inst then RM.hurt(x.inst, dmg, x.pos) end
+end
+end
+RM.regGadget({ id = "laser", name = "Лазерный пистолет", icon = "🔫", desc = "Луч по цели, урон локальным целям", style = "pistol", col = RGB(60, 70, 90), acc = RGB(255, 70, 70),
+cost = CFG.cost.fire, cd = .18, use = function(x) shot(x, RGB(255, 70, 70), 22) end })
+RM.regGadget({ id = "plasma", name = "Плазмомёт", icon = "💥", desc = "Взрыв по площади", style = "pistol", col = RGB(80, 60, 100), acc = RGB(190, 90, 255),
+cost = 6, cd = .9, use = function(x)
+shot(x, RGB(190, 90, 255), 0, .6)
+if x.pos then RM.boom(x.pos, 12, 60, RGB(190, 90, 255)) end
+end })
+RM.regGadget({ id = "grapple", name = "Крюк-кошка", icon = "🪝", desc = "Подтягивает к точке прицела", style = "pistol", col = RGB(90, 90, 100), acc = RGB(255, 220, 80),
+cost = 5, cd = 1.2, range = 220, use = function(x)
+if not x.pos then return notify("Крюку не за что зацепиться", C.warn) end
+fx.bolt(x.root.Position, x.pos, RGB(255, 220, 80), .15, .7)
+snd("gadget", 1, 1.4)
+local t0 = os.clock()
+task.spawn(function()
+while not RM.dead and os.clock() - t0 < 1.1 and x.root.Parent do
+local d = x.pos - x.root.Position
+if d.Magnitude < 7 then break end
+x.root.AssemblyLinearVelocity = d.Unit * 80
+task.wait()
+end
+end)
+end })
+RM.regGadget({ id = "dash", name = "Рывок-ботинки", icon = "👟", desc = "Быстрый рывок вперёд", style = "can", col = RGB(60, 60, 80), acc = RGB(80, 230, 255),
+cost = 6, cd = 1.4, use = function(x)
+local l = x.root.CFrame.LookVector
+x.root.AssemblyLinearVelocity = V3(l.X, .15, l.Z).Unit * 95
+fx.ring(x.root.Position, RGB(80, 230, 255), 10)
+snd("gadget", 1, 1.6)
+end })
+local buffs = {}
+local function buff(key, dur, apply, undo)
+if buffs[key] then
+apply()
+buffs[key] = os.clock() + dur
+return
+end
+buffs[key] = os.clock() + dur
+apply()
+task.spawn(function()
+while not RM.dead and buffs[key] and os.clock() < buffs[key] do task.wait(.25) end
+buffs[key] = nil
+pcall(undo)
+end)
+end
+RM.regGadget({ id = "speed", name = "Сыворотка скорости", icon = "💉", desc = "Скорость ×1.8, 20 с (только на твоём клиенте)", style = "can", col = RGB(50, 90, 60), acc = RGB(80, 255, 120),
+cost = 10, cd = 2, use = function(x)
+local h = x.hum
+local base = h.WalkSpeed
+buff("speed", 20, function() h.WalkSpeed = max(base, 16) * 1.8 end, function() if h.Parent then h.WalkSpeed = 16 end end)
+notify("💉 Скорость повышена на 20 с", C.ok)
+end })
+RM.regGadget({ id = "boots", name = "Прыжковые ботинки", icon = "🥾", desc = "Высокий прыжок, 25 с", style = "can", col = RGB(80, 60, 40), acc = RGB(255, 200, 60),
+cost = 8, cd = 2, use = function(x)
+local h = x.hum
+local use = h.UseJumpPower
+buff("boots", 25, function()
+h.UseJumpPower = true
+h.JumpPower = 120
+end, function() if h.Parent then h.JumpPower = 50 h.UseJumpPower = use end end)
+notify("🥾 Прыжок усилен на 25 с", C.ok)
+end })
+local toggles = {}
+local function toggler(id, name, icon, desc, style, col, acc, drainRate, on, off, cost)
+RM.regGadget({ id = id, name = name, icon = icon, desc = desc, style = style, col = col, acc = acc, cost = 0, cd = .4, use = function(x)
+if toggles[id] then
+toggles[id] = nil
+EN.stop(id)
+off()
+notify(icon .. " " .. name .. ": выкл", C.dim)
+else
+if cost and not EN.use(cost, name) then return end
+toggles[id] = true
+if drainRate then EN.drain(id, drainRate, function() toggles[id] = nil off() end) end
+on(x)
+notify(icon .. " " .. name .. ": вкл", C.ok)
+end
+end, onUnequip = nil })
+RM.cleanups[#RM.cleanups + 1] = function() if toggles[id] then pcall(off) end end
+end
+local lamp
+toggler("lamp", "Фонарь Рика", "🔦", "Мощный луч света", "can", RGB(80, 80, 90), RGB(255, 245, 200), nil, function(x)
+local hd = x.root
+lamp = I("SpotLight", { Range = 70, Angle = 60, Brightness = 5, Color = RGB(255, 245, 210), Face = Enum.NormalId.Front, Shadows = false }, hd)
+end, function() if lamp then lamp:Destroy() lamp = nil end end)
+local thermalOn = false
+toggler("thermal", "Тепловизор", "🌡", "Подсвечивает живых и роботов в радиусе", "box", RGB(70, 50, 40), RGB(255, 120, 40), CFG.drain.helmet, function() thermalOn = true end, function() thermalOn = false end)
+local thHl = {}
+RM.ticks.thermal = function(dt, now)
+if not thermalOn and not next(thHl) then return end
+RM.thT = (RM.thT or 0) + dt
+if RM.thT < .7 then return end
+RM.thT = 0
+for m, k in pairs(thHl) do
+if not thermalOn or not m.Parent then
+k()
+thHl[m] = nil
+end
+end
+if not thermalOn then return end
+local _, _, r = getChar()
+if not r then return end
+local function add(m)
+if m and m ~= LP.Character and not thHl[m] then
+local pr = m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart
+if pr and (pr.Position - r.Position).Magnitude < 140 then
+local h, k = fx.highlight(m, RGB(255, 110, 40))
+if h then thHl[m] = k end
+end
+end
+end
+for _, p in ipairs(Players:GetPlayers()) do add(p.Character) end
+for m in pairs(UN) do add(m) end
+end
+local cloakOrig
+toggler("cloak", "Невидимка", "🫥", "Ты становишься полупрозрачным (видно только на твоём клиенте)", "box", RGB(40, 40, 60), RGB(150, 120, 255), 1.4, function(x)
+cloakOrig = {}
+for _, p in ipairs(parts(x.char)) do
+if p.Name ~= "HumanoidRootPart" and p.Transparency < .9 then
+cloakOrig[p] = p.Transparency
+p.Transparency = .85
+end
+end
+end, function()
+for p, t in pairs(cloakOrig or {}) do if p.Parent then p.Transparency = t end end
+cloakOrig = nil
+end, 5)
+local trees = {}
+RM.regGadget({ id = "seed", name = "Мегасемя", icon = "🌳", desc = "Растит энергодерево: рядом +энергия", style = "can", col = RGB(60, 90, 50), acc = RGB(120, 255, 140),
+cost = 8, cd = 1, range = 120, use = function(x)
+if not x.pos or not canAdd("props", CFG.limit.props) then return end
+local m = I("Model", { Name = "EnergyTree" }, propsF)
+local up = x.nrm or V3(0, 1, 0)
+local base = CFrame.lookAt(x.pos, x.pos + up) * ANG(-pi / 2, 0, 0)
+local trunk = M.cyl(m, "T", .8, 1, base * CF(0, .5, 0), RGB(110, 80, 50), Enum.Material.Wood, { Anchored = true })
+local crown = M.ball(m, "Crown", .5, base * CF(0, 1.5, 0), RGB(60, 255, 140), Enum.Material.Neon, { Anchored = true, Transparency = .2 })
+fx.light(crown, RGB(60, 255, 140), 18, 2)
+tw(trunk, 1.2, { Size = V3(9, 1.6, 1.6), CFrame = base * CF(0, 4.5, 0) * ANG(0, 0, pi / 2) })
+tw(crown, 1.2, { Size = V3(8, 8, 8), CFrame = base * CF(0, 10, 0) })
+local e = entAdd("props", { m = m, pos = x.pos, destroy = function(s) s.m:Destroy() end })
+trees[#trees + 1] = e
+snd("gadget", 1, .8)
+later(90, function()
+entDel("props", e)
+for i = #trees, 1, -1 do if trees[i] == e then table.remove(trees, i) end end
+if m.Parent then m:Destroy() end
+end)
+end })
+RM.ticks.trees = function(dt)
+if #trees == 0 then return end
+local _, _, r = getChar()
+if not r then return end
+for _, t in ipairs(trees) do
+if (t.pos - r.Position).Magnitude < 22 then EN.add(3 * dt) end
+end
+end
+SAVE.comps = SAVE.comps or {}
+RM.regGadget({ id = "battery", name = "Батарея-заряд", icon = "🔋", desc = "Тратит 1 батарею из инвентаря: +40 энергии", style = "box", col = RGB(60, 60, 70), acc = RGB(255, 230, 60),
+cost = 0, cd = 1, use = function()
+if (SAVE.comps.battery or 0) < 1 then return notify("Нет батарей. Их даёт генератор и сканер", C.warn) end
+SAVE.comps.battery = SAVE.comps.battery - 1
+EN.add(40)
+snd("energy", 1, 1.2)
+notify("🔋 +40 энергии", C.ok)
+end })
+function RM.addComp(k, n)
+SAVE.comps = SAVE.comps or {}
+SAVE.comps[k] = clamp((SAVE.comps[k] or 0) + (n or 1), 0, 99)
+end
+end
+do
+local C, M, fx = RM.C, RM.M, RM.fx
+local PO = { A = nil, B = nil, cd = 0, nextSlot = "A" }
+RM.portals = PO
+local portF = folder("Portals")
+local function colB() return PCOL[(clamp(floor(ST.portalColor), 1, #PCOL)) % #PCOL + 1][2] end
+function RM.teleport(pos, ry, exact, vel)
+if RM.dead then return false end
+local sp, why = pos, nil
+if not exact then sp, why = safeSpot(pos) end
+if not sp then
+notify("⚠ Телепорт отменён: " .. why, C.warn)
+return false, why
+end
+fx.dim(pcol(), 1)
+local _, _, r = getChar()
+if r then fx.spark(r.Position, pcol(), 24) end
+setPivot(CF(sp) * ANG(0, ry or 0, 0))
+if vel and r then r.AssemblyLinearVelocity = vel end
+fx.spark(sp, pcol(), 24)
+PO.cd = os.clock() + CFG.portal.cd
+return true
+end
+local function closeOne(k)
+local p = PO[k]
+if p then
+p.m:Destroy()
+entDel("portals", p)
+PO[k] = nil
+end
+end
+function RM.portalClose()
+closeOne("A")
+closeOne("B")
+end
+function RM.portalOpen(k, pos, n, col)
+closeOne(k)
+n = n.Magnitude > .1 and n.Unit or V3(0, 1, 0)
+local r = CFG.portal.r
+local m = I("Model", { Name = "Portal" .. k }, portF)
+local base = CFrame.lookAt(pos + n * .15, pos + n) * ANG(-pi / 2, 0, 0)
+local ring = M.cyl(m, "Ring", r, .5, base, col, Enum.Material.Neon, { Anchored = true })
+local disc = M.cyl(m, "Disc", r - .7, .3, base * CF(0, .1, 0), col:Lerp(RGB(255, 255, 255), .4), Enum.Material.Neon, { Anchored = true, Transparency = .45 })
+fx.light(ring, col, 26, 3)
+fx.emitter(disc, {
+Color = ColorSequence.new(col), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, .6), NumberSequenceKeypoint.new(1, 0) }), Lifetime = NumberRange.new(.6, 1.2),
+Speed = NumberRange.new(2, 6), SpreadAngle = Vector2.new(60, 60), LightEmission = 1, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, .1), NumberSequenceKeypoint.new(1, 1) }),
+EmissionDirection = Enum.NormalId.Right,
+}, 40)
+ring.Size = V3(.01, .01, .01)
+tw(ring, .35, { Size = V3(.5, r * 2, r * 2) }, Enum.EasingStyle.Back)
+local e = entAdd("portals", { m = m, ring = ring, disc = disc, pos = pos + n * .15, n = n, t0 = os.clock(), base = base, ang = 0, destroy = function(s) s.m:Destroy() end })
+PO[k] = e
+snd("portal", 1, k == "A" and 1 or 1.15)
+fx.ring(pos, col, 14, n)
+return e
+end
+local function placeAt(x, slot)
+local pos, n = x.pos, x.nrm
+if not pos then
+pos = x.o + x.d * 40
+n = -x.d
+end
+RM.portalOpen(slot, pos, n, slot == "A" and pcol() or colB())
+end
+RM.ticks.portals = function(dt, now)
+for _, k in ipairs({ "A", "B" }) do
+local p = PO[k]
+if p and p.m.Parent then
+p.ang = p.ang + dt * 2.5
+p.disc.CFrame = p.base * CF(0, .1, 0) * ANG(0, p.ang, 0)
+local left = CFG.portal.life - (now - p.t0)
+if left < 4 then
+local a = clamp(1 - left / 4, 0, 1)
+p.ring.Transparency = a
+p.disc.Transparency = .45 + a * .55
+end
+if left <= 0 then
+closeOne(k)
+notify("Портал " .. k .. " закрылся", C.dim)
+end
+end
+end
+local A, B = PO.A, PO.B
+if not (A and B) or now < PO.cd or MODE.cur == "ship" or MODE.cur == "drone" then return end
+local _, _, r = getChar()
+if not r then return end
+for _, pair in ipairs({ { A, B }, { B, A } }) do
+local s, d = pair[1], pair[2]
+local off = r.Position - s.pos
+local along = off:Dot(s.n)
+if abs(along) < 2.8 and (off - s.n * along).Magnitude < CFG.portal.r - .6 then
+local speed = max(24, r.AssemblyLinearVelocity.Magnitude)
+local dest = d.pos + d.n * 4.2
+RM.teleport(dest, 0, true, d.n * speed)
+setPivot(CFrame.lookAt(dest, dest + V3(d.n.X, 0, d.n.Z)))
+r.AssemblyLinearVelocity = d.n * speed
+return
+end
+end
+end
+RM.regGadget({ id = "portal1", name = "Портальная пушка", icon = "🌀", desc = "Выстрелы по очереди создают портал A и B", style = "pistol", col = RGB(210, 215, 225), acc = RGB(80, 255, 120),
+cost = CFG.cost.portal, cd = CFG.portal.cd, range = CFG.portal.range, use = function(x)
+local s = PO.nextSlot
+placeAt(x, s)
+PO.nextSlot = s == "A" and "B" or "A"
+notify("Портал " .. s .. (PO.A and PO.B and " — пара готова" or ""), s == "A" and pcol() or colB(), 1.5)
+end })
+RM.regGadget({ id = "portal2", name = "Квантовый прыгун", icon = "⚡", desc = "Прыжок в точку прицела", style = "pistol", col = RGB(60, 50, 90), acc = RGB(180, 90, 255),
+cost = CFG.cost.portal * 1.5, cd = 1, range = CFG.portal.range, use = function(x)
+if not x.pos then return notify("Нет точки для прыжка", C.warn) end
+fx.bolt(x.root.Position, x.pos, RGB(180, 90, 255), .3, .3)
+RM.teleport(x.pos + (x.nrm or V3(0, 1, 0)) * 3, math.atan2(-x.d.X, -x.d.Z))
+end })
+RM.regGadget({ id = "portal3", name = "Пустотный раскрыватель", icon = "🕳", desc = "Открывает пару: портал рядом с тобой и портал в цель", style = "pistol", col = RGB(30, 30, 40), acc = RGB(255, 60, 200),
+cost = CFG.cost.portal * 2, cd = 1.5, range = CFG.portal.range, use = function(x)
+local fwd = x.root.CFrame.LookVector
+local near = x.root.Position + V3(fwd.X, 0, fwd.Z).Unit * 7
+RM.portalOpen("A", near, -V3(fwd.X, 0, fwd.Z).Unit, pcol())
+placeAt(x, "B")
+notify("Пара порталов открыта", pcol(), 1.5)
+end })
+end
+do
+local C, M, fx, U = RM.C, RM.M, RM.fx, RM.U
+local S = { m = nil, cf = nil, speed = 0, auto = false, route = nil, ri = 1, rec = nil, landing = false, hyperAt = 0, fireAt = 0, on = false, vel = V3() }
+RM.ship = S
+RM.exitFns = {}
+local shipF = folder("Ship")
+local ENG = {}
+local function build(cf)
+local m = I("Model", { Name = "Cruiser" }, shipF)
+local hull = M.cyl(m, "Hull", 2.3, 13, CF() * ANG(pi / 2, 0, 0), RGB(190, 200, 215), Enum.Material.Metal)
+m.PrimaryPart = hull
+M.skin(hull, "ship")
+M.ball(m, "Nose", 4.6, CF(0, 0, -6.5), RGB(190, 200, 215), Enum.Material.Metal)
+M.ball(m, "Cockpit", 3.6, CF(0, 1.5, -2.8), RGB(120, 230, 255), Enum.Material.Glass, { Transparency = .45 })
+M.part(m, "Stripe", V3(.3, .1, 12), CF(0, 2.28, 0), RGB(80, 255, 140), Enum.Material.Neon)
+for _, s in ipairs({ -1, 1 }) do
+M.part(m, "Wing", V3(7, .35, 4.5), CF(s * 4.6, -.4, 2) * ANG(0, -s * .3, s * .08), RGB(150, 160, 180), Enum.Material.Metal)
+M.part(m, "Tip", V3(.4, .5, 4), CF(s * 8, -.4, 2.4), RGB(80, 255, 140), Enum.Material.Neon)
+local e = M.cyl(m, "Engine", .9, 3, CF(s * 2.7, -.3, 5.8) * ANG(pi / 2, 0, 0), RGB(90, 95, 110), Enum.Material.Metal)
+local g = M.cyl(m, "Glow", .75, .3, CF(s * 2.7, -.3, 7.4) * ANG(pi / 2, 0, 0), RGB(255, 140, 50), Enum.Material.Neon)
+local em = I("ParticleEmitter", { Color = ColorSequence.new(RGB(255, 170, 60), RGB(255, 60, 20)), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0) }),
+Lifetime = NumberRange.new(.3, .6), Speed = NumberRange.new(14, 22), LightEmission = 1, Rate = 0, EmissionDirection = Enum.NormalId.Back,
+Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }) }, g)
+ENG[#ENG + 1] = em
+M.cyl(m, "Cannon", .22, 3, CF(s * 1.9, -1.4, -4.2) * ANG(pi / 2, 0, 0), RGB(60, 65, 80), Enum.Material.Metal)
+end
+fx.light(hull, RGB(120, 230, 255), 24, 1.5)
+M.weldAll(m, hull)
+M.anchorAll(m, true)
+m:PivotTo(cf)
+return m
+end
+function RM.shipSummon()
+if S.on then return notify("Ты уже в корабле", C.warn) end
+local _, _, r = getChar()
+if not r then return end
+local f = r.CFrame.LookVector
+local fl = V3(f.X, 0, f.Z).Unit
+local p = r.Position + fl * 22
+local g = groundAt(p, 30)
+p = (g or p - V3(0, 3, 0)) + V3(0, 4.5, 0)
+S.cf = CFrame.lookAt(p, p - fl)
+if S.m then S.m:Destroy() end
+S.m = build(S.cf)
+S.speed = 0
+snd("ship", 1, 1.2)
+fx.ring(p - V3(0, 4, 0), C.ac, 22)
+notify("🚀 Корабль вызван. Сесть: кнопка «Сесть» в разделе «Корабль»", C.ac)
+end
+function RM.shipDismiss()
+if S.on then return notify("Сначала выйди из корабля", C.warn) end
+if S.m then S.m:Destroy() S.m = nil end
+end
+RM.cleanups[#RM.cleanups + 1] = function() S.on = false end
+local savedZoom
+local function seat() return S.cf * CF(0, .3, -2.8) end
+function RM.shipBoard()
+if not S.m then return notify("Сначала вызови корабль", C.warn) end
+local _, _, r = getChar()
+if not r or (r.Position - S.cf.Position).Magnitude > 60 then return notify("Подойди ближе к кораблю (до 60)", C.warn) end
+local ok, why = enterMode("ship", "ship")
+if not ok then return notify(why, C.warn) end
+S.on, S.landing, S.speed = true, false, 0
+r.Anchored = true
+savedZoom = { LP.CameraMinZoomDistance, LP.CameraMaxZoomDistance }
+LP.CameraMinZoomDistance, LP.CameraMaxZoomDistance = 24, 80
+EN.drain("ship", CFG.drain.ship, function() S.landing = true notify("🪫 Нет энергии — аварийная посадка", C.dg) end)
+setPivot(seat())
+r.Anchored = true
+snd("engine", 1, 1)
+notify("🚀 В кабине. W/S — тяга, A/D — боком, Space/Ctrl — вверх/вниз, мышь/камера — курс, ЛКМ — огонь, H гипер, L посадка, R запись, P автопилот", C.ac, 7)
+end
+local function leave()
+local _, _, r = getChar()
+S.on, S.auto, S.landing = false, false, false
+EN.stop("ship")
+leaveMode("ship")
+if savedZoom then LP.CameraMinZoomDistance, LP.CameraMaxZoomDistance = savedZoom[1], savedZoom[2] end
+for _, e in ipairs(ENG) do e.Rate = 0 end
+if r then
+r.Anchored = false
+local side = S.cf * CF(6, -1, -2)
+local g = groundAt(side.Position + V3(0, 5, 0), 20)
+local dest = g and g + V3(0, 3.5, 0) or side.Position + V3(0, 6, 0)
+setPivot(CF(dest))
+end
+notify("Ты вышел из корабля", C.dim)
+end
+function RM.shipReset()
+if not S.on then return end
+S.on, S.auto, S.landing = false, false, false
+EN.stop("ship")
+leaveMode("ship")
+if savedZoom then LP.CameraMinZoomDistance, LP.CameraMaxZoomDistance = savedZoom[1], savedZoom[2] end
+for _, e in ipairs(ENG) do e.Rate = 0 end
+end
+RM.exitFns.ship = function()
+local g = groundAt(S.cf.Position, 4)
+local alt = g and (S.cf.Position.Y - g.Y) or 99
+if alt > 9 then
+S.landing, S.auto = true, false
+notify("🛬 Идёт посадка...", C.warn, 2)
+else
+leave()
+end
+end
+function RM.exitMode()
+local f = RM.exitFns[MODE.cur]
+if f then f() end
+end
+function RM.shipHyper()
+local now = os.clock()
+if not S.on or now < S.hyperAt then return notify("Гипердвигатель перезаряжается", C.warn, 1.5) end
+if not EN.use(CFG.cost.hyper, "гиперпрыжок") then return end
+local look = S.cf.LookVector
+local d = CFG.ship.hyper
+local h = ray(S.cf.Position, look * (d + 12), { WORLD, LP.Character })
+if h then d = max(0, h.Distance - 14) end
+S.hyperAt = now + CFG.ship.hyperCd
+fx.dim(RGB(120, 200, 255), 1.2)
+S.cf = S.cf + look * d
+S.speed = max(S.speed, 160)
+snd("ship", 1, 2)
+end
+function RM.shipFire()
+local now = os.clock()
+if now < S.fireAt or not EN.use(CFG.cost.fire, "пушки") then return end
+S.fireAt = now + CFG.ship.fireCd
+local pos, _, inst, o, d = RM.aimHit(600)
+local tgt = pos or (S.cf.Position + S.cf.LookVector * 400)
+for _, s in ipairs({ -1, 1 }) do
+local from = (S.cf * CF(s * 1.9, -1.4, -6)).Position
+fx.bolt(from, tgt, RGB(255, 230, 80), .4, .25)
+end
+snd("shoot", 1, .8)
+if pos then
+fx.spark(pos, RGB(255, 200, 60), 14)
+if inst then RM.hurt(inst, 35, pos) end
+end
+end
+function RM.shipAuto(pts, name)
+if not S.on then return notify("Автопилот работает только в корабле", C.warn) end
+if not pts or #pts < 1 then return end
+S.route, S.ri, S.auto, S.rname, S.landing = pts, 1, true, name or "точка", false
+notify("🤖 Автопилот: " .. (name or "точка"), C.ac)
+end
+function RM.shipRec(on)
+if not S.on then return notify("Запись только в корабле", C.warn) end
+if on == nil then on = not S.rec end
+if on then
+S.rec = { S.cf.Position }
+notify("⏺ Запись маршрута", C.dg)
+elseif S.rec then
+local pts = S.rec
+S.rec = nil
+if #pts < 2 then return notify("Маршрут слишком короткий", C.warn) end
+if #SAVE.routes >= CFG.limit.routes then return notify("Лимит маршрутов: " .. CFG.limit.routes, C.warn) end
+local t = {}
+for _, p in ipairs(pts) do t[#t + 1] = { x = p.X, y = p.Y, z = p.Z } end
+SAVE.routes[#SAVE.routes + 1] = { name = "Маршрут " .. (#SAVE.routes + 1), pts = t }
+notify("💾 Маршрут сохранён (" .. #pts .. " точек)", C.ok)
+if RM.refreshRoutes then RM.refreshRoutes() end
+end
+end
+function RM.routePts(r)
+local o = {}
+for _, p in ipairs(r.pts) do o[#o + 1] = V3(p.x, p.y, p.z) end
+return o
+end
+RM.bindKey("H", function() if S.on then RM.shipHyper() end end)
+RM.bindKey("L", function() if S.on then RM.exitFns.ship() end end)
+RM.bindKey("R", function() if S.on then RM.shipRec() end end)
+RM.bindKey("P", function() if S.on then if S.auto then S.auto = false notify("Автопилот выключен", C.dim) elseif S.route then S.auto = true end end end)
+RM.mobCreate("sfire", "💥", .86, .62, 74, nil, nil, function() return MODE.cur == "ship" end)
+RM.mobCreate("hyper", "🚀", .72, .66, 56, function() RM.shipHyper() end, nil, function() return MODE.cur == "ship" end)
+RM.mobCreate("land", "🛬", .72, .5, 52, function() if S.on then RM.exitFns.ship() end end, nil, function() return MODE.cur == "ship" end)
+local hud = I("TextLabel", { Size = UDim2.fromOffset(360, 26), AnchorPoint = Vector2.new(.5, 0), Position = UDim2.new(.5, 0, 0, 14), BackgroundColor3 = C.bg, BackgroundTransparency = .25,
+TextColor3 = C.ac, Font = Enum.Font.GothamBold, TextSize = 12, Visible = false, ZIndex = 40, Text = "" }, RM.gui)
+U.corner(hud, 8)
+RM.ticks.ship = function(dt, now)
+if not S.on then return end
+local c, h, r = getChar()
+if not (r and S.m and S.m.Parent) or (h and h.Health <= 0) then return leave() end
+local c0 = cam()
+local look = S.cf.LookVector
+local want
+local fwd, strafe = 0, 0
+if S.auto and S.route then
+local tp = S.route[S.ri]
+local d = tp - S.cf.Position
+if d.Magnitude < 20 then
+S.ri = S.ri + 1
+if S.ri > #S.route then
+S.auto = false
+notify("🤖 Автопилот: точка достигнута", C.ok)
+end
+else
+want = d.Unit
+fwd = 1
+end
+elseif S.landing then
+want = V3(look.X, 0, look.Z).Unit
+else
+want = c0 and c0.CFrame.LookVector or look
+local md = h and h.MoveDirection or V3()
+local cl = c0 and V3(c0.CFrame.LookVector.X, 0, c0.CFrame.LookVector.Z) or V3(0, 0, -1)
+if cl.Magnitude > .01 then
+cl = cl.Unit
+fwd = md:Dot(cl)
+strafe = md:Dot(V3(-cl.Z, 0, cl.X))
+end
+end
+if want and want.Magnitude > .01 then look = look:Lerp(want.Unit, min(1, dt * 3)).Unit end
+local cruise = ST.shipSpeed
+if fwd > .25 then S.speed = min(cruise, S.speed + 120 * dt)
+elseif fwd < -.25 then S.speed = max(0, S.speed - 160 * dt)
+elseif S.landing then S.speed = max(0, S.speed - 90 * dt) end
+local up = RM.vertical() * 40
+if S.landing then up = -35 end
+local right = look:Cross(V3(0, 1, 0))
+if right.Magnitude < .01 then right = V3(1, 0, 0) end
+right = right.Unit
+local vel = look * S.speed + right * strafe * 40 + V3(0, up, 0)
+local step = vel * dt
+local pos = S.cf.Position
+if step.Magnitude > .001 then
+local hit = ray(pos, step.Unit * (step.Magnitude + 6), { WORLD, c })
+if hit and hit.Distance < step.Magnitude + 5 then
+if S.landing and hit.Normal.Y > .6 and S.speed < 25 then
+pos = hit.Position + V3(0, 3.6, 0)
+S.speed = 0
+S.cf = CFrame.lookAt(pos, pos + look)
+S.m:PivotTo(S.cf)
+r.CFrame = seat()
+return leave()
+end
+if S.speed > 40 then
+fx.spark(hit.Position, RGB(255, 180, 60), 12)
+snd("exp", .6, 1.2)
+end
+pos = hit.Position + hit.Normal * 5
+S.speed = S.speed * .2
+else
+pos = pos + step
+end
+end
+if S.landing and S.speed < 2 then
+local g = groundAt(pos, 2)
+if g and pos.Y - g.Y < 4.5 then
+S.cf = CFrame.lookAt(pos, pos + look)
+return leave()
+end
+end
+S.cf = CFrame.lookAt(pos, pos + look) * ANG(0, 0, -strafe * .25)
+S.m:PivotTo(S.cf)
+r.CFrame = seat()
+r.AssemblyLinearVelocity = V3()
+local rate = clamp(S.speed / 8, 0, 50) * Q().pr
+for _, e in ipairs(ENG) do e.Rate = rate end
+if S.rec and (pos - S.rec[#S.rec]).Magnitude > 25 and #S.rec < 300 then S.rec[#S.rec + 1] = pos end
+if (UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) and not RM.win.Visible) or RM.mobHeld("sfire") or UIS:IsKeyDown(Enum.KeyCode.F) then RM.shipFire() end
+local g = groundAt(pos, 2)
+hud.Visible = ST.hudShip
+hud.Text = string.format("🚀 %d  ⛰ %d  ⚡ %d  %s%s%s", floor(S.speed), floor(g and pos.Y - g.Y or 0), floor(EN.v), now < S.hyperAt and "гипер: " .. floor(S.hyperAt - now) .. "с " or "гипер ✓ ",
+S.auto and ("🤖 " .. (S.rname or "")) or "", S.rec and " ⏺" or "")
+end
+RM.ticks.shipHud = function()
+if not S.on and hud.Visible then hud.Visible = false end
+end
+end
+do
+local C, M, fx = RM.C, RM.M, RM.fx
+local UN = RM.units
+local unitF = folder("Units")
+RM.stats = { kills = 0 }
+RM.rcmd = "follow"
+local goTo
+local MATN, MATM = Enum.Material.Neon, Enum.Material.Metal
+local rnd = math.random
+local function front(d)
+local _, _, r = getChar()
+if not r then return nil end
+local l = r.CFrame.LookVector
+local p = r.Position + V3(l.X, 0, l.Z).Unit * (d or 10) + V3(rnd(-3, 3), 0, rnd(-3, 3))
+local g = groundAt(p, 30)
+return (g or p - V3(0, 3, 0)) + V3(0, 3.3, 0)
+end
+local function flash(col)
+local f = I("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = col, BackgroundTransparency = .6, ZIndex = 150, BorderSizePixel = 0 }, RM.gui)
+tw(f, .5, { BackgroundTransparency = 1 })
+later(.55, function() f:Destroy() end)
+end
+RM.flash = flash
+local DROPS = { "gear", "chip", "battery", "wire" }
+local SYNC
+local function unit(spec: any): any
+local pos = spec.pos or front(10)
+if not pos then return nil end
+local rig = M.rig(spec.rig)
+local m = rig.model
+m.Parent = unitF
+m:PivotTo(CF(pos))
+local hp = spec.hp or 100
+local u = { model = m, root = rig.hrp, hum = rig.hum, rig = rig, hp = hp, max = hp, kind = spec.kind, ai = spec.ai, team = spec.team or "friend", name = spec.name or "?",
+dmg = spec.dmg or 0, range = spec.range or 0, acd = spec.acd or .9, cd = 0, say = spec.say or {}, spd = spec.speed or 14, t0 = os.clock(), life = spec.life, home = pos, think = 0, next = 0, atk = 0, aggro = spec.aggro or 70, lastDrop = os.clock(), col = spec.col }
+rig.hum.WalkSpeed = u.spd
+local bb = I("BillboardGui", { Size = UDim2.fromOffset(60, 7), StudsOffset = V3(0, 3 * (spec.rig.scale or 1) + 1, 0), AlwaysOnTop = true, MaxDistance = 90, Adornee = rig.head }, m)
+local bg = I("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.bg, BorderSizePixel = 0 }, bb)
+u.fill = I("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.ok, BorderSizePixel = 0 }, bg)
+UN[m] = u
+function u.talk(t) fx.bubble(rig.head, t or u.say[rnd(math.max(1, #u.say))] or "...", 3) end
+function u.destroy()
+UN[m] = nil
+EN.bonus[u] = nil
+if m.Parent then m:Destroy() end
+end
+function u.die(quiet)
+if not UN[m] then return end
+local p = u.root.Position
+entDel(u.kind, u)
+u.destroy()
+SYNC()
+if not quiet then
+fx.spark(p, u.team == "enemy" and RGB(255, 90, 60) or C.ac, 30)
+snd("exp", .7, 1.3)
+if u.team == "enemy" then
+RM.stats.kills = RM.stats.kills + 1
+if rnd() < .5 then RM.addComp(DROPS[rnd(#DROPS)]) notify("🔩 Выпал компонент", C.ok, 1.5) end
+end
+end
+end
+function u.hurt(a, p)
+if not UN[m] then return end
+u.hp = u.hp - max(0, a)
+u.fill.Size = UDim2.fromScale(clamp(u.hp / u.max, 0, 1), 1)
+u.fill.BackgroundColor3 = u.hp / u.max < .35 and C.dg or C.ok
+if p then fx.spark(p, RGB(255, 200, 120), 6) end
+fx.pulse(rig.torso, .2, RGB(255, 80, 80))
+if u.hp <= 0 then u.die() end
+end
+entAdd(u.kind, u)
+fx.spark(pos, C.ac, 16)
+return u
+end
+RM.unit = unit
+local function enemyNear(u, r)
+local best, bd = nil, r
+for _, o in pairs(UN) do
+if o.team == "enemy" and o.root.Parent and o ~= u then
+local d = (o.root.Position - u.root.Position).Magnitude
+if d < bd then best, bd = o, d end
+end
+end
+return best, bd
+end
+local function attack(u, e, now)
+u.cd, u.atk = now + u.acd, 1
+local a, b = u.root.Position + V3(0, 1.5, 0), e.root.Position
+if u.range > 10 then
+fx.bolt(a, b, u.col or RGB(255, 90, 90), .2, .2)
+snd("shoot", .5, 1.3)
+else
+fx.spark(b, RGB(255, 255, 255), 6)
+end
+e.hurt(u.dmg * (u.fr and 1 + u.fr or 1), b)
+end
+local function follow(u, pp)
+if RM.rcmd == "stay" then return end
+local d = (pp - u.root.Position).Magnitude
+u.hum.WalkSpeed = d > 28 and u.spd * 1.7 or u.spd
+if d > 12 then u.hum:MoveTo(pp + (u.root.Position - pp).Unit * 7) elseif d < 5 then u.hum:MoveTo(u.root.Position) end
+if d > 160 then u.root.CFrame = CF(pp + V3(4, 2, 0)) end
+u.emo = d < 14 and rnd() < .15 and "happy" or nil
+end
+local AI = {}
+local function fight(u, pp, now)
+if goTo and now < goTo.t then u.hum:MoveTo(goTo.pos) return end
+local e, d = enemyNear(u, u.aggro)
+if e and RM.rcmd ~= "stay" then
+u.emo = "angry"
+if d > max(u.range * .7, 4) then u.hum:MoveTo(e.root.Position) else u.hum:MoveTo(u.root.Position) end
+if d <= max(u.range, 6) and now >= u.cd then attack(u, e, now) end
+return true
+end
+follow(u, pp)
+end
+AI.guard = fight
+AI.scout = function(u, pp, now)
+local e = enemyNear(u, 110)
+if e and not e.marked then
+e.marked = true
+fx.highlight(e.model, RGB(255, 80, 80), 6)
+later(6, function() e.marked = nil end)
+u.talk("Цель обнаружена!")
+end
+follow(u, pp)
+end
+AI.helper = function(u, pp, now)
+follow(u, pp)
+if now - u.lastDrop > 25 then
+u.lastDrop = now
+RM.addComp(DROPS[rnd(#DROPS)])
+u.talk("Нашёл деталь!")
+end
+end
+AI.battery = function(u, pp) follow(u, pp) end
+AI.mee = function(u, pp, now)
+u.fr = clamp((now - u.t0) / u.life, 0, 1)
+u.emo = u.fr < .4 and "happy" or (u.fr < .75 and "angry" or "crazy")
+if u.fr > .5 and not u.said1 then u.said1 = true u.talk("Почему так долго?!") end
+if u.fr > .85 and not u.said2 then u.said2 = true u.talk("Я ХОЧУ ИСЧЕЗНУТЬ!!!") end
+local e = enemyNear(u, 80)
+if e then
+u.hum.WalkSpeed = 26
+u.hum:MoveTo(e.root.Position)
+if (e.root.Position - u.root.Position).Magnitude < 6 and now >= u.cd then attack(u, e, now) end
+else follow(u, pp) end
+end
+AI.npc = function(u, pp, now)
+local d = (pp - u.root.Position).Magnitude
+if d < 12 then
+u.emo = "happy"
+u.hum:MoveTo(u.root.Position)
+if not u.greeted or now - u.greeted > 14 then u.greeted = now u.talk() end
+else
+u.emo = nil
+if now > u.next then
+u.next = now + 3 + rnd() * 4
+u.hum:MoveTo(u.home + V3(rnd(-20, 20), 0, rnd(-20, 20)))
+end
+end
+end
+AI.monster = function(u, pp, now)
+local tgt, td = nil, 90
+local _, _, r = getChar()
+if ST.hostile and r then tgt, td = r, (r.Position - u.root.Position).Magnitude end
+for _, o in pairs(UN) do
+if o.team == "friend" and o.root.Parent then
+local dd = (o.root.Position - u.root.Position).Magnitude
+if dd < td then tgt, td = o, dd end
+end
+end
+if tgt and td < 90 then
+u.emo = "angry"
+local tp = tgt.Position or tgt.root.Position
+u.hum:MoveTo(tp)
+if td < 6 and now >= u.cd then
+u.cd, u.atk = now + 1.3, 1
+if tgt == r then
+if RM.shieldAbsorb and RM.shieldAbsorb(u.dmg, u.root.Position) then return end
+r.AssemblyLinearVelocity = ((r.Position - u.root.Position) * V3(1, 0, 1)).Unit * 55 + V3(0, 28, 0)
+flash(RGB(255, 40, 40))
+snd("exp", .7, .7)
+else tgt.hurt(u.dmg, tp) end
+end
+else u.emo = nil AI.npc(u, pp, now) end
+end
+AI.dummy = function() end
+RM.ticks.units = function(dt, now)
+if next(UN) == nil then return end
+local _, _, pr = getChar()
+local pp = pr and pr.Position or V3()
+for m, u in pairs(UN) do
+if not (m.Parent and u.root.Parent) then
+UN[m] = nil
+else
+if not u.frozen then
+u.think = (u.think or 1) - dt
+if u.think <= 0 then
+u.think = .25 + rnd() * .1
+local f = AI[u.ai]
+if f then safe("ИИ " .. u.name, f, u, pp, now) end
+end
+u.atk = max(0, (u.atk or 0) - dt * 3)
+local v = u.root.AssemblyLinearVelocity
+if u.rig then M.anim(u.rig, dt, V3(v.X, 0, v.Z).Magnitude, { e = u.emo, atk = u.atk }) end
+end
+if u.life and now - u.t0 > u.life then
+if u.ai == "mee" then
+fx.spark(u.root.Position, RGB(90, 190, 235), 40)
+u.talk("Пуф!")
+end
+u.die(true)
+end
+end
+end
+end
+local function eyes(rig: any, col)
+for _, s in ipairs({ -1, 1 }) do M.ball(rig.head, "Eye", .35 * rig.s, rig.head.CFrame * CF(s * .3 * rig.s, .1 * rig.s, -.45 * rig.s), col, MATN) end
+for _, p in ipairs(rig.head:GetChildren()) do if p:IsA("BasePart") then weld(rig.head, p, p) end end
+end
+local RT = {
+guard = { "Охранный робот", RGB(120, 130, 150), RGB(255, 70, 70), "guard", 120, 14, 22, 45, 16, { "Угроза устранена.", "Охраняю.", "Периметр чист." } },
+helper = { "Робот-помощник", RGB(200, 200, 210), RGB(80, 230, 255), "helper", 80, 12, 0, 0, 0, { "Передай мне ключ!", "Чем помочь?", "Ищу детали." } },
+scout = { "Разведчик", RGB(70, 80, 100), RGB(255, 220, 60), "scout", 60, 24, 0, 0, 0, { "Вижу цель.", "Разведка!", "Тихо." } },
+battery = { "Робот-батарея", RGB(70, 110, 70), RGB(120, 255, 100), "battery", 100, 12, 0, 0, 0, { "Заряжаю.", "Энергия +", "Держись рядом." } },
+}
+RM.RT = RT
+SYNC = function()
+local n = entCount("robots")
+if n > 0 then EN.drain("robots", n * CFG.drain.robot, function() entClear("robots") notify("🪫 Роботы отключены: нет энергии", C.dg) end) else EN.stop("robots") end
+end
+function RM.spawnRobot(k)
+local d = RT[k]
+if not d or not canAdd("robots", CFG.limit.robots) or not EN.use(CFG.cost.robot, "робот") then return end
+local u = unit({ kind = "robots", ai = d[4], name = d[1], hp = d[5], speed = d[6], range = d[7], dmg = d[8], say = d[10], aggro = 70,
+rig = { name = d[1], skin = d[2], shirt = d[2], sleeve = d[2], pants = d[2]:Lerp(RGB(0, 0, 0), .4), head = "box", extras = function(rig) eyes(rig, d[3])
+M.part(rig.torso, "Core", V3(1, 1, .2) * rig.s, rig.torso.CFrame * CF(0, .2, -.55), d[3], MATN) weld(rig.torso, rig.torso:FindFirstChild("Core"), rig.torso)
+M.cyl(rig.head, "Ant", .06, 1, rig.head.CFrame * CF(0, 1, 0), d[2], MATM) weld(rig.head, rig.head:FindFirstChild("Ant"), rig.head) end } })
+if not u then return end
+u.col = d[3]
+if k == "battery" then EN.bonus[u] = 1.2 end
+SYNC()
+u.talk("Активирован.")
+snd("robot", 1, 1)
+end
+function RM.spawnMeeseeks()
+if not canAdd("meeseeks", CFG.limit.meeseeks) or not EN.use(CFG.cost.meeseeks, "Мисикс") then return end
+local B = RGB(90, 190, 235)
+local u = unit({ kind = "meeseeks", ai = "mee", name = "Мистер Мисикс", hp = 60, speed = 18, dmg = 14, acd = .6, life = 45, say = { "Смотрите на меня!", "Я Мистер Мисикс!" },
+rig = { name = "Мисикс", skin = B, shirt = B, sleeve = B, pants = B, head = "human", extras = function(rig) eyes(rig, RGB(255, 255, 255)) end } })
+if u then u.talk() snd("portal", .8, 1.8) end
+end
+local NT = {
+{ "Учёный", RGB(238, 205, 170), RGB(245, 245, 250), RGB(90, 90, 100), "npc", "friend", 80, { "Эксперимент удался!", "Наука требует жертв." } },
+{ "Охранник", RGB(220, 180, 150), RGB(40, 60, 110), RGB(30, 40, 70), "npc", "friend", 120, { "Проходите.", "Всё спокойно." } },
+{ "Торговец", RGB(200, 150, 110), RGB(130, 90, 50), RGB(70, 50, 30), "npc", "friend", 80, { "Лучшие цены в мультивселенной!", "Гаджеты не нужны?" } },
+{ "Путешественник", RGB(240, 210, 180), RGB(60, 130, 80), RGB(60, 70, 60), "npc", "friend", 80, { "Я из другого измерения.", "Тут красиво." } },
+{ "Гость", RGB(230, 190, 160), RGB(200, 90, 150), RGB(70, 70, 130), "npc", "friend", 80, { "Привет!", "Где тут выход?" } },
+{ "Монстр", RGB(120, 160, 90), RGB(90, 120, 60), RGB(70, 90, 50), "monster", "enemy", 200, { "Ргааа!", "Грр..." }, 1.4 },
+}
+RM.NT = NT
+function RM.spawnNPC(i)
+local t = NT[i]
+if not t or not canAdd("npcs", CFG.limit.npcs) or not EN.use(CFG.cost.npc, "NPC") then return end
+local u = unit({ kind = "npcs", ai = t[5], team = t[6], name = t[1], hp = t[7], say = t[8], dmg = 15, speed = t[6] == "enemy" and 15 or 10,
+rig = { name = t[1], skin = t[2], shirt = t[3], pants = t[4], scale = t[9] or 1, fabric = true, extras = function(rig) eyes(rig, RGB(20, 20, 20)) end } })
+if u then u.talk() end
+end
+function RM.spawnDummy()
+if not canAdd("dummies", CFG.limit.dummies) then return end
+unit({ kind = "dummies", ai = "dummy", team = "enemy", name = "Мишень", hp = 120, speed = 0,
+rig = { name = "Мишень", skin = RGB(230, 230, 230), shirt = RGB(230, 60, 60), pants = RGB(230, 230, 230), head = "ball", extras = function(rig)
+local t = M.cyl(rig.torso, "Target", 1, .1, rig.torso.CFrame * CF(0, 0, -.55) * ANG(pi / 2, 0, 0), RGB(255, 255, 255), MATM)
+weld(rig.torso, t, t)
+end } })
+end
+function RM.cloneMe()
+local c = LP.Character
+if not c or not canAdd("npcs", CFG.limit.npcs) or not EN.use(CFG.cost.npc * 3, "клон") then return end
+local function col(n, d) local p = c:FindFirstChild(n) return p and p:IsA("BasePart") and p.Color or d end
+local u = unit({ kind = "npcs", ai = "guard", name = "Клон " .. LP.DisplayName, hp = 100, range = 20, dmg = 12, say = { "Я — это ты.", "Мы одно целое." }, speed = 16, col = C.ac,
+rig = { name = "Клон", skin = col("Head", RGB(238, 205, 170)), shirt = col("UpperTorso", col("Torso", C.dim)), pants = col("LowerTorso", col("Left Leg", C.dim)), extras = function(rig) eyes(rig, RGB(20, 20, 20)) end } })
+if u then u.talk() end
+end
+function RM.clearUnits(k)
+entClear(k)
+SYNC()
+end
+function RM.setCmd(c)
+RM.rcmd = c
+notify("🎮 Команда роботам: " .. c, C.ac, 1.5)
+end
+RM.regGadget({ id = "remote", name = "Пульт роботов", icon = "🎮", desc = "Послать роботов в точку (8 с)", style = "box", col = RGB(50, 60, 80), acc = RGB(80, 230, 255), cost = 0, cd = .8, use = function(x)
+if x.pos then
+goTo = { pos = x.pos, t = os.clock() + 8 }
+fx.ring(x.pos, RGB(80, 230, 255), 8, x.nrm)
+snd("robot", 1, 1.3)
+end
+end })
+RM.regGadget({ id = "meebox", name = "Коробка Мисикс", icon = "📦", desc = "Вызывает Мистера Мисикса на 45 с", style = "box", col = RGB(90, 190, 235), acc = RGB(255, 255, 255), cost = 0, cd = 1.5, use = function() RM.spawnMeeseeks() end })
+RM.regGadget({ id = "cloner", name = "Клон-машина", icon = "🧬", desc = "Создаёт твою боевую копию", style = "box", col = RGB(60, 90, 70), acc = RGB(120, 255, 160), cost = 0, cd = 2, use = function() RM.cloneMe() end })
+RM.regGadget({ id = "analyzer", name = "Анализатор", icon = "🔬", desc = "Показывает данные цели под прицелом", style = "box", col = RGB(40, 60, 70), acc = RGB(255, 255, 120), cost = 1, cd = .6, use = function(x)
+local o = x.inst
+while o and o ~= WORLD and o ~= Workspace do
+local u = UN[o]
+if u then
+fx.highlight(o, RGB(255, 255, 120), 2.5)
+return notify(string.format("🔬 %s | HP %d/%d | %s | эмоция: %s", u.name, floor(u.hp), floor(u.max), u.team == "enemy" and "враг" or "союзник", u.emo or "спокойно"), C.ac, 4)
+end
+local pl = o:IsA("Model") and Players:GetPlayerFromCharacter(o)
+if pl then return notify("🔬 Игрок: " .. pl.DisplayName, C.ac, 3) end
+o = o.Parent
+end
+notify("🔬 Объект: " .. (x.inst and x.inst.Name or "ничего"), C.dim, 2)
+end })
+end
+do
+local C, M, fx = RM.C, RM.M, RM.fx
+local UN = RM.units
+local cloneF = folder("Clones")
+local rec, recT = {}, 0
+local function playingIds(ch)
+local ids = {}
+local h = ch and ch:FindFirstChildOfClass("Humanoid")
+local an = h and h:FindFirstChildOfClass("Animator")
+if an then
+for _, t in ipairs(an:GetPlayingAnimationTracks()) do
+local id = t.Animation and t.Animation.AnimationId
+if id and id ~= "" then ids[#ids + 1] = id end
+end
+end
+return ids
+end
+RM.ticks.echoRec = function(dt, now)
+if entCount("echo") == 0 then
+if #rec > 0 then rec = {} end
+return
+end
+recT = recT + dt
+if recT < .1 then return end
+recT = 0
+local c, _, r = getChar()
+if not r then return end
+rec[#rec + 1] = { t = now, cf = r.CFrame, ids = playingIds(c) }
+if #rec > 130 then table.remove(rec, 1) end
+end
+local function sampleAt(t)
+local best = rec[1]
+for i = #rec, 1, -1 do
+if rec[i].t <= t then return rec[i] end
+end
+return best
+end
+local function stripScripts(m)
+for _, d in ipairs(m:GetDescendants()) do
+if d:IsA("LuaSourceContainer") or d:IsA("Tool") or d:IsA("BillboardGui") or d:IsA("ForceField") then d:Destroy() end
+end
+end
+local function ghostClone(color)
+local c = LP.Character
+if not c then return nil end
+local was = c.Archivable
+c.Archivable = true
+local m = c:Clone()
+c.Archivable = was
+if not m then return nil end
+stripScripts(m)
+local h = m:FindFirstChildOfClass("Humanoid")
+if not h then m:Destroy() return nil end
+h.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+h.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+for _, p in ipairs(parts(m)) do
+p.Anchored = p.Name == "HumanoidRootPart"
+p.CanCollide, p.CanQuery, p.CanTouch = false, false, false
+end
+I("Highlight", { FillColor = color, OutlineColor = color, FillTransparency = .55, DepthMode = Enum.HighlightDepthMode.Occluded }, m)
+m.Parent = cloneF
+return m, h
+end
+function RM.spawnEcho()
+if not canAdd("echo", CFG.limit.echo) or not EN.use(CFG.cost.echo, "эхо") then return end
+local idx = entCount("echo") + 1
+local col = PCOL[(idx * 2) % #PCOL + 1][2]
+local m, h = ghostClone(col)
+if not m then return end
+m.Name = "Echo" .. idx
+local r = m:FindFirstChild("HumanoidRootPart")
+local an = h:FindFirstChildOfClass("Animator") or I("Animator", nil, h)
+local e = { m = m, delay = 1.2 * idx, tracks = {}, t0 = os.clock() }
+function e.destroy(s) if s.m.Parent then s.m:Destroy() end end
+e.step = function(now)
+local s = sampleAt(now - e.delay)
+if not (s and r and r.Parent) then return end
+r.CFrame = s.cf
+local want = {}
+for _, id in ipairs(s.ids) do want[id] = true end
+for id, tr in pairs(e.tracks) do
+if not want[id] then
+tr:Stop(.1)
+e.tracks[id] = nil
+end
+end
+for id in pairs(want) do
+if not e.tracks[id] then
+local a = I("Animation", { AnimationId = id })
+local ok, tr = pcall(function() return an:LoadAnimation(a) end)
+if ok and tr then
+tr.Looped = true
+tr:Play(.1)
+e.tracks[id] = tr
+end
+end
+end
+end
+entAdd("echo", e)
+snd("holo", 1, 1.2)
+fx.spark(r.Position, col, 20)
+later(25, function()
+entDel("echo", e)
+e:destroy()
+end)
+end
+RM.ticks.echo = function(dt, now)
+for _, e in ipairs(RM.ents.echo or {}) do
+if e.m.Parent then e.step(now) end
+end
+end
+function RM.spawnHolo()
+if not canAdd("holo", CFG.limit.holo) or not EN.use(CFG.cost.holo, "голограмма") then return end
+local pos, nrm = RM.aimHit(120)
+local c, _, r = getChar()
+if not (r and c) then return end
+pos = pos and pos + V3(0, 3.2, 0) or r.Position + r.CFrame.LookVector * 10
+local col = RGB(80, 200, 255)
+local m = ghostClone(col)
+if not m then return end
+m.Name = "Hologram"
+local hr = m:FindFirstChild("HumanoidRootPart")
+hr.CFrame = CFrame.lookAt(pos, V3(r.Position.X, pos.Y, r.Position.Z))
+for _, p in ipairs(parts(m)) do
+if p.Name ~= "HumanoidRootPart" then
+p.Material = Enum.Material.Neon
+p.Transparency = clamp(p.Transparency, .35, 1)
+end
+end
+local u = { model = m, root = hr, hp = 60, max = 60, team = "friend", name = "Голограмма", kind = "holo", t0 = os.clock() }
+function u.hurt(a, p)
+u.hp = u.hp - a
+fx.spark(hr.Position, col, 8)
+if u.hp <= 0 then u.die() end
+end
+function u.destroy() UN[m] = nil EN.stop("holo" .. tostring(m)) if m.Parent then m:Destroy() end end
+function u.die()
+entDel("holo", u)
+u.destroy()
+end
+UN[m] = u
+entAdd("holo", u)
+EN.drain("holo" .. tostring(m), CFG.drain.holo, function() u.die() end)
+fx.light(hr, col, 14, 1.5)
+fx.ring(pos - V3(0, 3, 0), col, 10, V3(0, 1, 0))
+snd("holo", 1, 1)
+later(CFG.holo.time, function() if UN[m] then u.die() end end)
+end
+RM.ticks.holo = function(dt, now)
+for _, u in ipairs(RM.ents.holo or {}) do
+local flick = .4 + math.random() * .25
+for _, p in ipairs(u.model:GetChildren()) do
+if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" and p.Transparency < 1 then p.Transparency = flick end
+end
+end
+end
+local frozenUnits, frozenTracks, freezeUntil = {}, {}, 0
+local function unfreeze()
+for _, u in ipairs(frozenUnits) do
+if u.root and u.root.Parent then u.root.Anchored = false end
+u.frozen = nil
+end
+for _, t in ipairs(frozenTracks) do pcall(function() t:AdjustSpeed(1) end) end
+frozenUnits, frozenTracks, freezeUntil = {}, {}, 0
+fx.tint(false)
+RM.timeStopped = false
+notify("⏱ Время пошло снова", C.dim, 1.5)
+end
+function RM.timeStop()
+if RM.timeStopped then return end
+if not EN.use(CFG.cost.freeze, "остановка времени") then return end
+local _, _, r = getChar()
+if not r then return end
+RM.timeStopped = true
+freezeUntil = os.clock() + CFG.freeze.time
+fx.tint(true)
+fx.ring(r.Position, RGB(180, 200, 255), CFG.freeze.r * 2)
+snd("holo", 1, .5)
+for m, u in pairs(UN) do
+if u.kind ~= "holo" and u.root.Parent and (u.root.Position - r.Position).Magnitude < CFG.freeze.r then
+u.root.Anchored, u.frozen = true, true
+frozenUnits[#frozenUnits + 1] = u
+end
+end
+for _, pl in ipairs(Players:GetPlayers()) do
+local ch = pl.Character
+local pr = ch and ch:FindFirstChild("HumanoidRootPart")
+if pl ~= LP and pr and (pr.Position - r.Position).Magnitude < CFG.freeze.r then
+local h = ch:FindFirstChildOfClass("Humanoid")
+local an = h and h:FindFirstChildOfClass("Animator")
+if an then
+for _, t in ipairs(an:GetPlayingAnimationTracks()) do
+t:AdjustSpeed(0)
+frozenTracks[#frozenTracks + 1] = t
+end
+end
+end
+end
+notify("⏱ Время остановлено на " .. CFG.freeze.time .. " с (визуально, на твоём клиенте)", RGB(180, 200, 255), 3)
+end
+RM.ticks.timeStop = function(dt, now)
+if RM.timeStopped and now > freezeUntil then unfreeze() end
+end
+RM.cleanups[#RM.cleanups + 1] = function() if RM.timeStopped then pcall(unfreeze) end end
+RM.regGadget({ id = "echo", name = "Эхо-проектор", icon = "👥", desc = "Эхо-клон повторяет твой путь и анимации с задержкой (25 с)", style = "box", col = RGB(60, 60, 90), acc = RGB(180, 120, 255), cost = 0, cd = 1.5, use = function() RM.spawnEcho() end })
+RM.regGadget({ id = "holo", name = "Проектор голограмм", icon = "🪞", desc = "Голограмма-приманка: враги атакуют её", style = "box", col = RGB(40, 70, 90), acc = RGB(80, 200, 255), cost = 0, cd = 1.5, use = function() RM.spawnHolo() end })
+RM.regGadget({ id = "chrono", name = "Хроно-жезл", icon = "⏱", desc = "Остановка времени (визуально)", style = "wand", col = RGB(90, 90, 110), acc = RGB(180, 200, 255), cost = 0, cd = 2, use = function() RM.timeStop() end })
+end
+do
+local C, M, fx, U = RM.C, RM.M, RM.fx, RM.U
+local MN, MM = Enum.Material.Neon, Enum.Material.Metal
+local UN = RM.units
+local fxF = folder("Flight")
+local function tinyHud(y)
+local l = I("TextLabel", { Size = UDim2.fromOffset(240, 22), AnchorPoint = Vector2.new(.5, 0), Position = UDim2.new(.5, 0, 0, y), BackgroundColor3 = C.bg, BackgroundTransparency = .25,
+TextColor3 = C.warn, Font = Enum.Font.GothamBold, TextSize = 12, Visible = false, ZIndex = 40 }, RM.gui)
+U.corner(l, 8)
+return l
+end
+local J = { on = false, fuel = CFG.jet.fuel, pack = nil, ws = 16, fl = {}, hud = tinyHud(46) }
+RM.jet = J
+function RM.jetToggle(on)
+if on == nil then on = not J.on end
+if on == J.on then return end
+local c, h = getChar()
+if not (c and h) then return end
+if on then
+local ok, why = enterMode("jet", "jet")
+if not ok then return notify(why, C.warn) end
+local t = c:FindFirstChild("UpperTorso") or c:FindFirstChild("Torso")
+if not t then return leaveMode("jet") end
+local pk = I("Model", { Name = "RM_Jet" }, c)
+local body = M.part(pk, "Body", V3(1.7, 2, .8), t.CFrame * CF(0, 0, .9), RGB(80, 90, 110), MM)
+weld(t, body, body)
+for _, s in ipairs({ -1, 1 }) do
+local n = M.cyl(pk, "N", .32, .7, t.CFrame * CF(s * .5, -1.3, .9), RGB(200, 200, 210), MM)
+weld(t, n, n)
+local e = I("ParticleEmitter", { Color = ColorSequence.new(RGB(255, 200, 80), RGB(255, 70, 20)), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, .8), NumberSequenceKeypoint.new(1, 0) }),
+Lifetime = NumberRange.new(.25, .5), Speed = NumberRange.new(10, 16), LightEmission = 1, Rate = 0, EmissionDirection = Enum.NormalId.Bottom,
+Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }) }, n)
+J.fl[#J.fl + 1] = e
+end
+J.pack, J.ws, J.on = pk, h.WalkSpeed, true
+notify("🔥 Ранец включён: Space/E/▲ — тяга, Ctrl/Q/▼ — снижение", C.ac, 4)
+else
+J.on = false
+EN.stop("jet")
+if J.pack then J.pack:Destroy() end
+J.pack, J.fl = nil, {}
+h.WalkSpeed = J.ws
+leaveMode("jet")
+J.hud.Visible = false
+notify("Ранец выключен", C.dim)
+end
+end
+RM.ticks.jet = function(dt)
+if not J.on then return end
+local _, h, r = getChar()
+if not (h and r) or h.Health <= 0 then return RM.jetToggle(false) end
+local up = RM.vertical()
+local air = h.FloorMaterial == Enum.Material.Air
+local thr = up > 0 and J.fuel > 0 and EN.v > 1
+local v = r.AssemblyLinearVelocity
+if thr then
+J.fuel = max(0, J.fuel - CFG.jet.burn * dt)
+r.AssemblyLinearVelocity = V3(v.X, lerp(v.Y, CFG.jet.fly, min(1, dt * 5)), v.Z)
+if not EN.drains.jet then EN.drain("jet", CFG.drain.jet, function() end) end
+else
+EN.stop("jet")
+if air and J.fuel > 0 and v.Y < -22 then r.AssemblyLinearVelocity = V3(v.X, -22, v.Z) end
+if up < 0 and air then r.AssemblyLinearVelocity = V3(v.X, max(v.Y - 60 * dt, -45), v.Z) end
+end
+if not air then J.fuel = min(CFG.jet.fuel, J.fuel + CFG.jet.regen * dt) end
+h.WalkSpeed = air and CFG.jet.speed or J.ws
+for _, e in ipairs(J.fl) do e.Rate = thr and 90 * Q().pr or 0 end
+J.hud.Visible = true
+J.hud.Text = "🔥 Топливо: " .. floor(J.fuel) .. "%"
+end
+RM.regGadget({ id = "jet", name = "Реактивный ранец", icon = "🔥", desc = "Включить / выключить ранец", style = "pack", col = RGB(80, 90, 110), acc = RGB(255, 150, 50), cost = 0, cd = .5, use = function() RM.jetToggle() end })
+local D = { on = false, cf = CF(), m = nil, rot = {}, t0 = 0, ang = 0, hud = tinyHud(72) }
+RM.drone = D
+function RM.droneStop()
+if not D.on then return end
+D.on = false
+EN.stop("drone")
+if D.m then D.m:Destroy() D.m = nil end
+local _, h, r = getChar()
+local c = cam()
+if c and h then c.CameraSubject = h end
+RM.setCustomControls(false)
+if r then r.Anchored = false end
+leaveMode("drone")
+D.hud.Visible = false
+notify("🚁 Дрон отключён", C.dim)
+end
+RM.exitFns.drone = RM.droneStop
+function RM.droneStart()
+if D.on then return end
+local _, h, r = getChar()
+if not (h and r) then return end
+if not EN.use(CFG.cost.drone, "дрон") then return end
+local ok, why = enterMode("drone", "drone")
+if not ok then EN.add(CFG.cost.drone) return notify(why, C.warn) end
+local pos = r.Position + r.CFrame.LookVector * 4 + V3(0, 3, 0)
+D.cf = CF(pos)
+local m = I("Model", { Name = "Drone" }, fxF)
+local b = M.ball(m, "Body", 1.8, D.cf, RGB(60, 65, 80), MM)
+M.ball(m, "Eye", .8, D.cf * CF(0, 0, -.8), RGB(255, 70, 70), MN)
+D.rot = {}
+for i = 1, 4 do
+local ox, oz = (i % 2 == 0 and 1 or -1) * 1.5, (i > 2 and 1 or -1) * 1.5
+local arm = M.part(m, "Arm", V3(.2, .2, 2.1), D.cf * CF(ox / 2, 0, oz / 2) * ANG(0, math.atan2(ox, oz), 0), RGB(40, 40, 50), MM)
+local rt = M.cyl(m, "Rotor", .9, .06, D.cf * CF(ox, .3, oz), RGB(200, 220, 255), Enum.Material.Glass, { Transparency = .5 })
+D.rot[#D.rot + 1] = { rt, ox, oz }
+end
+fx.light(b, RGB(255, 255, 255), 24, 2)
+m.PrimaryPart = b
+M.weldAll(m, b)
+M.anchorAll(m, true)
+D.m, D.on, D.t0, D.ang = m, true, os.clock(), 0
+r.Anchored = true
+RM.setCustomControls(true)
+local c = cam()
+if c then c.CameraSubject = b end
+EN.drain("drone", CFG.drain.drone, RM.droneStop)
+notify("🚁 Дрон: WASD/джойстик — полёт, Space/Ctrl — высота, X — вернуться. Радиус " .. CFG.drone.range, C.ac, 5)
+end
+RM.ticks.drone = function(dt, now)
+if not D.on then return end
+local c, h, r = getChar()
+if not (r and D.m and D.m.Parent) or (h and h.Health <= 0) or now - D.t0 > CFG.drone.time then return RM.droneStop() end
+local md = RM.moveDir()
+local v = md * CFG.drone.speed + V3(0, RM.vertical() * CFG.drone.speed * .7, 0)
+local pos = D.cf.Position
+local step = v * dt
+if step.Magnitude > .01 then
+local hit = ray(pos, step.Unit * (step.Magnitude + 1.5), { WORLD, c })
+if not hit then pos = pos + step end
+end
+local off = pos - r.Position
+if off.Magnitude > CFG.drone.range then pos = r.Position + off.Unit * CFG.drone.range end
+local face = md.Magnitude > .1 and md or D.cf.LookVector
+D.cf = CFrame.lookAt(pos, pos + V3(face.X, 0, face.Z))
+D.ang = D.ang + dt * 40
+D.m:PivotTo(D.cf)
+for _, t in ipairs(D.rot) do t[1].CFrame = D.cf * CF(t[2], .3, t[3]) * ANG(0, D.ang, 0) * ANG(0, 0, pi / 2) end
+D.hud.Visible = true
+D.hud.Text = string.format("🚁 %dс  дистанция %d/%d", floor(max(0, CFG.drone.time - (now - D.t0))), floor(off.Magnitude), CFG.drone.range)
+end
+RM.bindKey("X", function() RM.exitMode() end)
+RM.regGadget({ id = "drone", name = "Дрон-разведчик", icon = "🚁", desc = "Запуск дрона с видом от первого лица", style = "box", col = RGB(60, 65, 80), acc = RGB(255, 90, 90), cost = 0, cd = 1, use = function() RM.droneStart() end })
+local function rescale(u, k)
+u.model:ScaleTo(u.model:GetScale() * k)
+for n, j in pairs(u.rig.joints) do u.rig.base[n] = j.C0 end
+u.rig.s = u.rig.s * k
+end
+RM.regGadget({ id = "shrink", name = "Уменьшитель", icon = "🔬", desc = "Уменьшает / возвращает размер цели (локальные юниты)", style = "pistol", col = RGB(60, 90, 100), acc = RGB(120, 255, 255), cost = CFG.cost.shrink, cd = .8, use = function(x)
+local o = x.inst
+while o and o ~= WORLD and not UN[o] do o = o.Parent end
+local u = o and UN[o]
+fx.bolt(x.root.Position + V3(0, 1, 0), x.pos or (x.o + x.d * 200), RGB(120, 255, 255), .25, .25)
+if not (u and u.rig) then return notify("Наведи на робота / NPC / мишень", C.warn, 1.5) end
+u.shrunk = not u.shrunk
+rescale(u, u.shrunk and .4 or 2.5)
+u.hp = u.shrunk and min(u.hp, u.max * .5) or u.hp
+fx.spark(u.root.Position, RGB(120, 255, 255), 20)
+end })
+local me = { on = false }
+function RM.shrinkMe(on)
+local c = LP.Character
+if not c then return end
+if on == nil then on = not me.on end
+if on == me.on then return end
+if on and not EN.use(CFG.cost.shrink, "уменьшение") then return end
+me.on = on
+pcall(function() c:ScaleTo(on and .35 or 1) end)
+if on then EN.drain("shrink", 1, function() RM.shrinkMe(false) end) else EN.stop("shrink") end
+fx.dim(RGB(120, 255, 255), .6)
+notify(on and "🐜 Ты уменьшился" or "Размер возвращён", C.ac)
+end
+RM.charHooks[#RM.charHooks + 1] = function() me.on = false EN.stop("shrink") J.on = false J.pack = nil J.fl = {} if MODE.cur == "jet" then leaveMode("jet") end end
+RM.cleanups[#RM.cleanups + 1] = function()
+if me.on then pcall(function() LP.Character:ScaleTo(1) end) end
+pcall(RM.droneStop)
+pcall(RM.jetToggle, false)
+end
+RM.regGadget({ id = "shrinkme", name = "Костюм-уменьшитель", icon = "🐜", desc = "Уменьшает тебя в 3 раза (вкл/выкл)", style = "can", col = RGB(70, 90, 110), acc = RGB(120, 255, 255), cost = 0, cd = 1, use = function() RM.shrinkMe() end })
+end
+do
+local C, M, fx = RM.C, RM.M, RM.fx
+local SH = { on = false, hp = 0, part = nil, t0 = 0, cd = 0 }
+local DM = { on = false, hp = 0, part = nil, pos = nil, t0 = 0 }
+RM.shield, RM.dome = SH, DM
+local defF = folder("Defense")
+local function bubble(r, col, tr)
+return I("Part", { Shape = Enum.PartType.Ball, Size = V3(r * 2, r * 2, r * 2), Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
+Material = Enum.Material.ForceField, Color = col, Transparency = tr, CastShadow = false }, defF)
+end
+function RM.shieldToggle(on)
+if on == nil then on = not SH.on end
+if on == SH.on then return end
+if on then
+if os.clock() < SH.cd then return notify("🛡 Щит перезаряжается: " .. floor(SH.cd - os.clock()) .. " с", C.warn, 1.5) end
+if not EN.use(CFG.cost.shield, "щит") then return end
+SH.on, SH.hp, SH.t0 = true, CFG.shield.hp, os.clock()
+SH.part = bubble(5.5, RGB(80, 200, 255), .55)
+EN.drain("shield", CFG.drain.shield, function() RM.shieldToggle(false) end)
+snd("shield", 1, 1)
+notify("🛡 Щит активен (" .. CFG.shield.time .. " с) — защищает от локальных угроз", C.ac, 2.5)
+else
+SH.on, SH.cd = false, os.clock() + CFG.shield.cd
+EN.stop("shield")
+if SH.part then SH.part:Destroy() SH.part = nil end
+snd("shield", .8, .6)
+end
+end
+function RM.domeToggle(on)
+if on == nil then on = not DM.on end
+if on == DM.on then return end
+if on then
+local _, _, r = getChar()
+if not r or not EN.use(CFG.cost.dome, "купол") then return end
+DM.on, DM.hp, DM.t0 = true, CFG.dome.hp, os.clock()
+DM.pos = r.Position
+DM.part = bubble(CFG.dome.r, RGB(120, 255, 180), .8)
+DM.part.CFrame = CF(DM.pos)
+EN.drain("dome", CFG.drain.dome, function() RM.domeToggle(false) end)
+fx.ring(DM.pos - V3(0, 3, 0), RGB(120, 255, 180), CFG.dome.r * 2, V3(0, 1, 0))
+snd("shield", 1, .8)
+notify("⛺ Купол развёрнут: внутри +энергия, враги не входят", C.ac, 3)
+else
+DM.on = false
+EN.stop("dome")
+if DM.part then DM.part:Destroy() DM.part = nil end
+notify("Купол свёрнут", C.dim, 1.5)
+end
+end
+function RM.shieldAbsorb(dmg, from)
+local _, _, r = getChar()
+if SH.on then
+SH.hp = SH.hp - dmg * 2
+fx.pulse(SH.part, .15, RGB(255, 255, 255))
+snd("shield", .8, 1.5)
+if SH.hp <= 0 then RM.shieldToggle(false) notify("🛡 Щит разрушен", C.dg) end
+return true
+end
+if DM.on and r and (r.Position - DM.pos).Magnitude < CFG.dome.r then
+DM.hp = DM.hp - dmg
+if DM.hp <= 0 then RM.domeToggle(false) notify("⛺ Купол разрушен", C.dg) end
+return true
+end
+return false
+end
+RM.ticks.defense = function(dt, now)
+if SH.on then
+local _, _, r = getChar()
+if not r or now - SH.t0 > CFG.shield.time then return RM.shieldToggle(false) end
+SH.part.CFrame = r.CFrame
+end
+if DM.on then
+local _, _, r = getChar()
+if now - DM.t0 > CFG.dome.time then return RM.domeToggle(false) end
+if r and (r.Position - DM.pos).Magnitude < CFG.dome.r then EN.add(2.5 * dt) end
+for _, u in pairs(RM.units) do
+if u.team == "enemy" and u.root.Parent then
+local off = u.root.Position - DM.pos
+local d = off.Magnitude
+if d < CFG.dome.r + 1 and d > .1 then
+u.root.AssemblyLinearVelocity = off.Unit * 40 + V3(0, 6, 0)
+u.hum:MoveTo(DM.pos + off.Unit * (CFG.dome.r + 12))
+end
+end
+end
+end
+end
+RM.cleanups[#RM.cleanups + 1] = function() SH.on, DM.on = false, false end
+RM.regGadget({ id = "shield", name = "Генератор щита", icon = "🛡", desc = "Личный щит на 8 с", style = "box", col = RGB(50, 80, 110), acc = RGB(80, 200, 255), cost = 0, cd = .6, use = function() RM.shieldToggle() end })
+RM.regGadget({ id = "dome", name = "Купол-генератор", icon = "⛺", desc = "Защитный купол на 30 с", style = "can", col = RGB(50, 100, 80), acc = RGB(120, 255, 180), cost = 0, cd = 1, use = function() RM.domeToggle() end })
+end
+do
+local C, M, fx, U = RM.C, RM.M, RM.fx, RM.U
+local UN, MN = RM.units, Enum.Material.Neon
+local propsF = RM.propsF
+local rnd = math.random
+local pick = {}
+local CN = { gear = "⚙ Шестерня", chip = "💾 Чип", battery = "🔋 Батарея", wire = "🧵 Провод" }
+RM.CN = CN
+local CCOL = { gear = RGB(200, 200, 210), chip = RGB(80, 255, 140), battery = RGB(255, 230, 60), wire = RGB(255, 140, 60) }
+function RM.dropPickup(pos, k)
+k = k or ({ "gear", "chip", "battery", "wire" })[rnd(4)]
+local p = M.ball(propsF, "Pickup", 1.1, CF(pos), CCOL[k], MN, { Anchored = true })
+fx.light(p, CCOL[k], 8, 1.5)
+pick[#pick + 1] = { p = p, k = k, y = pos.Y, t0 = os.clock() }
+end
+RM.ticks.pickups = function(dt, now)
+if #pick == 0 then return end
+local _, _, r = getChar()
+for i = #pick, 1, -1 do
+local e = pick[i]
+if not e.p.Parent or now - e.t0 > 150 then
+e.p:Destroy()
+table.remove(pick, i)
+else
+e.p.Position = V3(e.p.Position.X, e.y + sin(now * 2 + i) * .4, e.p.Position.Z)
+if r and (r.Position - e.p.Position).Magnitude < 5 then
+RM.addComp(e.k)
+notify("Получено: " .. CN[e.k], C.ok, 1.5)
+snd("comp", 1, 1.2)
+fx.spark(e.p.Position, CCOL[e.k], 10)
+e.p:Destroy()
+table.remove(pick, i)
+end
+end
+end
+end
+function RM.scan()
+local c, _, r = getChar()
+if not r then return end
+fx.ring(r.Position, C.ac, CFG.scan.r * 2, V3(0, 1, 0))
+snd("holo", 1, 1.5)
+local found = {}
+for m, u in pairs(UN) do
+local d = (u.root.Position - r.Position).Magnitude
+if d < CFG.scan.r and u.kind ~= "holo" then
+found[#found + 1] = { d, u.name .. (u.team == "enemy" and " ⚠" or "") }
+fx.highlight(m, u.team == "enemy" and C.dg or C.ac, 4)
+end
+end
+for _, pl in ipairs(Players:GetPlayers()) do
+local pr = pl ~= LP and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
+if pr and (pr.Position - r.Position).Magnitude < CFG.scan.r then
+found[#found + 1] = { (pr.Position - r.Position).Magnitude, "Игрок " .. pl.DisplayName }
+fx.highlight(pl.Character, RGB(80, 160, 255), 4)
+end
+end
+table.sort(found, function(a, b) return a[1] < b[1] end)
+local t = {}
+for i = 1, min(5, #found) do t[i] = floor(found[i][1]) .. "м " .. found[i][2] end
+notify("📡 Сканер: " .. (#found == 0 and "ничего живого поблизости" or (#found .. " целей: " .. table.concat(t, ", "))), C.ac, 5)
+end
+RM.regGadget({ id = "scanner", name = "Сканер", icon = "📡", desc = "Импульс: подсвечивает цели и игроков вокруг", style = "box", col = RGB(40, 70, 60), acc = RGB(80, 255, 160), cost = CFG.cost.scan, cd = CFG.scan.cd, use = function() RM.scan() end })
+local rad = I("Frame", { Size = UDim2.fromOffset(130, 130), Position = UDim2.new(0, 14, 1, -150), BackgroundColor3 = C.bg, BackgroundTransparency = .25, Visible = false, ZIndex = 40 }, RM.gui)
+U.corner(rad, 65)
+U.stroke(rad, C.ac, 2, .3)
+I("Frame", { Size = UDim2.fromOffset(6, 6), AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5), BackgroundColor3 = C.tx, ZIndex = 42 }, rad)
+local dots = {}
+RM.radarOn = false
+function RM.radar(on)
+if on == nil then on = not RM.radarOn end
+RM.radarOn = on
+rad.Visible = on
+end
+RM.ticks.radar = function(dt)
+if not RM.radarOn then return end
+RM.rdT = (RM.rdT or 0) + dt
+if RM.rdT < .1 then return end
+RM.rdT = 0
+local _, _, r = getChar()
+local c = cam()
+if not (r and c) then return end
+local look = c.CFrame.LookVector
+local yaw = math.atan2(look.X, look.Z)
+local n = 0
+local R = ST.radarR
+local function dot(pos, col)
+local o = pos - r.Position
+local x, z = o.X * cos(yaw) - o.Z * sin(yaw), o.X * sin(yaw) + o.Z * cos(yaw)
+local d = sqrt(x * x + z * z)
+if d > R then return end
+n = n + 1
+if n > 50 then return end
+local f = dots[n]
+if not f then
+f = I("Frame", { Size = UDim2.fromOffset(6, 6), AnchorPoint = Vector2.new(.5, .5), ZIndex = 41, BorderSizePixel = 0 }, rad)
+U.corner(f, 3)
+dots[n] = f
+end
+f.Visible, f.BackgroundColor3 = true, col
+f.Position = UDim2.new(.5, -x / R * 58, .5, z / R * 58)
+end
+for _, u in pairs(UN) do dot(u.root.Position, u.team == "enemy" and C.dg or C.ok) end
+for _, pl in ipairs(Players:GetPlayers()) do
+local pr = pl ~= LP and pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
+if pr then dot(pr.Position, RGB(80, 160, 255)) end
+end
+for _, e in ipairs(pick) do dot(e.p.Position, C.warn) end
+for i = n + 1, #dots do dots[i].Visible = false end
+end
+RM.regGadget({ id = "crate", name = "Ящик-реквизит", icon = "📦", desc = "Создаёт физический ящик (для манипулятора)", style = "box", col = RGB(120, 90, 50), acc = RGB(255, 200, 100), cost = 1, cd = .5, use = function(x)
+if not canAdd("props", CFG.limit.props) then return end
+local pos = x.pos and x.pos + V3(0, 3, 0) or x.o + x.d * 12
+local p = M.part(propsF, "Crate", V3(3, 3, 3), CF(pos), RGB(150, 110, 60), Enum.Material.Wood, { CanCollide = true, CanQuery = true, Massless = false })
+p.CustomPhysicalProperties = PhysicalProperties.new(.7, .4, .2)
+local e = entAdd("props", { p = p, destroy = function(s) s.p:Destroy() end })
+later(120, function() entDel("props", e) if p.Parent then p:Destroy() end end)
+end })
+local held
+local function grabTarget(inst)
+local o = inst
+while o and o ~= WORLD do
+if o:IsA("BasePart") and o.Parent == propsF and not o.Anchored then return o end
+if UN[o] then return UN[o].root end
+o = o.Parent
+end
+end
+local function release(throw)
+if not held then return end
+local p = held
+held = nil
+EN.stop("grav")
+if throw and p.Parent then p.AssemblyLinearVelocity = RM.aimRay and select(2, RM.aimRay()) * 90 or V3() end
+end
+RM.regGadget({ id = "grav", name = "Гравитационный манипулятор", icon = "🧲", desc = "Захват ящиков и юнитов; повторный клик — бросок", style = "pistol", col = RGB(70, 60, 100), acc = RGB(160, 120, 255), cost = 0, cd = .4, range = 60, use = function(x)
+if held then return release(true) end
+local t = x.inst and grabTarget(x.inst)
+if not t then return notify("Манипулятор берёт только свои ящики и юниты", C.warn, 2) end
+if t.AssemblyMass > CFG.gravity.maxMass then return notify("Слишком тяжёлый", C.warn) end
+if not EN.use(2, "манипулятор") then return end
+held = t
+EN.drain("grav", CFG.drain.grav, function() release(false) end)
+snd("gadget", 1, .7)
+end })
+RM.ticks.grav = function(dt)
+if not held then return end
+if not held.Parent then return release(false) end
+local o, d = RM.aimRay()
+local tp = o + d * ST.gravDist
+local dv = (tp - held.Position)
+held.AssemblyLinearVelocity = dv * 10 * ST.gravForce
+held.AssemblyAngularVelocity = V3()
+end
+RM.cleanups[#RM.cleanups + 1] = function() held = nil end
+RM.regGadget({ id = "arm", name = "Рука-манипулятор", icon = "🦾", desc = "Тянет ящик/юнит к тебе, либо подтягивает тебя к поверхности", style = "wand", col = RGB(130, 130, 150), acc = RGB(255, 150, 80), cost = 5, cd = 1, range = 60, use = function(x)
+local tp = x.inst and grabTarget(x.inst)
+local from = x.root.Position + V3(0, 1, 0)
+if not x.pos or (x.pos - from).Magnitude > ST.armLen * 1.6 then return notify("Рука достаёт на " .. ST.armLen .. " м", C.warn, 1.5) end
+fx.bolt(from, x.pos, RGB(255, 150, 80), .4, .5)
+snd("gadget", 1, .9)
+if tp then
+tp.AssemblyLinearVelocity = (from + x.root.CFrame.LookVector * 6 - tp.Position).Unit * 70
+else
+x.root.AssemblyLinearVelocity = (x.pos - from).Unit * 70 + V3(0, 15, 0)
+end
+end })
+local zones = {}
+RM.zoneMode = "low"
+local ZF = { low = .3, zero = 0, heavy = 2.5 }
+RM.ZF = ZF
+RM.regGadget({ id = "zone", name = "Гравизона", icon = "🌐", desc = "Зона с другой гравитацией 30 с (режим: меню «Мир»)", style = "can", col = RGB(60, 60, 110), acc = RGB(120, 140, 255), cost = CFG.cost.zone, cd = 1, range = 120, use = function(x)
+if not canAdd("zones", CFG.limit.zones) then return end
+local pos = x.pos and x.pos + V3(0, 6, 0) or x.o + x.d * 20
+local s = I("Part", { Shape = Enum.PartType.Ball, Size = V3(40, 40, 40), Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false, Material = Enum.Material.ForceField,
+Color = RM.zoneMode == "heavy" and RGB(255, 90, 90) or RGB(120, 140, 255), Transparency = .7, CFrame = CF(pos) }, propsF)
+local e = entAdd("zones", { p = s, pos = pos, k = ZF[RM.zoneMode], destroy = function(z) z.p:Destroy() EN.stop("zone" .. tostring(z.p)) end })
+EN.drain("zone" .. tostring(s), CFG.drain.zone, function() entDel("zones", e) e:destroy() end)
+zones[#zones + 1] = e
+later(30, function() entDel("zones", e) if s.Parent then e:destroy() end end)
+snd("shield", 1, .5)
+end })
+RM.ticks.zones = function(dt)
+local g = 196.2
+local _, _, r = getChar()
+for _, z in ipairs(RM.ents.zones or {}) do
+if z.p.Parent then
+if r and (r.Position - z.pos).Magnitude < 20 then g = 196.2 * z.k end
+for _, u in pairs(UN) do
+if (u.root.Position - z.pos).Magnitude < 20 then u.root.AssemblyLinearVelocity += V3(0, 196.2 * (1 - z.k) * dt, 0) end
+end
+for _, p in ipairs(propsF:GetChildren()) do
+if p:IsA("BasePart") and not p.Anchored and (p.Position - z.pos).Magnitude < 20 then p.AssemblyLinearVelocity += V3(0, 196.2 * (1 - z.k) * dt, 0) end
+end
+end
+end
+if Workspace.Gravity ~= g then Workspace.Gravity = g end
+end
+RM.cleanups[#RM.cleanups + 1] = function() Workspace.Gravity = 196.2 end
+local mg = I("Frame", { Size = UDim2.fromOffset(300, 110), AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .3), BackgroundColor3 = C.bg, Visible = false, ZIndex = 120 }, RM.gui)
+U.corner(mg, 12)
+U.stroke(mg, C.warn, 2)
+local mgT = U.label(mg, "", { Size = UDim2.new(1, -10, 0, 20), Position = UDim2.fromOffset(8, 4), Font = Enum.Font.GothamBold, ZIndex = 121, TextWrapped = false })
+local mgBar = I("Frame", { Size = UDim2.new(1, -20, 0, 20), Position = UDim2.fromOffset(10, 30), BackgroundColor3 = C.bg3, ZIndex = 121 }, mg)
+local mgZone = I("Frame", { Size = UDim2.fromScale(.2, 1), BackgroundColor3 = C.ok, ZIndex = 122, BorderSizePixel = 0 }, mgBar)
+local mgMark = I("Frame", { Size = UDim2.new(0, 6, 1, 6), Position = UDim2.fromOffset(0, -3), BackgroundColor3 = RGB(255, 255, 255), ZIndex = 123, BorderSizePixel = 0 }, mgBar)
+local mgBtn = I("TextButton", { Size = UDim2.new(1, -20, 0, 34), Position = UDim2.fromOffset(10, 60), BackgroundColor3 = RGB(32, 110, 72), Text = "СТАБИЛИЗИРОВАТЬ", TextColor3 = C.tx, Font = Enum.Font.GothamBold, TextSize = 13, ZIndex = 122 }, mg)
+U.corner(mgBtn, 8)
+local G = nil
+local mgState = { ok = 0, bad = 0, x = 0, dir = 1, sp = .9 }
+local function mgNewZone() mgZone.Position = UDim2.fromScale(rnd() * .8, 0) end
+local function mgEnd(win)
+mg.Visible = false
+local gen = G
+G = nil
+if not (gen and gen.m.Parent) then return end
+if win then
+EN.bonus[gen] = 3
+RM.dropPickup(gen.pos + V3(3, 2, 0), "battery")
+gen.core.Color = C.ok
+notify("⚡ Генератор стабилен: +3 энергии/с на 60 с и батарея", C.ok, 4)
+later(60, function() EN.bonus[gen] = nil if gen.m.Parent then gen.core.Color = C.dim end end)
+else
+RM.boom(gen.pos, 14, 40, RGB(255, 120, 40))
+gen.destroy(gen)
+entDel("gens", gen)
+notify("💥 Генератор перегружен и взорвался", C.dg, 3)
+end
+end
+conn(mgBtn.Activated:Connect(function()
+if not G then return end
+local lo = mgZone.Position.X.Scale
+if mgState.x >= lo and mgState.x <= lo + .2 then mgState.ok = mgState.ok + 1 else mgState.bad = mgState.bad + 1 end
+mgState.sp = mgState.sp + .25
+mgNewZone()
+if mgState.ok >= 4 then mgEnd(true) elseif mgState.bad >= 3 then mgEnd(false) end
+end))
+RM.ticks.mini = function(dt)
+if not G then return end
+mgState.x = mgState.x + mgState.dir * mgState.sp * dt
+if mgState.x > 1 then mgState.x, mgState.dir = 1, -1 elseif mgState.x < 0 then mgState.x, mgState.dir = 0, 1 end
+mgMark.Position = UDim2.new(mgState.x, -3, 0, -3)
+mgT.Text = "⚡ Генератор: попади в зелёное " .. mgState.ok .. "/4, промахи " .. mgState.bad .. "/3"
+local _, _, r = getChar()
+if not r or (r.Position - G.pos).Magnitude > 30 then mgEnd(false) end
+end
+function RM.genStart(gen)
+if G then return end
+mgState = { ok = 0, bad = 0, x = 0, dir = 1, sp = .9 }
+mgNewZone()
+G = gen
+mg.Visible = true
+end
+RM.regGadget({ id = "gen", name = "Генератор энергии", icon = "⚡", desc = "Поставить генератор; клик по нему — мини-игра стабилизации", style = "box", col = RGB(90, 80, 40), acc = RGB(255, 230, 60), cost = CFG.cost.gen, cd = .8, range = 80, use = function(x)
+local o = x.inst
+while o and o ~= WORLD do
+if o:GetAttribute("RM_Gen") then
+for _, g in ipairs(RM.ents.gens or {}) do if g.m == o then return RM.genStart(g) end end
+end
+o = o.Parent
+end
+if not x.pos or not canAdd("gens", CFG.limit.gens) then return end
+local m = I("Model", { Name = "Generator" }, propsF)
+m:SetAttribute("RM_Gen", true)
+local base = CF(x.pos + V3(0, 2, 0))
+local b = M.part(m, "Base", V3(4, 4, 4), base, RGB(80, 85, 100), Enum.Material.Metal, { Anchored = true, CanQuery = true })
+local core = M.cyl(m, "Core", 1.2, 3, base * CF(0, 3, 0), C.dim, MN, { Anchored = true, CanQuery = true })
+M.skin(b, "lab")
+fx.light(core, C.warn, 14, 1.5)
+local g = { m = m, pos = x.pos, core = core, destroy = function(s) EN.bonus[s] = nil s.m:Destroy() end }
+entAdd("gens", g)
+snd("gadget", 1, .8)
+notify("Генератор поставлен. Нажми по нему этим же устройством", C.ac, 3)
+end })
+RM.lab = nil
+function RM.buildLab()
+if RM.lab and RM.lab.Parent then RM.lab:Destroy() RM.lab = nil end
+local pos, _, _, o, d = RM.aimHit(80)
+pos = pos or (o + d * 25)
+local fl = Vector3.new(d.X, 0, d.Z)
+local base = CFrame.lookAt(pos + V3(0, .3, 0), pos + V3(0, .3, 0) + (fl.Magnitude > .1 and fl.Unit or V3(0, 0, -1)))
+local m = I("Model", { Name = "Lab" }, propsF)
+local function P(n, sz, off, col, mat) local p = M.part(m, n, sz, base * off, col, mat, { Anchored = true, CanCollide = true, CanQuery = true }) M.skin(p, "lab") return p end
+P("Floor", V3(30, .6, 22), CF(), RGB(70, 75, 90), Enum.Material.Metal)
+P("Back", V3(30, 10, .6), CF(0, 5, -11), RGB(190, 200, 215), Enum.Material.Metal)
+P("Left", V3(.6, 10, 22), CF(-15, 5, 0), RGB(190, 200, 215), Enum.Material.Metal)
+P("Right", V3(.6, 10, 22), CF(15, 5, 0), RGB(190, 200, 215), Enum.Material.Metal)
+P("Roof", V3(30, .6, 22), CF(0, 10, 0), RGB(100, 105, 120), Enum.Material.Metal).Transparency = .5
+P("Table", V3(10, 1, 3), CF(0, 3, -8), RGB(150, 130, 100), Enum.Material.Wood)
+P("Leg1", V3(.8, 2.5, .8), CF(-4.5, 1.6, -8), RGB(90, 90, 100), Enum.Material.Metal)
+P("Leg2", V3(.8, 2.5, .8), CF(4.5, 1.6, -8), RGB(90, 90, 100), Enum.Material.Metal)
+local scr = P("Screen", V3(6, 3.5, .3), CF(0, 6.5, -10.6), RGB(10, 20, 30), MN)
+scr.Color = RGB(30, 90, 70)
+for i, col in ipairs({ C.ac, C.ac2, C.warn }) do
+local t = M.cyl(m, "Tube", .7, 4, base * CF(-12 + i * 2, 2.6, 8) , col, Enum.Material.Glass, { Anchored = true, Transparency = .35 })
+fx.light(t, col, 10, 1)
+end
+fx.light(scr, RGB(120, 255, 200), 24, 1.5)
+m.Parent = propsF
+RM.lab = m
+RM.labPos = pos
+RM.labT = os.clock() + 25
+snd("gadget", 1, .6)
+notify("🧪 Лаборатория построена: рядом генерирует детали каждые ~40 с", C.ok, 4)
+end
+RM.ticks.lab = function(dt, now)
+if not (RM.lab and RM.lab.Parent) then return end
+local _, _, r = getChar()
+if r and (r.Position - RM.labPos).Magnitude < 40 and now > (RM.labT or 0) then
+RM.labT = now + 40
+RM.dropPickup(RM.labPos + V3(rnd(-6, 6), 3, rnd(-3, 3)))
+end
+end
+RM.cleanups[#RM.cleanups + 1] = function() if RM.lab then RM.lab:Destroy() end end
+end
+do
+local C, M, fx = RM.C, RM.M, RM.fx
+local rnd = math.random
+local function v3(p) return V3(p.x, p.y, p.z) end
+function RM.coordSave(name)
+local _, _, r = getChar()
+if not r then return end
+if #SAVE.coords >= CFG.limit.coords then return notify("Лимит координат: " .. CFG.limit.coords, C.warn) end
+local p = r.Position
+SAVE.coords[#SAVE.coords + 1] = { name = str(name ~= "" and name or ("Точка " .. (#SAVE.coords + 1))), p = { x = p.X, y = p.Y, z = p.Z }, ry = select(2, r.CFrame:ToOrientation()), fav = false }
+notify("📍 Сохранено: " .. SAVE.coords[#SAVE.coords].name, C.ok, 1.5)
+end
+function RM.goPos(e, cost)
+local _, _, r = getChar()
+if not r then return end
+if cost and not EN.use(cost, "телепорт") then return end
+local back = r.Position
+if RM.teleport(v3(e.p), e.ry) then RM.backPos = back else if cost then EN.add(cost) end end
+end
+function RM.coordGo(i) if SAVE.coords[i] then RM.goPos(SAVE.coords[i], CFG.cost.coord) end end
+function RM.coordFav(i) if SAVE.coords[i] then SAVE.coords[i].fav = not SAVE.coords[i].fav end end
+function RM.coordDel(i) table.remove(SAVE.coords, i) end
+function RM.coordBack()
+if not RM.backPos then return notify("Нет точки возврата", C.warn) end
+RM.goPos({ p = { x = RM.backPos.X, y = RM.backPos.Y, z = RM.backPos.Z }, ry = 0 }, CFG.cost.coord)
+end
+function RM.slotSave(i)
+local _, _, r = getChar()
+if not r then return end
+local p = r.Position
+SAVE.slots[i] = { name = "Слот " .. i, p = { x = p.X, y = p.Y, z = p.Z }, ry = select(2, r.CFrame:ToOrientation()), mode = MODE.cur, size = 1 }
+notify("💾 Слот " .. i .. " сохранён", C.ok, 1.5)
+end
+function RM.slotGo(i) if SAVE.slots[i] then RM.goPos(SAVE.slots[i], CFG.cost.coord) else notify("Слот пуст", C.warn) end end
+RM.regGadget({ id = "coords", name = "Навигатор координат", icon = "📍", desc = "Клик — вернуться в предыдущую точку", style = "box", col = RGB(50, 60, 90), acc = RGB(120, 200, 255), cost = 0, cd = 1, use = function() RM.coordBack() end })
+local hist = {}
+RM.ticks.hist = function(dt, now)
+RM.hT = (RM.hT or 0) + dt
+if RM.hT < 3 then return end
+RM.hT = 0
+local _, h, r = getChar()
+if r and h and h.Health > 0 and MODE.cur == "normal" then
+hist[#hist + 1] = { t = now, p = r.Position, ry = select(2, r.CFrame:ToOrientation()), en = EN.v }
+if #hist > 22 then table.remove(hist, 1) end
+end
+end
+function RM.rewind(sec)
+local now = os.clock()
+local best
+for i = #hist, 1, -1 do
+if now - hist[i].t >= sec then best = hist[i] break end
+end
+best = best or hist[1]
+if not best then return notify("История пока пуста: подожди несколько секунд", C.warn) end
+if MODE.cur ~= "normal" then return notify("Откат работает в обычном режиме", C.warn) end
+if not EN.use(CFG.cost.time, "откат") then return end
+if RM.teleport(best.p, best.ry) then
+EN.v = max(EN.v, best.en)
+notify("⏪ Откат на " .. floor(now - best.t) .. " с назад", C.ac)
+else EN.add(CFG.cost.time) end
+end
+RM.regGadget({ id = "timemachine", name = "Машина времени", icon = "⏪", desc = "Откат на 30 с назад (позиция и энергия)", style = "wand", col = RGB(100, 80, 50), acc = RGB(255, 200, 80), cost = 0, cd = 2, use = function() RM.rewind(30) end })
+RM.RECIPES = {
+{ id = "pack", name = "Батарейный блок", desc = "+3 батареи (можно повторять)", cost = { wire = 1, chip = 1 }, rep = true },
+{ id = "blaster", name = "Самодельный бластер", desc = "Открывает гаджет «Бластер»", cost = { gear = 2, chip = 1, battery = 1 } },
+{ id = "capacity", name = "Расширитель ёмкости", desc = "Максимум энергии +25", cost = { chip = 2, battery = 2 } },
+{ id = "recup", name = "Рекуператор", desc = "Регенерация энергии +1/с", cost = { gear = 2, wire = 2 } },
+}
+function RM.applyUnlocks()
+EN.max = CFG.energy.max + (SAVE.unl.capacity and 25 or 0)
+EN.bonus.recup = SAVE.unl.recup and 1 or nil
+EN.v = min(EN.v, EN.max)
+end
+function RM.craft(i)
+local r = RM.RECIPES[i]
+if not r then return end
+if not r.rep and SAVE.unl[r.id] then return notify("Уже изготовлено", C.warn) end
+for k, n in pairs(r.cost) do
+if (SAVE.comps[k] or 0) < n then return notify("Не хватает: " .. RM.CN[k] .. " ×" .. n, C.warn) end
+end
+if r.id ~= "pack" and #SAVE.builds >= CFG.limit.builds then return notify("Лимит чертежей", C.warn) end
+local cl = {}
+for k, n in pairs(r.cost) do
+SAVE.comps[k] = SAVE.comps[k] - n
+for _ = 1, n do cl[#cl + 1] = k end
+end
+if r.id == "pack" then RM.addComp("battery", 3) else SAVE.unl[r.id] = true end
+if #SAVE.builds < CFG.limit.builds then SAVE.builds[#SAVE.builds + 1] = { name = r.name, comps = cl, kind = r.id } end
+RM.applyUnlocks()
+snd("comp", 1, 1)
+notify("🛠 Изготовлено: " .. r.name, C.ok)
+RM.expAdd("craft")
+end
+RM.regGadget({ id = "blaster", name = "Бластер (самодельный)", icon = "🔫", desc = "Мощный выстрел. Нужно изготовить в Конструкторе", style = "pistol", col = RGB(90, 70, 50), acc = RGB(255, 150, 40), cost = 3, cd = .5, use = function(x)
+if not SAVE.unl.blaster then return notify("Сначала изготовь бластер в Конструкторе", C.warn) end
+local to = x.pos or (x.o + x.d * 300)
+fx.bolt(x.root.Position + V3(0, 1, 0), to, RGB(255, 150, 40), .45, .25)
+snd("shoot", 1, .7)
+if x.pos then
+fx.spark(x.pos, RGB(255, 150, 40), 14)
+if x.inst then RM.hurt(x.inst, 40, x.pos) end
+end
+end })
+local gGive = RM.giveGadget
+function RM.giveGadget(id, ne)
+if id == "blaster" and not SAVE.unl.blaster then return notify("Бластер ещё не изготовлен (Конструктор)", C.warn) end
+return gGive(id, ne)
+end
+RM.EXPS = {
+{ id = "kills", name = "Охотник за монстрами", goal = 5, reward = "chip", desc = "Уничтожь 5 врагов" },
+{ id = "tp", name = "Мастер порталов", goal = 10, reward = "wire", desc = "10 телепортаций" },
+{ id = "scan", name = "Исследователь", goal = 5, reward = "chip", desc = "5 сканирований" },
+{ id = "hyper", name = "Гиперпрыгун", goal = 3, reward = "battery", desc = "3 гиперпрыжка корабля" },
+{ id = "robots", name = "Инженер", goal = 4, reward = "gear", desc = "Создай 4 робота" },
+{ id = "echo", name = "Эхо-теоретик", goal = 3, reward = "chip", desc = "3 эхо-клона" },
+{ id = "craft", name = "Мастер-сборщик", goal = 2, reward = "battery", desc = "Изготовь 2 предмета" },
+{ id = "dims", name = "Странник измерений", goal = 3, reward = "gear", desc = "Посети 3 измерения" },
+}
+function RM.expAdd(id, n)
+for _, e in ipairs(RM.EXPS) do
+if e.id == id then
+local s = SAVE.exp[id] or { p = 0, done = false }
+SAVE.exp[id] = s
+if not s.done then
+s.p = s.p + (n or 1)
+if s.p >= e.goal then
+s.done, s.p = true, e.goal
+RM.addComp(e.reward, 2)
+notify("🏆 Эксперимент «" .. e.name .. "» завершён! Награда: " .. RM.CN[e.reward] .. " ×2", C.ok, 5)
+snd("comp", 1, 1.4)
+end
+end
+end
+end
+end
+local function hook(name, key, okfn)
+local f = RM[name]
+RM[name] = function(...)
+local a, b = f(...)
+if not okfn or okfn(a, b) then RM.expAdd(key) end
+return a, b
+end
+end
+hook("teleport", "tp", function(a) return a == true end)
+hook("scan", "scan")
+hook("shipHyper", "hyper")
+hook("spawnEcho", "echo")
+local ek = 0
+RM.ticks.exp = function(dt)
+RM.exT = (RM.exT or 0) + dt
+if RM.exT < 1 then return end
+RM.exT = 0
+local k = RM.stats.kills
+if k > ek then RM.expAdd("kills", k - ek) end
+ek = k
+end
+local rc = 0
+for _, f in ipairs({ "spawnRobot" }) do
+local o = RM[f]
+RM[f] = function(...)
+local before = entCount("robots")
+o(...)
+if entCount("robots") > before then RM.expAdd("robots") end
+end
+end
+local LP_ = { "Ambient", "OutdoorAmbient", "ColorShift_Top", "ColorShift_Bottom", "FogColor", "FogEnd", "FogStart", "Brightness", "ClockTime", "ExposureCompensation" }
+local orig = {}
+for _, k in ipairs(LP_) do orig[k] = Lighting[k] end
+local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+local atmO = atm and { Color = atm.Color, Density = atm.Density, Haze = atm.Haze, Offset = atm.Offset }
+RM.DIMS = {
+{ "C137", "🌍 C-137 (оригинал)", nil },
+{ "toxic", "☣ Токсичный мир", { Ambient = RGB(70, 110, 30), OutdoorAmbient = RGB(90, 140, 40), ColorShift_Top = RGB(150, 255, 60), FogColor = RGB(120, 180, 40), FogEnd = 700, FogStart = 60, ClockTime = 17, Brightness = 2, atm = { Color = RGB(150, 220, 60), Density = .45, Haze = 2 } } },
+{ "neon", "🌌 Неоновая ночь", { Ambient = RGB(60, 20, 120), OutdoorAmbient = RGB(80, 30, 150), ColorShift_Top = RGB(255, 60, 220), FogColor = RGB(40, 10, 80), FogEnd = 900, FogStart = 80, ClockTime = 0, Brightness = 3, atm = { Color = RGB(180, 60, 255), Density = .35, Haze = 1.5 } } },
+{ "ice", "🧊 Ледяной мир", { Ambient = RGB(130, 170, 220), OutdoorAmbient = RGB(160, 200, 240), ColorShift_Top = RGB(200, 240, 255), FogColor = RGB(210, 230, 250), FogEnd = 500, FogStart = 30, ClockTime = 12, Brightness = 3, atm = { Color = RGB(200, 230, 255), Density = .5, Haze = 3 } } },
+{ "sunset", "🌇 Закат мультивселенной", { Ambient = RGB(150, 80, 60), OutdoorAmbient = RGB(200, 100, 60), ColorShift_Top = RGB(255, 140, 60), FogColor = RGB(255, 150, 90), FogEnd = 1200, FogStart = 100, ClockTime = 18.2, Brightness = 2, atm = { Color = RGB(255, 150, 90), Density = .3, Haze = 2 } } },
+{ "void", "🕳 Пустота", { Ambient = RGB(10, 10, 20), OutdoorAmbient = RGB(15, 15, 30), ColorShift_Top = RGB(60, 60, 120), FogColor = RGB(0, 0, 0), FogEnd = 400, FogStart = 20, ClockTime = 0, Brightness = 0, atm = { Color = RGB(0, 0, 0), Density = .6, Haze = 4 } } },
+{ "red", "🔴 Красный мир", { Ambient = RGB(120, 30, 30), OutdoorAmbient = RGB(160, 40, 40), ColorShift_Top = RGB(255, 60, 40), FogColor = RGB(150, 20, 20), FogEnd = 650, FogStart = 50, ClockTime = 15, Brightness = 2, atm = { Color = RGB(255, 80, 60), Density = .4, Haze = 2.5 } } },
+}
+local visited = {}
+function RM.setDim(key, silent)
+local d
+for _, x in ipairs(RM.DIMS) do if x[1] == key then d = x end end
+if not d then return end
+ST.dim = key
+if not silent then fx.dim(pcol(), 1) end
+local g = d[3]
+for _, k in ipairs(LP_) do
+local v = g and g[k] or orig[k]
+if v ~= nil then pcall(function() tw(Lighting, 1.2, { [k] = v }) end) end
+end
+if atm then
+local a = g and g.atm or atmO
+if a then pcall(function() tw(atm, 1.2, a) end) end
+end
+if not silent and key ~= "C137" and not visited[key] then
+visited[key] = true
+RM.expAdd("dims")
+end
+if not silent then notify("🌀 Измерение: " .. d[2], C.ac) end
+end
+RM.cleanups[#RM.cleanups + 1] = function()
+for _, k in ipairs(LP_) do pcall(function() Lighting[k] = orig[k] end) end
+if atm and atmO then pcall(function() for k, v in pairs(atmO) do atm[k] = v end end) end
+end
+RM.onImport = function() RM.applyUnlocks() RM.setDim(ST.dim, true) end
+RM.regGadget({ id = "dimgun", name = "Пушка измерений", icon = "🌈", desc = "Следующее измерение (цикл)", style = "pistol", col = RGB(80, 50, 110), acc = RGB(255, 100, 220), cost = CFG.cost.coord, cd = 1.5, use = function()
+local idx = 1
+for i, x in ipairs(RM.DIMS) do if x[1] == ST.dim then idx = i end end
+RM.setDim(RM.DIMS[idx % #RM.DIMS + 1][1])
+end })
+end
+do
+local C = RM.C
+local T = {}
+local function arg(a, i) return a[i] and a[i]:lower() end
+local function cap(s)
+local b1, b2 = s:byte(1, 2)
+if b1 == 0xD0 and b2 and b2 >= 0xB0 and b2 <= 0xBF then return string.char(0xD0, b2 - 0x20) .. s:sub(3) end
+if b1 == 0xD1 and b2 and b2 >= 0x80 and b2 <= 0x8F then return string.char(0xD0, b2 + 0x20) .. s:sub(3) end
+return s
+end
+local function has(hay, q) return q ~= "" and (hay:find(q, 1, true) or hay:find(cap(q), 1, true) or hay:lower():find(q:lower(), 1, true)) end
+local function gname(s)
+for id, d in pairs(RM.G) do if id == s or has(d.name, s) then return id end end
+end
+local function flag(b) return b and "вкл" or "выкл" end
+T.help = { "список команд", function()
+local n = {}
+for k in pairs(T) do n[#n + 1] = k end
+table.sort(n)
+return "Команды: " .. table.concat(n, ", ") .. ". Пример: tp 1, robot guard, gadget laser, dim neon" end }
+T.tp = { "tp <номер координаты>", function(a)
+local i = tonumber(a[2])
+if not i or not SAVE.coords[i] then return "нет такой координаты (всего " .. #SAVE.coords .. ")" end
+RM.coordGo(i)
+return "телепорт: " .. SAVE.coords[i].name end }
+T.save = { "save [имя] — сохранить координату", function(a) RM.coordSave(a[2] and table.concat(a, " ", 2) or "") return "готово" end }
+T.back = { "вернуться в предыдущую точку", function() RM.coordBack() return "ок" end }
+T.rewind = { "rewind <секунды> — откат", function(a) RM.rewind(tonumber(a[2]) or 30) return "ок" end }
+T.gadget = { "gadget <id|имя> — выдать гаджет", function(a)
+local id = gname(a[2] or "")
+if not id then return "не найден гаджет. Список: " .. table.concat(RM.gOrder, ", ") end
+RM.giveGadget(id)
+return "выдан: " .. RM.G[id].name end }
+T.robot = { "robot guard|helper|scout|battery", function(a)
+if not RM.RT[arg(a, 2) or ""] then return "типы: guard, helper, scout, battery" end
+RM.spawnRobot(a[2]:lower())
+return "запрос выполнен" end }
+T.mee = { "вызвать Мисикса", function() RM.spawnMeeseeks() return "ок" end }
+T.npc = { "npc <1-6>", function(a) RM.spawnNPC(tonumber(a[2]) or 1) return "ок" end }
+T.dummy = { "создать мишень", function() RM.spawnDummy() return "ок" end }
+T.clear = { "clear — убрать юнитов", function() for _, k in ipairs({ "robots", "meeseeks", "npcs", "dummies", "holo", "echo" }) do RM.clearUnits(k) end return "юниты удалены" end }
+T.ship = { "ship — вызвать корабль", function() RM.shipSummon() return "ок" end }
+T.board = { "сесть в корабль", function() RM.shipBoard() return "ок" end }
+T.scan = { "сканер", function() RM.scan() return "ок" end }
+T.shield = { "щит", function() RM.shieldToggle() return "щит: " .. flag(RM.shield.on) end }
+T.dome = { "купол", function() RM.domeToggle() return "купол: " .. flag(RM.dome.on) end }
+T.jet = { "ранец", function() RM.jetToggle() return "ранец: " .. flag(RM.jet.on) end }
+T.drone = { "дрон", function() RM.droneStart() return "ок" end }
+T.time = { "остановка времени", function() RM.timeStop() return "ок" end }
+T.radar = { "радар", function() RM.radar() return "радар: " .. flag(RM.radarOn) end }
+T.energy = { "energy — показать энергию", function() return string.format("энергия %d/%d, расход %.1f/с, регенерация %.1f/с", floor(EN.v), EN.max, EN.total(), EN.regen()) end }
+T.quality = { "quality low|medium|high", function(a)
+local q = (arg(a, 2) or ""):upper():gsub("^MED$", "MEDIUM")
+if q ~= "LOW" and q ~= "MEDIUM" and q ~= "HIGH" then return "low / medium / high" end
+RM.setQuality(q)
+return "качество: " .. q end }
+T.dim = { "dim <ключ>", function(a)
+local ks = {}
+for _, d in ipairs(RM.DIMS) do ks[#ks + 1] = d[1] if d[1] == arg(a, 2) then RM.setDim(d[1]) return "измерение: " .. d[2] end end
+return "ключи: " .. table.concat(ks, ", ") end }
+T.skin = { "skin <часть имени> | off", function(a)
+if arg(a, 2) == "off" then RM.sk.clear() return "костюм снят" end
+for _, d in ipairs(RM.sk.list) do if has(d.n, a[2] or "") then RM.sk.apply(d.n) return "скин: " .. d.n end end
+return "не найден" end }
+T.emotion = { "emotion <имя>", function(a)
+if not RM.sk.emos[arg(a, 2) or ""] then return "эмоции: " .. table.concat(RM.sk.emoOrder, ", ") end
+RM.sk.setEmotion(a[2]:lower())
+return "ок" end }
+T.say = { "say <текст> — фраза над головой", function(a) RM.sk.say(table.concat(a, " ", 2)) return "ок" end }
+T.lab = { "построить лабораторию", function() RM.buildLab() return "ок" end }
+T.diag = { "диагностика", function() return table.concat(RM.diag(), " | ") end }
+local FRASES = { "Это не команда, Морти.", "Я не понимаю — но я и не обязан.", "Попробуй help.", "*рыг* Нет такой команды." }
+function RM.exec(line)
+line = tostring(line or ""):sub(1, 120)
+local a = {}
+for w in line:gmatch("%S+") do a[#a + 1] = w end
+if #a == 0 then return "" end
+local c = T[a[1]:lower()]
+if not c then
+for k in pairs(T) do if k:sub(1, #a[1]) == a[1]:lower() then return "Может, ты имел в виду «" .. k .. "»?" end end
+return FRASES[math.random(#FRASES)]
+end
+local ok, res = pcall(c[2], a)
+if not ok then return "ошибка: " .. str(res, 80) end
+return res
+end
+RM.TCMDS = T
+local fps = 60
+RM.ticks.diag = function(dt) fps = fps + (1 / max(dt, .001) - fps) * .05 end
+function RM.diag()
+local l = {}
+l[#l + 1] = "версия " .. RM.ver .. ", качество " .. ST.quality .. ", режим " .. MODE.cur
+l[#l + 1] = string.format("FPS ~%d", floor(fps))
+local ok, ping = pcall(function() return (Stats :: any).Network.ServerStatsItem["Data Ping"]:GetValue() end)
+if ok then l[#l + 1] = "пинг " .. floor(ping) .. " мс" end
+l[#l + 1] = "локальных объектов: " .. #WORLD:GetDescendants()
+local ec = {}
+for k, v in pairs(RM.ents) do if #v > 0 then ec[#ec + 1] = k .. "=" .. #v end end
+l[#l + 1] = "сущности: " .. (#ec > 0 and table.concat(ec, " ") or "нет")
+l[#l + 1] = string.format("энергия %d/%d", floor(EN.v), EN.max)
+local bad = {}
+for k, v in pairs(RM.health) do if v ~= "ok" then bad[#bad + 1] = k .. ": " .. v end end
+l[#l + 1] = "разделы меню: " .. (#bad == 0 and "все собраны" or table.concat(bad, "; "))
+l[#l + 1] = "ошибок в журнале: " .. #RM.errors
+return l
+end
+function RM.selfTest()
+local r = {}
+local function t(n, c) r[#r + 1] = (c and "✔ " or "✘ ") .. n end
+local s = RM.sanitize({ set = { master = 9, quality = "ZZZ", bogus = 1 }, coords = { { name = "x", p = { x = 1, y = 2, z = 3 } }, { name = 5 } } })
+t("sanitize: диапазон громкости", s and s.set.master == 1)
+t("sanitize: неверное качество отброшено", s and s.set.quality == "MEDIUM")
+t("sanitize: лишние ключи удалены", s and s.set.bogus == nil)
+t("sanitize: плохая координата отброшена", s and #s.coords == 1)
+local ok = pcall(function() return HttpService:JSONDecode(RM.export()) end)
+t("экспорт — корректный JSON", ok)
+local v0 = EN.v
+EN.v = 50
+t("энергия: списание", EN.use(10) and EN.v == 40)
+t("энергия: отказ при нехватке", (function() local a = EN.v EN.v = 1 local x = EN.use(5) EN.v = a return not x end)())
+EN.v = v0
+t("режимы: нормальный", MODE.cur == "normal" or MODE.cur ~= nil)
+t("разборщик команд: help", type(RM.exec("help")) == "string")
+t("гаджетов зарегистрировано ≥ 20", #RM.gOrder >= 20)
+return r
+end
+end
+do
+local C, U, fx = RM.C, RM.U, RM.fx
+local A = U.btn
+local function G(p, n, h) return U.grid(p, n, h) end
+local function L(page, h, fill)
+local f, clear = U.list(page, h)
+local function rf() clear() fill(f) end
+rf()
+return rf
+end
+local function on(key, ...)
+local fs = { ... }
+RM.onShow[key] = function() for _, f in ipairs(fs) do f() end end
+end
+local GREEN, RED = RGB(32, 110, 72), RGB(120, 40, 40)
+local ANIM = { { "idle", "Покой", "idle", "Animation1" }, { "walk", "Ходьба", "walk", "WalkAnim" }, { "run", "Бег", "run", "RunAnim" }, { "jump", "Прыжок", "jump", "JumpAnim" },
+{ "fall", "Падение", "fall", "FallAnim" }, { "climb", "Лазание", "climb", "ClimbAnim" }, { "swim", "Плавание", "swim", "Swim" }, { "e1", "Эмоция 1" }, { "e2", "Эмоция 2" }, { "e3", "Эмоция 3" } }
+local function animApply()
+local c = LP.Character
+local an = c and c:FindFirstChild("Animate")
+if not an then return end
+for _, a in ipairs(ANIM) do
+local id = SAVE.animIds[a[1]]
+if a[3] and id then
+local f = an:FindFirstChild(a[3])
+local v = f and f:FindFirstChild(a[4])
+if v and v:IsA("Animation") then v.AnimationId = "rbxassetid://" .. id end
+end
+end
+end
+RM.charHooks[#RM.charHooks + 1] = function() task.wait(1) animApply() end
+local function playEmote(k)
+local id = SAVE.animIds[k]
+local _, h = getChar()
+local an = h and h:FindFirstChildOfClass("Animator")
+if not (id and an) then return notify("Введи числовой Animation ID в поле", C.warn) end
+local ok, tr = pcall(function() return an:LoadAnimation(I("Animation", { AnimationId = "rbxassetid://" .. id })) end)
+if ok and tr then tr.Looped = false tr:Play() else notify("Анимация не загрузилась (проверь ID)", C.dg) end
+end
+RM.addSection("home", "🏠 Главная", "энергия статус помощь клавиши", function(p)
+U.sec(p, "ЭНЕРГИЯ И СТАТУС")
+local eb = U.bar(p, "⚡", C.ac)
+RM.ticks.homebar = function()
+if RM.curSec == "home" and RM.win.Visible then
+eb.set(EN.v / EN.max, string.format("⚡ %d / %d   режим: %s", floor(EN.v), EN.max, MODE.cur), EN.v / EN.max < .25 and C.dg or C.ac)
+end
+end
+U.sec(p, "БЫСТРЫЕ ДЕЙСТВИЯ")
+local g = G(p, 2)
+A(g, "📡 Сканер", nil, function() RM.giveGadget("scanner") end)
+A(g, "🌀 Портал-пушка", nil, function() RM.giveGadget("portal1") end)
+A(g, "🚀 Вызвать корабль", nil, function() RM.shipSummon() end)
+A(g, "🔫 Лазер", nil, function() RM.giveGadget("laser") end)
+A(g, "🛡 Щит", nil, function() RM.shieldToggle() end)
+A(g, "🗺 Радар", nil, function() RM.radar() end)
+U.sec(p, "КАК ПОЛЬЗОВАТЬСЯ")
+U.info(p, "• Гаджеты выдаются в рюкзак (цифры 1–9). Огонь/действие — клик или кнопка 🔥.\n• Корабль: H гипер, L посадка, R запись маршрута, P автопилот, F/ЛКМ огонь.\n• X — выйти из дрона/корабля. Меню — " .. ST.menuKey .. " или кнопка 🌀.\n• Всё создаётся локально: другие игроки этого не видят.")
+U.info(p, "Версия " .. RM.ver .. ". Проверялось статически и на моках; в Roblox Studio не запускалось.", C.warn)
+end)
+RM.addSection("portal", "🌀 Порталы", "портал пушка телепорт цвет", function(p)
+U.sec(p, "ПОРТАЛЬНЫЕ ПУШКИ")
+for _, id in ipairs({ "portal1", "portal2", "portal3" }) do
+local d = RM.G[id]
+U.card(p, d.icon .. " " .. d.name, d.desc .. " · " .. d.cost .. "⚡", function() RM.giveGadget(id) end)
+end
+U.sec(p, "НАСТРОЙКИ")
+local pn = {}
+for i, c in ipairs(PCOL) do pn[i] = c[1] end
+U.cycle(p, "Цвет портала", pn, function() return PCOL[clamp(floor(ST.portalColor), 1, #PCOL)][1] end, function(v) for i, n in ipairs(pn) do if n == v then ST.portalColor = i end end end)
+A(p, "Закрыть все порталы", RED, function() RM.portalClose() end)
+U.info(p, "Портал живёт " .. CFG.portal.life .. " с. Войди в один портал — выйдешь из другого. Если цели нет, портал открывается в воздухе перед тобой.")
+end)
+RM.addSection("gadgets", "🧰 Гаджеты", "гаджет оружие устройство инструмент", function(p)
+U.sec(p, "ВСЕ УСТРОЙСТВА (" .. #RM.gOrder .. ")")
+for _, id in ipairs(RM.gOrder) do
+local d = RM.G[id]
+U.card(p, d.icon .. " " .. d.name, d.desc, function() RM.giveGadget(id) end)
+end
+A(p, "Убрать все гаджеты из рюкзака", RED, function() for _, id in ipairs(RM.gOrder) do RM.removeGadget(id) end end)
+end)
+RM.addSection("ship", "🚀 Корабль", "корабль полёт гипер автопилот маршрут посадка", function(p)
+local S = RM.ship
+U.sec(p, "УПРАВЛЕНИЕ")
+local g = G(p, 2)
+A(g, "🚀 Вызвать", nil, function() RM.shipSummon() end)
+A(g, "🧑‍🚀 Сесть", GREEN, function() RM.shipBoard() end)
+A(g, "🛬 Посадка / выход", nil, function() RM.exitMode() end)
+A(g, "🗑 Убрать корабль", RED, function() RM.shipDismiss() end)
+A(g, "🚀 Гиперпрыжок", nil, function() RM.shipHyper() end)
+A(g, "💥 Огонь", nil, function() RM.shipFire() end)
+U.slider(p, "Крейсерская скорость", CFG.ship.vmin, CFG.ship.vmax, function() return ST.shipSpeed end, function(v) ST.shipSpeed = v end, "%d", 10)
+U.toggle(p, "HUD корабля", function() return ST.hudShip end, function(v) ST.hudShip = v end)
+U.sec(p, "МАРШРУТЫ")
+local g2 = G(p, 2)
+A(g2, "⏺ Запись вкл/выкл", nil, function() RM.shipRec() end)
+A(g2, "🤖 Автопилот стоп", nil, function() S.auto = false end)
+local rf = L(p, 150, function(f)
+for i, r in ipairs(SAVE.routes) do
+U.row(f, r.name, #r.pts .. " точек", {
+{ "▶", GREEN, function() RM.shipAuto(RM.routePts(r), r.name) end },
+{ "✕", RED, function() table.remove(SAVE.routes, i) RM.refreshRoutes() end },
+}, i)
+end
+end)
+RM.refreshRoutes = rf
+U.sec(p, "ЛЕТЕТЬ К КООРДИНАТЕ")
+local rf2 = L(p, 110, function(f)
+for i, c in ipairs(SAVE.coords) do
+U.row(f, c.name, nil, { { "🤖", GREEN, function() RM.shipAuto({ V3(c.p.x, c.p.y + 15, c.p.z) }, c.name) end } }, i)
+end
+end)
+on("ship", rf, rf2)
+U.info(p, "Корабль движется кинематически (PivotTo + raycast). Реальной физики столкновений нет.")
+end)
+RM.addSection("robots", "🤖 Роботы", "робот мисикс npc враг мишень клон", function(p)
+U.sec(p, "РОБОТЫ (до " .. CFG.limit.robots .. ")")
+local g = G(p, 2)
+for k, d in pairs(RM.RT) do A(g, d[1], nil, function() RM.spawnRobot(k) end) end
+A(g, "🟦 Мисикс", nil, function() RM.spawnMeeseeks() end)
+A(g, "🧬 Клон меня", nil, function() RM.cloneMe() end)
+U.cycle(p, "Команда", { "follow", "stay" }, function() return RM.rcmd end, function(v) RM.setCmd(v) end)
+U.sec(p, "NPC И ВРАГИ")
+local n = G(p, 2)
+for i, t in ipairs(RM.NT) do A(n, t[1], t[6] == "enemy" and RED or nil, function() RM.spawnNPC(i) end) end
+A(n, "🎯 Мишень", nil, function() RM.spawnDummy() end)
+U.toggle(p, "Враги преследуют меня (толчок)", function() return ST.hostile end, function(v) ST.hostile = v end)
+U.sec(p, "УБРАТЬ")
+local c = G(p, 2, 30)
+for _, k in ipairs({ "robots", "meeseeks", "npcs", "dummies" }) do A(c, "✕ " .. k, RED, function() RM.clearUnits(k) end) end
+local st = U.info(p, "")
+RM.ticks.robotinfo = function() if RM.curSec == "robots" and RM.win.Visible then st.Text = "Убито врагов: " .. RM.stats.kills .. " · роботов: " .. entCount("robots") end end
+U.info(p, "Урон получают только локальные цели. Игроков и их здоровье скрипт не затрагивает.")
+end)
+RM.addSection("clones", "👥 Клоны", "эхо голограмма время остановка", function(p)
+U.sec(p, "ЭХО И ГОЛОГРАММЫ")
+local g = G(p, 2)
+A(g, "👥 Эхо-клон (25 с)", nil, function() RM.spawnEcho() end)
+A(g, "🪞 Голограмма", nil, function() RM.spawnHolo() end)
+A(g, "⏱ Остановить время", nil, function() RM.timeStop() end)
+A(g, "✕ Убрать всё", RED, function() RM.clearUnits("echo") RM.clearUnits("holo") end)
+U.info(p, "Эхо повторяет твой путь и реально проигрываемые анимации с задержкой. Голограмма — приманка для врагов. Остановка времени визуальная и локальная (замирают юниты скрипта и анимации других игроков).")
+end)
+RM.addSection("flight", "🔥 Полёт", "ранец дрон уменьшитель полёт", function(p)
+U.sec(p, "УСТРОЙСТВА")
+local g = G(p, 2)
+A(g, "🔥 Ранец", nil, function() RM.jetToggle() end)
+A(g, "🚁 Дрон", nil, function() RM.droneStart() end)
+A(g, "🐜 Я уменьшаюсь", nil, function() RM.shrinkMe() end)
+A(g, "🔬 Уменьшитель-пушка", nil, function() RM.giveGadget("shrink") end)
+A(g, "🚪 Выйти из режима", RED, function() RM.exitMode() end)
+U.info(p, "Ранец: Space/E/▲ — тяга, Ctrl/Q/▼ — снижение. Дрон: WASD/джойстик + Space/Ctrl, X — вернуться. Дрон и ранец — взаимоисключающие режимы.")
+end)
+RM.addSection("defense", "🛡 Защита", "щит купол защита", function(p)
+U.sec(p, "ЩИТ И КУПОЛ")
+local g = G(p, 2)
+A(g, "🛡 Щит " .. CFG.shield.time .. " с", nil, function() RM.shieldToggle() end)
+A(g, "⛺ Купол " .. CFG.dome.time .. " с", nil, function() RM.domeToggle() end)
+U.info(p, "Ограничение клиентского скрипта: щит и купол блокируют только локальных врагов этого скрипта. Серверный урон и урон от других игроков они остановить не могут.", C.warn)
+end)
+RM.addSection("world", "🌍 Мир", "сканер радар генератор манипулятор рука гравизона лаборатория ящик", function(p)
+U.sec(p, "ПРИБОРЫ")
+local g = G(p, 2)
+A(g, "📡 Сканер", nil, function() RM.giveGadget("scanner") end)
+A(g, "🗺 Радар вкл/выкл", nil, function() RM.radar() end)
+A(g, "⚡ Генератор", nil, function() RM.giveGadget("gen") end)
+A(g, "🧲 Манипулятор", nil, function() RM.giveGadget("grav") end)
+A(g, "🦾 Рука", nil, function() RM.giveGadget("arm") end)
+A(g, "📦 Ящик", nil, function() RM.giveGadget("crate") end)
+A(g, "🌐 Гравизона", nil, function() RM.giveGadget("zone") end)
+A(g, "🧪 Построить лабораторию", nil, function() RM.buildLab() end)
+U.cycle(p, "Гравитация зоны", { "low", "zero", "heavy" }, function() return RM.zoneMode end, function(v) RM.zoneMode = v end)
+U.slider(p, "Радиус радара", 40, 300, function() return ST.radarR end, function(v) ST.radarR = v end, "%d", 10)
+U.slider(p, "Дистанция манипулятора", 6, 60, function() return ST.gravDist end, function(v) ST.gravDist = v end, "%d", 1)
+U.slider(p, "Сила манипулятора", .2, 3, function() return ST.gravForce end, function(v) ST.gravForce = v end, "%.1f", .1)
+U.slider(p, "Длина руки", 10, 60, function() return ST.armLen end, function(v) ST.armLen = v end, "%d", 1)
+U.info(p, "Манипулятор и рука берут только созданные скриптом ящики и юниты: чужие объекты сервера клиент двигать не может. Генератор: кликни по нему этим же устройством — мини-игра.")
+end)
+RM.addSection("coords", "📍 Координаты", "координаты точки слоты откат время вернуться", function(p)
+U.sec(p, "СОХРАНИТЬ ТЕКУЩУЮ ПОЗИЦИЮ")
+local inp = U.input(p, "название точки")
+local rfc
+A(p, "📍 Сохранить", GREEN, function() RM.coordSave(inp.Text) inp.Text = "" rfc() end)
+rfc = L(p, 190, function(f)
+local order = {}
+for i, c in ipairs(SAVE.coords) do order[#order + 1] = i end
+table.sort(order, function(a, b) local x, y = SAVE.coords[a], SAVE.coords[b] if x.fav ~= y.fav then return x.fav end return a < b end)
+for k, i in ipairs(order) do
+local c = SAVE.coords[i]
+U.row(f, (c.fav and "★ " or "") .. c.name, string.format("%d, %d, %d", c.p.x, c.p.y, c.p.z), {
+{ "➤", GREEN, function() RM.coordGo(i) end },
+{ "★", nil, function() RM.coordFav(i) rfc() end },
+{ "✕", RED, function() RM.coordDel(i) rfc() end },
+}, k)
+end
+end)
+U.sec(p, "БЫСТРЫЕ СЛОТЫ")
+local sg = G(p, 5, 30)
+for i = 1, CFG.limit.slots do A(sg, "💾" .. i, nil, function() RM.slotSave(i) end) end
+local gg = G(p, 5, 30)
+for i = 1, CFG.limit.slots do A(gg, "➤" .. i, GREEN, function() RM.slotGo(i) end) end
+U.sec(p, "МАШИНА ВРЕМЕНИ")
+local t = G(p, 3, 30)
+for _, s in ipairs({ 10, 30, 60 }) do A(t, "⏪ " .. s .. " с", nil, function() RM.rewind(s) end) end
+A(p, "↩ Вернуться в прошлую точку", nil, function() RM.coordBack() end)
+on("coords", rfc)
+end)
+RM.addSection("builder", "🛠 Конструктор", "конструктор компоненты рецепт крафт чертежи", function(p)
+U.sec(p, "ИНВЕНТАРЬ")
+local inv = U.info(p, "")
+local function showInv()
+local t = {}
+for k, n in pairs(RM.CN) do t[#t + 1] = n .. " × " .. (SAVE.comps[k] or 0) end
+inv.Text = table.concat(t, "   ")
+end
+U.sec(p, "РЕЦЕПТЫ")
+local rf
+local function fill(f) end
+for i, r in ipairs(RM.RECIPES) do
+local cs = {}
+for k, n in pairs(r.cost) do cs[#cs + 1] = RM.CN[k] .. "×" .. n end
+U.card(p, "🛠 " .. r.name, r.desc .. " · " .. table.concat(cs, " "), function() RM.craft(i) showInv() end)
+end
+U.sec(p, "ИЗГОТОВЛЕННОЕ")
+local rf2 = L(p, 120, function(f)
+for i, b in ipairs(SAVE.builds) do U.row(f, b.name, table.concat(b.comps, "+"), { { "✕", RED, function() table.remove(SAVE.builds, i) end } }, i) end
+end)
+A(p, "🔫 Выдать самодельный бластер", nil, function() RM.giveGadget("blaster") end)
+A(p, "🔋 Выдать батарею", nil, function() RM.giveGadget("battery") end)
+U.info(p, "Компоненты падают с врагов, из генератора, лаборатории и робота-помощника.")
+on("builder", showInv, rf2)
+showInv()
+end)
+RM.addSection("science", "🔭 Наука", "эксперименты измерения достижения мир", function(p)
+U.sec(p, "ЭКСПЕРИМЕНТЫ")
+local rf = L(p, 220, function(f)
+for i, e in ipairs(RM.EXPS) do
+local s = SAVE.exp[e.id] or { p = 0 }
+U.row(f, (s.done and "✔ " or "") .. e.name, e.desc .. " · " .. floor(s.p) .. "/" .. e.goal, {}, i)
+end
+end)
+U.sec(p, "ИЗМЕРЕНИЯ (освещение и атмосфера, локально)")
+local g = G(p, 2)
+for _, d in ipairs(RM.DIMS) do A(g, d[2], nil, function() RM.setDim(d[1]) end) end
+A(p, "🌈 Пушка измерений", nil, function() RM.giveGadget("dimgun") end)
+on("science", rf)
+end)
+RM.addSection("terminal", "💻 Терминал", "терминал команды диагностика ошибки журнал", function(p)
+U.sec(p, "ИИ-ТЕРМИНАЛ (только белый список команд)")
+local out, clear = U.list(p, 170)
+local n = 0
+local function line(t, col)
+n = n + 1
+local l = U.label(out, t, { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = n, TextColor3 = col or C.tx, TextSize = 11 })
+if n > 40 then for _, c in ipairs(out:GetChildren()) do if c:IsA("TextLabel") then c:Destroy() break end end end
+out.CanvasPosition = Vector2.new(0, 1e5)
+end
+line("Терминал Рика. help — список команд.", C.ac)
+local inp = U.input(p, "введи команду и нажми Enter")
+conn(inp.FocusLost:Connect(function(enter)
+if not enter or inp.Text == "" then return end
+local t = inp.Text
+inp.Text = ""
+line("> " .. t, C.dim)
+line(tostring(RM.exec(t)))
+end))
+U.sec(p, "ДИАГНОСТИКА")
+local g = G(p, 2)
+A(g, "🩺 Диагностика", nil, function() for _, t in ipairs(RM.diag()) do line(t, C.warn) end end)
+A(g, "🧪 Самопроверка", nil, function() for _, t in ipairs(RM.selfTest()) do line(t, t:sub(1, 1) == "✔" and C.ok or C.dg) end end)
+A(g, "🐞 Журнал ошибок", nil, function() if #RM.errors == 0 then line("Ошибок нет", C.ok) end for _, t in ipairs(RM.errors) do line(t, C.dg) end end)
+A(g, "🧹 Очистить", RED, function() clear() end)
+end)
+RM.addSection("settings", "⚙ Настройки", "настройки звук качество анимации мобильное сохранение экспорт", function(p)
+U.sec(p, "КАЧЕСТВО И ИНТЕРФЕЙС")
+U.cycle(p, "Качество", { "LOW", "MEDIUM", "HIGH" }, function() return ST.quality end, function(v) RM.setQuality(v) end)
+U.slider(p, "Масштаб меню", .6, 1.6, function() return ST.uiScale end, function(v) ST.uiScale = v RM.applySize() end, "%.2f", .05)
+U.toggle(p, "Эффекты переходов", function() return ST.dimfx end, function(v) ST.dimfx = v end)
+U.toggle(p, "Уведомления", function() return ST.notif end, function(v) ST.notif = v end)
+U.slider(p, "Время уведомления", .5, 10, function() return ST.notifTime end, function(v) ST.notifTime = v end, "%.1f с", .5)
+U.cycle(p, "Клавиша меню", { "RightShift", "RightControl", "F4", "F6", "Insert", "Backquote" }, function() return ST.menuKey end, function(v) ST.menuKey = v end)
+U.sec(p, "ЗВУК")
+U.toggle(p, "Звук", function() return ST.sound end, function(v) ST.sound = v RM.applyVolume() end)
+U.slider(p, "Общая громкость", 0, 1, function() return ST.master end, function(v) ST.master = v RM.applyVolume() end)
+U.slider(p, "Эффекты", 0, 1, function() return ST.sfx end, function(v) ST.sfx = v RM.applyVolume() end)
+U.slider(p, "Интерфейс", 0, 1, function() return ST.ui end, function(v) ST.ui = v RM.applyVolume() end)
+local sg = G(p, 4, 28)
+local cats = {}
+for k in pairs(SFXCAT) do cats[#cats + 1] = k end
+table.sort(cats)
+for _, k in ipairs(cats) do A(sg, k, nil, function() snd(k, 1) end) end
+U.sec(p, "МОБИЛЬНОЕ УПРАВЛЕНИЕ")
+U.toggle(p, "Показывать кнопки на ПК", function() return RM.forceMob end, function(v) RM.forceMob = v end)
+U.toggle(p, "Редактор расположения кнопок", function() return RM.mobEdit end, function(v) RM.mobEdit = v end)
+U.slider(p, "Размер кнопок", .7, 1.6, function() return ST.mobScale end, function(v) ST.mobScale = v end, "%.2f", .05)
+U.slider(p, "Размер прицела", 24, 200, function() return ST.aim end, function(v) ST.aim = v end, "%d", 2)
+A(p, "Сбросить расположение кнопок", nil, function() RM.mobReset() end)
+U.sec(p, "ANIMATION ID (числа; пусто = стандарт)")
+U.info(p, "Свои ID вставляешь сам: скрипт ничего не подставляет. Покой/ходьба/бег/прыжок/падение/лазание/плавание применяются к Animate локально (можно после респавна). Эмоции проигрываются кнопкой ▶.")
+for _, a in ipairs(ANIM) do
+local box = U.input(p, a[2] .. " — Animation ID", SAVE.animIds[a[1]] or "")
+conn(box.FocusLost:Connect(function()
+local t = box.Text:gsub("%D", "")
+SAVE.animIds[a[1]] = t ~= "" and t:sub(1, 19) or nil
+box.Text = t:sub(1, 19)
+animApply()
+end))
+if not a[3] then A(p, "▶ " .. a[2], nil, function() playEmote(a[1]) end, 28) end
+end
+U.sec(p, "СОХРАНЕНИЕ (в сессии; перенос кодом)")
+local code = U.input(p, "код сохранения (JSON)")
+local g = G(p, 2)
+A(g, "📤 Экспорт", nil, function() code.Text = RM.export() notify("Скопируй код из поля (Ctrl+A, Ctrl+C)", C.ok) end)
+A(g, "📥 Импорт", GREEN, function() local ok, e = RM.import(code.Text) notify(ok and "Импорт выполнен" or ("Ошибка: " .. tostring(e)), ok and C.ok or C.dg) if ok then RM.applySize() animApply() end end)
+A(g, "♻ Сброс настроек", RED, function() RM.resetSettings() RM.applySize() notify("Настройки сброшены", C.ok) end)
+A(g, "⏏ Выгрузить скрипт", RED, function() RM.unload() end)
+U.info(p, "Без DataStore данные не переживают выход из игры: перед выходом нажми «Экспорт» и сохрани код.")
+end)
+end
+do
+local C = RM.C
+RM.tickBad = {}
+local function runTicks(list, dt, now)
+for name, f in pairs(list) do
+local ok, e = pcall(f, dt, now)
+if not ok then
+local n = (RM.tickBad[name] or 0) + 1
+RM.tickBad[name] = n
+RM.errors[#RM.errors + 1] = os.date("%H:%M:%S") .. " цикл " .. tostring(name) .. ": " .. str(e, 140)
+if #RM.errors > 40 then table.remove(RM.errors, 1) end
+warn("[RM6] цикл " .. tostring(name) .. ": " .. tostring(e))
+if n >= 8 then
+list[name] = nil
+notify("⚠ Подсистема «" .. tostring(name) .. "» отключена после повторных ошибок", RGB(255, 90, 90), 5)
+end
+end
+end
+end
+RM.ticks.energy = function(dt) EN.tick(dt) end
+local function onChar(ch)
+if RM.dead then return end
+pcall(RM.shipReset)
+pcall(RM.droneStop)
+if MODE.cur ~= "normal" and MODE.cur ~= "jet" then MODE.cur, MODE.who = "normal", nil end
+RM.setCustomControls(false)
+for _, f in ipairs(RM.charHooks) do task.spawn(function() safe("респавн", f, ch) end) end
+end
 function RM.unload()
-  if RM._unloaded then return end -- повторный вызов безопасен
-  RM._unloaded = true
-  TK.DEAD = true
-  for _, c in ipairs(TK.conns) do pcall(function() c:Disconnect() end) end
-  TK.conns = {}
-  pcall(TK.clearAll)
-  pcall(TK.clearSkin)
-  pcall(function() TK.helperFolder:Destroy() end)
-  pcall(function() TK.fxFolder:Destroy() end)
-  pcall(function() TK.sfx:Destroy() end)
-  pcall(function() TK.gui:Destroy() end)
-  if TK.ccFx then pcall(function() TK.ccFx:Destroy() end) end
-  if TK.ccStop then pcall(function() TK.ccStop:Destroy() end) end
-  local ch, hum = TK.getChar()
-  if hum then pcall(function() hum.PlatformStand = false end) end
-  -- подчистить всё, что осталось с префиксом RM_
-  for _, par in ipairs({ TK.Workspace, TK.Lighting, TK.SoundService }) do
-    pcall(function()
-      for _, o in ipairs(par:GetChildren()) do
-        if type(o.Name) == "string" and o.Name:sub(1, 3) == "RM_" then pcall(function() o:Destroy() end) end
-      end
-    end)
-  end
-  if ch then
-    pcall(function()
-      for _, o in ipairs(ch:GetDescendants()) do
-        if type(o.Name) == "string" and o.Name:sub(1, 3) == "RM_" then pcall(function() o:Destroy() end) end
-      end
-    end)
-  end
-  if G.RickMorty == RM then G.RickMorty = nil end
-  warn("[RickMorty] выгружен")
+if RM.dead then return end
+RM.dead = true
+for _, c in ipairs(RM.conns) do pcall(function() c:Disconnect() end) end
+for i = #RM.cleanups, 1, -1 do pcall(RM.cleanups[i]) end
+pcall(RM.setCustomControls, false)
+_G.RM_V6 = nil
+print("[RM6] выгружено")
 end
-
--- передаём общее хранилище второй части
-RM._TK = TK
-RM._part1 = true
+RM.cleanups[#RM.cleanups + 1] = function() MODE.cur, MODE.who = "normal", nil end
+function RM.start()
+if RM.started then return end
+RM.started = true
+conn(RunService.Heartbeat:Connect(function(dt)
+if RM.dead then return end
+runTicks(RM.ticks, min(dt, .1), os.clock())
+end))
+conn(RunService.RenderStepped:Connect(function(dt)
+if RM.dead or next(RM.rticks) == nil then return end
+runTicks(RM.rticks, min(dt, .1), os.clock())
+end))
+conn(LP.CharacterAdded:Connect(onChar))
+RM.applyVolume()
+pcall(RM.applyUnlocks)
+RM.buildMenu()
+RM.applySize()
+if ST.dim ~= "C137" then pcall(RM.setDim, ST.dim, true) end
+if LP.Character then task.spawn(onChar, LP.Character) end
+notify("🌀 Rick & Morty Ultimate v" .. RM.ver .. " готов. Меню: кнопка 🌀 или " .. ST.menuKey, C.ac, 5)
+print("[RM6] запущено, гаджетов: " .. #RM.gOrder)
+end
+end
