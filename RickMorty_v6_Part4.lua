@@ -4,7 +4,7 @@
 --  12 роботы, 19 дрон, 7 автопилот корабля, 21 запись маршрутов, 24 клон-машина, 13 сохранение
 --  + список измерений. Игроков НЕ сканируем, не отслеживаем и не выбираем целью.
 -- ============================================================
-local G = rawget(_G, "getgenv") and getgenv() or _G
+local G = (type(getgenv) == "function" and getgenv()) or _G
 local RM = G.RickMorty
 local TK = RM and RM._TK
 if not TK or not RM._part3 then error("[RickMorty] часть 4 запущена без частей 1–3") end
