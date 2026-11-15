@@ -1,7 +1,7 @@
 -- ============================================================
 --  Rick & Morty Toolkit v6.0 — ЧАСТЬ 2/5: порталы, пушки (8 скинов оружия), предметы, Мисиксы, бой с мишенями, крейсер
 -- ============================================================
-local G = rawget(_G, "getgenv") and getgenv() or _G
+local G = (type(getgenv) == "function" and getgenv()) or _G
 local RM = G.RickMorty
 local TK = RM and RM._TK
 if not TK or not RM._part1 then error("[RickMorty] часть 2 запущена без части 1") end
