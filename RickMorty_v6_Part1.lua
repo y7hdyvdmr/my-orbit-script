@@ -4,7 +4,7 @@
 --         4 навигация+данные+измерения | 5 ИИ-компьютер+вкладки+главный цикл
 --  Всё создаётся локально: видишь только ты. Без нападения на настоящих игроков.
 -- ============================================================
-local G = rawget(_G, "getgenv") and getgenv() or _G
+local G = (type(getgenv) == "function" and getgenv()) or _G
 for _, k in ipairs({ "RickMortyV6", "RickMorty" }) do
   if G[k] and type(G[k]) == "table" and G[k].unload then pcall(G[k].unload) end
 end
