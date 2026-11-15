@@ -2,7 +2,7 @@
 --  Rick & Morty Toolkit v6.0 — ЧАСТЬ 5/5: ИИ-компьютер Рика (система 25), главная, настройки,
 --  диагностика, единый главный цикл и финальный запуск
 -- ============================================================
-local G = rawget(_G, "getgenv") and getgenv() or _G
+local G = (type(getgenv) == "function" and getgenv()) or _G
 local RM = G.RickMorty
 local TK = RM and RM._TK
 if not TK or not RM._part4 then error("[RickMorty] часть 5 запущена без частей 1–4") end
