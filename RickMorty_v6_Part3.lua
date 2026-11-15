@@ -4,7 +4,7 @@
 --  14 уменьшитель, 23 механическая рука, 17 гравизоны, 16 конструктор, 15 голопроектор
 --  Всё локально и визуально: сервер этого не видит, чужих игроков и объекты игры не трогаем.
 -- ============================================================
-local G = rawget(_G, "getgenv") and getgenv() or _G
+local G = (type(getgenv) == "function" and getgenv()) or _G
 local RM = G.RickMorty
 local TK = RM and RM._TK
 if not TK or not RM._part2 then error("[RickMorty] часть 3 запущена без частей 1–2") end
