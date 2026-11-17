@@ -1,5 +1,5 @@
 -- ============================================================
---  Rick & Morty Toolkit v6.0 — ЧАСТЬ 2/5: порталы, пушки (8 скинов оружия), предметы, Мисиксы, бой с мишенями, крейсер
+--  Rick & Morty Toolkit v7.0 — ЧАСТЬ 2/5: порталы, пушки (8 скинов оружия), предметы, Мисиксы, бой с мишенями, крейсер
 -- ============================================================
 local G = (type(getgenv) == "function" and getgenv()) or _G
 local RM = G.RickMorty
@@ -243,6 +243,37 @@ function TK.teleportTo(hr, from, to)
   TK.burst(ex, col, 30)
   TK.snd("teleport", .8, 1.2)
   TK.dimFx(col, .8)
+end
+-- v7.0: порталы также переносят только тестовые физические объекты Toolkit.
+TK.PORTAL_PROP_CD = setmetatable({}, { __mode = "k" })
+function TK.teleportPropThroughPortal(part, from, to)
+  if not part or not part.Parent or part.Anchored or not from or not to then return false end
+  local now = os.clock()
+  if (TK.PORTAL_PROP_CD[part] or 0) > now then return false end
+  TK.PORTAL_PROP_CD[part] = now + .45
+  local rotation = to.base * CFrame.Angles(0, math.pi, 0) * from.base:Inverse()
+  local oldPos = part.Position
+  local newCF = rotation * part.CFrame
+  part.CFrame = newCF + to.n * (to.R * 1.2 + 2)
+  part.AssemblyLinearVelocity = rotation:VectorToWorldSpace(part.AssemblyLinearVelocity)
+  part.AssemblyAngularVelocity = rotation:VectorToWorldSpace(part.AssemblyAngularVelocity)
+  local col = TK.pcol()
+  TK.burst(oldPos, col, 10)
+  TK.burst(part.Position, col, 10)
+  TK.snd("teleport", .35, 1.1)
+  return true
+end
+function TK.setPortalSize(value)
+  TK.PORTAL_R = math.clamp(value, 3, 10)
+  for _, P in ipairs({ TK.PA, TK.PB }) do
+    if P and not P.dead then
+      P.R = TK.PORTAL_R
+      if P.done and P.d and P.d.Parent then
+        P.d.Size = TK.V3(2 * P.R, 2 * P.R, .2)
+        TK.sizeRings(P, 2 * P.R, .05, .82)
+      end
+    end
+  end
 end
 -- ============================================================
 --  ВЫСТРЕЛ: у каждой пушки своя анимация
@@ -1234,12 +1265,11 @@ do
   end
 end
 
--- 🔋 батарея: зона энергии 15 секунд, заряд 100%, расход 25% за использование
+-- 🔋 батарея: зона энергии 15 секунд; заряд не расходуется в Toolkit 7.0.
 function TK.useBattery()
-  if TK.BAT < 25 then TK.notify("🔋 Мало заряда (" .. math.floor(TK.BAT) .. "%)", TK.C.dg, 1.5) return end
   local _, _, hr = TK.getChar()
   if not hr then return end
-  TK.BAT = TK.BAT - 25
+  TK.BAT = 100
   local pos = TK.aimHit(70)
   if (pos - hr.Position).Magnitude > 60 then pos = hr.Position + (pos - hr.Position).Unit * 60 end
   local g = TK.groundAt(pos)
@@ -1272,7 +1302,7 @@ function TK.useBattery()
   TK.zones[#TK.zones + 1] = { mo = mo, disc = disc, radius = 10, untilT = os.clock() + 15 }
   TK.burst(pos + TK.V3(0, 1, 0), col, 30)
   TK.snd("teleport", .6, .8)
-  TK.notify("🔋 Зона энергии на 15 с (заряд " .. math.floor(TK.BAT) .. "%)", col, 2)
+  TK.notify("🔋 Зона энергии создана на 15 с", col, 2)
 end
 function TK.updateZones(hr, now)
   local inside = false
@@ -2134,7 +2164,7 @@ function TK.pickPanel(f, h, entries, modelOf, actions)
 end
 
 TK.sect("items", function(f)
-  TK.newSec(f, "10 ПРЕДМЕТОВ V5 (пушки — те же, что в «Пушках»)")
+  TK.newSec(f, "ПРЕДМЕТЫ TOOLKIT (пушки и гаджеты в этом разделе)")
   local entries = {}
   for _, d in ipairs(TK.ITEMS) do entries[#entries + 1] = { id = d.id, name = d.ico .. " " .. d.name, sub = d.desc, def = d } end
   TK.pickPanel(f, 150, entries, function(e) return TK.itemModel(e.def) end, {
@@ -2144,7 +2174,7 @@ TK.sect("items", function(f)
     TK.clearAll()
     TK.notify("🗑 Всё убрано", TK.C.tx)
   end, 36)
-  TK.newInfo(f, "\n  Экипируй предмет и нажми ЛКМ или 🔥 на телефоне.\n  Зона батареи — 15 с (25% заряда батареи), щит — 8 с,\n  замораживатель времени — 4 с. Всё видишь только ты.", 76)
+  TK.newInfo(f, "\n  Экипируй предмет и нажми ЛКМ или 🔥 на телефоне.\n  Зона батареи — 15 с (без расхода заряда), щит — 8 с,\n  замораживатель времени — 4 с. Всё видишь только ты.", 76)
 end)
 TK.sect("portals", function(f)
   TK.newSec(f, "ПОРТАЛЫ A / B")
@@ -2156,6 +2186,12 @@ TK.sect("portals", function(f)
     TK.notify("🗑 Порталы закрыты", TK.C.tx)
   end, 34)
   TK.newBtn(f, "🌌 Тест эффекта перехода", TK.C.bg2, function() TK.dimFx(nil, 1) end, 34)
+  TK.newBtn(f, "📍 Портал в выбранную сохранённую точку", TK.C.bg2, function()
+    if TK.portalAtSavedPoint then TK.portalAtSavedPoint() else TK.notify("Система координат ещё не загружена", TK.C.dg, 1.5) end
+  end, 36)
+  TK.newBtn(f, "🧩 Создать тестовую модель для порталов", TK.C.bg2, function()
+    if TK.propsSpawnModel then TK.propsSpawnModel() end
+  end, 34)
   TK.newSec(f, "НАСТРОЙКИ ПОРТАЛОВ")
   local PC = {
     { "🟢 Зелёный", { R = 50, G = 255, B = 50 } }, { "🔵 Синий", { R = 50, G = 150, B = 255 } },
@@ -2178,9 +2214,9 @@ TK.sect("portals", function(f)
   end, 34)
   pb.Text = "🎨 Цвет порталов: " .. PC[pidx()][1]
   TK.addRefresh(function() pb.Text = "🎨 Цвет порталов: " .. PC[pidx()][1] end)
-  TK.newNum(f, "📏 Радиус портала", "PortalSize", 1, function(v) TK.PORTAL_R = v end, " ст.")
+  TK.newSlider(f, "📏 Размер порталов", 3, 10, TK.ST.PortalSize, function(v) TK.ST.PortalSize = v TK.setPortalSize(v) end, TK.save, 1)
   TK.newNum(f, "⏱ Время жизни", "PortalLife", 10, function(v) TK.PORTAL_LIFE = v end, " с")
-  TK.newInfo(f, "\n  Касание портала = мгновенный телепорт ТОЛЬКО твоего персонажа\n  на твоём клиенте (локально, сервер не знает).\n  1-й выстрел — A, 2-й — B, дальше заменяется старейший.\n  Звуки: открытие и закрытие (громкость в настройках).\n  Цвет скина оружия имеет приоритет над цветом порталов.", 112)
+  TK.newInfo(f, "\n  Через порталы проходят твой персонаж и тестовые физические блоки Toolkit.\n  Перенос блока сохраняет его поворот и скорость. Другие игроки и\n  серверные объекты требуют поддержки самой игры.\n  1-й выстрел — A, 2-й — B, дальше заменяется старейший.", 100)
 end)
 TK.sect("guns", function(f)
   TK.newSec(f, "ПОРТАЛЬНЫЕ ПУШКИ (не зависят от скина персонажа)")
@@ -2227,7 +2263,7 @@ TK.sect("robots", function(f)
   TK.newBtn(og, "💨 Исчезни", TK.C.dg, function() RM.helperOrder("vanish") end, 36)
   TK.newBtn(f, "🎯 Поставить мишень (куда смотришь)", TK.C.bg2, function() RM.spawnDummy() end, 34)
   TK.newBtn(f, "🗑 Убрать мишени", TK.C.bg2, function() RM.clearDummies() end, 34)
-  TK.newStatus(f, function() return "  Мисиксов сейчас: " .. #TK.helpers .. "  (лимит по энергии и производительности)" end, 28)
+  TK.newStatus(f, function() return "  Мисиксов сейчас: " .. #TK.helpers .. "  (лимит по производительности)" end, 28)
   TK.newInfo(f, "\n  Мисиксы бьют только твои мишени и NPC-манекены.\n  Настоящих игроков они не трогают и не выбирают целью.", 56)
 end)
 TK.sect("ship", function(f)
