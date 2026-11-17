@@ -1,5 +1,5 @@
 -- ============================================================
---  Rick & Morty Toolkit v6.0 — ЧАСТЬ 1/5: ядро, настройки, интерфейс, 9 скинов, лицо, анимации
+--  Rick & Morty Toolkit v7.0 — ЧАСТЬ 1/5: ядро, настройки, интерфейс, 9 скинов, лицо, анимации
 --  Части: 1 ядро+скины | 2 порталы+пушки+предметы+крейсер | 3 энергия+устройства
 --         4 навигация+данные+измерения | 5 ИИ-компьютер+вкладки+главный цикл
 --  Всё создаётся локально: видишь только ты. Без нападения на настоящих игроков.
@@ -8,7 +8,7 @@ local G = (type(getgenv) == "function" and getgenv()) or _G
 for _, k in ipairs({ "RickMortyV6", "RickMorty" }) do
   if G[k] and type(G[k]) == "table" and G[k].unload then pcall(G[k].unload) end
 end
-local RM = { _version = "6.0" }
+local RM = { _version = "7.0" }
 local TK = {} -- общее хранилище: все 5 частей работают через него
 G.RickMorty = RM
 G.RickMortyV6 = RM
@@ -27,6 +27,20 @@ TK.WHITE, TK.BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
 
 TK.conns = {}
 function TK.track(c) TK.conns[#TK.conns + 1] = c return c end
+-- Ранний аварийный очиститель: Loader сможет убрать частично созданное ядро,
+-- даже если выполнение Part1 прервётся до объявления полной RM.unload ниже.
+RM.unload = function()
+  if RM._unloaded then return end
+  RM._unloaded = true
+  TK.DEAD = true
+  for _, c in ipairs(TK.conns or {}) do pcall(function() c:Disconnect() end) end
+  if TK.gui then pcall(function() TK.gui:Destroy() end) end
+  if TK.sfx then pcall(function() TK.sfx:Destroy() end) end
+  if TK.fxFolder then pcall(function() TK.fxFolder:Destroy() end) end
+  if TK.sysFolder then pcall(function() TK.sysFolder:Destroy() end) end
+  if G.RickMorty == RM then G.RickMorty = nil end
+  if G.RickMortyV6 == RM then G.RickMortyV6 = nil end
+end
 TK.X, TK.ITM, TK.DYING, TK.DEAD = {}, {}, {}, false -- X: мелкое состояние v5; ITM: новые предметы; DYING: закрывающиеся порталы
 TK.fxFolder = Instance.new("Folder") -- все временные эффекты лежат тут и чистятся при выгрузке
 TK.fxFolder.Name = "RM_Fx"
@@ -62,23 +76,25 @@ end
 --  НАСТРОЙКИ (сохраняются в файл, если executor умеет writefile)
 -- ============================================================
 TK.HAS_FS = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
-TK.FILE = "rickmorty_v60.json"
+TK.FILE = "rickmorty_v70.json"
 TK.ST = {
   SoundEnabled = true, NotificationsEnabled = true, NotifDuration = 2, MenuKey = "RightShift",
   PortalColor = { R = 50, G = 255, B = 50 }, ActiveSkin = "", AimSize = 64, Emotion = "normal", DimFx = true,
   ShipSpeed = 150, GunSkin = "classic", ActiveGun = "gun_rick", DefaultEmote = "", Gfx = "Medium",
   OpenVol = 60, CloseVol = 60, PortalSize = 6, PortalLife = 60, UiScale = 100,
   EnergyMax = 100, EnergyRegen = 4, ShieldAlpha = 45, DomeRadius = 40, DomeColor = "cyan",
-  JetPower = 60, ShrinkScale = 50, GravPower = 60, GravRadius = 40, EchoDelay = 15, EchoAlpha = 50,
+  JetPower = 60, JetMaxHeight = 120, BootFallSpeed = 30, ShrinkScale = 50, GravPower = 60, GravRadius = 40, EchoDelay = 15, EchoAlpha = 50,
   EchoLen = 8, DroneSpeed = 40, DroneHeight = 18, RadarRadius = 120, RobotLimit = 5, CloneLimit = 3,
   HoloAlpha = 30, HoloColor = "green", ArmLen = 12, ShieldColor = "cyan",
+  SuperSpeed = 30, SuperJump = 90,
 }
 TK.RANGE = {
   AimSize = { 24, 200 }, NotifDuration = { .5, 10 }, ShipSpeed = { 50, 1000 }, OpenVol = { 0, 100 }, CloseVol = { 0, 100 },
   PortalSize = { 3, 10 }, PortalLife = { 10, 300 }, UiScale = { 60, 130 }, EnergyMax = { 50, 500 }, EnergyRegen = { 1, 30 },
-  ShieldAlpha = { 10, 90 }, DomeRadius = { 20, 120 }, JetPower = { 20, 120 }, ShrinkScale = { 10, 90 }, GravPower = { 10, 150 },
+  ShieldAlpha = { 10, 90 }, DomeRadius = { 20, 120 }, JetPower = { 20, 120 }, JetMaxHeight = { 20, 500 }, BootFallSpeed = { 10, 60 }, ShrinkScale = { 10, 90 }, GravPower = { 10, 150 },
   GravRadius = { 10, 120 }, EchoDelay = { 5, 60 }, EchoAlpha = { 10, 90 }, EchoLen = { 2, 20 }, DroneSpeed = { 10, 120 },
   DroneHeight = { 4, 60 }, RadarRadius = { 40, 400 }, RobotLimit = { 1, 8 }, CloneLimit = { 1, 5 }, HoloAlpha = { 0, 80 }, ArmLen = { 6, 30 },
+  SuperSpeed = { 20, 120 }, SuperJump = { 50, 200 },
 }
 TK.ENUMS = {
   Gfx = { Low = true, Medium = true, High = true }, DomeColor = { cyan = true, green = true, purple = true, gold = true, red = true },
@@ -115,7 +131,7 @@ function TK.resetSettings()
     TK.ST[k] = type(v) == "table" and TK.copy(v) or v
   end
 end
-TK.OLD_FILE = "rickmorty_v40.json" -- файл V4/V5: совместимые настройки подхватываем один раз
+TK.OLD_FILE = "rickmorty_v60.json" -- файл V4/V5: совместимые настройки подхватываем один раз
 if TK.HAS_FS then
   pcall(function()
     local src = isfile(TK.FILE) and TK.FILE or (isfile(TK.OLD_FILE) and TK.OLD_FILE or nil)
@@ -343,7 +359,7 @@ TK.content = TK.I("ScrollingFrame", {
 TK.I("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, TK.content)
 TK.I("TextLabel", {
   Size = UDim2.new(1, -20, 0, 16), Position = UDim2.new(0, 10, 1, -22), BackgroundTransparency = 1,
-  Text = "v" .. RM._version .. " | 17 разделов | 25 систем | всё локально", TextColor3 = TK.C.dim, Font = Enum.Font.Code,
+  Text = "v" .. RM._version .. " | 7 разделов | 28 систем", TextColor3 = TK.C.dim, Font = Enum.Font.Code,
   TextSize = 9, TextXAlignment = Enum.TextXAlignment.Left,
 }, TK.win)
 
@@ -388,7 +404,7 @@ function TK.newGrid(parent, cols)
 end
 
 -- ползунок со значениями + кнопки - и +
-function TK.newSlider(parent, label, minV, maxV, value, onChange, onDone)
+function TK.newSlider(parent, label, minV, maxV, value, onChange, onDone, step)
   local row = TK.I("Frame", {
     Size = UDim2.new(1, -8, 0, 62), BackgroundColor3 = TK.C.bg2, BackgroundTransparency = .1, ZIndex = 42,
   }, parent)
@@ -409,7 +425,8 @@ function TK.newSlider(parent, label, minV, maxV, value, onChange, onDone)
   }, bar)
   TK.cr(knob, 11)
   local function apply(v)
-    local cur = math.clamp(math.floor(v / 10 + .5) * 10, minV, maxV)
+    local unit = math.max(1, tonumber(step) or 10)
+    local cur = math.clamp(math.floor(v / unit + .5) * unit, minV, maxV)
     local a = (cur - minV) / (maxV - minV)
     fill.Size = UDim2.fromScale(a, 1)
     knob.Position = UDim2.fromScale(a, .5)
@@ -462,17 +479,26 @@ end
 
 
 -- ============================================================
---  17 РАЗДЕЛОВ МЕНЮ + РЕЕСТРЫ (вкладки, тики, выгрузка, системы)
+--  7 ОСНОВНЫХ РАЗДЕЛОВ МЕНЮ + РЕЕСТРЫ (вкладки, тики, выгрузка, системы)
 -- ============================================================
+TK.TABMAP = {
+  chars = "character", expr = "character", anim = "character",
+  portals = "items", guns = "items", wskin = "items", gadgets = "items", robots = "items",
+  ship = "mechanisms", energy = "mechanisms", dims = "mechanisms", newsys = "mechanisms", ai = "mechanisms",
+  diag = "settings",
+}
 TK.CATS = {
-  { "home", "🏠 ГЛАВНАЯ", 84 }, { "chars", "🎭 ПЕРСОНАЖИ", 100 }, { "expr", "😀 ЛИЦА", 66 }, { "anim", "🕺 ДВИЖЕНИЯ", 96 },
-  { "portals", "🌀 ПОРТАЛЫ", 88 }, { "guns", "🔫 ПУШКИ", 78 }, { "wskin", "🎨 СКИНЫ ПУШЕК", 112 }, { "items", "🧰 ПРЕДМЕТЫ", 92 },
-  { "gadgets", "📟 ГАДЖЕТЫ", 92 }, { "robots", "🤖 РОБОТЫ", 82 }, { "ship", "🚀 КОРАБЛЬ", 86 }, { "energy", "🔋 ЭНЕРГИЯ", 84 },
-  { "dims", "🌌 ИЗМЕРЕНИЯ", 100 }, { "newsys", "🧪 НОВЫЕ СИСТЕМЫ", 126 }, { "ai", "🧠 ИИ РИКА", 82 }, { "settings", "⚙️ НАСТРОЙКИ", 100 },
-  { "diag", "🩺 ДИАГНОСТИКА", 110 },
+  { "home", "🏠 ГЛАВНАЯ", 84 },
+  { "character", "🎭 ПЕРСОНАЖ", 100 },
+  { "items", "🧰 ПРЕДМЕТЫ", 92 },
+  { "mechanisms", "⚙️ МЕХАНИЗМЫ", 112 },
+  { "constructor", "🛠 КОНСТРУКТОР", 112 },
+  { "saves", "💾 СОХРАНЕНИЯ", 112 },
+  { "settings", "⚙️ НАСТРОЙКИ", 100 },
 }
 TK.tabBtns, TK.tabFrames = {}, {}
 function TK.switchTab(id)
+  id = TK.TABMAP[id] or id
   if not TK.tabFrames[id] then return end
   for k, f in pairs(TK.tabFrames) do f.Visible = (k == id) end
   for k, b in pairs(TK.tabBtns) do
@@ -488,6 +514,15 @@ end
 TK.tabOpen, TK.tabBuilt = {}, {}
 -- регистрирует вкладку: builder(frame) наполняет её кнопками; onOpen вызывается при каждом открытии
 function TK.regTab(id, builder, onOpen)
+  id = TK.TABMAP[id] or id
+  if TK.tabFrames[id] then
+    if builder then
+      local ok, err = pcall(builder, TK.tabFrames[id])
+      if not ok then warn("[RickMorty] вкладка " .. id .. ": " .. tostring(err)) end
+    end
+    if onOpen then TK.tabOpen[id] = onOpen end
+    return TK.tabFrames[id]
+  end
   local idx, meta
   for i, t in ipairs(TK.CATS) do
     if t[1] == id then idx, meta = i, t end
@@ -518,6 +553,7 @@ function TK.regTab(id, builder, onOpen)
 end
 -- добавить секцию во вкладку (вкладка создаётся при первом обращении)
 function TK.sect(id, fn)
+  id = TK.TABMAP[id] or id
   if not TK.tabFrames[id] then
     TK.regTab(id, function() end)
   end
@@ -537,10 +573,11 @@ end
 -- что сделать при выгрузке
 TK.unloaders = {}
 function TK.onUnload(fn) TK.unloaders[#TK.unloaders + 1] = fn end
--- реестр 25 систем: def = { n, name, tab, mode, note, keys, get()->bool, set(bool), avail()->ok,reason }
+-- реестр систем: def = { n, name, tab, mode, note, keys, get()->bool, set(bool), avail()->ok,reason }
 -- mode: "visual" (только визуал), "test" (только своя тестовая среда), "server" (нужна поддержка игры)
 TK.SYSL, TK.SYSD = {}, {}
 function TK.regSys(def)
+  if def.tab then def.tab = TK.TABMAP[def.tab] or def.tab end
   TK.SYSD[def.n] = def
   TK.SYSL[#TK.SYSL + 1] = def
 end
@@ -878,6 +915,12 @@ TK.EM = {
   { "wink", "😉 Подмигнуть", { mw = 1.1, mo = .02, cr = .5, cy = .04, te = 0, tg = 0, wk = 1, hz = -.05 } },
   { "grimace", "😬 Оскал", { eh = 1.1, br = .1, mw = 1.5, mo = .14, cr = -.05, te = 1, tg = 0 } },
 }
+-- Защита от повреждённых/устаревших значений в файле настроек.
+local validEmotion, validEmote = {}, { [""] = true, wave = true, dance = true, drunk = true, think = true, victory = true, facepalm = true }
+for _, e in ipairs(TK.EM) do validEmotion[e[1]] = true end
+if TK.ST.ActiveSkin ~= "" and not TK.SK[TK.ST.ActiveSkin] then TK.ST.ActiveSkin = "" end
+if not validEmotion[TK.ST.Emotion] then TK.ST.Emotion = "normal" end
+if not validEmote[TK.ST.DefaultEmote] then TK.ST.DefaultEmote = "" end
 function TK.dflt(S)
   return {
     eh = 1, pr = 1, by = 0, br = S.brow or 0, mw = 1, mo = S.open and .3 or .02, cr = S.open and .15 or 0,
@@ -1587,7 +1630,7 @@ TK.track(TK.LP.CharacterAdded:Connect(function()
   TK.rideKeys.up, TK.rideKeys.down = false, false
   if TK.ship then TK.ship.board = nil end
   task.wait(1)
-  if TK.ST.ActiveSkin ~= "" then TK.safe(TK.applySkin, TK.ST.ActiveSkin) end
+  if not TK.DEAD and TK.ST.ActiveSkin ~= "" then TK.safe(TK.applySkin, TK.ST.ActiveSkin) end
 end))
 
 
@@ -1611,22 +1654,12 @@ TK.COLLIST = { "cyan", "green", "purple", "gold", "red" }
 TK.EN = { cur = 100, over = 0, warned = 0 }
 function TK.enOverloaded() return os.clock() < TK.EN.over end
 function TK.enAdd(v) TK.EN.cur = math.clamp(TK.EN.cur + v, 0, TK.ST.EnergyMax) end
-function TK.enUse(cost, what) -- разовый расход; возвращает true/false
-  if TK.enOverloaded() then TK.notify("⚡ Перегрузка, подожди " .. math.ceil(TK.EN.over - os.clock()) .. " с", TK.C.dg, 1.2) return false end
-  if TK.EN.cur < cost then TK.notify("⚡ Мало энергии" .. (what and (" для: " .. what) or ""), TK.C.dg, 1.2) return false end
-  TK.EN.cur = TK.EN.cur - cost
-  if TK.EN.cur <= 0 then TK.EN.over = os.clock() + 6 end
+function TK.enUse(cost, what)
+  -- v7.0: гаджеты больше не зависят от заряда и не блокируются нехваткой энергии.
   return true
 end
-function TK.enDrain(rate, dt) -- непрерывный расход; false = энергии нет, устройство надо выключить
-  if TK.enOverloaded() then return false end
-  TK.EN.cur = TK.EN.cur - rate * dt
-  if TK.EN.cur <= 0 then
-    TK.EN.cur = 0
-    TK.EN.over = os.clock() + 6
-    TK.notify("⚡ Энергия кончилась: перегрузка 6 с", TK.C.dg, 2)
-    return false
-  end
+function TK.enDrain(rate, dt)
+  -- v7.0: совместимость со старыми устройствами; непрерывный расход отключён.
   return true
 end
 
@@ -1871,19 +1904,13 @@ function RM.unload()
   pcall(function() TK.gui:Destroy() end)
   local ch, hum = TK.getChar()
   if hum then pcall(function() hum.PlatformStand = false end) end
-  for _, par in ipairs({ TK.Workspace, TK.Lighting, TK.SoundService }) do
-    pcall(function()
-      for _, o in ipairs(par:GetChildren()) do
-        if type(o.Name) == "string" and o.Name:sub(1, 3) == "RM_" then pcall(function() o:Destroy() end) end
-      end
-    end)
-  end
+  -- Удаляем только эффекты, которыми владеет этот экземпляр Toolkit.
+  -- Глобальная очистка всех объектов с префиксом RM_ могла задеть чужие модели игры.
+  if TK.ccFx then pcall(function() TK.ccFx:Destroy() end) end
+  if TK.ccStop then pcall(function() TK.ccStop:Destroy() end) end
   if ch then
-    pcall(function()
-      for _, o in ipairs(ch:GetDescendants()) do
-        if type(o.Name) == "string" and o.Name:sub(1, 3) == "RM_" then pcall(function() o:Destroy() end) end
-      end
-    end)
+    local aura = ch:FindFirstChild("RM_Aura", true)
+    if aura then pcall(function() aura:Destroy() end) end
   end
   if G.RickMorty == RM then G.RickMorty = nil end
   if G.RickMortyV6 == RM then G.RickMortyV6 = nil end
