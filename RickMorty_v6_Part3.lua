@@ -1,5 +1,5 @@
 -- ============================================================
---  Rick & Morty Toolkit v6.0 — ЧАСТЬ 3/5: энергия и устройства
+--  Rick & Morty Toolkit v7.0 — ЧАСТЬ 3/5: энергия и устройства
 --  Системы: 10 энергосистема, 20 генератор, 6 щит, 22 купол, 9 ранец, 5 гравиманипулятор,
 --  14 уменьшитель, 23 механическая рука, 17 гравизоны, 16 конструктор, 15 голопроектор
 --  Всё локально и визуально: сервер этого не видит, чужих игроков и объекты игры не трогаем.
@@ -48,7 +48,9 @@ end
 TK.charHooks = {}
 function TK.onRespawn(fn) TK.charHooks[#TK.charHooks + 1] = fn end
 local function bindChar(ch)
+  if TK.DEAD then return end
   local hum = ch:WaitForChild("Humanoid", 5)
+  if TK.DEAD then return end
   if hum then
     TK.track(hum.Died:Connect(function()
       for _, fn in ipairs(TK.charHooks) do pcall(fn, "died") end
@@ -114,7 +116,8 @@ end
 TK.onUnload(function() for id in pairs(TK.padGroups) do TK.padHide(id) end pcall(function() TK.pad:Destroy() end) end)
 
 -- ---------- локальная база: точки, маршруты, конфиги гаджетов ----------
-TK.DBFILE = "rickmorty_v6_data.json"
+TK.DBFILE = "rickmorty_v70_data.json"
+TK.OLD_DBFILE = "rickmorty_v6_data.json"
 TK.DB = { points = {}, routes = {}, gadgets = {} }
 local function fin(n) return type(n) == "number" and n == n and n ~= math.huge and n ~= -math.huge end
 function TK.dbSanitize(d)
@@ -158,8 +161,13 @@ end
 function TK.dbLoad()
   if not TK.HAS_FS then return end
   pcall(function()
-    if isfile(TK.DBFILE) then
-      TK.DB = TK.dbSanitize(TK.HttpService:JSONDecode(readfile(TK.DBFILE)))
+    local source = isfile(TK.DBFILE) and TK.DBFILE or (isfile(TK.OLD_DBFILE) and TK.OLD_DBFILE or nil)
+    if source then
+      TK.DB = TK.dbSanitize(TK.HttpService:JSONDecode(readfile(source)))
+      if source == TK.OLD_DBFILE then
+        TK.DB_MIGRATED = true
+        TK.dbSave()
+      end
     end
   end)
 end
@@ -197,22 +205,18 @@ end
 TK.tick("energy", 10, function(dt)
   TK.EN.cur = math.min(TK.EN.cur, TK.ST.EnergyMax)
   if not TK.enOverloaded() then TK.enAdd(TK.ST.EnergyRegen * dt * .5) end -- базовое восстановление: половина от настройки/с
-  if TK.EN.cur < TK.ST.EnergyMax * .2 and os.clock() - TK.EN.warned > 30 and not TK.enOverloaded() then
-    TK.EN.warned = os.clock()
-    TK.notify("⚠ Низкий заряд энергии", TK.RGB(255, 190, 70), 2)
-  end
   TK.enPaint()
 end)
 TK.regSys({
   n = 10, name = "Общая энергосистема", tab = "energy", mode = "visual",
-  note = "Запас энергии только внутри Toolkit; экономики игры не касается.", keys = "энергия заряд перегрузка ёмкость",
+  note = "Необязательный индикатор Toolkit; гаджеты от него не зависят.", keys = "энергия заряд перегрузка ёмкость",
   get = function() return TK.X.hudOn end, set = function(v) TK.X.hudOn = v TK.enPaint() end,
 })
 TK.sect("energy", function(f)
   TK.newSec(f, "СИСТЕМА 10 · ОБЩАЯ ЭНЕРГИЯ")
   TK.newStatus(f, function()
     return "  ⚡ " .. math.floor(TK.EN.cur) .. " / " .. TK.ST.EnergyMax .. (TK.enOverloaded() and "  — ПЕРЕГРУЗКА, восстановление…" or "") ..
-      "\n  Расходуют: щит, купол, ранец, гравиманипулятор, зоны, рука.\n  Пополняют: восстановление и генераторы."
+      "\n  Заряд оставлен как дополнительный индикатор.\n  Гаджеты не расходуют энергию и не отключаются из-за заряда."
   end, 62)
   TK.newToggle(f, "📊 Полоска энергии на экране", function() return TK.X.hudOn end, function(v) TK.X.hudOn = v TK.enPaint() end)
   TK.newNum(f, "🔋 Макс. ёмкость", "EnergyMax", 25, function() TK.EN.cur = math.min(TK.EN.cur, TK.ST.EnergyMax) end)
@@ -351,9 +355,9 @@ TK.sect("energy", function(f)
   TK.newCycle(f, "🎨 Цвет", "ShieldColor", TK.COLLIST, TK.COLNAMES)
   TK.newNum(f, "👁 Прозрачность", "ShieldAlpha", 10, nil, "%")
   TK.newStatus(f, function()
-    if SH.on then return "  🛡 работает ещё " .. math.max(0, math.ceil(SH.untilT - os.clock())) .. " с (расход 3 энергии/с)" end
+    if SH.on then return "  🛡 работает ещё " .. math.max(0, math.ceil(SH.untilT - os.clock())) .. " с" end
     if os.clock() < SH.cd then return "  Перезарядка " .. math.ceil(SH.cd - os.clock()) .. " с" end
-    return "  Готов. Включение: 8 энергии, длится до 20 с."
+    return "  Готов к включению. Энергия не требуется."
   end, 36)
   TK.newInfo(f, "\n  Только картинка вокруг тебя на твоём экране. Не защищает от урона.", 44)
 end)
@@ -425,15 +429,15 @@ TK.sect("energy", function(f)
   TK.newToggle(f, "🏛 Купол в точке прицела", function() return DM.on end, function(v) if v then domeOn() else domeOff() end end)
   TK.newNum(f, "↔ Радиус (при развёртывании)", "DomeRadius", 10, nil, " ст.")
   TK.newCycle(f, "🎨 Цвет", "DomeColor", TK.COLLIST, TK.COLNAMES)
-  TK.newInfo(f, "\n  Расход 4 энергии/с, развёртывание 15. Радиус и цвет — при включении.", 44)
+  TK.newInfo(f, "\n  Энергия не расходуется. Радиус и цвет задаются при включении.", 44)
 end)
 
 -- ============================================================
 --  СИСТЕМА 9: РЕАКТИВНЫЙ РАНЕЦ (локальный подъём собственного персонажа)
 -- ============================================================
-local JP = { on = false, up = false, down = false, model = nil, flames = {} }
+local JP = { on = false, up = false, down = false, model = nil, flames = {}, startY = nil }
 local function jetOff(quiet)
-  JP.up, JP.down = false, false
+  JP.up, JP.down, JP.startY = false, false, nil
   if JP.model then pcall(function() JP.model:Destroy() end) JP.model = nil end
   JP.flames = {}
   TK.padHide("jet")
@@ -445,6 +449,7 @@ local function jetOn()
   local ch, hum, hr = TK.getChar()
   if not hr or not hum or hum.Health <= 0 then TK.notify("Нет персонажа", TK.C.dg, 1.5) return end
   if TK.RIDING then TK.notify("Сначала слезь с корабля", TK.C.dg, 1.5) return end
+  JP.startY = hr.Position.Y
   local m = Instance.new("Model")
   m.Name = "RM_Jetpack"
   local function weldPart(name, size, col, off, mat, shape)
@@ -491,8 +496,10 @@ TK.tick("jetpack", 60, function(dt)
   if not TK.enDrain(JP.up and 7 or 2.5, dt) then jetOff() return end
   local v = hr.AssemblyLinearVelocity
   local P = TK.ST.JetPower
-  local target = JP.up and P or (JP.down and -P * .5 or 0) -- без кнопок: зависание
+  local maxY = (JP.startY or hr.Position.Y) + TK.ST.JetMaxHeight
+  local target = JP.up and (hr.Position.Y < maxY and P or 0) or (JP.down and -P * .5 or 0)
   local ny = v.Y + (target - v.Y) * math.min(1, dt * 5)
+  if JP.up and hr.Position.Y >= maxY then ny = math.min(ny, 0) end
   hr.AssemblyLinearVelocity = TK.V3(v.X, ny, v.Z)
   for _, fl in ipairs(JP.flames) do fl.Enabled = JP.up end
 end)
@@ -506,8 +513,82 @@ TK.regSys({
 TK.sect("gadgets", function(f)
   TK.newSec(f, "СИСТЕМА 9 · РЕАКТИВНЫЙ РАНЕЦ")
   TK.newToggle(f, "🎒 Ранец", function() return JP.on end, function(v) if v then jetOn() else jetOff() end end)
-  TK.newNum(f, "🚀 Сила тяги", "JetPower", 10)
-  TK.newInfo(f, "\n  Кнопки ⬆ ⬇ появляются слева (двигай за ⠿). ПК: E / Q.\n  Расход: 2.5 энергии/с в зависании, 7/с при подъёме.\n  Выключается при смерти, респавне и выгрузке.", 76)
+  TK.newSlider(f, "🚀 Сила тяги", 20, 120, TK.ST.JetPower, function(v) TK.ST.JetPower = v end, TK.save)
+  TK.newSlider(f, "↕ Максимальная высота", 20, 500, TK.ST.JetMaxHeight, function(v) TK.ST.JetMaxHeight = v end, TK.save)
+  TK.newInfo(f, "\n  Плавное ускорение и торможение. Высота считается от точки включения.\n  Кнопки ⬆ ⬇ слева, ПК: E / Q. Энергия не расходуется.", 68)
+end)
+
+-- ============================================================
+--  СИСТЕМА 26: СУПЕРДВИГАТЕЛЬ РИКА (локальные настройки своего персонажа)
+-- ============================================================
+local BOOST = { speed = false, jump = false, hum = nil, base = nil }
+local function boostRestore()
+  local h = BOOST.hum
+  local b = BOOST.base
+  if h and h.Parent and b then
+    pcall(function()
+      h.WalkSpeed = b.WalkSpeed
+      h.JumpPower = b.JumpPower
+      h.JumpHeight = b.JumpHeight
+    end)
+  end
+  BOOST.hum, BOOST.base = nil, nil
+end
+local function boostApply()
+  local _, h = TK.getChar()
+  if not h or h.Health <= 0 then return end
+  if BOOST.hum ~= h then
+    boostRestore()
+    BOOST.hum = h
+    BOOST.base = { WalkSpeed = h.WalkSpeed, JumpPower = h.JumpPower, JumpHeight = h.JumpHeight }
+  end
+  local b = BOOST.base
+  pcall(function()
+    h.WalkSpeed = BOOST.speed and TK.ST.SuperSpeed or b.WalkSpeed
+    if h.UseJumpPower then
+      h.JumpPower = BOOST.jump and TK.ST.SuperJump or b.JumpPower
+    else
+      h.JumpHeight = BOOST.jump and TK.ST.SuperJump or b.JumpHeight
+    end
+  end)
+end
+TK.refreshSuperEngine = boostApply
+TK.onRespawn(function(reason)
+  if reason == "died" then
+    BOOST.hum, BOOST.base = nil, nil
+  elseif not TK.DEAD and (BOOST.speed or BOOST.jump) then
+    task.defer(function() if not TK.DEAD then boostApply() end end)
+  end
+end)
+TK.onUnload(boostRestore)
+TK.regSys({
+  n = 26, name = "Супердвигатель Рика", tab = "gadgets", mode = "test",
+  note = "Меняет скорость и прыжок только твоего персонажа локально; сервер игры может ограничивать значения.",
+  keys = "супердвигатель скорость бег прыжок", get = function() return BOOST.speed or BOOST.jump end,
+  set = function(v) BOOST.speed, BOOST.jump = v, v boostApply() end,
+})
+TK.sect("gadgets", function(f)
+  TK.newSec(f, "СИСТЕМА 26 · СУПЕРДВИГАТЕЛЬ РИКА")
+  TK.newBtn(f, "⚡ Взять предмет «Супердвигатель Рика»", TK.C.ac, function()
+    if TK.GADGETS and TK.GADGETS.superEngine then TK.giveItem(TK.GADGETS.superEngine) end
+  end, 36)
+  TK.newToggle(f, "🏃 Ускорение бега", function() return BOOST.speed end, function(v) BOOST.speed = v boostApply() end, 34)
+  TK.newSlider(f, "Скорость бега", 20, 120, TK.ST.SuperSpeed, function(v)
+    TK.ST.SuperSpeed = v
+    if BOOST.speed then boostApply() end
+  end, TK.save)
+  TK.newToggle(f, "🦘 Высокий прыжок", function() return BOOST.jump end, function(v) BOOST.jump = v boostApply() end, 34)
+  TK.newSlider(f, "Сила прыжка", 50, 200, TK.ST.SuperJump, function(v)
+    TK.ST.SuperJump = v
+    if BOOST.jump then boostApply() end
+  end, TK.save)
+  TK.newBtn(f, "🔄 Сбросить параметры", TK.C.bg2, function()
+    TK.ST.SuperSpeed, TK.ST.SuperJump = 30, 90
+    TK.save()
+    boostApply()
+    TK.runRefresh()
+  end, 32)
+  TK.newInfo(f, "\n  Независимые переключатели бега и прыжка.\n  Значения сохраняются; эффект применяется к твоему персонажу на клиенте.", 54)
 end)
 
 -- ============================================================
@@ -515,6 +596,7 @@ end)
 -- ============================================================
 local propF = folder("Props")
 TK.props = {}
+TK.propModels = {}
 local PROP_LIM = 12
 function TK.propsSpawn(n)
   local _, _, hr = TK.getChar()
@@ -533,8 +615,45 @@ function TK.propsSpawn(n)
     TK.props[#TK.props + 1] = p
   end
 end
+function TK.propsSpawnModel()
+  local _, _, hr = TK.getChar()
+  if not hr then return end
+  if #TK.props >= PROP_LIM then TK.notify("Лимит тестовых объектов: " .. PROP_LIM, TK.C.dg, 1.5) return end
+  local base = hr.Position + hr.CFrame.LookVector * 10 + TK.V3(0, 5, 0)
+  local model = Instance.new("Model")
+  model.Name = "RM_TestModel"
+  local root = TK.I("Part", {
+    Name = "Core", Size = TK.V3(2, 2, 2), Color = TK.RGB(100, 180, 255),
+    Material = Enum.Material.Metal, Anchored = false, CanCollide = true, CFrame = CFrame.new(base),
+  }, model)
+  local parts = {
+    { "SideA", TK.V3(1, 1, 1), CFrame.new(1.5, 0, 0), TK.RGB(255, 180, 90) },
+    { "SideB", TK.V3(1, 1, 1), CFrame.new(-1.5, 0, 0), TK.RGB(130, 255, 160) },
+    { "Top", TK.V3(1.2, .6, 1.2), CFrame.new(0, 1.3, 0), TK.RGB(190, 120, 255) },
+  }
+  for _, cfg in ipairs(parts) do
+    local part = TK.I("Part", {
+      Name = cfg[1], Size = cfg[2], Color = cfg[4], Material = Enum.Material.SmoothPlastic,
+      Anchored = false, CanCollide = true, CFrame = CFrame.new(base) * cfg[3],
+    }, model)
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0, weld.Part1, weld.Parent = root, part, root
+  end
+  model.PrimaryPart = root
+  model.Parent = propF
+  TK.propModels[root] = model
+  TK.props[#TK.props + 1] = root
+  TK.burst(base, TK.C.ac3, 16)
+  TK.notify("🧱 Тестовая модель создана", TK.C.ac3, 1.5)
+end
 function TK.propsClear()
-  for i = #TK.props, 1, -1 do pcall(function() TK.props[i]:Destroy() end) TK.props[i] = nil end
+  for i = #TK.props, 1, -1 do
+    local p = TK.props[i]
+    local model = TK.propModels[p]
+    if model then pcall(function() model:Destroy() end) TK.propModels[p] = nil
+    else pcall(function() p:Destroy() end) end
+    TK.props[i] = nil
+  end
 end
 function TK.propsLive()
   for i = #TK.props, 1, -1 do
@@ -547,13 +666,14 @@ TK.onUnload(TK.propsClear)
 -- ============================================================
 --  СИСТЕМА 5: ГРАВИТАЦИОННЫЙ МАНИПУЛЯТОР (только тестовые объекты Toolkit)
 -- ============================================================
-local GM = { mode = nil, held = nil }
-local function gmStop() GM.mode, GM.held = nil, nil TK.padHide("grav") end
+local GM = { mode = nil, held = nil, rotate = false }
+local function gmStop() GM.mode, GM.held, GM.rotate = nil, nil, false TK.padHide("grav") end
 local function gmStart()
   TK.padShow("grav", {
     { "🧲 тянуть", function() GM.mode = "pull" end, function() GM.mode = nil end },
     { "💥 толкать", function() GM.mode = "push" end, function() GM.mode = nil end },
-    { "✊ держать", function() GM.mode = "hold" end, function() GM.mode = nil GM.held = nil end },
+    { "✊ держать", function() GM.mode = "hold" end, function() GM.mode = nil GM.held = nil GM.rotate = false end },
+    { "🔄 вращать", function() GM.mode = "hold" GM.rotate = true end, function() GM.rotate = false end },
   })
   GM.active = true
 end
@@ -580,6 +700,11 @@ TK.tick("gravman", 30, function(dt)
       local tgt = cam and (cam.CFrame.Position + cam.CFrame.LookVector * 9) or front
       local dv = (tgt - GM.held.Position)
       GM.held.AssemblyLinearVelocity = dv * 8
+      if GM.rotate then
+        GM.held.AssemblyAngularVelocity = TK.V3(0, math.max(2, P / 12), 0)
+      else
+        GM.held.AssemblyAngularVelocity = TK.V3()
+      end
     end
     return
   end
@@ -605,11 +730,131 @@ function TK.buildGravTool()
   TK.I("PointLight", { Color = TK.RGB(170, 100, 255), Range = 8, Brightness = 1.5, Shadows = false }, core)
   return tool
 end
+-- ============================================================
+--  СИСТЕМА 27: ГРАВИТАЦИОННЫЕ БОТИНКИ (мягкое приземление своего персонажа)
+-- ============================================================
+local GB = { on = false }
+TK.tick("gravityBoots", 60, function()
+  if not GB.on then return end
+  local _, hum, hr = TK.getChar()
+  if not hum or not hr or hum.Health <= 0 then return end
+  if hum.FloorMaterial == Enum.Material.Air then
+    local v = hr.AssemblyLinearVelocity
+    local limit = TK.ST.BootFallSpeed
+    if v.Y < -limit then hr.AssemblyLinearVelocity = TK.V3(v.X, -limit, v.Z) end
+  end
+end)
+function TK.toggleGravityBoots(v)
+  GB.on = (v == nil) and not GB.on or (v == true)
+  TK.notify(GB.on and "🥾 Гравитационные ботинки включены" or "🥾 Ботинки выключены", TK.C.ac, 1.5)
+end
+TK.onUnload(function() GB.on = false end)
+TK.regSys({
+  n = 27, name = "Гравитационные ботинки", tab = "gadgets", mode = "test",
+  note = "Ограничивают скорость падения только твоего персонажа на клиенте; сервер может влиять на физику.",
+  keys = "ботинки гравитация мягкое приземление", get = function() return GB.on end,
+  set = function(v) TK.toggleGravityBoots(v) end,
+})
+TK.sect("gadgets", function(f)
+  TK.newSec(f, "СИСТЕМА 27 · ГРАВИТАЦИОННЫЕ БОТИНКИ")
+  TK.newBtn(f, "🥾 Взять предмет «Гравитационные ботинки»", TK.C.ac, function()
+    if TK.GADGETS and TK.GADGETS.gravityBoots then TK.giveItem(TK.GADGETS.gravityBoots) end
+  end, 36)
+  TK.newToggle(f, "🪂 Мягкое приземление", function() return GB.on end, function(v) TK.toggleGravityBoots(v) end, 34)
+  TK.newSlider(f, "Скорость падения (меньше = мягче)", 10, 60, TK.ST.BootFallSpeed, function(v) TK.ST.BootFallSpeed = v end, TK.save)
+  TK.newInfo(f, "\n  Ботинки ограничивают скорость падения и смягчают приземление.\n  Эффект применяется только к твоему персонажу, без расхода энергии.", 56)
+end)
+
+-- ============================================================
+--  СИСТЕМА 28: МУЛЬТИИНСТРУМЕНТ (анализ и выбор объектов Toolkit)
+-- ============================================================
+local MT = { part = nil, model = nil, highlight = nil }
+function TK.multitoolClear()
+  if MT.highlight then pcall(function() MT.highlight:Destroy() end) end
+  MT.part, MT.model, MT.highlight = nil, nil, nil
+end
+function TK.multitoolScan()
+  TK.multitoolClear()
+  local r = TK.aimRay(300)
+  if not r then TK.notify("Мультиинструмент: цель не найдена", TK.C.dg, 1.4) return end
+  local hit = r.Instance
+  local model = hit and hit:FindFirstAncestorOfClass("Model")
+  local owned = (hit and hit.Name == "RM_Prop" and hit.Parent == propF)
+    or (model and ((TK.sysFolder and model:IsDescendantOf(TK.sysFolder)) or (TK.helperFolder and model:IsDescendantOf(TK.helperFolder)) or (TK.ship and TK.ship.model == model)))
+  if not owned then TK.notify("Мультиинструмент работает только с объектами Toolkit", TK.C.dg, 1.8) return end
+  MT.model = model
+  MT.part = (model and model.PrimaryPart) or hit
+  local adornee = model or hit
+  MT.highlight = TK.I("Highlight", {
+    Adornee = adornee, FillColor = TK.C.ac3, FillTransparency = .72,
+    OutlineColor = TK.C.ac, OutlineTransparency = .05, DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+  }, TK.fxFolder)
+  local cam = TK.Workspace.CurrentCamera
+  local dist = cam and (r.Position - cam.CFrame.Position).Magnitude or 0
+  TK.notify("🔧 " .. (model and model.Name or hit.Name) .. " · " .. math.floor(dist) .. " ст.", TK.C.ac3, 2)
+end
+function TK.multitoolRemove()
+  local part = MT.part
+  if not part then TK.notify("Сначала выбери тестовый объект", TK.C.dg, 1.5) return end
+  local index
+  for i, p in ipairs(TK.props) do if p == part then index = i break end end
+  if not index then TK.notify("Удалять можно только свои тестовые блоки/модели", TK.C.dg, 1.8) return end
+  local model = TK.propModels[part]
+  if model then pcall(function() model:Destroy() end) TK.propModels[part] = nil
+  else pcall(function() part:Destroy() end) end
+  table.remove(TK.props, index)
+  TK.multitoolClear()
+  TK.notify("🗑 Тестовый объект удалён", TK.C.tx, 1.4)
+end
+TK.onUnload(TK.multitoolClear)
+TK.regSys({
+  n = 28, name = "Мультиинструмент", tab = "gadgets", mode = "visual",
+  note = "Сканирует и выделяет только объекты Toolkit; удаление ограничено тестовыми блоками и моделями.",
+  keys = "мультиинструмент сканер выделение объект", get = function() return MT.part ~= nil and MT.part.Parent ~= nil end,
+  set = function(v) if v then TK.multitoolScan() else TK.multitoolClear() end end,
+})
+TK.sect("gadgets", function(f)
+  TK.newSec(f, "СИСТЕМА 28 · МУЛЬТИИНСТРУМЕНТ")
+  TK.newBtn(f, "🔧 Взять мультиинструмент", TK.C.ac, function()
+    if TK.GADGETS and TK.GADGETS.multitool then TK.giveItem(TK.GADGETS.multitool) end
+  end, 36)
+  TK.newBtn(f, "🔎 Найти и выделить цель", TK.C.bg2, TK.multitoolScan, 34)
+  TK.newBtn(f, "🗑 Удалить выбранный тестовый объект", TK.C.dg, TK.multitoolRemove, 34)
+  TK.newBtn(f, "✖ Снять выделение", TK.C.bg2, TK.multitoolClear, 32)
+  TK.newInfo(f, "\n  Показывает имя и расстояние до выбранной цели.\n  Чужие объекты и игроков не изменяет.", 48)
+end)
+
+function TK.buildSuperEngineTool()
+  local tool, handle, P = TK.miniTool("Супердвигатель Рика", "Переключить усиление бега и прыжка", TK.V3(.5, .9, .5), TK.RGB(50, 80, 95))
+  P("Body", TK.V3(.9, .7, 1.4), TK.RGB(65, 80, 105), CFrame.new(0, .65, -.35), Enum.Material.Metal)
+  P("Screen", TK.V3(.62, .42, .08), TK.RGB(90, 230, 255), CFrame.new(0, .72, -.78), Enum.Material.Neon)
+  P("Coil", TK.V3(.2, .9, .9), TK.RGB(170, 100, 255), CFrame.new(0, .65, .35) * TK.RZ, Enum.Material.Neon, Enum.PartType.Cylinder)
+  return tool
+end
 TK.GADGETS = {
   grav = { id = "g_grav", ico = "🧲", name = "Гравиманипулятор", desc = "Тянет/толкает тестовые объекты", build = TK.buildGravTool,
     act = function()
       if not GM.active then gmStart() TK.notify("🧲 Кнопки слева: тянуть / толкать / держать", TK.C.ac, 2.5) else gmStop() GM.active = false TK.notify("🧲 Выключен", TK.C.tx, 1) end
     end, grip = TK.V3(0, -.1, 0) },
+  superEngine = { id = "g_superengine", ico = "⚡", name = "Супердвигатель Рика", desc = "Переключает усиление бега и прыжка", build = TK.buildSuperEngineTool,
+    act = function()
+      local turnOn = not (BOOST.speed and BOOST.jump)
+      BOOST.speed, BOOST.jump = turnOn, turnOn
+      boostApply()
+      TK.notify("⚡ Супердвигатель: " .. (turnOn and "бег + прыжок ВКЛ" or "бег + прыжок ВЫКЛ"), TK.C.ac, 1.8)
+    end, grip = TK.V3(0, -.1, 0) },
+  gravityBoots = { id = "g_boots", ico = "🥾", name = "Гравитационные ботинки", desc = "Мягкое приземление", build = function()
+    local tool, h, P = TK.miniTool("Гравитационные ботинки", "Ограничить скорость падения", TK.V3(.5, .8, .5), TK.RGB(70, 110, 145))
+    P("Boot", TK.V3(1, .45, 1.5), TK.RGB(60, 80, 110), CFrame.new(0, .45, -.2), Enum.Material.Metal)
+    P("Sole", TK.V3(1.1, .16, 1.6), TK.RGB(90, 220, 255), CFrame.new(0, .12, -.2), Enum.Material.Neon)
+    return tool
+  end, act = function() TK.toggleGravityBoots() end, grip = TK.V3(0, -.1, 0) },
+  multitool = { id = "g_multitool", ico = "🔧", name = "Мультиинструмент", desc = "Анализирует и выделяет объекты Toolkit", build = function()
+    local tool, h, P = TK.miniTool("Мультиинструмент", "Сканировать объект Toolkit", TK.V3(.45, .9, .45), TK.RGB(70, 90, 110))
+    P("Screen", TK.V3(.7, .55, .12), TK.RGB(100, 235, 255), CFrame.new(0, .7, -.35), Enum.Material.Neon)
+    P("Antenna", TK.V3(.12, .55, .12), TK.RGB(180, 110, 255), CFrame.new(0, 1.1, .2), Enum.Material.Neon)
+    return tool
+  end, act = TK.multitoolScan, grip = TK.V3(0, -.1, 0) },
 }
 TK.regSys({
   n = 5, name = "Гравитационный манипулятор", tab = "gadgets", mode = "test",
@@ -619,22 +864,52 @@ TK.regSys({
 TK.sect("gadgets", function(f)
   TK.newSec(f, "СИСТЕМА 5 · ГРАВИТАЦИОННЫЙ МАНИПУЛЯТОР")
   TK.newBtn(f, "🧲 Взять манипулятор", TK.C.ac, function() TK.giveItem(TK.GADGETS.grav) end, 36)
-  TK.newBtn(f, "🧱 Создать тестовые объекты (5)", TK.C.bg2, function() TK.propsSpawn(5) end, 34)
+  TK.newBtn(f, "🧱 Создать тестовые блоки (5)", TK.C.bg2, function() TK.propsSpawn(5) end, 34)
+  TK.newBtn(f, "🧩 Создать составную модель", TK.C.bg2, TK.propsSpawnModel, 34)
   TK.newBtn(f, "🗑 Убрать тестовые объекты", TK.C.bg2, TK.propsClear, 32)
   TK.newNum(f, "💪 Сила", "GravPower", 10)
   TK.newNum(f, "↔ Радиус", "GravRadius", 10, nil, " ст.")
   TK.newStatus(f, function() return "  Тестовых объектов: " .. #TK.propsLive() .. " / " .. PROP_LIM .. "  · режим: " .. (GM.active and "включён" or "выключен") end, 28)
-  TK.newInfo(f, "\n  Тапни по предмету в руке — появятся кнопки слева.\n  Воздействует только на тестовые объекты (только у тебя).", 56)
+  TK.newInfo(f, "\n  Режимы: тянуть, толкать, удерживать и вращать.\n  Воздействует только на тестовые объекты Toolkit.", 56)
 end)
 
 -- ============================================================
 --  СИСТЕМА 14: УМЕНЬШИТЕЛЬ (тестовые объекты и копия собственного скина)
 -- ============================================================
 local copyF = folder("Copy")
-local SHR = { copy = nil, small = false }
+local SHR = { copy = nil, small = false, selfModel = nil, selfBase = 1, selfActive = false, models = setmetatable({}, { __mode = "k" }) }
 local function scaleModel(m, k)
-  pcall(function() m:ScaleTo(k) end)
+  return pcall(function() m:ScaleTo(k) end)
 end
+local function shrinkSelfApply()
+  local ch = TK.LP.Character
+  if not ch or not ch.Parent then return false end
+  if SHR.selfModel ~= ch then
+    SHR.selfModel = ch
+    local ok, scale = pcall(function() return ch:GetScale() end)
+    SHR.selfBase = (ok and type(scale) == "number" and scale > 0) and scale or 1
+  end
+  local target = SHR.selfActive and (SHR.selfBase * TK.ST.ShrinkScale / 100) or SHR.selfBase
+  return scaleModel(ch, target)
+end
+function TK.shrinkSelf()
+  SHR.selfActive = not SHR.selfActive
+  local ok = shrinkSelfApply()
+  if not ok then
+    SHR.selfActive = false
+    TK.notify("Не удалось изменить размер персонажа в этой игре", TK.C.dg, 2)
+    return
+  end
+  TK.notify(SHR.selfActive and "🔬 Ты уменьшен (локально)" or "🔬 Исходный размер восстановлен", TK.C.ac, 1.6)
+end
+TK.onRespawn(function(reason)
+  if reason == "died" then
+    SHR.selfModel = nil
+  elseif not TK.DEAD and SHR.selfActive then
+    SHR.selfModel = nil
+    task.defer(function() if not TK.DEAD then shrinkSelfApply() end end)
+  end
+end)
 local function tweenScale(m, from, to, dur)
   task.spawn(function()
     local t0 = os.clock()
@@ -645,6 +920,59 @@ local function tweenScale(m, from, to, dur)
       task.wait()
     end
   end)
+end
+function TK.shrinkToolkitModel(m)
+  if not m or not m:IsA("Model") then return false end
+  local owned = (TK.sysFolder and m:IsDescendantOf(TK.sysFolder)) or (TK.helperFolder and m:IsDescendantOf(TK.helperFolder))
+    or (TK.ship and TK.ship.model == m)
+  if not owned then return false end
+  local st = SHR.models[m]
+  if not st then
+    local ok, base = pcall(function() return m:GetScale() end)
+    if not ok then return false end
+    st = { base = base, small = false }
+    SHR.models[m] = st
+  end
+  local ok, current = pcall(function() return m:GetScale() end)
+  if not ok then return false end
+  local target = st.small and st.base or (st.base * TK.ST.ShrinkScale / 100)
+  st.small = not st.small
+  tweenScale(m, current, target, .55)
+  return true
+end
+function TK.refreshShrinker()
+  if SHR.selfActive then shrinkSelfApply() end
+  if SHR.copy and SHR.copy.Parent and SHR.small then
+    local ok, current = pcall(function() return SHR.copy:GetScale() end)
+    if ok then
+      local target = TK.ST.ShrinkScale / 100
+      tweenScale(SHR.copy, current, target, .45)
+      SHR.k = target
+    end
+  end
+  for m, st in pairs(SHR.models) do
+    if m and m.Parent and st.small then
+      local ok, current = pcall(function() return m:GetScale() end)
+      if ok then tweenScale(m, current, st.base * TK.ST.ShrinkScale / 100, .45) end
+    end
+  end
+end
+function TK.restoreShrunkModels()
+  if SHR.selfActive then TK.shrinkSelf() end
+  if SHR.copy then pcall(function() SHR.copy:Destroy() end) SHR.copy = nil SHR.small = false end
+  for m, st in pairs(SHR.models) do
+    if m and m.Parent then
+      local ok, current = pcall(function() return m:GetScale() end)
+      if ok then tweenScale(m, current, st.base, .45) end
+      st.small = false
+    end
+  end
+  for _, part in ipairs(TK.propsLive()) do
+    if part.Name == "RM_Prop" then
+      local base = part:GetAttribute("BaseSize")
+      if typeof(base) == "Vector3" then part.Size = base part:SetAttribute("Small", false) end
+    end
+  end
 end
 function TK.shrinkCopyMake()
   if SHR.copy and SHR.copy.Parent then SHR.copy:Destroy() end
@@ -686,7 +1014,10 @@ function TK.shrinkFire()
   elseif hit and SHR.copy and hit:IsDescendantOf(SHR.copy) then
     TK.shrinkToggle(SHR.copy)
   else
-    TK.notify("Цель: тестовый объект или копия скина", TK.C.dg, 1.6)
+    local model = hit and hit:FindFirstAncestorOfClass("Model")
+    if not model or not TK.shrinkToolkitModel(model) then
+      TK.notify("Цель: блок, модель или NPC, созданные Toolkit", TK.C.dg, 1.8)
+    end
   end
 end
 function TK.buildShrinkTool()
@@ -698,32 +1029,59 @@ function TK.buildShrinkTool()
   P("Dial", TK.V3(.1, .3, .3), TK.RGB(255, 200, 80), CFrame.new(0, 1.05, -.3) * TK.R90, Enum.Material.Neon, Enum.PartType.Cylinder)
   return tool
 end
-TK.GADGETS.shrink = { id = "g_shrink", ico = "🔬", name = "Уменьшитель", desc = "Стреляй по тестовому объекту или копии", build = TK.buildShrinkTool,
+TK.GADGETS.shrink = { id = "g_shrink", ico = "🔬", name = "Уменьшитель", desc = "Уменьшает тестовые блоки, модели и NPC Toolkit", build = TK.buildShrinkTool,
   act = TK.shrinkFire, grip = TK.V3(0, -.1, 0) }
-TK.onUnload(function() if SHR.copy then pcall(function() SHR.copy:Destroy() end) end end)
+TK.onUnload(function()
+  if SHR.selfModel and SHR.selfModel.Parent then pcall(function() SHR.selfModel:ScaleTo(SHR.selfBase) end) end
+  for m, st in pairs(SHR.models) do
+    if m and m.Parent then pcall(function() m:ScaleTo(st.base) end) end
+  end
+  SHR.selfActive = false
+  if SHR.copy then pcall(function() SHR.copy:Destroy() end) end
+end)
 TK.regSys({
   n = 14, name = "Уменьшитель", tab = "gadgets", mode = "visual",
-  note = "Меняет размер только тестовых объектов и копии твоего скина (твой персонаж и чужие — нет).", keys = "уменьшитель размер масштаб",
-  get = function() return SHR.copy ~= nil and SHR.copy.Parent ~= nil end,
-  set = function(v) if v then TK.shrinkCopyMake() elseif SHR.copy then SHR.copy:Destroy() SHR.copy = nil end end,
+  note = "Меняет размер твоего персонажа локально, тестовых блоков и моделей/NPC, созданных Toolkit. Других игроков не затрагивает.", keys = "уменьшитель размер масштаб",
+  get = function()
+    if SHR.selfActive or (SHR.copy ~= nil and SHR.copy.Parent ~= nil) then return true end
+    for _, st in pairs(SHR.models) do if st.small then return true end end
+    for _, part in ipairs(TK.propsLive()) do if part:GetAttribute("Small") then return true end end
+    return false
+  end,
+  set = function(v) if v then if not SHR.selfActive then TK.shrinkSelf() end else TK.restoreShrunkModels() end end,
 })
 TK.sect("gadgets", function(f)
   TK.newSec(f, "СИСТЕМА 14 · УМЕНЬШИТЕЛЬ")
   TK.newBtn(f, "🔬 Взять уменьшитель", TK.C.ac, function() TK.giveItem(TK.GADGETS.shrink) end, 36)
+  TK.newToggle(f, "👤 Уменьшить своего персонажа", function() return SHR.selfActive end, function(v)
+    if SHR.selfActive ~= v then TK.shrinkSelf() end
+  end, 34)
   TK.newBtn(f, "👤 Сделать копию своего скина", TK.C.bg2, TK.shrinkCopyMake, 34)
-  TK.newBtn(f, "🧱 Создать тестовые объекты (5)", TK.C.bg2, function() TK.propsSpawn(5) end, 34)
-  TK.newNum(f, "📏 Коэффициент уменьшения", "ShrinkScale", 5, nil, "%")
-  TK.newInfo(f, "\n  Выстрел по объекту/копии: уменьшает, повторный — возвращает.\n  Свой персонаж и чужие размеры не меняются.", 56)
+  TK.newBtn(f, "🧱 Создать тестовые блоки (5)", TK.C.bg2, function() TK.propsSpawn(5) end, 34)
+  TK.newBtn(f, "🧩 Создать модель для уменьшения", TK.C.bg2, TK.propsSpawnModel, 34)
+  TK.newSlider(f, "📏 Размер (%)", 10, 90, TK.ST.ShrinkScale, function(v)
+    TK.ST.ShrinkScale = v
+    if TK.refreshShrinker then TK.refreshShrinker() end
+  end, TK.save)
+  TK.newInfo(f, "\n  Можно уменьшать себя, тестовые блоки и модели/NPC, созданные Toolkit.\n  Размер можно восстановить повторным действием. Другие игроки и\n  произвольные чужие объекты не затрагиваются.", 62)
 end)
 
 -- ============================================================
 --  СИСТЕМА 23: МЕХАНИЧЕСКАЯ РУКА (берёт только тестовые объекты)
 -- ============================================================
-local ARM = { m = nil, held = nil, pos = nil, t = 0, claw = 1, tgt = nil, yaw = 0 }
+local ARM = { m = nil, held = nil, pos = nil, t = 0, claw = 1, tgt = nil, yaw = 0, rotY = 0, rotate = false, rotCF = CFrame.new() }
 local armF = folder("Arm")
 local function armClear()
+  local held = ARM.held
+  if held and held.Parent then
+    pcall(function()
+      held.Anchored = false
+      held.AssemblyLinearVelocity = TK.V3()
+      held.AssemblyAngularVelocity = TK.V3()
+    end)
+  end
   if ARM.m then pcall(function() ARM.m:Destroy() end) end
-  ARM.m, ARM.held, ARM.tgt = nil, nil, nil
+  ARM.m, ARM.held, ARM.tgt, ARM.rotate = nil, nil, nil, false
 end
 local function armBuild()
   armClear()
@@ -788,7 +1146,8 @@ TK.tick("arm", 30, function(dt)
     ARM.tip = tip + fwd * 1.1
     if ARM.held and ARM.held.Parent then
       ARM.held.AssemblyLinearVelocity = TK.V3()
-      ARM.held.CFrame = CFrame.new(ARM.tip)
+      if ARM.rotate then ARM.rotY = ARM.rotY + dt * 1.8 end
+      ARM.held.CFrame = CFrame.new(ARM.tip) * ARM.rotCF * CFrame.Angles(0, ARM.rotY, 0)
     end
   end)
 end)
@@ -804,18 +1163,23 @@ function TK.armGrab()
   if not TK.enUse(4, "рука") then return end
   ARM.tgt = best
   task.delay(.9, function()
-    if ARM.tgt == best and best.Parent then ARM.held = best best.Anchored = true end
+    if ARM.tgt == best and best.Parent then
+      ARM.held = best
+      ARM.rotCF = best.CFrame - best.Position
+      ARM.rotY = 0
+      best.Anchored = true
+    end
   end)
 end
 function TK.armRelease()
   local h = ARM.held
-  ARM.held, ARM.tgt = nil, nil
+  ARM.held, ARM.tgt, ARM.rotate = nil, nil, false
   if h and h.Parent then
     h.Anchored = false
     h.AssemblyLinearVelocity = TK.V3(0, 5, 0)
   end
 end
-TK.onUnload(function() ARM.held = nil armClear() end)
+TK.onUnload(armClear)
 TK.regSys({
   n = 23, name = "Механическая рука", tab = "gadgets", mode = "visual",
   note = "Берёт только тестовые объекты Toolkit.", keys = "рука клешня манипулятор механическая",
@@ -824,12 +1188,14 @@ TK.regSys({
 TK.sect("gadgets", function(f)
   TK.newSec(f, "СИСТЕМА 23 · МЕХАНИЧЕСКАЯ РУКА")
   TK.newBtn(f, "🦾 Поставить руку (куда смотришь)", TK.C.ac, armBuild, 36)
-  TK.newBtn(f, "🧱 Создать тестовые объекты (5)", TK.C.bg2, function() TK.propsSpawn(5) end, 34)
+  TK.newBtn(f, "🧱 Создать тестовые блоки (5)", TK.C.bg2, function() TK.propsSpawn(5) end, 34)
+  TK.newBtn(f, "🧩 Создать составную модель", TK.C.bg2, TK.propsSpawnModel, 34)
   TK.newBtn(f, "✊ Схватить ближайший объект", TK.C.bg2, TK.armGrab, 34)
+  TK.newToggle(f, "🔄 Вращать захваченный объект", function() return ARM.rotate end, function(v) ARM.rotate = v end, 34)
   TK.newBtn(f, "🖐 Отпустить", TK.C.bg2, TK.armRelease, 32)
   TK.newBtn(f, "🗑 Убрать руку", TK.C.bg2, armClear, 32)
   TK.newNum(f, "📏 Длина", "ArmLen", 2, nil, " ст.")
-  TK.newInfo(f, "\n  Рука тянется к ближайшему тестовому объекту, хватает и держит.\n  Игроков и чужие объекты не трогает.", 56)
+  TK.newInfo(f, "\n  Рука захватывает тестовые блоки, переносит и удерживает их.\n  Можно включить вращение и затем отпустить объект.\n  Игроков и чужие объекты не трогает.", 56)
 end)
 
 -- ============================================================
@@ -959,11 +1325,11 @@ TK.tick("ctor", 20, function(dt)
 end)
 TK.onUnload(TK.ctorClear)
 TK.regSys({
-  n = 16, name = "Конструктор гаджетов", tab = "gadgets", mode = "visual",
+  n = 16, name = "Конструктор гаджетов", tab = "constructor", mode = "visual",
   note = "Строит локальные модели; это не настоящие серверные предметы.", keys = "конструктор гаджет сборка модуль",
   get = function() return #CT.built > 0 end, set = function(v) if v then TK.ctorSpawn(CT) else TK.ctorClear() end end,
 })
-TK.sect("gadgets", function(f)
+TK.sect("constructor", function(f)
   TK.newSec(f, "СИСТЕМА 16 · КОНСТРУКТОР ГАДЖЕТОВ")
   local pv = TK.newPreview(f, 140)
   local function refresh() pv.set(ctorModel(CT, CFrame.new(), true), "Предпросмотр: " .. BODYN[CT.body] .. " + " .. DECON[CT.deco]) end
@@ -999,7 +1365,7 @@ TK.sect("gadgets", function(f)
     TK.notify("📂 Конфиг " .. CT.saved .. "/" .. n, TK.C.ac3, 1.2)
   end, 32)
   TK.newBtn(f, "🗑 Убрать собранные", TK.C.bg2, TK.ctorClear, 30)
-  TK.tabOpen.gadgets = refresh
+  TK.tabOpen.constructor = refresh
   refresh()
 end)
 
