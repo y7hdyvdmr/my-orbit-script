@@ -5,11 +5,11 @@
 -- ============================================================
 local BASE = "https://raw.githubusercontent.com/y7hdyvdmr/my-orbit-script/refs/heads/main/"
 local FILES = {
-  "RickMorty_v6_Part1.lua",
-  "RickMorty_v6_Part2.lua",
-  "RickMorty_v6_Part3.lua",
-  "RickMorty_v6_Part4.lua",
-  "RickMorty_v6_Part5.lua",
+  "RickMorty_v7_Part1.lua",
+  "RickMorty_v7_Part2.lua",
+  "RickMorty_v7_Part3.lua",
+  "RickMorty_v7_Part4.lua",
+  "RickMorty_v7_Part5.lua",
 }
 local OVERRIDE = {}
 local G = (type(getgenv) == "function" and getgenv()) or _G
