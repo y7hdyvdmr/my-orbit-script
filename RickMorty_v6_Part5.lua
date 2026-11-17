@@ -1,5 +1,5 @@
 -- ============================================================
---  Rick & Morty Toolkit v6.0 — ЧАСТЬ 5/5: ИИ-компьютер Рика (система 25), главная, настройки,
+--  Rick & Morty Toolkit v7.0 — ЧАСТЬ 5/5: ИИ-компьютер Рика (система 25), главная, настройки,
 --  диагностика, единый главный цикл и финальный запуск
 -- ============================================================
 local G = (type(getgenv) == "function" and getgenv()) or _G
@@ -157,14 +157,14 @@ TK.sect("home", function(f)
   end, 78)
   TK.newSec(f, "БЫСТРЫЙ СТАРТ")
   local g = TK.newGrid(f, 2)
-  TK.newBtn(g, "🎭 Персонажи", TK.C.bg2, function() TK.switchTab("chars") end, 36)
-  TK.newBtn(g, "🔫 Пушки", TK.C.bg2, function() TK.switchTab("guns") end, 36)
+  TK.newBtn(g, "🎭 Персонаж", TK.C.bg2, function() TK.switchTab("character") end, 36)
   TK.newBtn(g, "🧰 Предметы", TK.C.bg2, function() TK.switchTab("items") end, 36)
-  TK.newBtn(g, "📟 Гаджеты", TK.C.bg2, function() TK.switchTab("gadgets") end, 36)
-  TK.newBtn(g, "🚀 Корабль", TK.C.bg2, function() TK.switchTab("ship") end, 36)
-  TK.newBtn(g, "🧠 ИИ Рика", TK.C.ac, function() TK.switchTab("ai") end, 36)
+  TK.newBtn(g, "⚙️ Механизмы", TK.C.bg2, function() TK.switchTab("mechanisms") end, 36)
+  TK.newBtn(g, "🛠 Конструктор", TK.C.bg2, function() TK.switchTab("constructor") end, 36)
+  TK.newBtn(g, "💾 Сохранения", TK.C.bg2, function() TK.switchTab("saves") end, 36)
+  TK.newBtn(g, "⚙️ Настройки", TK.C.ac, function() TK.switchTab("settings") end, 36)
   TK.newBtn(f, "🔥 Открыть портал (куда смотришь)", TK.C.ac, function() TK.shootPortal() end, 38)
-  TK.newInfo(f, "\n  Закрытие окна НЕ выгружает Toolkit (🌀 открывает снова).\n  Полная выгрузка: Настройки → ❌.\n  Всё локально: другие игроки ничего этого не видят.", 66)
+  TK.newInfo(f, "\n  Закрытие окна НЕ выгружает Toolkit (🌀 открывает снова).\n  Полная выгрузка: Настройки → ❌.\n  Локальные эффекты видны только тебе; серверные функции требуют поддержки игры.", 66)
   if TK.NO_FS then
     TK.newInfo(f, "\n  ⚠ В этом исполнителе нет writefile/readfile:\n  настройки и точки живут только до конца сессии.", 52).TextColor3 = TK.C.dg
   end
@@ -186,10 +186,20 @@ TK.sect("settings", function(f)
   TK.newSec(f, "СБРОС И ВЫХОД")
   TK.newBtn(f, "💾 Сохранить настройки", TK.C.bg2, function() TK.saveAll() TK.notify(TK.HAS_FS and "💾 Сохранено" or "Только в памяти", TK.C.ac, 1.5) end, 32)
   TK.newBtn(f, "🔄 Сбросить все настройки", TK.C.dg, function()
+    -- Перед сбросом выключаем активные устройства, чтобы старые значения не оставались в мире.
+    for _, d in ipairs(TK.SYSL) do
+      if d.n ~= 25 and d.n ~= 13 and d.n ~= 10 then
+        local state = TK.sysState(d)
+        if state == "ВКЛ" and type(d.set) == "function" then pcall(d.set, false) end
+      end
+    end
     TK.removeSkin()
     TK.clearAll()
     TK.resetSettings()
-    TK.PORTAL_LIFE, TK.PORTAL_R = TK.ST.PortalLife, TK.ST.PortalSize
+    TK.PORTAL_LIFE = TK.ST.PortalLife
+    if TK.setPortalSize then TK.setPortalSize(TK.ST.PortalSize) else TK.PORTAL_R = TK.ST.PortalSize end
+    if TK.refreshSuperEngine then TK.refreshSuperEngine() end
+    if TK.refreshShrinker then TK.refreshShrinker() end
     TK.winScale.Scale = TK.ST.UiScale / 100
     if TK.aimF then TK.aimF.Size = UDim2.fromOffset(TK.ST.AimSize, TK.ST.AimSize) end
     TK.save()
@@ -197,7 +207,7 @@ TK.sect("settings", function(f)
     TK.notify("🔄 Сброшено", TK.C.ok)
   end, 34)
   TK.newBtn(f, "❌ ВЫГРУЗИТЬ SCRIPT ПОЛНОСТЬЮ", TK.C.dg, function() RM.unload() end, 38)
-  TK.newInfo(f, "\n  Rick & Morty Toolkit v" .. RM._version .. "\n  9 скинов · 12 лиц · 6 движений · 10 предметов · 25 систем.\n  Всё локально: другие игроки этого не видят.", 76)
+  TK.newInfo(f, "\n  Rick & Morty Toolkit v" .. RM._version .. "\n  9 скинов · 12 лиц · 6 движений · 28 систем.\n  Возможности зависят от поддержки конкретной игры.", 76)
 end)
 
 -- ---------- диагностика ----------
@@ -209,7 +219,7 @@ local function diagText()
   local tabs = 0
   for _ in pairs(TK.tabFrames) do tabs = tabs + 1 end
   l[#l + 1] = "  Вкладок: " .. tabs .. " / " .. #TK.CATS
-  l[#l + 1] = "  Систем зарегистрировано: " .. #TK.SYSL .. " / 25"
+  l[#l + 1] = "  Систем зарегистрировано: " .. #TK.SYSL .. " / 26"
   local cnt = 0
   pcall(function() cnt = #TK.sysFolder:GetDescendants() end)
   l[#l + 1] = "  Объектов систем: " .. cnt .. " · соединений: " .. #TK.conns
@@ -225,7 +235,7 @@ TK.sect("diag", function(f)
   TK.newSec(f, "ДИАГНОСТИКА")
   TK.newStatus(f, diagText, 150)
   local res = TK.newInfo(f, "  Нажми «Проверить системы».", 120)
-  TK.newBtn(f, "🩺 Проверить все 25 систем", TK.C.ac, function()
+  TK.newBtn(f, "🩺 Проверить все 28 систем", TK.C.ac, function()
     local missing, na = {}, {}
     local have = {}
     for _, d in ipairs(TK.SYSL) do
@@ -234,9 +244,9 @@ TK.sect("diag", function(f)
       if st == "НЕДОСТУПНО" then na[#na + 1] = d.n .. " (" .. tostring(why) .. ")" end
       if type(d.set) ~= "function" or not TK.TABTITLE[d.tab] or not TK.tabFrames[d.tab] then missing[#missing + 1] = d.n .. " (нет вкладки/действия)" end
     end
-    for i = 1, 25 do if not have[i] then missing[#missing + 1] = i .. " (не зарегистрирована)" end end
+    for i = 1, 28 do if not have[i] then missing[#missing + 1] = i .. " (не зарегистрирована)" end end
     local out = {}
-    out[#out + 1] = (#missing == 0) and "  ✅ Все 25 систем зарегистрированы и имеют действие." or ("  ❌ Проблемы: " .. table.concat(missing, "; "))
+    out[#out + 1] = (#missing == 0) and "  ✅ Все 28 систем зарегистрированы и имеют действие." or ("  ❌ Проблемы: " .. table.concat(missing, "; "))
     out[#out + 1] = (#na == 0) and "  ✅ Недоступных систем нет." or ("  ⛔ Недоступно: " .. table.concat(na, "; "))
     out[#out + 1] = "  Это проверка структуры, а не игровой тест."
     res.Text = table.concat(out, "\n")
@@ -269,6 +279,18 @@ do
       if now - TK.PA.t0 > .25 and now - TK.PB.t0 > .25 then
         if inA and not TK.PA.locked then TK.teleportTo(hr, TK.PA, TK.PB)
         elseif inB and not TK.PB.locked then TK.teleportTo(hr, TK.PB, TK.PA) end
+      end
+    end
+    -- Тестовые физические блоки проходят через парные порталы с сохранением ориентации/скорости.
+    if TK.PA and TK.PB and type(TK.propsLive) == "function" then
+      for _, part in ipairs(TK.propsLive()) do
+        if part and part.Parent and not part.Anchored then
+          if TK.inPortal(TK.PA, part.Position) then
+            TK.teleportPropThroughPortal(part, TK.PA, TK.PB)
+          elseif TK.inPortal(TK.PB, part.Position) then
+            TK.teleportPropThroughPortal(part, TK.PB, TK.PA)
+          end
+        end
       end
     end
     acc = acc + dt
